@@ -9,7 +9,7 @@ interface Console {
     fun print(message: String)
 }
 
-object StdOutConsole : Console {
+class StdOutConsole : Console {
     override fun print(message: String) {
         kotlin.io.print(message)
     }
@@ -23,11 +23,19 @@ fun println(console: Console, message: String) {
 // ===== main.kt =====
 package salvo
 
+fun<T> ok(value: T): T {
+    return value
+}
+
+fun<T> err(value: T): T {
+    return value
+}
+
 fun parse_age(input: Int): Union2<Int, String> {
     if (input >= 0) {
-        return U2_1<Int, String>(input)
+        return U2_1<Int, String>(ok(input))
     }
-    return U2_2<Int, String>("negative age")
+    return U2_2<Int, String>(err("negative age"))
 }
 
 fun describe(result: Union2<Int, String>): String {
@@ -43,12 +51,12 @@ fun describe(result: Union2<Int, String>): String {
 }
 
 fun main() {
-    val console: Console = StdOutConsole
+    val console: Console = StdOutConsole()
     val good = parse_age(36)
     println(console, describe(good))
     val bad = parse_age(-1)
     println(console, describe(bad))
-    val precise: Union3<String, String, Boolean> = U3_1<String, String, Boolean>("yes")
+    val precise: Union3<String, String, Boolean> = U3_1<String, String, Boolean>(ok("yes"))
     if (precise is U3_2<*, *, *>) {
         println(console, "err str: ${(precise.value as String)}")
     } else if (precise is U3_1<*, *, *>) {

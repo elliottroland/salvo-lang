@@ -96,6 +96,7 @@ fn module_produces_code(module: &Module) -> bool {
         Item::Struct(_) | Item::Effect(_) => true,
         Item::Handler(_) => true,
         Item::Fn(f) => f.body.is_some(),
+        Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
 }
@@ -200,6 +201,7 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
+                Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
             }
         }
@@ -300,7 +302,9 @@ impl<'p> Emitter<'p> {
     }
 
     /// An `external handler`, implemented by a `define handler` template:
-    /// emits a Kotlin `object` whose methods inline the templates.
+    /// emits a Kotlin class whose methods inline the templates. All
+    /// handlers are classes (external ones included) and are instantiated
+    /// at their `use` site.
     fn emit_define_handler(&mut self, h: &HandlerDecl) -> String {
         let Some(def) = self.symbols.define_handlers.get(h.name.name.as_str()) else {
             self.error(format!(
@@ -310,7 +314,23 @@ impl<'p> Emitter<'p> {
             return String::new();
         };
         let of = self.emit_type(&h.of);
-        let mut out = format!("\nobject {} : {of} {{\n", h.name.name);
+        let ctor = if h.params.is_empty() {
+            String::new()
+        } else {
+            let params: Vec<String> = h
+                .params
+                .iter()
+                .map(|p| {
+                    format!(
+                        "private val {}: {}",
+                        kt_ident(&p.name.name),
+                        self.emit_type(&p.ty)
+                    )
+                })
+                .collect();
+            format!("({})", params.join(", "))
+        };
+        let mut out = format!("\nclass {}{ctor} : {of} {{\n", h.name.name);
         for dfn in &def.fns {
             if let Some(imports) = &dfn.body.imports {
                 self.add_template_imports(imports);
@@ -349,6 +369,28 @@ impl<'p> Emitter<'p> {
         self.emit_fn_inner(f, "fun", 0, true)
     }
 
+    /// A predicate qualifier's functions (`qualifies`) become top-level
+    /// Kotlin functions named `{Qualifier}_{fn}` (qualifiers themselves are
+    /// erased; only the predicates survive as code).
+    fn emit_qualifier(&mut self, q: &QualifierDecl) -> String {
+        let mut out = String::new();
+        for f in &q.fns {
+            if f.body.is_none() {
+                continue;
+            }
+            let mut renamed = f.clone();
+            renamed.name.name = format!("{}_{}", q.name.name, f.name.name);
+            renamed.generics = q
+                .generics
+                .iter()
+                .cloned()
+                .chain(f.generics.iter().cloned())
+                .collect();
+            out.push_str(&self.emit_fn_inner(&renamed, "fun", 0, true));
+        }
+        out
+    }
+
     /// Emits a function declaration. `top_level` functions get effect
     /// parameters; handler methods (`override fun`) do not.
     fn emit_fn_inner(&mut self, f: &FnDecl, kw: &str, indent: usize, top_level: bool) -> String {
@@ -362,7 +404,6 @@ impl<'p> Emitter<'p> {
 
         let is_main = top_level && f.name.name == "main";
         let generics = self.emit_generic_params(&f.generics);
-
         // Effect dependencies become leading parameters.
         let mut params: Vec<String> = Vec::new();
         if !is_main {
@@ -394,6 +435,8 @@ impl<'p> Emitter<'p> {
         let pad = "    ".repeat(indent);
         let name = if is_main {
             "main".to_string()
+        } else if top_level {
+            self.kotlin_fn_name(f)
         } else {
             kt_ident(&f.name.name)
         };
@@ -433,6 +476,46 @@ impl<'p> Emitter<'p> {
         self.effect_env = saved_env;
         self.mutated = saved_mutated;
         out
+    }
+
+    /// The Kotlin name for a top-level fn. Qualifiers are erased from
+    /// types, so overloads that differ only in qualifiers (`full_name(p:
+    /// Person)` vs `full_name(p: Surname Person)`) would collide; the
+    /// qualified overload gets a deterministic `__Qual` suffix instead.
+    fn kotlin_fn_name(&mut self, decl: &FnDecl) -> String {
+        let name = decl.name.name.clone();
+        let overloads: Vec<&FnDecl> = match self.symbols.fns.get(name.as_str()) {
+            Some(o) if o.len() > 1 => o.clone(),
+            _ => return kt_ident(&name),
+        };
+        let suffix = qual_suffix(decl);
+        if suffix.is_empty() {
+            return kt_ident(&name);
+        }
+        let mine = self.erased_sig(decl);
+        for other in overloads {
+            if std::ptr::eq(other as *const FnDecl, decl as *const FnDecl) {
+                continue;
+            }
+            if self.erased_sig(other) == mine {
+                return format!("{name}__{suffix}");
+            }
+        }
+        kt_ident(&name)
+    }
+
+    /// The erased (Kotlin) parameter signature of a fn, for collision
+    /// detection between qualifier-based overloads.
+    fn erased_sig(&mut self, decl: &FnDecl) -> String {
+        let saved = self.enter_generics(&decl.generics);
+        let sig = decl
+            .params
+            .iter()
+            .map(|p| self.emit_type(&p.ty))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.generics = saved;
+        sig
     }
 
     fn emit_param_list(&mut self, params: &[Param]) -> String {
@@ -829,11 +912,12 @@ impl<'p> Emitter<'p> {
     }
 
     /// `use Handler(...)` — instantiate the handler, bind it, and register
-    /// it in the effect environment for the rest of the scope.
+    /// it in the effect environment for the rest of the scope. All handlers
+    /// are Kotlin classes; a bare `use Handler` is sugar for `Handler()`.
     fn emit_use(&mut self, handler: &Expr, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let (handler_name, handler_code) = match handler {
-            Expr::Ident(id) => (id.name.clone(), self.emit_expr(handler)),
+            Expr::Ident(id) => (id.name.clone(), format!("{}()", kt_ident(&id.name))),
             Expr::Call { callee, .. } => match callee.as_ref() {
                 Expr::Ident(id) => (id.name.clone(), self.emit_expr(handler)),
                 _ => {
@@ -873,11 +957,10 @@ impl<'p> Emitter<'p> {
                 if else_block.is_some() {
                     self.error("`while ... else` is not supported yet");
                 }
-                if let Expr::Is { .. } = cond.as_ref() {
-                    self.error("`while x is T` conditions are not supported yet");
-                }
                 let c = self.emit_expr(cond);
                 let mut out = format!("{pad}while ({c}) {{\n");
+                // `while x is T name` re-binds per iteration.
+                out.push_str(&self.emit_is_bindings(cond, indent + 1));
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
                 out.push_str(&format!("{pad}}}\n"));
                 out
@@ -1069,8 +1152,18 @@ impl<'p> Emitter<'p> {
                     )
                 }
                 _ => {
-                    let ty = self.emit_is_check_type(check);
-                    format!("val {} = {subj} as {ty}", kt_ident(&binding.name))
+                    if self
+                        .checked
+                        .predicate_tests
+                        .contains_key(&(self.file_idx, is_span))
+                    {
+                        // Predicate checks refine only the qualifiers, which
+                        // are erased: the binding is the subject itself.
+                        format!("val {} = {subj}", kt_ident(&binding.name))
+                    } else {
+                        let ty = self.emit_is_check_type(check);
+                        format!("val {} = {subj} as {ty}", kt_ident(&binding.name))
+                    }
                 }
             };
             out.push_str(&format!("{pad}{code}\n"));
@@ -1228,6 +1321,35 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// The runtime call chain for a predicate-qualifier `is` check on a
+    /// non-union subject: each qualifier's `qualifies` function is invoked
+    /// (with its effect handlers threaded as leading arguments).
+    fn emit_predicate_test(&mut self, subj: &str, quals: &[String]) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        for q in quals {
+            let mut args: Vec<String> = Vec::new();
+            if let Some(decl) = self.symbols.qualifiers.get(q.as_str()).copied() {
+                if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
+                    for eff in f.effects.iter().flatten() {
+                        if let EffectRef::Effect(r) = eff {
+                            let ty = self.emit_type_ref(r);
+                            args.push(self.lookup_effect_handler_by_type(&ty));
+                        }
+                    }
+                }
+            } else {
+                self.error(format!("unknown qualifier `{q}` in predicate check"));
+            }
+            args.push(subj.to_string());
+            parts.push(format!("{q}_qualifies({})", args.join(", ")));
+        }
+        if parts.len() == 1 {
+            parts.into_iter().next().unwrap()
+        } else {
+            format!("({})", parts.join(" && "))
+        }
+    }
+
     fn emit_expr_raw(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Int { value, .. } => value.to_string(),
@@ -1249,8 +1371,15 @@ impl<'p> Emitter<'p> {
                     kt_ident(&id.name)
                 }
             }
-            Expr::Field { base, field, .. } => {
-                format!("{}.{}", self.emit_expr(base), kt_ident(&field.name))
+            Expr::Field { base, field, span } => {
+                let code = format!("{}.{}", self.emit_expr(base), kt_ident(&field.name));
+                // Predicate-qualifier field overrides cast + assert.
+                if let Some(cast_ty) = self.checked.field_casts.get(&(self.file_idx, *span)) {
+                    let cast_ty = cast_ty.clone();
+                    let kt = self.emit_ty(&cast_ty);
+                    return format!("({code} as {kt})");
+                }
+                code
             }
             Expr::Call {
                 callee,
@@ -1310,15 +1439,15 @@ impl<'p> Emitter<'p> {
                     let test = test.clone();
                     return self.emit_union_test(&subj, &test);
                 }
+                if let Some(quals) = self.checked.predicate_tests.get(&(self.file_idx, *span)) {
+                    let quals = quals.clone();
+                    return self.emit_predicate_test(&subj, &quals);
+                }
                 if check.len() == 1 && check[0].name.name == "None" {
                     return format!("{subj} == null");
                 }
                 let ty = self.emit_is_check_type(check);
                 format!("{subj} is {ty}")
-            }
-            Expr::As { value, .. } => {
-                // Constructive qualifier casts are erased in Kotlin.
-                self.emit_expr(value)
             }
             Expr::NonNull { operand, .. } => format!("{}!!", self.emit_expr(operand)),
             Expr::PostIncrement { operand, .. } => {
@@ -1640,6 +1769,7 @@ impl<'p> Emitter<'p> {
         type_args: &[Type],
         args: &[&Expr],
     ) -> String {
+        let _ = name;
         let mut all: Vec<String> = Vec::new();
         for eff in f.effects.iter().flatten() {
             if let EffectRef::Effect(r) = eff {
@@ -1651,7 +1781,8 @@ impl<'p> Emitter<'p> {
             all.push(self.emit_expr(a));
         }
         let generics = self.emit_type_args(type_args);
-        format!("{}{generics}({})", kt_ident(name), all.join(", "))
+        let kt_name = self.kotlin_fn_name(f);
+        format!("{kt_name}{generics}({})", all.join(", "))
     }
 
     /// Resolves the handler expression for a call to an effect member fn.
@@ -1879,6 +2010,23 @@ fn is_none_type(ty: &Type) -> bool {
     matches!(ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "None")
 }
 
+/// The qualifier names appearing on a fn's parameter types, joined for
+/// overload-mangling suffixes (`__Surname`).
+fn qual_suffix(decl: &FnDecl) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for p in &decl.params {
+        match &p.ty {
+            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
+                for q in qualifiers {
+                    parts.push(q.name.name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    parts.join("_")
+}
+
 /// Substitutes generic parameters in an AST type (for alias expansion).
 fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Type {
     match ty {
@@ -2030,7 +2178,6 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_mutated_expr(index, out);
         }
         Expr::Is { subject, .. } => collect_mutated_expr(subject, out),
-        Expr::As { value, .. } => collect_mutated_expr(value, out),
         Expr::Str { parts, .. } => {
             for p in parts {
                 if let StrExprPart::Interp(e) = p {

@@ -1,15 +1,15 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-08-31 (evening). This document is the handoff
-point for continuing development: it records what is built, the key design
-decisions, known limitations, and a detailed plan for the remaining
-milestones.
+Status snapshot as of 2026-08-31 (late evening, after M4). This document is
+the handoff point for continuing development: it records what is built, the
+key design decisions, known limitations, and a detailed plan for the
+remaining milestones.
 
 ## How to build and test
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 34 tests; includes two kotlinc compile+run tests
+cargo test                  # 46 tests; includes three kotlinc compile+run tests
                             # (skipped gracefully if kotlinc is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
@@ -85,7 +85,7 @@ Supported and emitted:
 | `is Str s` binding | `val s = subj as String` at branch top (relies on subject purity) |
 | `effect` | `interface` |
 | `handler` (with state/ctor params) | `class H(private val ...) : Effect { private var state ... override fun }` |
-| `external handler` + `define handler` | `object H : Effect` with template-inlined bodies |
+| `external handler` + `define handler` | `class H(ctor params) : Effect` with template-inlined bodies |
 | fn effect deps `[Console, Random<Int>]` | leading params `console: Console, random_int: Random<Int>`, threaded through call sites |
 | `use Handler(...)` | `val console: Console = Handler(...)` + effect-env registration for rest of scope |
 | iterator fns (`yield`) | `return Iterable<T> { iterator { ... yield(x) ... } }`; bare `return` → `return@iterator` |
@@ -97,8 +97,7 @@ Supported and emitted:
 | `main() [use]` | `fun main()` (package `salvo`, entry `salvo.MainKt`) |
 
 Deliberate cuts still reported as codegen **errors** (never silent bad code):
-loop-as-value, `break <value>`, `while x is T`, predicate-qualifier `is`
-checks on non-union values, multi-spread struct literals, early `return`
+loop-as-value, `break <value>`, multi-spread struct literals, early `return`
 inside lambdas, tuples beyond Pair/Triple, struct-literal without inferable
 type.
 
@@ -137,7 +136,7 @@ side tables instead of most syntactic heuristics.
     branch-matches-nothing, `None` not an arm, ambiguous-arm wrap.
   - Deliberately lenient elsewhere: unknown names/fields/methods stay
     `Unknown` (Kotlin interop pass-through), effects are not yet validated
-    (M5), predicate qualifiers not yet callable (M4).
+    (M5), predicate qualifiers callable since M4.
 - **Kotlin union encoding** — non-`None` arms become
   `UnionN<T1..TN>` (qualifiers erased, arm identity positional); a `None`
   arm becomes outer nullability (`Union2<..>?`); 1 non-`None` arm stays
@@ -160,9 +159,66 @@ side tables instead of most syntactic heuristics.
   now expand in the emitter too (`subst_ast_type`).
 
 Verified end-to-end (`kotlinc_compiles_and_runs_unions`): `Ok Int | Err Str`
-construction via `as Ok`/`as Err`, `when` value + statement forms, precise
-`is Err Str` on a 3-union with elif/else exclusion narrowing — compiled by
-kotlinc and exact stdout asserted.
+construction via `ok()`/`err()` constructor fns (M4 syntax), `when` value +
+statement forms, precise `is Err Str` on a 3-union with elif/else exclusion
+narrowing — compiled by kotlinc and exact stdout asserted.
+
+### M4 — Qualifiers with semantics
+
+Design change (user decision, replacing the old spec): the `as` *effect* and
+value-level `as` *expressions* are gone from the language. Constructive
+qualifiers are built exclusively through **constructor functions** marked
+with `-> T as Qualifier` in the return position: every return point returns
+a plain `T` (the qualifier is applied *by construction*), callers see
+`Qualifier T`. Union tagging now goes through generic constructors
+(`fn ok<T>(value: T) -> T as Ok { return value }` … `return ok(input)`).
+LANGUAGE.md + README were rewritten accordingly.
+
+- **Constructive qualifiers** (bodiless decls): constructor fns must be in
+  the same file as the qualifier; predicate qualifiers cannot have
+  constructors; constructor return types must be simple (no union/tuple);
+  the constructed qualifier must satisfy the `of` type. Since plain values
+  never subtype `Qual T`, constructors really are the only way in.
+- **Predicate qualifiers** (decls with a body): `is Positive` on a non-union
+  subject records a `predicate_tests` entry; Kotlin emits the qualifier's
+  `qualifies` fn as a top-level `fun Positive_qualifies(...)` and the check
+  becomes a call (multiple quals `&&`-chain; `qualifies` effects are threaded
+  as leading handler args). Narrowing adds the qualifiers to the subject's
+  type in the then-branch (no else information). `qualifies` signatures are
+  validated (1 param accepting the `of` type, returns `Bool`, no
+  deductions).
+- **Struct-field overrides** (`qualifier Surname of Person { surname: Str …}`):
+  field accesses through a qualified base type get the override type and a
+  `field_casts` entry; Kotlin emits `(person.surname as String)`
+  (cast + assert per spec). Overrides must refine real fields (subtype
+  check). Struct *destructuring* deliberately uses declared field types.
+- **Type-annotation validation** (`validate_type` at declaration sites: fn
+  signatures, `let` annotations, struct fields, qualifier decls): duplicate
+  qualifier application, `of`-type applicability (via `unify`), pairwise
+  `with` compatibility. `internal` qualifiers (`Mut`) compose with
+  everything; `Mut` on a struct is checked against `with Mut`
+  auto-qualifiers. Unresolvable qualifier names are skipped (lenient).
+- **Qualified union groups** `Ok (A | B)` (user request): lowered as
+  `Ty::Qualified { quals, base: Union }`. They wrap as a whole when they are
+  themselves an arm of an expected union (`maybe_coerce` tries whole-group
+  arm equality first), and otherwise coerce as the bare inner union
+  (physically identical after erasure). Subtyping got a dedicated rule
+  (group may drop its quals, tried after exact-arm equality). `Display`
+  parenthesizes union bases.
+- **Overload mangling under erasure**: qualifiers erase in Kotlin, so
+  `full_name(Person)` vs `full_name(Surname Person)` would collide. When
+  two overloads have the same *emitted* parameter signature, the qualified
+  one gets a deterministic `__Qual` suffix (`full_name__Surname`), applied
+  consistently at both the declaration and checker-resolved call sites.
+- **M3 leftover fixed**: `while x is T (name)?` now emits (test in the loop
+  condition, binding re-declared per iteration at the top of the body).
+- Syntax: `FnDecl.constructs: Option<TypeRef>`; `EffectRef::As` and
+  `Expr::As` removed from the AST/parser.
+
+Verified end-to-end (`kotlinc_compiles_and_runs_qualifiers`): predicate
+checks + narrowing, field-override casts, mangled qualifier overloads,
+`while x is Int c` countdown, and a nested `Ok (Ok Str | Err Int) | Err Bool`
+round-trip — compiled by kotlinc and exact stdout asserted.
 
 ### Current architectural facts worth knowing
 
@@ -192,31 +248,24 @@ kotlinc and exact stdout asserted.
 
 ## Remaining milestones
 
-### M3 leftovers (small, do alongside M4)
+### M3/M4 leftovers (small, do alongside M5)
 
-- `while x is T` conditions (rebinding per iteration) — still a codegen
-  error; the checker already narrows the body, only the emission is missing.
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
+- Struct destructuring ignores predicate-qualifier field overrides
+  (deliberate: bindings get the declared type; direct accesses get the
+  override + cast).
 - `Ty::Var` bounds/occurs checks in `unify` are loose (first-binding wins);
   fine for the std surface, revisit with real generic libraries.
 - Non-fn name collisions across visible modules silently last-win in
   `resolve.rs` (only imports get ambiguity errors).
 - Coercion of union values inside arrays/tuples/lambda returns is not
   recorded (only direct boundary positions).
-
-### M4 — Qualifiers with semantics (next)
-
-- Predicate qualifiers: `is Positive` calls `qualifies()` at runtime;
-  narrowing tracked by the checker. Struct-field overrides (`Surname.surname:
-  Str`) cast+assert on access.
-- Constructive qualifiers: `as` effect verified by the checker (only in the
-  qualifier's own file); erased in Kotlin except where a define/internal
-  mapping says otherwise (`Mut List` → `MutableList` already exists as the
-  model).
-- `with` compatibility checking; duplicate-qualifier rejection.
-- Kotlin: qualifiers are type-level only (erased), except their effect on
-  union arm identity (from M3) and predicate calls.
+- Overload mangling only fires for checker-resolved call sites; unchecked
+  (arity-fallback) calls to a mangled overload would emit the base name.
+- Constructing a *nested* qualified union group in one expression
+  (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
+  intermediate `let`; single-level coercion only (errors, never mis-emits).
 
 ### M5 — Effects, properly
 
@@ -259,17 +308,23 @@ Only start after M3/M6 (needs the typed IR + deductions). Reuse the
 deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
 them written); `Mut` → `mut`/`&mut`.
 
-## Test inventory (all green: 34)
+## Test inventory (all green: 46)
 
 - `salvo-core`: 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection).
 - `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 9 — golden snapshots of the M2 demo and the M3
-  unions demo, wrapper/wrap/`is`-lowering assertions
-  (`unions_emit_sealed_wrappers`), three negative tests (non-exhaustive
-  `when`, non-union `when` subject, no-matching-arm wrap), missing effect
-  handler, and two kotlinc compile+run tests with exact stdout assertions.
+- `salvo-backend-kotlin`: 21 — golden snapshots of the M2 demo, the M3
+  unions demo, and the M4 qualifiers demo; wrapper/wrap/`is`-lowering
+  assertions (`unions_emit_sealed_wrappers`), predicate/mangling/field-cast
+  assertions (`qualifiers_lower_to_predicates_and_mangled_overloads`);
+  negative tests (non-exhaustive `when`, non-union `when` subject,
+  no-matching-arm wrap, missing effect handler, duplicate qualifier,
+  incompatible qualifiers, `of`-type mismatch, constructor same-file rule,
+  predicate-constructor rejection, non-simple constructor return,
+  `is` on constructive qualifiers, `qualifies` signature, constructive
+  values only from constructors); and three kotlinc compile+run tests with
+  exact stdout assertions.
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -299,3 +354,24 @@ snapshot diffs.
 - The `Number` type alias in std is a general union — fine: aliases expand
   on use (now with generic substitution in both checker and emitter), and
   nothing uses `Number` yet.
+- Subtype-rule *order* matters for qualified union groups: the
+  `(_, Union)` any-arm rule would otherwise compare `Ok (A | B)` against
+  single arms and always fail; the group rule (exact-arm equality, then
+  drop-quals) must come before it. Symmetrically, `maybe_coerce` must try
+  wrapping the group as a whole arm *before* stripping its qualifiers.
+- `substitute_vars` must re-normalize `Ty::Qualified` through `qualify()`:
+  a generic constructor's `Ok T` with `T = Ok Str` would otherwise nest
+  `Qualified` inside `Qualified` (breaking the type invariant).
+- Qualifier validation happens at *declaration sites* (`validate_type` in
+  check_fn / let / struct fields), not inside `lower_type` — lowering runs
+  repeatedly (e.g. per overload candidate), which would duplicate errors.
+- Overload mangling compares *emitted* Kotlin parameter strings, so the
+  `Mut List` → `MutableList` mapping naturally avoids false collisions.
+- Predicate `is` on a subject already narrowed out of a wrapper union works
+  because `emit_expr_base` (the unwrap) is used for the `qualifies` call
+  argument.
+- All handlers — external ones included — emit as Kotlin *classes* and are
+  instantiated at their `use` site (user decision: `object` was an artifact
+  of StdOutConsole being stateless). Bare `use Handler` is sugar for
+  `use Handler()`; external handlers support constructor params like any
+  other handler.

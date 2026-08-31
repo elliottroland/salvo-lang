@@ -33,12 +33,14 @@ qualifier HasSurname of Person {
 
 qualifier RandomPositive of Int
 
-fn random_positive_int() [Random<Int>, as] -> RandomPositive Int {
+// Constructor function: `-> Int as RandomPositive` marks it; return points
+// return plain Int values which gain the qualifier by construction.
+fn random_positive_int() [Random<Int>] -> Int as RandomPositive {
     let num = next_random()
     while num <= 0 {
         num = next_random()
     }
-    return num as RandomPositive
+    return num
 }
 
 fn checks(person: Person) -> None {

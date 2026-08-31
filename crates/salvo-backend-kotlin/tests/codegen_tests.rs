@@ -129,16 +129,25 @@ fn missing_effect_handler_is_an_error() {
 }
 
 /// The M3 demo: Result-style unions with qualifiers, `when` exhaustiveness,
-/// precise `is Err Str` checks, and flow narrowing.
+/// precise `is Err Str` checks, and flow narrowing. `ok`/`err` are
+/// constructive-qualifier constructor functions (`-> T as Ok`).
 const UNIONS_DEMO: &str = r#"
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
-fn parse_age(input: Int) [as] -> Ok Int | Err Str {
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn parse_age(input: Int) -> Ok Int | Err Str {
     if input >= 0 {
-        return input as Ok
+        return ok(input)
     }
-    return "negative age" as Err
+    return err("negative age")
 }
 
 fn describe(result: Ok Int | Err Str) -> Str {
@@ -160,7 +169,7 @@ fn main() [use] -> [] None {
     let bad = parse_age(-1)
     println(describe(bad))
 
-    let precise: Ok Str | Err Str | Err Bool = "yes" as Ok
+    let precise: Ok Str | Err Str | Err Bool = ok("yes")
     if precise is Err Str {
         println("err str: ${precise}")
     } elif precise is Ok {
@@ -212,11 +221,12 @@ fn unions_emit_sealed_wrappers() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    // Wrap at return boundaries, positional arm identity.
-    assert!(main.content.contains("return U2_1<Int, String>(input)"));
-    assert!(main.content.contains("return U2_2<Int, String>(\"negative age\")"));
+    // Wrap at return boundaries, positional arm identity (the constructor
+    // call is wrapped into the union arm).
+    assert!(main.content.contains("return U2_1<Int, String>(ok(input))"));
+    assert!(main.content.contains("return U2_2<Int, String>(err(\"negative age\"))"));
     // Qualifier-tagged wrap picks the right arm of the 3-union.
-    assert!(main.content.contains("U3_1<String, String, Boolean>(\"yes\")"));
+    assert!(main.content.contains("U3_1<String, String, Boolean>(ok(\"yes\"))"));
     // Precise `is Err Str` tests a single arm; `is Ok` another.
     assert!(main.content.contains("precise is U3_2<*, *, *>"));
     assert!(main.content.contains("precise is U3_1<*, *, *>"));
@@ -270,8 +280,12 @@ fn union_wrap_requires_matching_arm() {
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
-fn f() [as] -> Ok Int | Err Str {
-    return true as Err
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn f() -> Ok Int | Err Str {
+    return err(true)
 }
 "#;
     let program = build_program(&[("bad.sv", src, false)]);
@@ -295,6 +309,295 @@ fn kotlinc_compiles_and_runs_unions() {
     let files = generate_unions_demo();
     let expected = "age 36\nerror: negative age\nok: yes\nvalue plus one is 37\n";
     run_kotlin_files(&files, "unions", expected);
+}
+
+/// The M4 demo: predicate qualifiers (`qualifies` calls at runtime),
+/// struct-field overrides with casts, qualifier-based overloading (with
+/// erasure mangling), `while x is T`, and qualified union groups.
+const QUALIFIERS_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    surname: Str? = None,
+    age: Int
+}
+
+qualifier Surname of Person {
+    surname: Str
+
+    fn qualifies(person: Person) -> Bool {
+        return person.surname is Str
+    }
+}
+
+qualifier Positive of Int {
+    fn qualifies(int: Int) -> Bool {
+        return int > 0
+    }
+}
+
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn full_name(person: Person) -> Str {
+    return person.name
+}
+
+fn full_name(person: Surname Person) -> Str {
+    return "${person.name} ${person.surname}"
+}
+
+fn describe(person: Person) [Console] {
+    if person is Surname {
+        println(full_name(person))
+    } else {
+        println(full_name(person))
+    }
+}
+
+fn check(n: Int) [Console] {
+    if n is Positive {
+        println("${n} is positive")
+    } else {
+        println("${n} is not positive")
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole
+    describe(Person {name: "Roland", surname: "Elliott", age: 36})
+    describe(Person {name: "Anon", age: 3})
+    check(5)
+    check(-2)
+
+    let current: Int? = 3
+    while current is Int c {
+        println("tick ${c}")
+        current = if c > 1 { c - 1 } else { None }
+    }
+
+    let inner: Ok Str | Err Int = ok("yes")
+    let nested: Ok (Ok Str | Err Int) | Err Bool = ok(inner)
+    if nested is Ok {
+        let back: Ok Str | Err Int = nested
+        if back is Ok {
+            println("inner ok: ${back}")
+        }
+    }
+}
+"#;
+
+fn generate_qualifiers_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(&[("main.sv", QUALIFIERS_DEMO, false)]);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+#[test]
+fn golden_qualifiers_kotlin() {
+    let files = generate_qualifiers_demo();
+    let combined: String = files
+        .iter()
+        .map(|f| format!("// ===== {} =====\n{}", f.rel_path.display(), f.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::assert_snapshot!(combined);
+}
+
+#[test]
+fn qualifiers_lower_to_predicates_and_mangled_overloads() {
+    let files = generate_qualifiers_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // Predicate qualifiers become top-level `qualifies` functions.
+    assert!(main.content.contains("fun Surname_qualifies(person: Person): Boolean"));
+    assert!(main.content.contains("fun Positive_qualifies(int: Int): Boolean"));
+    // `is` predicate checks call them.
+    assert!(main.content.contains("if (Surname_qualifies(person))"));
+    assert!(main.content.contains("if (Positive_qualifies(n))"));
+    // The qualified overload is mangled; the checker routes the narrowed
+    // call to it and the unqualified call to the base name.
+    assert!(main.content.contains("fun full_name__Surname(person: Person): String"));
+    assert!(main.content.contains("println(console, full_name__Surname(person))"));
+    assert!(main.content.contains("println(console, full_name(person))"));
+    // Field overrides cast + assert at the access site.
+    assert!(main.content.contains("(person.surname as String)"));
+    // `while x is T` lowers with a per-iteration binding.
+    assert!(main.content.contains("while (current != null) {"));
+    assert!(main.content.contains("val c = current as Int"));
+    // A qualified union group is physically the inner union.
+    assert!(main
+        .content
+        .contains("val back: Union2<String, Int> = (nested.value as Union2<String, Int>)"));
+}
+
+/// Full verification of the qualifiers demo under kotlinc (skipped when
+/// kotlinc is not installed).
+#[test]
+fn kotlinc_compiles_and_runs_qualifiers() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let files = generate_qualifiers_demo();
+    let expected = "Roland Elliott\nAnon\n5 is positive\n-2 is not positive\n\
+                    tick 3\ntick 2\ntick 1\ninner ok: yes\n";
+    run_kotlin_files(&files, "qualifiers", expected);
+}
+
+/// Runs the checker on a source and returns the errors (panics if none).
+fn expect_errors(src: &str) -> Vec<String> {
+    let program = build_program(&[("bad.sv", src, false)]);
+    salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected type errors")
+}
+
+#[test]
+fn duplicate_qualifier_is_rejected() {
+    let errors = expect_errors(
+        "qualifier Ok<T> of T\n\nfn f(x: Ok Ok Int) -> None {\n}\n",
+    );
+    assert!(
+        errors.iter().any(|e| e.contains("applied more than once")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn incompatible_qualifiers_are_rejected() {
+    let src = r#"
+struct Person {
+    name: Str
+}
+
+qualifier Old of Person
+qualifier Surname of Person
+
+fn f(p: Old Surname Person) -> None {
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("are not compatible")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn qualifier_of_type_is_enforced() {
+    let src = r#"
+qualifier Positive of Int {
+    fn qualifies(int: Int) -> Bool {
+        return int > 0
+    }
+}
+
+fn f(x: Positive Str) -> None {
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("does not apply to `Str`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn constructor_must_live_with_its_qualifier() {
+    let program = build_program(&[
+        ("quals.sv", "qualifier Fancy of Int\n", false),
+        (
+            "other.sv",
+            "import quals.Fancy\n\nfn make() -> Int as Fancy {\n    return 1\n}\n",
+            false,
+        ),
+    ]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected type errors");
+    assert!(
+        errors.iter().any(|e| e.contains("must be declared in the same file")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn predicate_qualifiers_cannot_have_constructors() {
+    let src = r#"
+qualifier Positive of Int {
+    fn qualifies(int: Int) -> Bool {
+        return int > 0
+    }
+}
+
+fn make() -> Int as Positive {
+    return 1
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("is a predicate qualifier")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn constructor_return_type_must_be_simple() {
+    let src = "qualifier Fancy of Int\n\nfn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("must return a simple type")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn constructive_qualifier_cannot_be_is_tested() {
+    let src = "qualifier Fancy of Int\n\nfn f(x: Int) -> None {\n    if x is Fancy {\n    }\n}\n";
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("constructive qualifier")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn qualifies_signature_is_validated() {
+    let src = r#"
+qualifier Weird of Int {
+    fn qualifies(int: Int) -> Str {
+        return "nope"
+    }
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("`qualifies` must return `Bool`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn constructive_values_only_come_from_constructors() {
+    // Plain values never satisfy a constructive qualifier: the assignment
+    // is a type error, so the only way in is the constructor fn.
+    let src = "qualifier Fancy of Int\n\nfn f() -> None {\n    let x: Fancy Int = 1\n}\n";
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("expected `Fancy Int`, found `Int`")),
+        "unexpected errors: {errors:?}"
+    );
 }
 
 /// Full verification: compile the generated Kotlin with kotlinc and run it,

@@ -477,22 +477,28 @@ impl<'s> Parser<'s> {
         let generics = self.parse_generics();
         let params = self.parse_params()?;
 
-        // Effects: `[Random<Int>, Console, use, as]`
+        // Effects: `[Random<Int>, Console, use]`
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
             Some(self.parse_effect_list()?)
         } else {
             None
         };
 
-        // `-> [deductions] return_type`
+        // `-> [deductions] return_type (as Qualifier)?`
         let mut deductions = None;
         let mut return_type = None;
+        let mut constructs = None;
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
             if self.at(&TokenKind::LBracket) {
                 deductions = Some(self.parse_deduction_list()?);
             }
             return_type = Some(self.parse_type()?);
+            // `-> T as Qualifier` marks a constructive-qualifier constructor.
+            if self.at(&TokenKind::KwAs) && self.same_line() {
+                self.bump();
+                constructs = Some(self.parse_type_ref()?);
+            }
         }
 
         let body = if self.at(&TokenKind::LBrace) && self.same_line() {
@@ -504,6 +510,7 @@ impl<'s> Parser<'s> {
         let end = body
             .as_ref()
             .map(|b| b.span)
+            .or_else(|| constructs.as_ref().map(|c| c.span))
             .or_else(|| return_type.as_ref().map(|t| t.span()))
             .unwrap_or(name.span);
         Some(FnDecl {
@@ -514,6 +521,7 @@ impl<'s> Parser<'s> {
             effects,
             deductions,
             return_type,
+            constructs,
             body,
             span: start.to(end),
         })
@@ -562,10 +570,6 @@ impl<'s> Parser<'s> {
                 TokenKind::KwUse => {
                     let tok = self.bump();
                     effects.push(EffectRef::Use(tok.span));
-                }
-                TokenKind::KwAs => {
-                    let tok = self.bump();
-                    effects.push(EffectRef::As(tok.span));
                 }
                 _ => match self.parse_type_ref() {
                     Some(r) => effects.push(EffectRef::Effect(r)),
@@ -713,6 +717,7 @@ impl<'s> Parser<'s> {
             effects,
             deductions,
             return_type,
+            constructs: None,
             body: None,
             span: start.to(end),
         })
@@ -1265,7 +1270,7 @@ impl<'s> Parser<'s> {
         Some(lhs)
     }
 
-    /// Comparisons plus the `is` / `as` checks (same precedence tier).
+    /// Comparisons plus the `is` checks (same precedence tier).
     fn parse_comparison(&mut self) -> Option<Expr> {
         let mut lhs = self.parse_additive()?;
         loop {
@@ -1283,16 +1288,6 @@ impl<'s> Parser<'s> {
                         subject: Box::new(lhs),
                         check,
                         binding,
-                        span,
-                    };
-                }
-                TokenKind::KwAs if self.same_line() => {
-                    self.bump();
-                    let target = self.parse_type_ref()?;
-                    let span = lhs.span().to(target.span);
-                    lhs = Expr::As {
-                        value: Box::new(lhs),
-                        target,
                         span,
                     };
                 }

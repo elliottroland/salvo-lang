@@ -125,7 +125,7 @@ pub struct HandlerDecl {
 
 /// A function declaration or signature.
 ///
-/// `fn name<G>(params) [effects] -> [deductions] return_type { body }`
+/// `fn name<G>(params) [effects] -> [deductions] return_type (as Qualifier)? { body }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct FnDecl {
     pub backing: Option<BackingMod>,
@@ -138,6 +138,10 @@ pub struct FnDecl {
     pub deductions: Option<Vec<Deduction>>,
     /// `None` means the function returns `None` (the unit type).
     pub return_type: Option<Type>,
+    /// `-> T as Qualifier` marks a constructive-qualifier constructor: the
+    /// body returns plain `T` values which gain the qualifier by
+    /// construction; callers see `Qualifier T`.
+    pub constructs: Option<TypeRef>,
     /// `None` for signatures (`external fn`, effect members).
     pub body: Option<Block>,
     pub span: Span,
@@ -152,13 +156,11 @@ pub struct Param {
     pub span: Span,
 }
 
-/// An entry in a function's effect list: `[Random<Int>, Console, use, as]`.
+/// An entry in a function's effect list: `[Random<Int>, Console, use]`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EffectRef {
     /// The special `use` effect, allowing handler registration.
     Use(Span),
-    /// The special `as` effect, allowing constructive qualifier casts.
-    As(Span),
     /// A named effect, possibly generic: `Random<Int>`.
     Effect(TypeRef),
 }
@@ -423,12 +425,6 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `value as Qualifier` — constructive qualifier cast.
-    As {
-        value: Box<Expr>,
-        target: TypeRef,
-        span: Span,
-    },
     /// `expr!` — non-null assertion.
     NonNull { operand: Box<Expr>, span: Span },
     /// `i++` — postfix increment.
@@ -560,7 +556,6 @@ impl Expr {
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Is { span, .. }
-            | Expr::As { span, .. }
             | Expr::NonNull { span, .. }
             | Expr::PostIncrement { span, .. }
             | Expr::If { span, .. }

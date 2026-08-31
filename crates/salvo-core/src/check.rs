@@ -68,6 +68,14 @@ pub struct Checked {
     pub coerce: HashMap<Key, Coercion>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
+    /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
+    /// span of the `is` expression: the qualifier names whose `qualifies`
+    /// functions must be called (conjunction).
+    pub predicate_tests: HashMap<Key, Vec<String>>,
+    /// Field accesses whose type is refined by a predicate-qualifier field
+    /// override, keyed by the field expression span: the overridden type
+    /// (the backend casts + asserts).
+    pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
@@ -104,6 +112,7 @@ pub fn check_program<'p>(
             locals: Vec::new(),
             generics: HashSet::new(),
             ret_ty: Ty::none(),
+            own_qualifiers: HashSet::new(),
         };
         checker.check_module(ast);
     }
@@ -129,6 +138,9 @@ struct Checker<'p, 'r> {
     generics: HashSet<String>,
     /// Return type of the function being checked.
     ret_ty: Ty,
+    /// Names of qualifiers declared in the file currently being checked
+    /// (constructive-qualifier constructors must live in this file).
+    own_qualifiers: HashSet<String>,
 }
 
 /// Narrowing facts derived from a condition.
@@ -156,6 +168,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= module / function traversal =================
 
     fn check_module(&mut self, module: &'p Module) {
+        self.own_qualifiers = module
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Qualifier(q) => Some(q.name.name.clone()),
+                _ => None,
+            })
+            .collect();
         for item in &module.items {
             match item {
                 Item::Fn(f) => self.check_fn(f, &[], &[]),
@@ -168,6 +188,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
+                    self.check_qualifier_decl(q);
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
                     }
@@ -193,8 +214,23 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Checks one function body. `extra_params`/`state` provide handler
     /// constructor parameters and state fields as in-scope variables.
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
-        let Some(body) = &f.body else { return };
         let saved_generics = self.enter_generics(&f.generics);
+        for p in &f.params {
+            self.validate_type(&p.ty);
+        }
+        if let Some(rt) = &f.return_type {
+            self.validate_type(rt);
+        }
+        if f.constructs.is_some() {
+            self.check_constructor_sig(f);
+        }
+        let Some(body) = &f.body else {
+            self.generics = saved_generics;
+            return;
+        };
+        // Inside a qualifier constructor (`-> T as Qual`) return points
+        // produce plain `T` values; the qualifier is applied by construction
+        // (callers see `Qual T`).
         self.ret_ty = f
             .return_type
             .as_ref()
@@ -420,6 +456,312 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         ty
     }
+
+    // ================= qualifier validation =================
+
+    /// Validates every qualifier application inside a written type:
+    /// duplicates, `of`-type applicability, and pairwise `with`
+    /// compatibility. Called at declaration sites (fn signatures, `let`
+    /// annotations, struct fields) so each error is reported once.
+    fn validate_type(&mut self, ty: &ast::Type) {
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                for a in &base.args {
+                    self.validate_type(a);
+                }
+                if !qualifiers.is_empty() {
+                    let empty = HashMap::new();
+                    let lowered = self.lower_base_ref(base, &empty, 0);
+                    self.validate_quals(qualifiers, &lowered);
+                }
+            }
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                self.validate_type(base);
+                let empty = HashMap::new();
+                let lowered = self.lower_type_subst(base, &empty, 0);
+                self.validate_quals(qualifiers, &lowered);
+            }
+            ast::Type::Union { arms, .. } => {
+                for a in arms {
+                    self.validate_type(a);
+                }
+            }
+            ast::Type::Tuple { elems, .. } => {
+                for e in elems {
+                    self.validate_type(e);
+                }
+            }
+            ast::Type::Array { elem, .. } => self.validate_type(elem),
+            ast::Type::Nullable { inner, .. } => self.validate_type(inner),
+            ast::Type::Fn { params, ret, .. } => {
+                for p in params {
+                    self.validate_type(p);
+                }
+                self.validate_type(ret);
+            }
+        }
+    }
+
+    fn validate_quals(&mut self, qualifiers: &[TypeRef], base: &Ty) {
+        // The same qualifier cannot be applied twice.
+        for (i, q) in qualifiers.iter().enumerate() {
+            if qualifiers[..i].iter().any(|p| p.name.name == q.name.name) {
+                self.error(
+                    q.span,
+                    format!("qualifier `{}` is applied more than once", q.name.name),
+                );
+            }
+        }
+        let decls: Vec<Option<&'p QualifierDecl>> = qualifiers
+            .iter()
+            .map(|q| self.scope.qualifiers.get(q.name.name.as_str()).copied())
+            .collect();
+        // Each qualifier must apply to the base type (per its `of` type).
+        if !matches!(base, Ty::Unknown | Ty::Var(_)) {
+            for (q, decl) in qualifiers.iter().zip(&decls) {
+                let Some(decl) = decl else { continue };
+                // `Mut` on a struct declaring `with Mut` is the
+                // language-level auto-qualifier path.
+                if q.name.name == "Mut" && self.struct_has_auto_mut(base) {
+                    continue;
+                }
+                if !self.qual_applies(decl, base) {
+                    self.error(
+                        q.span,
+                        format!("qualifier `{}` does not apply to `{base}`", q.name.name),
+                    );
+                }
+            }
+        }
+        // Multiple qualifiers require declared `with` compatibility.
+        for i in 0..qualifiers.len() {
+            for j in (i + 1)..qualifiers.len() {
+                let (Some(a), Some(b)) = (decls[i], decls[j]) else {
+                    continue;
+                };
+                if a.name.name == b.name.name {
+                    continue; // duplicate, already reported
+                }
+                // Internal qualifiers (`Mut`) compose with everything.
+                if a.backing == Some(BackingMod::Internal)
+                    || b.backing == Some(BackingMod::Internal)
+                {
+                    continue;
+                }
+                let compat = a.with.iter().any(|w| w.name.name == b.name.name)
+                    || b.with.iter().any(|w| w.name.name == a.name.name);
+                if !compat {
+                    self.error(
+                        qualifiers[j].span,
+                        format!(
+                            "qualifiers `{}` and `{}` are not compatible \
+                             (neither declares `with` the other)",
+                            a.name.name, b.name.name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Whether a qualifier's `of` type accepts the given base type.
+    fn qual_applies(&mut self, decl: &'p QualifierDecl, base: &Ty) -> bool {
+        if matches!(base, Ty::Unknown | Ty::Var(_)) {
+            return true;
+        }
+        let saved = self.enter_generics(&decl.generics);
+        let of_ty = self.lower_type(&decl.of);
+        self.generics = saved;
+        let mut subst = HashMap::new();
+        unify(&of_ty, base.strip_quals(), &mut subst)
+    }
+
+    /// Whether the base type is a struct that opted into the `Mut`
+    /// auto-qualifier (`struct S with Mut`).
+    fn struct_has_auto_mut(&self, base: &Ty) -> bool {
+        let Ty::Named { name, .. } = base.strip_quals() else {
+            return false;
+        };
+        self.scope
+            .structs
+            .get(name.as_str())
+            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"))
+    }
+
+    /// Validates a qualifier declaration: predicate qualifiers need a
+    /// well-formed `qualifies` function; field overrides must refine real
+    /// fields of the `of` struct; bodiless (constructive) qualifiers take
+    /// neither.
+    fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
+        self.validate_type(&q.of);
+        let of_ty = self.lower_type(&q.of);
+        match &of_ty {
+            Ty::Union(_) => self.error(
+                q.of.span(),
+                "a qualifier cannot apply to a union type; qualify the arms instead",
+            ),
+            Ty::Tuple(_) => self.error(
+                q.of.span(),
+                "a qualifier cannot apply to a tuple type; qualify the parts instead",
+            ),
+            _ => {}
+        }
+        if !q.has_body {
+            return;
+        }
+        let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
+            self.error(
+                q.name.span,
+                format!(
+                    "predicate qualifier `{}` must define a `qualifies` function",
+                    q.name.name
+                ),
+            );
+            return;
+        };
+        if qualifies.params.len() != 1 {
+            self.error(
+                qualifies.name.span,
+                "`qualifies` must take exactly one parameter (the candidate value)",
+            );
+        } else {
+            let pt = self.lower_type(&qualifies.params[0].ty);
+            if !is_subtype(&of_ty, &pt) {
+                self.error(
+                    qualifies.params[0].span,
+                    format!("`qualifies` must accept a `{of_ty}` parameter"),
+                );
+            }
+        }
+        let ret = qualifies
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        if !matches!(&ret, Ty::Named { name, args } if name == "Bool" && args.is_empty()) {
+            self.error(qualifies.name.span, "`qualifies` must return `Bool`");
+        }
+        if qualifies
+            .deductions
+            .as_ref()
+            .is_some_and(|d| !d.is_empty())
+        {
+            self.error(
+                qualifies.name.span,
+                "`qualifies` does not support deductions (it never moves the value)",
+            );
+        }
+        for fo in &q.field_overrides {
+            self.validate_type(&fo.ty);
+            let override_ty = self.lower_type(&fo.ty);
+            match self.declared_field_ty(&of_ty, &fo.name.name) {
+                Some(orig) => {
+                    if !is_subtype(&override_ty, &orig) {
+                        self.error(
+                            fo.span,
+                            format!(
+                                "field override `{}: {override_ty}` is not a subtype \
+                                 of the declared `{orig}`",
+                                fo.name.name
+                            ),
+                        );
+                    }
+                }
+                None => {
+                    if let Ty::Named { name, .. } = of_ty.strip_quals() {
+                        if self.scope.structs.contains_key(name.as_str()) {
+                            let name = name.clone();
+                            self.error(
+                                fo.name.span,
+                                format!("struct `{name}` has no field `{}`", fo.name.name),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Validates a qualifier-constructor signature (`fn f(...) -> T as Q`).
+    fn check_constructor_sig(&mut self, f: &'p FnDecl) {
+        let Some(cref) = &f.constructs else { return };
+        let name = cref.name.name.as_str();
+        let Some(decl) = self.scope.qualifiers.get(name).copied() else {
+            self.error(
+                cref.span,
+                format!("unknown qualifier `{name}` in constructor return type"),
+            );
+            return;
+        };
+        if decl.has_body {
+            self.error(
+                cref.span,
+                format!(
+                    "`{name}` is a predicate qualifier; it is established by `is` \
+                     checks, not by constructor functions"
+                ),
+            );
+        }
+        if !self.own_qualifiers.contains(name) {
+            self.error(
+                cref.span,
+                format!(
+                    "constructor functions for `{name}` must be declared in the \
+                     same file as the qualifier"
+                ),
+            );
+        }
+        let Some(rt) = &f.return_type else {
+            self.error(cref.span, "a qualifier constructor must declare a return type");
+            return;
+        };
+        let base = self.lower_type(rt);
+        match base.strip_quals() {
+            Ty::Union(_) => self.error(
+                rt.span(),
+                "a qualifier constructor must return a simple type, not a union",
+            ),
+            Ty::Tuple(_) => self.error(
+                rt.span(),
+                "a qualifier constructor must return a simple type, not a tuple",
+            ),
+            other => {
+                if !self.qual_applies(decl, other) {
+                    self.error(
+                        rt.span(),
+                        format!("qualifier `{name}` does not apply to `{base}`"),
+                    );
+                }
+            }
+        }
+    }
+
+    /// The return type a *caller* sees for a fn: constructors add their
+    /// qualifier on top of the declared return type.
+    fn fn_return_ty(&mut self, decl: &'p FnDecl) -> Ty {
+        let ret = decl
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        match &decl.constructs {
+            Some(cref) => {
+                let empty = HashMap::new();
+                let qual = Qual {
+                    name: cref.name.name.clone(),
+                    args: cref
+                        .args
+                        .iter()
+                        .map(|a| self.lower_type_subst(a, &empty, 0))
+                        .collect(),
+                };
+                ret.qualify(vec![qual])
+            }
+            None => ret,
+        }
+    }
 }
 
 /// Collects names assigned (or incremented) anywhere in a block, for
@@ -546,6 +888,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_stmt(&mut self, stmt: &'p Stmt) -> Ty {
         match stmt {
             Stmt::Let { pattern, ty, value, .. } => {
+                if let Some(t) = ty {
+                    self.validate_type(t);
+                }
                 let annotated = ty.as_ref().map(|t| self.lower_type(t));
                 let value_ty = self.check_expr(value, annotated.as_ref());
                 if let Some(ann) = &annotated {
@@ -662,8 +1007,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Pattern::Struct { fields, .. } => {
                 for f in fields {
+                    // Destructuring reads the declared field type (qualifier
+                    // overrides only apply to direct field accesses, which
+                    // the backend can cast).
                     let fty = self
-                        .field_ty(&ty, &f.field.name)
+                        .declared_field_ty(&ty, &f.field.name)
                         .unwrap_or(Ty::Unknown);
                     self.declare(&f.binding, fty);
                 }
@@ -729,11 +1077,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved = self.enter_generics(&decl.generics);
                     let params: Vec<Ty> =
                         decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
-                    let ret = decl
-                        .return_type
-                        .as_ref()
-                        .map(|t| self.lower_type(t))
-                        .unwrap_or_else(Ty::none);
+                    let ret = self.fn_return_ty(decl);
                     self.generics = saved;
                     return Ty::Fn {
                         params,
@@ -742,8 +1086,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Unknown
             }
-            Expr::Field { base, field, .. } => {
+            Expr::Field { base, field, span } => {
                 let base_ty = self.check_expr(base, None);
+                // A predicate-qualifier field override refines the type;
+                // the backend casts + asserts at the access site.
+                if let Some(override_ty) = self.field_override_ty(&base_ty, &field.name) {
+                    self.out
+                        .field_casts
+                        .insert(self.key(*span), override_ty.clone());
+                    return override_ty;
+                }
                 self.field_ty_or_error(&base_ty, field)
             }
             Expr::Call {
@@ -844,19 +1196,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.is_info(expr);
                 Ty::named("Bool")
             }
-            Expr::As { value, target, .. } => {
-                let vty = self.check_expr(value, None);
-                let empty = HashMap::new();
-                let qual = Qual {
-                    name: target.name.name.clone(),
-                    args: target
-                        .args
-                        .iter()
-                        .map(|a| self.lower_type_subst(a, &empty, 0))
-                        .collect(),
-                };
-                vty.qualify(vec![qual])
-            }
             Expr::NonNull { operand, .. } => {
                 let t = self.check_expr(operand, None);
                 t.without_none()
@@ -936,6 +1275,41 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn field_ty(&mut self, base_ty: &Ty, field_name: &str) -> Option<Ty> {
+        if let Some(t) = self.field_override_ty(base_ty, field_name) {
+            return Some(t);
+        }
+        self.declared_field_ty(base_ty, field_name)
+    }
+
+    /// A predicate-qualifier field override for this (qualified) base type,
+    /// e.g. `surname: Str` under `Surname Person`.
+    fn field_override_ty(&mut self, base_ty: &Ty, field_name: &str) -> Option<Ty> {
+        for qual in base_ty.quals() {
+            let Some(decl) = self.scope.qualifiers.get(qual.name.as_str()).copied() else {
+                continue;
+            };
+            let Some(field) = decl
+                .field_overrides
+                .iter()
+                .find(|f| f.name.name == field_name)
+            else {
+                continue;
+            };
+            let mut subst = HashMap::new();
+            for (i, g) in decl.generics.iter().enumerate() {
+                subst.insert(
+                    g.name.clone(),
+                    qual.args.get(i).cloned().unwrap_or(Ty::Unknown),
+                );
+            }
+            let field_ty = field.ty.clone();
+            return Some(self.lower_type_subst(&field_ty, &subst, 0));
+        }
+        None
+    }
+
+    /// The declared struct-field type, ignoring qualifier overrides.
+    fn declared_field_ty(&mut self, base_ty: &Ty, field_name: &str) -> Option<Ty> {
         let Ty::Named { name, args } = base_ty.strip_quals() else {
             return None;
         };
@@ -1238,14 +1612,61 @@ impl<'p, 'r> Checker<'p, 'r> {
         let repr = self.repr_of(subject, &subj_ty);
         let pat = self.parse_check(check);
 
-        // Runtime lowering against the declared representation.
-        if let Some(test) = self.union_test_for(&repr, &pat) {
+        // A qualifier check on a non-union subject is a predicate test: it
+        // calls each qualifier's `qualifies` function at runtime.
+        let is_predicate = !pat.is_none
+            && !pat.quals.is_empty()
+            && !matches!(subj_ty, Ty::Union(_))
+            && !subj_ty.is_unknown()
+            && pat.quals.iter().all(|q| {
+                self.scope
+                    .qualifiers
+                    .get(q.as_str())
+                    .is_some_and(|d| d.has_body)
+            });
+        if is_predicate {
+            for q in &pat.quals {
+                let decl = self.scope.qualifiers[q.as_str()];
+                if !self.qual_applies(decl, subj_ty.strip_quals()) {
+                    self.error(
+                        *span,
+                        format!("qualifier `{q}` does not apply to `{subj_ty}`"),
+                    );
+                }
+            }
+            if let Some(base) = &pat.base {
+                if !is_subtype(subj_ty.strip_quals(), base) {
+                    self.error(*span, "this check can never succeed".to_string());
+                }
+            }
+            self.out
+                .predicate_tests
+                .insert(self.key(*span), pat.quals.clone());
+        } else if let Some(test) = self.union_test_for(&repr, &pat) {
+            // Runtime lowering against the declared union representation.
             self.out.is_tests.insert(self.key(*span), test);
         } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) {
-            self.error(
-                *span,
-                "qualifier predicate checks on non-union values are not supported yet",
-            );
+            let constructive = pat.quals.iter().find(|q| {
+                self.scope
+                    .qualifiers
+                    .get(q.as_str())
+                    .is_some_and(|d| !d.has_body)
+            });
+            match constructive {
+                Some(q) => self.error(
+                    *span,
+                    format!(
+                        "`{q}` is a constructive qualifier; values only gain it \
+                         from constructor functions, so it cannot be tested with `is` \
+                         on a non-union value"
+                    ),
+                ),
+                None => self.error(
+                    *span,
+                    "this qualifier check cannot be performed at runtime \
+                     (unknown qualifier)",
+                ),
+            }
         }
 
         // Narrowing math on the logical (possibly already narrowed) type.
@@ -1260,7 +1681,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 (self.mk_union(m), Some(self.mk_union(r)))
             }
-            other => (other.clone(), None),
+            other => {
+                if is_predicate {
+                    // A successful predicate check adds the qualifiers; a
+                    // failed one proves nothing about the type.
+                    let quals: Vec<Qual> = pat
+                        .quals
+                        .iter()
+                        .map(|n| Qual {
+                            name: n.clone(),
+                            args: Vec::new(),
+                        })
+                        .collect();
+                    (other.clone().qualify(quals), None)
+                } else {
+                    (other.clone(), None)
+                }
+            }
         };
 
         let subject_name = match subject.as_ref() {
@@ -1513,6 +1950,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             repr.clone()
         };
+        // A qualified union group (`Ok (A | B)`) wraps as a whole when it is
+        // itself an arm of the expected union; otherwise it is physically
+        // just the inner union and joins the representation math below.
+        let effective = if let Ty::Qualified { base, .. } = &effective {
+            if matches!(**base, Ty::Union(_)) {
+                if expected.is_wrapper_union() {
+                    let arms = expected.value_arms();
+                    if let Some(i) = arms.iter().position(|arm| **arm == effective) {
+                        self.out.union_sizes.insert(arms.len());
+                        self.out.coerce.insert(
+                            self.key(span),
+                            Coercion::WrapUnion {
+                                target: expected.clone(),
+                                arm: i,
+                            },
+                        );
+                        return;
+                    }
+                }
+                (**base).clone()
+            } else {
+                effective
+            }
+        } else {
+            effective
+        };
         if expected.is_wrapper_union() {
             if effective == *expected {
                 return;
@@ -1657,20 +2120,24 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
                 .map(|a| substitute_vars(a, subst, callee_generics))
                 .collect(),
         },
-        Ty::Qualified { quals, base } => Ty::Qualified {
-            quals: quals
-                .iter()
-                .map(|q| Qual {
-                    name: q.name.clone(),
-                    args: q
-                        .args
-                        .iter()
-                        .map(|a| substitute_vars(a, subst, callee_generics))
-                        .collect(),
-                })
-                .collect(),
-            base: Box::new(substitute_vars(base, subst, callee_generics)),
-        },
+        Ty::Qualified { quals, base } => {
+            // Re-normalize through `qualify`: the substituted base may
+            // itself be qualified (e.g. `Ok T` with `T = Ok Str`).
+            let new_base = substitute_vars(base, subst, callee_generics);
+            new_base.qualify(
+                quals
+                    .iter()
+                    .map(|q| Qual {
+                        name: q.name.clone(),
+                        args: q
+                            .args
+                            .iter()
+                            .map(|a| substitute_vars(a, subst, callee_generics))
+                            .collect(),
+                    })
+                    .collect(),
+            )
+        }
         Ty::Union(arms) => Ty::union_of(
             arms.iter()
                 .map(|a| substitute_vars(a, subst, callee_generics))
@@ -1931,11 +2398,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = best.subst.clone();
         let decl = best.decl;
         let saved = self.enter_generics(&decl.generics);
-        let ret = decl
-            .return_type
-            .as_ref()
-            .map(|t| self.lower_type(t))
-            .unwrap_or_else(Ty::none);
+        let ret = self.fn_return_ty(decl);
         self.generics = saved;
         substitute_vars(&ret, &subst, &callee_generics)
     }

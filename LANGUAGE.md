@@ -209,7 +209,7 @@ fn full_name(person: Surname Person) -> [person] Str {
 }
 ```
 
-Qualifiers CANNOT apply to tuples or unions, only to basic types or structs which make them up. Starting with unions, qualifiers can be used to "tag" the elements of unions:
+Qualifiers CANNOT apply to tuples, only to the types which make them up. In an un-parenthesized union type, a qualifier binds to the single arm it is written on — never the union as a whole — so qualifiers can be used to "tag" the elements of unions (a qualifier _can_ be applied to an explicitly parenthesized union group, like `Ok (Ok Str | Err Int)`, as shown later):
 
 ```
 // Because the qualifier cannot apply to the union as a whole, there is no ambiguity in the type annotation here
@@ -799,21 +799,44 @@ if person is Surname {
 
 ### Constructive qualifiers
 
-Predicate qualifiers apply to an existing value, and need not be present in the generated Rust and Kotlin code. By constrast, _constructive_ qualifiers can correspond to a new type in the underlying Rust or Kotlin code (like `MutableList<T>` is different from `List<T>` in Kotlin) or correspond to a different way of using it (like mutable `Vec<T>` requires mutable references and variables in Rust). To support such cases, the only way to build these sorts of types is by calling a function. The qualifier itself has no body, and the constructor functions must all be defined in the same file as the qualifier declaration. When writing a function in the same file as a bodiless qualifier which returns a type of that qualifier, the function has access to a special `as` effect which allows it to _declare_ that a type has that qualifier:
+Predicate qualifiers apply to an existing value, and need not be present in the generated Rust and Kotlin code. By constrast, _constructive_ qualifiers can correspond to a new type in the underlying Rust or Kotlin code (like `MutableList<T>` is different from `List<T>` in Kotlin) or correspond to a different way of using it (like mutable `Vec<T>` requires mutable references and variables in Rust). To support such cases, the only way to build these sorts of types is by calling a function. The qualifier itself has no body, and the constructor functions must all be defined in the same file as the qualifier declaration. A constructor function is marked by writing `as Qualifier` after its return type: every return point returns a plain instance of the return type, which is assumed to gain the qualifier _by construction_. Callers of the function see the qualified type. Constructor functions must return a simple type (not a union or tuple); other functions can add more complexity on top of the constructors:
 
 ```
 // No body -- we're using a constructive qualifier
 qualifier RandomPositive of Int
 
-// Declares dependency on `as` effect
-fn random_positive_int() [Random<Int>, as] -> RandomPositive Int {
+// `-> Int as RandomPositive` marks this as a constructor for the qualifier.
+// Callers see the return type `RandomPositive Int`.
+fn random_positive_int() [Random<Int>] -> Int as RandomPositive {
     let num = next_random()
     while num <= 0 {
         num = next_random()
     }
 
-    // Use `as` effect to declare that `num` qualifies
-    return num as RandomPositive
+    // Returns a plain Int; it qualifies as RandomPositive by construction.
+    return num
+}
+```
+
+This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
+
+```
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn parse_age(input: Int) -> Ok Int | Err Str {
+    if input >= 0 {
+        return ok(input)
+    }
+    return err("negative age")
 }
 ```
 

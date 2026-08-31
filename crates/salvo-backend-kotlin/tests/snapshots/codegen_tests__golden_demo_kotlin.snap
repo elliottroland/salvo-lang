@@ -9,7 +9,7 @@ interface Console {
     fun print(message: String)
 }
 
-object StdOutConsole : Console {
+class StdOutConsole : Console {
     override fun print(message: String) {
         kotlin.io.print(message)
     }
@@ -56,7 +56,7 @@ fun range(start: Int, end: Int): Iterable<Int> {
 }
 
 fun main() {
-    val console: Console = StdOutConsole
+    val console: Console = StdOutConsole()
     val person = Person(name = "Roland", surname = "Elliott", age = 36)
     greet(console, person)
     val anon = person.copy(surname = null)

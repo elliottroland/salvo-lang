@@ -55,6 +55,7 @@ Module {
                             effects: None,
                             deductions: None,
                             return_type: None,
+                            constructs: None,
                             body: None,
                             span: 53..61,
                         },

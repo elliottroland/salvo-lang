@@ -177,6 +177,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -611,6 +612,7 @@ Module {
                 effects: None,
                 deductions: None,
                 return_type: None,
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -689,6 +691,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [

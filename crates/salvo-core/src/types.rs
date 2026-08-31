@@ -168,6 +168,17 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         (_, Ty::Any) => true,
         // A union is a subtype when every arm is.
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
+        // A qualified union group (`Ok (A | B)`) matches an identical union
+        // arm, or may drop its group qualifiers (checked before the any-arm
+        // rule below, which would compare the whole group against arms).
+        (Ty::Qualified { base, .. }, _) if matches!(**base, Ty::Union(_)) => {
+            if let Ty::Union(arms) = b {
+                if arms.iter().any(|arm| a == arm) {
+                    return true;
+                }
+            }
+            is_subtype(base, b)
+        }
         // A non-union is a subtype of a union when it fits some arm.
         (_, Ty::Union(arms)) => arms.iter().any(|arm| is_subtype(a, arm)),
         (
@@ -217,7 +228,11 @@ impl fmt::Display for Ty {
                 for q in quals {
                     write!(f, "{q} ")?;
                 }
-                write!(f, "{base}")
+                if matches!(**base, Ty::Union(_)) {
+                    write!(f, "({base})")
+                } else {
+                    write!(f, "{base}")
+                }
             }
             Ty::Union(arms) => {
                 // `T | None` prints as `T?`.

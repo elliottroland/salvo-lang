@@ -59,6 +59,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -194,6 +195,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -467,6 +469,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -696,6 +699,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -875,6 +879,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -1061,6 +1066,7 @@ Module {
                         },
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [
@@ -1208,6 +1214,7 @@ Module {
                         span: 1179..1183,
                     },
                 ),
+                constructs: None,
                 body: Some(
                     Block {
                         stmts: [

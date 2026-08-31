@@ -47,11 +47,21 @@ struct Person {
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
+// `-> T as Ok` marks a constructor function: the returned value gains
+// the qualifier by construction, and callers see `Ok T`.
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
 fn check_age(person: Person) -> Ok Int | Err Str {
     if person.age >= 0 {
-        return person.age as Ok
+        return ok(person.age)
     }
-    return "negative age" as Err
+    return err("negative age")
 }
 
 fn describe(person: Person) [Console] {
