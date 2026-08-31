@@ -1,6 +1,6 @@
 define fn size(str: Str) -> Int {
     inline: ``
-    ${str}.size
+    ${str}.length
     ``
 }
 

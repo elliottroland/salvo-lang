@@ -1,0 +1,215 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"basic.sv\"))"
+---
+Module {
+    items: [
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Byte",
+                    span: 14..18,
+                },
+                generics: [],
+                alias: None,
+                span: 9..18,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Int",
+                    span: 33..36,
+                },
+                generics: [],
+                alias: None,
+                span: 28..36,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Long",
+                    span: 51..55,
+                },
+                generics: [],
+                alias: None,
+                span: 46..55,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Float",
+                    span: 70..75,
+                },
+                generics: [],
+                alias: None,
+                span: 65..75,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Double",
+                    span: 90..96,
+                },
+                generics: [],
+                alias: None,
+                span: 85..96,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Char",
+                    span: 111..115,
+                },
+                generics: [],
+                alias: None,
+                span: 106..115,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Bool",
+                    span: 130..134,
+                },
+                generics: [],
+                alias: None,
+                span: 125..134,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Any",
+                    span: 149..152,
+                },
+                generics: [],
+                alias: None,
+                span: 144..152,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Nothing",
+                    span: 167..174,
+                },
+                generics: [],
+                alias: None,
+                span: 162..174,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Iter",
+                    span: 253..257,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 258..259,
+                    },
+                ],
+                alias: None,
+                span: 248..257,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: None,
+                name: Ident {
+                    name: "Number",
+                    span: 267..273,
+                },
+                generics: [],
+                alias: Some(
+                    Union {
+                        arms: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 276..279,
+                                    },
+                                    args: [],
+                                    span: 276..279,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Long",
+                                        span: 282..286,
+                                    },
+                                    args: [],
+                                    span: 282..286,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Double",
+                                        span: 289..295,
+                                    },
+                                    args: [],
+                                    span: 289..295,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Float",
+                                        span: 298..303,
+                                    },
+                                    args: [],
+                                    span: 298..303,
+                                },
+                            },
+                        ],
+                        span: 276..303,
+                    },
+                ),
+                span: 262..303,
+            },
+        ),
+    ],
+}

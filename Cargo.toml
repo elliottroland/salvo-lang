@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/salvo-cli",
+    "crates/salvo-syntax",
+    "crates/salvo-core",
+    "crates/salvo-backend",
+    "crates/salvo-backend-kotlin",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+salvo-syntax = { path = "crates/salvo-syntax" }
+salvo-core = { path = "crates/salvo-core" }
+salvo-backend = { path = "crates/salvo-backend" }
+salvo-backend-kotlin = { path = "crates/salvo-backend-kotlin" }
+
+clap = { version = "4.5", features = ["derive"] }
+include_dir = "0.7"
+insta = "1.40"

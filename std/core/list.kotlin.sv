@@ -10,7 +10,7 @@ define fn list<T>(...elems: T[]) -> List<T> {
     ``
 }
 
-define fn mutable_list<T>(...elems: T[]) -> List<T> {
+define fn mutable_list<T>(...elems: T[]) -> Mut List<T> {
     inline: ``
     mutableListOf(${...elems})
     ``
@@ -18,7 +18,7 @@ define fn mutable_list<T>(...elems: T[]) -> List<T> {
 
 define fn get<T>(list: List<T>, index: Int) -> T? {
     inline: ``
-    ${list}[${index}]
+    ${list}.getOrNull(${index})
     ``
 }
 

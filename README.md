@@ -3,7 +3,7 @@
 Salvo lang is an experimental high level programming language with C-like syntax which can transpile into Rust and Kotlin. The aim of the language is to support the transition from the JVM to a non-garbage collected language by using a language we can work with both of them. This has the following goals:
 
 * No explicit pointer or references.
-* No explicit explicit ownership or borrowing, except possibly in type signatures.
+* No explicit ownership or borrowing, except possibly in type signatures.
 * An imperative style rather than a purely-functional style.
 * A strong type system, with algebraic effects.
 * Support for "qualities" which allow us to annotate data in the type system.
@@ -64,7 +64,7 @@ while string_or_number is Int i {
 }
 ```
 
-It makes no sense to have duplicate types in a union (unless they are qualified, see below): `String | String` is equivalent and simplified to `String`.
+It makes no sense to have duplicate types in a union (unless they are qualified, see below): `Str | Str` is equivalent and simplified to `Str`.
 
 The type of a variable can never get more general (although its qualifiers can change, more on this later), and we don't support variable shadowing. In the above example, it is only because the type of `string_or_number` _started_ as a union, it could move between `Str` and `Int`.
 
@@ -108,7 +108,7 @@ Structs can be built from other structs using a spread operator `...`. This allo
 ```
 let person = Person {name: "Roland", age: 36}
 
-// `person2` has the same name, but differnet surname and age
+// `person2` has the same name, but different surname and age
 let person2 = Person {...person, surname: "Elliott", age: 25}
 ```
 
@@ -143,7 +143,7 @@ When a value is known to be non-null but this can't be proven by the compiler, t
 ```
 let person: Person = Person {name: "Roland", surname: "Elliott", age: 36}
 
-// Haven't done an explicit check, but we know `surname` is `String` because we just constructed it
+// Haven't done an explicit check, but we know `surname` is `Str` because we just constructed it
 println("Surname is ${person.surname!}")
 ```
 
@@ -195,7 +195,7 @@ Here, `Surname` is the name of the qualifier, and `Person` is the type it applie
 
 ```
 // Does not know there's a surname, so we have to check it's nullability. Ignore the `[person]` part for now.
-fn full_name(person: Person) -> [person] String {
+fn full_name(person: Person) -> [person] Str {
     if (person.surname is Str surname) {
         return "${person.name} ${surname}"
     }
@@ -204,7 +204,7 @@ fn full_name(person: Person) -> [person] String {
 }
 
 // Elsewhere we define that `Surname Person` means that the surname is non-null, so we know we can safely extract the non-null value here.
-fn full_name(person: Surname Person) -> [person] String {
+fn full_name(person: Surname Person) -> [person] Str {
     return "${person.name} ${person.surname!}"
 }
 ```
@@ -296,8 +296,8 @@ qualifier Ints of Pair<Int, Int>
 Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust:
 
 ```
-qualifer Ok<T> T
-qualifer Err<T> T
+qualifier Ok<T> of T
+qualifier Err<T> of T
 
 let result: Ok Int | Err Str = get_age()
 
@@ -332,7 +332,7 @@ if result is Err Str {
 }
 
 if result is Err {
-    // `result` is or type `Err Str | Err Bool`
+    // `result` is of type `Err Str | Err Bool`
 }
 ```
 
@@ -415,9 +415,9 @@ let value = when result {
 
 * `while` loops repeat until their expression evaluates to false.
 * `while` loops support the same `is` expression as `if` and `elif`, where the value is rebound for each iteration of the loop.
-* `while` loops evaluate to a value like `if` blocks, which is determine by either the last evaluated expression or one of the `break` statements (e.g. `break "hello, world!"`)
+* `while` loops evaluate to a value like `if` blocks, which is determined by either the last evaluated expression or one of the `break` statements (e.g. `break "hello, world!"`)
 * `while` loops support the `continue` statement, which skips to the next iteration of the loop.
-* `while` loops support an `else` block, which runs only if the loop never ran. This works the same as the `else` of an `if` block in that the last expression deteremines its value.
+* `while` loops support an `else` block, which runs only if the loop never ran. This works the same as the `else` of an `if` block in that the last expression determines its value.
 
 ```
 let numbers: Int[] = get_numbers()
@@ -441,7 +441,7 @@ for i in range(0, person.age) {
 }
 ```
 
-`for` loops evaluate to vlues just like `while` loops. They support `break`, `continue` and `else`.
+`for` loops evaluate to values just like `while` loops. They support `break`, `continue` and `else`.
 
 ## Functions
 
@@ -558,7 +558,7 @@ These are used internally when iterating in `for`-loops. The way to build iterat
 
 ```
 // Exclusive iterator
-fn range(start: Int, end: Int) -> Iterator<Int> {
+fn range(start: Int, end: Int) -> Iter<Int> {
     let i = start
     while i++ < end {
         yield i
@@ -566,7 +566,7 @@ fn range(start: Int, end: Int) -> Iterator<Int> {
 }
 
 // Inclusive iterator
-fn rangeIncl(start: Int, end: Int) -> Iterator<Int> {
+fn rangeIncl(start: Int, end: Int) -> Iter<Int> {
     // Empty range will not yield anything
     if start > end {
         return
@@ -627,7 +627,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     // Every function must be defined. In this case just `next_random`
     fn next_random() -> T {
         i = (i + 1) % values.size()
-        return values[i % numbers.size()]
+        return values[i]
     }
 }
 ```
@@ -645,13 +645,13 @@ fn main() [use] -> [] None {
 }
 ```
 
-The effects a function depends on are declared in the square brackets before its arrow. In the above example, the `main` function (which is also the entry point to any Hemertic program) starts with the special `use` effect, which is what allows it to use the `use` keyword. If a function does not declare a dependency on this, then `use` is not available to it. If the initial square brackets are not present in a function declaration, then it is assumed to be empty and that function is "pure".
+The effects a function depends on are declared in the square brackets before its arrow. In the above example, the `main` function (which is also the entry point to any Salvo program) starts with the special `use` effect, which is what allows it to use the `use` keyword. If a function does not declare a dependency on this, then `use` is not available to it. If the initial square brackets are not present in a function declaration, then it is assumed to be empty and that function is "pure".
 
 Almost every action other than simple data transformation needs to be encoded in an effect. For example, printing to the console is managed by an effect:
 
 ```
 effect Console {
-    fn println(message: String) -> [message] None
+    fn println(message: Str) -> [message] None
 }
 ```
 
@@ -693,10 +693,10 @@ Suppose that we have two qualifiers for list:
 
 ```
 // Tells us whether the list is mutable
-qualifer Mut<T> of List<T>
+qualifier Mut<T> of List<T>
 
 // Tells us that there is at least one element in the list
-qualifer NonEmpty<T> of List<T> with Mut<T>
+qualifier NonEmpty<T> of List<T> with Mut<T>
 ```
 
 If we remove an element from the list, then we don't know if it's non-empty any more. We can capture this as follows:
@@ -705,7 +705,7 @@ If we remove an element from the list, then we don't know if it's non-empty any 
 fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T
 ```
 
-This tells us that after the function has returned, _we know longer know that the list is NonEmpty_. From the calling context, then, we have the following:
+This tells us that after the function has returned, _we no longer know that the list is NonEmpty_. From the calling context, then, we have the following:
 
 ```
 let list: Mut List<Int> = mutable_list(1, 2, 3)
@@ -729,7 +729,7 @@ fn consume<T>(list: List<T>) -> [] Unit
 
 In this case calling `consume(list)` would _move_ the variable to the function, and future references to `list` in the calling function would be compile-time errors.
 
-When the deduction list is not specified, then it is is implied that all parameters are included, with the qualifiers that are inferred from their usage in the function. For example:
+When the deduction list is not specified, then it is implied that all parameters are included, with the qualifiers that are inferred from their usage in the function. For example:
 
 ```
 // The inferred deductions are `[list: Mut]`, because `remove_first` makes this deduction and might be called.
@@ -749,7 +749,7 @@ Now that we know how functions work, we can return to the topic of qualifiers an
 
 ### Predicate qualifiers
 
-We have not really described how to _add_ qualifiers to a type. There are basically two ways: by construction or by predication. A predicate qualifier is one in which we can write the predicate which allows us to see that the qualifier applies to a type. In this case, we define the function `qualifies` inside the qualifer, which takes a parameter of the given type and returns a boolean. This function does not support deductions because it can only ever be additive to the qualifiers of the type and can never move the value. It can, however, require effects, in which case the effects must have handlers in the context like any other function call:
+We have not really described how to _add_ qualifiers to a type. There are basically two ways: by construction or by predication. A predicate qualifier is one in which we can write the predicate which allows us to see that the qualifier applies to a type. In this case, we define the function `qualifies` inside the qualifier, which takes a parameter of the given type and returns a boolean. This function does not support deductions because it can only ever be additive to the qualifiers of the type and can never move the value. It can, however, require effects, in which case the effects must have handlers in the context like any other function call:
 
 ```
 qualifier Positive of Int {
@@ -785,7 +785,7 @@ When a predicate qualifier is applied to a struct, it can specify more specific 
 
 ```
 qualifier Surname of Person {
-    surname: String // If the 
+    surname: Str // More specific type for the `surname` field when `Surname` applies
 
     fn qualifies(person: Person) -> Bool {
         return person.surname is Str
@@ -836,7 +836,7 @@ Only the modules which are used in the code are transpiled to the relevant backe
 
 ## Backends
 
-One of the aims of Salvo is the make it easy to integrate Salvo code with the backend code. To achieve this, the Salvao compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between the `internal` and `external` backend layers. The core library uses both of these.
+One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between the `internal` and `external` backend layers. The core library uses both of these.
 
 ### Internal 
 
@@ -905,9 +905,9 @@ define type LinkedList<T> {
     import java.util.LinkedList
     ``
 
-    inline: ```
+    inline: ``
     LinkedList<${T}>
-    ```
+    ``
 }
 ```
 
@@ -947,5 +947,4 @@ Outside of validating that the interpolated variables refer to declared variable
 * When `None` is the only return type of a function, it should be translated to `Unit`.
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
-* The `Iter<T>` type should map to the `Iterable<T>` type in Kotlin, since this is what can be looped over in for-loops. A customer iterable type can be defined for dynamic `iterator {}` blocks in Kotlin.
-* 
+* The `Iter<T>` type should map to the `Iterable<T>` type in Kotlin, since this is what can be looped over in for-loops. A custom iterable type can be defined for dynamic `iterator {}` blocks in Kotlin.

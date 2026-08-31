@@ -1,0 +1,11 @@
+[package]
+name = "salvo-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lexer, parser, AST, and diagnostics for the Salvo language"
+
+[dependencies]
+
+[dev-dependencies]
+insta = { workspace = true }

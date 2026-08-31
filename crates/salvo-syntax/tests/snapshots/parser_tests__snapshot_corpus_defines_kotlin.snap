@@ -1,0 +1,328 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&corpus(\"defines.kotlin.sv\"))"
+---
+Module {
+    items: [
+        DefineType(
+            DefineType {
+                name: Ident {
+                    name: "LinkedList",
+                    span: 12..22,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 23..24,
+                    },
+                ],
+                body: DefineBody {
+                    imports: Some(
+                        Template {
+                            parts: [
+                                Text(
+                                    "import java.util.LinkedList",
+                                ),
+                            ],
+                            span: 41..82,
+                        },
+                    ),
+                    inline: Some(
+                        Template {
+                            parts: [
+                                Text(
+                                    "LinkedList<",
+                                ),
+                                Interp(
+                                    Ident {
+                                        name: "T",
+                                        span: 96..126,
+                                    },
+                                ),
+                                Text(
+                                    ">",
+                                ),
+                            ],
+                            span: 96..126,
+                        },
+                    ),
+                },
+                span: 0..128,
+            },
+        ),
+        DefineFn(
+            DefineFn {
+                sig: FnDecl {
+                    backing: None,
+                    name: Ident {
+                        name: "complicated_func",
+                        span: 140..156,
+                    },
+                    generics: [
+                        Ident {
+                            name: "T",
+                            span: 157..158,
+                        },
+                    ],
+                    params: [
+                        Param {
+                            name: Ident {
+                                name: "list",
+                                span: 160..164,
+                            },
+                            ty: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "List",
+                                        span: 166..170,
+                                    },
+                                    args: [
+                                        Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "T",
+                                                    span: 171..172,
+                                                },
+                                                args: [],
+                                                span: 171..172,
+                                            },
+                                        },
+                                    ],
+                                    span: 166..173,
+                                },
+                            },
+                            variadic: false,
+                            span: 160..173,
+                        },
+                    ],
+                    effects: None,
+                    deductions: None,
+                    return_type: Some(
+                        Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 178..181,
+                                },
+                                args: [],
+                                span: 178..181,
+                            },
+                        },
+                    ),
+                    body: None,
+                    span: 137..181,
+                },
+                body: DefineBody {
+                    imports: Some(
+                        Template {
+                            parts: [
+                                Text(
+                                    "import salvo.complicatedFunc",
+                                ),
+                            ],
+                            span: 197..239,
+                        },
+                    ),
+                    inline: Some(
+                        Template {
+                            parts: [
+                                Text(
+                                    "complicatedFunc(",
+                                ),
+                                Interp(
+                                    Ident {
+                                        name: "list",
+                                        span: 253..291,
+                                    },
+                                ),
+                                Text(
+                                    ")",
+                                ),
+                            ],
+                            span: 253..291,
+                        },
+                    ),
+                },
+                span: 130..293,
+            },
+        ),
+        DefineFn(
+            DefineFn {
+                sig: FnDecl {
+                    backing: None,
+                    name: Ident {
+                        name: "list",
+                        span: 305..309,
+                    },
+                    generics: [
+                        Ident {
+                            name: "T",
+                            span: 310..311,
+                        },
+                    ],
+                    params: [
+                        Param {
+                            name: Ident {
+                                name: "elems",
+                                span: 316..321,
+                            },
+                            ty: Array {
+                                elem: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 323..324,
+                                        },
+                                        args: [],
+                                        span: 323..324,
+                                    },
+                                },
+                                span: 323..326,
+                            },
+                            variadic: true,
+                            span: 316..326,
+                        },
+                    ],
+                    effects: None,
+                    deductions: None,
+                    return_type: Some(
+                        Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 331..335,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 336..337,
+                                            },
+                                            args: [],
+                                            span: 336..337,
+                                        },
+                                    },
+                                ],
+                                span: 331..338,
+                            },
+                        },
+                    ),
+                    body: None,
+                    span: 302..338,
+                },
+                body: DefineBody {
+                    imports: None,
+                    inline: Some(
+                        Template {
+                            parts: [
+                                Text(
+                                    "listOf(",
+                                ),
+                                InterpVariadic(
+                                    Ident {
+                                        name: "elems",
+                                        span: 353..386,
+                                    },
+                                ),
+                                Text(
+                                    ")",
+                                ),
+                            ],
+                            span: 353..386,
+                        },
+                    ),
+                },
+                span: 295..388,
+            },
+        ),
+        DefineHandler(
+            DefineHandler {
+                name: Ident {
+                    name: "StdOutConsole",
+                    span: 405..418,
+                },
+                generics: [],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "Console",
+                            span: 422..429,
+                        },
+                        args: [],
+                        span: 422..429,
+                    },
+                },
+                fns: [
+                    DefineFn {
+                        sig: FnDecl {
+                            backing: None,
+                            name: Ident {
+                                name: "print",
+                                span: 446..451,
+                            },
+                            generics: [],
+                            params: [
+                                Param {
+                                    name: Ident {
+                                        name: "message",
+                                        span: 452..459,
+                                    },
+                                    ty: Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Str",
+                                                span: 461..464,
+                                            },
+                                            args: [],
+                                            span: 461..464,
+                                        },
+                                    },
+                                    variadic: false,
+                                    span: 452..464,
+                                },
+                            ],
+                            effects: None,
+                            deductions: None,
+                            return_type: None,
+                            body: None,
+                            span: 443..451,
+                        },
+                        body: DefineBody {
+                            imports: None,
+                            inline: Some(
+                                Template {
+                                    parts: [
+                                        Text(
+                                            "print(",
+                                        ),
+                                        Interp(
+                                            Ident {
+                                                name: "message",
+                                                span: 484..523,
+                                            },
+                                        ),
+                                        Text(
+                                            ")",
+                                        ),
+                                    ],
+                                    span: 484..523,
+                                },
+                            ),
+                        },
+                        span: 436..529,
+                    },
+                ],
+                span: 390..531,
+            },
+        ),
+    ],
+}

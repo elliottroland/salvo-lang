@@ -1,0 +1,576 @@
+//! Abstract syntax tree for Salvo.
+//!
+//! The AST is deliberately close to the surface syntax; desugaring (e.g.
+//! `T?` -> `T | None`) happens during lowering in `salvo-core`.
+
+use crate::span::Span;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ident {
+    pub name: String,
+    pub span: Span,
+}
+
+/// A parsed source file.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Module {
+    pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Item {
+    Import(ImportDecl),
+    Type(TypeDecl),
+    Struct(StructDecl),
+    Qualifier(QualifierDecl),
+    Effect(EffectDecl),
+    Handler(HandlerDecl),
+    Fn(FnDecl),
+    DefineFn(DefineFn),
+    DefineType(DefineType),
+    DefineHandler(DefineHandler),
+}
+
+/// Visibility/backing modifier on declarations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackingMod {
+    /// `internal`: implemented inside the compiler, must be supported by
+    /// every backend.
+    Internal,
+    /// `external`: implemented via `define` templates in backend files.
+    External,
+}
+
+/// `import path.to.item (as alias)?`
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportDecl {
+    pub path: Vec<Ident>,
+    pub alias: Option<Ident>,
+    pub span: Span,
+}
+
+/// `internal type Str`, `external type List<T>`, or a type alias
+/// `type Result<S, T> = Ok S | Err T`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeDecl {
+    pub backing: Option<BackingMod>,
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub alias: Option<Type>,
+    pub span: Span,
+}
+
+/// `struct Person with Mut { name: Str, ... }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructDecl {
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    /// Auto-qualifiers, e.g. `with Mut`.
+    pub auto_qualifiers: Vec<TypeRef>,
+    pub fields: Vec<FieldDecl>,
+    pub span: Span,
+}
+
+/// A struct field, optionally with a default value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldDecl {
+    pub name: Ident,
+    pub ty: Type,
+    pub default: Option<Expr>,
+    pub span: Span,
+}
+
+/// `qualifier Name<G> of Type with Other { field-overrides fns }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct QualifierDecl {
+    pub backing: Option<BackingMod>,
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub of: Type,
+    /// Compatible qualifiers, e.g. `with Surname`.
+    pub with: Vec<TypeRef>,
+    /// Field type overrides for predicate qualifiers on structs.
+    pub field_overrides: Vec<FieldDecl>,
+    /// Functions defined in the qualifier body (e.g. `qualifies`).
+    pub fns: Vec<FnDecl>,
+    /// True when the declaration had a `{ ... }` body (predicate qualifier).
+    pub has_body: bool,
+    pub span: Span,
+}
+
+/// `effect Console { fn println(...) }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectDecl {
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub fns: Vec<FnDecl>,
+    pub span: Span,
+}
+
+/// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`
+/// or `external handler StdOutConsole of Console`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HandlerDecl {
+    pub backing: Option<BackingMod>,
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    /// Constructor parameters, e.g. `(values: T[])`.
+    pub params: Vec<Param>,
+    pub of: Type,
+    /// State fields with initializers, e.g. `i: Int = 0`.
+    pub state: Vec<FieldDecl>,
+    pub fns: Vec<FnDecl>,
+    pub span: Span,
+}
+
+/// A function declaration or signature.
+///
+/// `fn name<G>(params) [effects] -> [deductions] return_type { body }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct FnDecl {
+    pub backing: Option<BackingMod>,
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub params: Vec<Param>,
+    /// `None` means unspecified (pure); `Some(vec![])` means explicit `[]`.
+    pub effects: Option<Vec<EffectRef>>,
+    /// `None` means unspecified (inferred); `Some(vec![])` means explicit `[]`.
+    pub deductions: Option<Vec<Deduction>>,
+    /// `None` means the function returns `None` (the unit type).
+    pub return_type: Option<Type>,
+    /// `None` for signatures (`external fn`, effect members).
+    pub body: Option<Block>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Param {
+    pub name: Ident,
+    pub ty: Type,
+    /// True for `...args: T[]`.
+    pub variadic: bool,
+    pub span: Span,
+}
+
+/// An entry in a function's effect list: `[Random<Int>, Console, use, as]`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EffectRef {
+    /// The special `use` effect, allowing handler registration.
+    Use(Span),
+    /// The special `as` effect, allowing constructive qualifier casts.
+    As(Span),
+    /// A named effect, possibly generic: `Random<Int>`.
+    Effect(TypeRef),
+}
+
+/// An entry in a function's deduction list: `[person]` or `[list: Mut]`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Deduction {
+    pub param: Ident,
+    /// Qualifiers that remain known after the call, e.g. `Mut` in `[list: Mut]`.
+    pub qualifiers: Vec<TypeRef>,
+    pub span: Span,
+}
+
+// --- define templates (backend files) ---
+
+/// `define fn chars(str: Str) -> Char[] { imports: `` ... `` inline: `` ... `` }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct DefineFn {
+    pub sig: FnDecl,
+    pub body: DefineBody,
+    pub span: Span,
+}
+
+/// `define type LinkedList<T> { inline: `` ... `` }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct DefineType {
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub body: DefineBody,
+    pub span: Span,
+}
+
+/// `define handler StdOutConsole of Console { define fn ... }`
+#[derive(Clone, Debug, PartialEq)]
+pub struct DefineHandler {
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    pub of: Type,
+    pub fns: Vec<DefineFn>,
+    pub span: Span,
+}
+
+/// The `imports:`/`inline:` sections of a `define` block.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DefineBody {
+    pub imports: Option<Template>,
+    pub inline: Option<Template>,
+}
+
+/// A backtick template, split into literal text and `${...}` interpolations.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Template {
+    pub parts: Vec<TemplatePart>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TemplatePart {
+    Text(String),
+    /// `${name}` — a parameter or generic to interpolate.
+    Interp(Ident),
+    /// `${...name}` — a variadic parameter spliced as comma-separated values.
+    InterpVariadic(Ident),
+}
+
+// --- Types ---
+
+/// A type expression as written in source.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Type {
+    /// A (possibly qualified, possibly generic) named type: `Str`,
+    /// `List<Int>`, `Mut NonEmpty List<T>`. The last element of `path` is the
+    /// base type; the preceding elements are qualifiers.
+    Named {
+        qualifiers: Vec<TypeRef>,
+        base: TypeRef,
+    },
+    /// Qualifiers applied to a parenthesized type:
+    /// `Ok (Ok Str | Err Int)`.
+    QualifiedGroup {
+        qualifiers: Vec<TypeRef>,
+        base: Box<Type>,
+        span: Span,
+    },
+    /// `A | B | C`
+    Union { arms: Vec<Type>, span: Span },
+    /// `(A, B, C)`
+    Tuple { elems: Vec<Type>, span: Span },
+    /// `T[]`
+    Array { elem: Box<Type>, span: Span },
+    /// `T?` — sugar for `T | None`.
+    Nullable { inner: Box<Type>, span: Span },
+    /// `(S) -> T` or `(S) [E] -> T` — a function/lambda type.
+    Fn {
+        params: Vec<Type>,
+        effects: Option<Vec<EffectRef>>,
+        ret: Box<Type>,
+        span: Span,
+    },
+}
+
+impl Type {
+    pub fn span(&self) -> Span {
+        match self {
+            Type::Named { qualifiers, base } => qualifiers
+                .first()
+                .map(|q| q.span.to(base.span))
+                .unwrap_or(base.span),
+            Type::Union { span, .. }
+            | Type::Tuple { span, .. }
+            | Type::Array { span, .. }
+            | Type::Nullable { span, .. }
+            | Type::Fn { span, .. }
+            | Type::QualifiedGroup { span, .. } => *span,
+        }
+    }
+}
+
+/// A reference to a named type or qualifier, with optional generic arguments:
+/// `Str`, `List<Int>`, `Ok<T>`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeRef {
+    pub name: Ident,
+    pub args: Vec<Type>,
+    pub span: Span,
+}
+
+// --- Statements and expressions ---
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Block {
+    pub stmts: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stmt {
+    /// `let pattern (: Type)? = expr`
+    Let {
+        pattern: Pattern,
+        ty: Option<Type>,
+        value: Expr,
+        span: Span,
+    },
+    /// `target = expr` (assignment to a variable or field)
+    Assign {
+        target: Expr,
+        value: Expr,
+        span: Span,
+    },
+    /// `return expr?`
+    Return { value: Option<Expr>, span: Span },
+    /// `break expr?`
+    Break { value: Option<Expr>, span: Span },
+    /// `continue`
+    Continue { span: Span },
+    /// `yield expr`
+    Yield { value: Expr, span: Span },
+    /// `use HandlerExpr(...)` — register a handler for the current context.
+    Use { handler: Expr, span: Span },
+    /// A bare expression statement.
+    Expr(Expr),
+}
+
+/// Destructuring patterns for `let`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pattern {
+    Ident(Ident),
+    /// `let (a, b, c) = ...`
+    Tuple { elems: Vec<Pattern>, span: Span },
+    /// `let {name, age: their_age} = ...`
+    Struct {
+        fields: Vec<StructPatternField>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructPatternField {
+    /// Field name in the struct.
+    pub field: Ident,
+    /// Variable to bind it to (same as `field` for shorthand).
+    pub binding: Ident,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Expr {
+    /// Integer literal.
+    Int { value: i64, span: Span },
+    /// Float literal.
+    Float { value: f64, span: Span },
+    /// Boolean literal.
+    Bool { value: bool, span: Span },
+    /// Character literal.
+    Char { value: char, span: Span },
+    /// String literal with interpolation parts.
+    Str { parts: Vec<StrExprPart>, span: Span },
+    /// A variable or type-name reference.
+    Ident(Ident),
+    /// `expr.field`
+    Field {
+        base: Box<Expr>,
+        field: Ident,
+        span: Span,
+    },
+    /// `callee(args)` — including dot-notation `list.size()` which is kept
+    /// as a `Field` callee and normalized later.
+    Call {
+        callee: Box<Expr>,
+        /// Explicit generic args: `next_random<Int>()`.
+        type_args: Vec<Type>,
+        args: Vec<Arg>,
+        span: Span,
+    },
+    /// `expr[index]`
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
+    /// `[1, 2, 3]`
+    ArrayLit { elems: Vec<Expr>, span: Span },
+    /// `Int[5] { i: Int -> 0 }` — sized array construction with an
+    /// element-initializer lambda.
+    ArrayInit {
+        elem_type: TypeRef,
+        size: Box<Expr>,
+        init: Box<Expr>,
+        span: Span,
+    },
+    /// `(a, b, c)` — tuple literal (a single-element paren is just grouping).
+    Tuple { elems: Vec<Expr>, span: Span },
+    /// `Person {name: "R", ...other, age: 36}` or `Mut Person {...p}` or a
+    /// bare `{name: ...}` when the type is contextually known.
+    StructLit {
+        /// Type as written (`None` for a bare `{...}` literal).
+        ty: Option<Type>,
+        fields: Vec<StructLitField>,
+        span: Span,
+    },
+    /// Unary operators.
+    Unary {
+        op: UnaryOp,
+        operand: Box<Expr>,
+        span: Span,
+    },
+    /// Binary operators.
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    /// `expr is TypeRefSeq binding?` — type/qualifier check with optional
+    /// value binding (`if x is Str s { ... }`).
+    Is {
+        subject: Box<Expr>,
+        /// The checked type: a sequence of qualifiers ending in an optional
+        /// base type, e.g. `Str`, `Err Str`, `Surname`.
+        check: Vec<TypeRef>,
+        binding: Option<Ident>,
+        span: Span,
+    },
+    /// `value as Qualifier` — constructive qualifier cast.
+    As {
+        value: Box<Expr>,
+        target: TypeRef,
+        span: Span,
+    },
+    /// `expr!` — non-null assertion.
+    NonNull { operand: Box<Expr>, span: Span },
+    /// `i++` — postfix increment.
+    PostIncrement { operand: Box<Expr>, span: Span },
+    /// `if cond { } elif cond { } else { }`
+    If {
+        branches: Vec<(Expr, Block)>,
+        else_block: Option<Block>,
+        span: Span,
+    },
+    /// `when subject { is X { } is Y { } }`
+    When {
+        subject: Box<Expr>,
+        branches: Vec<WhenBranch>,
+        span: Span,
+    },
+    /// `while cond { } else { }`
+    While {
+        cond: Box<Expr>,
+        body: Block,
+        else_block: Option<Block>,
+        span: Span,
+    },
+    /// `for pat in iterable { } else { }`
+    For {
+        pattern: Pattern,
+        iterable: Box<Expr>,
+        body: Block,
+        else_block: Option<Block>,
+        span: Span,
+    },
+    /// `i -> expr`, `(a, b) -> { ... }`, `{ i: Int -> 0 }`
+    Lambda {
+        params: Vec<LambdaParam>,
+        body: LambdaBody,
+        span: Span,
+    },
+    /// `...expr` — spread in call arguments or struct literals.
+    Spread { operand: Box<Expr>, span: Span },
+    /// Placeholder produced on parse errors so parsing can continue.
+    Error { span: Span },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StrExprPart {
+    Text(String),
+    Interp(Box<Expr>),
+}
+
+/// A call argument (possibly spread).
+pub type Arg = Expr;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructLitField {
+    pub kind: StructLitFieldKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StructLitFieldKind {
+    /// `name: expr`
+    Named { name: Ident, value: Expr },
+    /// `...expr`
+    Spread(Expr),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WhenBranch {
+    /// The `is ...` check.
+    pub check: Vec<TypeRef>,
+    pub binding: Option<Ident>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LambdaParam {
+    pub name: Ident,
+    pub ty: Option<Type>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LambdaBody {
+    /// `i -> "${i}"` — the expression is the value; no `return` required.
+    Expr(Box<Expr>),
+    /// `i -> { return "${i}" }` — a full block; requires `return`.
+    Block(Block),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnaryOp {
+    Neg, // -x
+    Not, // !x
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    NotEq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
+    And,
+    Or,
+}
+
+impl Expr {
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Int { span, .. }
+            | Expr::Float { span, .. }
+            | Expr::Bool { span, .. }
+            | Expr::Char { span, .. }
+            | Expr::Str { span, .. }
+            | Expr::Field { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Index { span, .. }
+            | Expr::ArrayLit { span, .. }
+            | Expr::ArrayInit { span, .. }
+            | Expr::Tuple { span, .. }
+            | Expr::StructLit { span, .. }
+            | Expr::Unary { span, .. }
+            | Expr::Binary { span, .. }
+            | Expr::Is { span, .. }
+            | Expr::As { span, .. }
+            | Expr::NonNull { span, .. }
+            | Expr::PostIncrement { span, .. }
+            | Expr::If { span, .. }
+            | Expr::When { span, .. }
+            | Expr::While { span, .. }
+            | Expr::For { span, .. }
+            | Expr::Lambda { span, .. }
+            | Expr::Spread { span, .. }
+            | Expr::Error { span } => *span,
+            Expr::Ident(ident) => ident.span,
+        }
+    }
+}

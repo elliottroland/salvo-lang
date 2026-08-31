@@ -1,0 +1,69 @@
+---
+source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
+expression: combined
+---
+// ===== core/console.kt =====
+package salvo
+
+interface Console {
+    fun print(message: String)
+}
+
+object StdOutConsole : Console {
+    override fun print(message: String) {
+        kotlin.io.print(message)
+    }
+}
+
+fun println(console: Console, message: String) {
+    console.print(message)
+    console.print("\n")
+}
+
+// ===== main.kt =====
+package salvo
+
+data class Person(
+    val name: String,
+    val surname: String? = null,
+    val age: Int,
+)
+
+fun full_name(person: Person): String {
+    if (person.surname is String) {
+        val surname = person.surname as String
+        return "${person.name} $surname"
+    }
+    return person.name
+}
+
+fun greet(console: Console, person: Person) {
+    println(console, "Hello, ${full_name(person)}!")
+    for (i in range(1, 4)) {
+        println(console, "  $i: ${person.age + i}")
+    }
+}
+
+fun range(start: Int, end: Int): Iterable<Int> {
+    return Iterable<Int> {
+        iterator {
+            var i = start
+            while (i++ < end) {
+                yield(i - 1)
+            }
+        }
+    }
+}
+
+fun main() {
+    val console: Console = StdOutConsole
+    val person = Person(name = "Roland", surname = "Elliott", age = 36)
+    greet(console, person)
+    val anon = person.copy(surname = null)
+    greet(console, anon)
+    val names = listOf("a", "b")
+    println(console, "first: ${names.firstOrNull()!!}")
+    val mut_names = mutableListOf("x")
+    mut_names.add("y")
+    println(console, "size: ${mut_names.size}")
+}

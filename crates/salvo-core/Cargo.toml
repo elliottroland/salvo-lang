@@ -1,0 +1,9 @@
+[package]
+name = "salvo-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Name resolution, type checking, and IR for the Salvo compiler"
+
+[dependencies]
+salvo-syntax = { workspace = true }

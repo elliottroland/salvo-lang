@@ -1,0 +1,18 @@
+[package]
+name = "salvo-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Salvo language compiler CLI"
+
+[[bin]]
+name = "salvo"
+path = "src/main.rs"
+
+[dependencies]
+salvo-syntax = { workspace = true }
+salvo-core = { workspace = true }
+salvo-backend = { workspace = true }
+salvo-backend-kotlin = { workspace = true }
+clap = { workspace = true }
+include_dir = { workspace = true }

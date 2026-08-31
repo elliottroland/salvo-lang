@@ -1,0 +1,542 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"list.sv\"))"
+---
+Module {
+    items: [
+        Type(
+            TypeDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "List",
+                    span: 14..18,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 19..20,
+                    },
+                ],
+                alias: None,
+                span: 9..18,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "list",
+                    span: 50..54,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 55..56,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "elems",
+                            span: 61..66,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 68..69,
+                                    },
+                                    args: [],
+                                    span: 68..69,
+                                },
+                            },
+                            span: 68..71,
+                        },
+                        variadic: true,
+                        span: 61..71,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "List",
+                                span: 76..80,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 81..82,
+                                        },
+                                        args: [],
+                                        span: 81..82,
+                                    },
+                                },
+                            ],
+                            span: 76..83,
+                        },
+                    },
+                ),
+                body: None,
+                span: 47..83,
+            },
+        ),
+        Qualifier(
+            QualifierDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "Mut",
+                    span: 104..107,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 108..109,
+                    },
+                ],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "List",
+                            span: 114..118,
+                        },
+                        args: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 119..120,
+                                    },
+                                    args: [],
+                                    span: 119..120,
+                                },
+                            },
+                        ],
+                        span: 114..121,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [],
+                has_body: false,
+                span: 94..121,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "mutable_list",
+                    span: 158..170,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 171..172,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "elems",
+                            span: 177..182,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 184..185,
+                                    },
+                                    args: [],
+                                    span: 184..185,
+                                },
+                            },
+                            span: 184..187,
+                        },
+                        variadic: true,
+                        span: 177..187,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 192..195,
+                                },
+                                args: [],
+                                span: 192..195,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "List",
+                                span: 196..200,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 201..202,
+                                        },
+                                        args: [],
+                                        span: 201..202,
+                                    },
+                                },
+                            ],
+                            span: 196..203,
+                        },
+                    },
+                ),
+                body: None,
+                span: 155..203,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "get",
+                    span: 292..295,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 296..297,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 299..303,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 305..309,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 310..311,
+                                            },
+                                            args: [],
+                                            span: 310..311,
+                                        },
+                                    },
+                                ],
+                                span: 305..312,
+                            },
+                        },
+                        variadic: false,
+                        span: 299..312,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "index",
+                            span: 314..319,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 321..324,
+                                },
+                                args: [],
+                                span: 321..324,
+                            },
+                        },
+                        variadic: false,
+                        span: 314..324,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 329..330,
+                                },
+                                args: [],
+                                span: 329..330,
+                            },
+                        },
+                        span: 329..331,
+                    },
+                ),
+                body: None,
+                span: 289..331,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "add",
+                    span: 376..379,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 380..381,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 383..387,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 389..392,
+                                    },
+                                    args: [],
+                                    span: 389..392,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 393..397,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 398..399,
+                                            },
+                                            args: [],
+                                            span: 398..399,
+                                        },
+                                    },
+                                ],
+                                span: 393..400,
+                            },
+                        },
+                        variadic: false,
+                        span: 383..400,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "elem",
+                            span: 402..406,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 408..409,
+                                },
+                                args: [],
+                                span: 408..409,
+                            },
+                        },
+                        variadic: false,
+                        span: 402..409,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: None,
+                body: None,
+                span: 373..379,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "first",
+                    span: 424..429,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 430..431,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 433..437,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 439..443,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 444..445,
+                                            },
+                                            args: [],
+                                            span: 444..445,
+                                        },
+                                    },
+                                ],
+                                span: 439..446,
+                            },
+                        },
+                        variadic: false,
+                        span: 433..446,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 451..452,
+                                },
+                                args: [],
+                                span: 451..452,
+                            },
+                        },
+                        span: 451..453,
+                    },
+                ),
+                body: None,
+                span: 421..453,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "iter",
+                    span: 467..471,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 472..473,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 475..479,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 481..485,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 486..487,
+                                            },
+                                            args: [],
+                                            span: 486..487,
+                                        },
+                                    },
+                                ],
+                                span: 481..488,
+                            },
+                        },
+                        variadic: false,
+                        span: 475..488,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Iter",
+                                span: 493..497,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 498..499,
+                                        },
+                                        args: [],
+                                        span: 498..499,
+                                    },
+                                },
+                            ],
+                            span: 493..500,
+                        },
+                    },
+                ),
+                body: None,
+                span: 464..500,
+            },
+        ),
+    ],
+}

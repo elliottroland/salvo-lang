@@ -1,0 +1,168 @@
+//! Source-file discovery and classification.
+//!
+//! Salvo modules correspond to files: `list/ext.sv` is module `list.ext`.
+//! Backend define files use a double extension: `string.kotlin.sv` holds the
+//! Kotlin `define` templates for module `string`. Files for other backends
+//! are skipped entirely.
+
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+/// Dotted module path, e.g. `core.string`.
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModulePath(pub Vec<String>);
+
+impl fmt::Display for ModulePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.join("."))
+    }
+}
+
+impl fmt::Debug for ModulePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceKind {
+    /// A language file (`foo.sv`).
+    Language,
+    /// A backend define file for the active backend (`foo.<backend>.sv`).
+    BackendDefine,
+}
+
+#[derive(Clone, Debug)]
+pub struct SourceFile {
+    /// Display name (relative path) for diagnostics.
+    pub name: String,
+    pub module: ModulePath,
+    pub kind: SourceKind,
+    pub content: String,
+    /// True for files that come from the embedded standard library.
+    pub is_std: bool,
+}
+
+/// The full set of sources for a compilation: user sources plus the
+/// (backend-filtered) standard library.
+#[derive(Debug, Default)]
+pub struct SourceSet {
+    pub files: Vec<SourceFile>,
+}
+
+impl SourceSet {
+    /// Classifies a relative `.sv` path for the given backend.
+    ///
+    /// Returns `None` when the file belongs to a different backend and
+    /// should be skipped. `prefix` is prepended to the module path (e.g.
+    /// `["core"]` — already part of the relative path for std files).
+    pub fn classify(rel_path: &Path, backend: &str) -> Option<(ModulePath, SourceKind)> {
+        let file_name = rel_path.file_name()?.to_str()?;
+        let stem = file_name.strip_suffix(".sv")?;
+
+        let (module_stem, kind) = match stem.rsplit_once('.') {
+            Some((module, be)) if be == backend => (module, SourceKind::BackendDefine),
+            Some((_, _)) => return None, // another backend's define file
+            None => (stem, SourceKind::Language),
+        };
+
+        let mut components: Vec<String> = rel_path
+            .parent()
+            .map(|p| {
+                p.components()
+                    .filter_map(|c| c.as_os_str().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        components.push(module_stem.to_string());
+        Some((ModulePath(components), kind))
+    }
+
+    pub fn add(
+        &mut self,
+        name: impl Into<String>,
+        module: ModulePath,
+        kind: SourceKind,
+        content: String,
+        is_std: bool,
+    ) {
+        self.files.push(SourceFile {
+            name: name.into(),
+            module,
+            kind,
+            content,
+            is_std,
+        });
+    }
+
+    /// Walks `root` recursively, adding every `.sv` file that matches the
+    /// backend. Returns the paths that failed to read.
+    pub fn add_dir(&mut self, root: &Path, backend: &str, is_std: bool) -> Vec<(PathBuf, String)> {
+        let mut errors = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        let mut paths = Vec::new();
+        while let Some(dir) = stack.pop() {
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(err) => {
+                    errors.push((dir, err.to_string()));
+                    continue;
+                }
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "sv") {
+                    paths.push(path);
+                }
+            }
+        }
+        paths.sort();
+        for path in paths {
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let Some((module, kind)) = Self::classify(rel, backend) else {
+                continue;
+            };
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    self.add(rel.display().to_string(), module, kind, content, is_std)
+                }
+                Err(err) => errors.push((path, err.to_string())),
+            }
+        }
+        errors
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_language_files() {
+        let (module, kind) = SourceSet::classify(Path::new("core/list.sv"), "kotlin").unwrap();
+        assert_eq!(module.to_string(), "core.list");
+        assert_eq!(kind, SourceKind::Language);
+    }
+
+    #[test]
+    fn classifies_backend_define_files() {
+        let (module, kind) =
+            SourceSet::classify(Path::new("core/list.kotlin.sv"), "kotlin").unwrap();
+        assert_eq!(module.to_string(), "core.list");
+        assert_eq!(kind, SourceKind::BackendDefine);
+    }
+
+    #[test]
+    fn skips_other_backend_files() {
+        assert!(SourceSet::classify(Path::new("core/list.rust.sv"), "kotlin").is_none());
+        assert!(SourceSet::classify(Path::new("core/list.kotlin.sv"), "rust").is_none());
+    }
+
+    #[test]
+    fn nested_modules() {
+        let (module, _) = SourceSet::classify(Path::new("list/ext.sv"), "kotlin").unwrap();
+        assert_eq!(module.to_string(), "list.ext");
+    }
+}

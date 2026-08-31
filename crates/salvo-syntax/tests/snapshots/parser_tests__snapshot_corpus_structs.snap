@@ -1,0 +1,734 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&corpus(\"structs.sv\"))"
+---
+Module {
+    items: [
+        Struct(
+            StructDecl {
+                name: Ident {
+                    name: "Person",
+                    span: 7..13,
+                },
+                generics: [],
+                auto_qualifiers: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Mut",
+                            span: 19..22,
+                        },
+                        args: [],
+                        span: 19..22,
+                    },
+                ],
+                fields: [
+                    FieldDecl {
+                        name: Ident {
+                            name: "name",
+                            span: 29..33,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 35..38,
+                                },
+                                args: [],
+                                span: 35..38,
+                            },
+                        },
+                        default: None,
+                        span: 29..38,
+                    },
+                    FieldDecl {
+                        name: Ident {
+                            name: "surname",
+                            span: 44..51,
+                        },
+                        ty: Nullable {
+                            inner: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 53..56,
+                                    },
+                                    args: [],
+                                    span: 53..56,
+                                },
+                            },
+                            span: 53..57,
+                        },
+                        default: Some(
+                            Ident(
+                                Ident {
+                                    name: "None",
+                                    span: 60..64,
+                                },
+                            ),
+                        ),
+                        span: 44..64,
+                    },
+                    FieldDecl {
+                        name: Ident {
+                            name: "age",
+                            span: 70..73,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 75..78,
+                                },
+                                args: [],
+                                span: 75..78,
+                            },
+                        },
+                        default: None,
+                        span: 70..78,
+                    },
+                ],
+                span: 0..80,
+            },
+        ),
+        Struct(
+            StructDecl {
+                name: Ident {
+                    name: "Pair",
+                    span: 89..93,
+                },
+                generics: [
+                    Ident {
+                        name: "S",
+                        span: 94..95,
+                    },
+                    Ident {
+                        name: "T",
+                        span: 97..98,
+                    },
+                ],
+                auto_qualifiers: [],
+                fields: [
+                    FieldDecl {
+                        name: Ident {
+                            name: "first",
+                            span: 106..111,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "S",
+                                    span: 113..114,
+                                },
+                                args: [],
+                                span: 113..114,
+                            },
+                        },
+                        default: None,
+                        span: 106..114,
+                    },
+                    FieldDecl {
+                        name: Ident {
+                            name: "second",
+                            span: 120..126,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 128..129,
+                                },
+                                args: [],
+                                span: 128..129,
+                            },
+                        },
+                        default: None,
+                        span: 120..129,
+                    },
+                ],
+                span: 82..131,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: None,
+                name: Ident {
+                    name: "build",
+                    span: 136..141,
+                },
+                generics: [],
+                params: [],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Person",
+                                span: 147..153,
+                            },
+                            args: [],
+                            span: 147..153,
+                        },
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "person",
+                                        span: 164..170,
+                                    },
+                                ),
+                                ty: Some(
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Person",
+                                                span: 172..178,
+                                            },
+                                            args: [],
+                                            span: 172..178,
+                                        },
+                                    },
+                                ),
+                                value: StructLit {
+                                    ty: Some(
+                                        Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "Person",
+                                                    span: 181..187,
+                                                },
+                                                args: [],
+                                                span: 181..187,
+                                            },
+                                        },
+                                    ),
+                                    fields: [
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "name",
+                                                    span: 189..193,
+                                                },
+                                                value: Str {
+                                                    parts: [
+                                                        Text(
+                                                            "Roland",
+                                                        ),
+                                                    ],
+                                                    span: 195..203,
+                                                },
+                                            },
+                                            span: 189..203,
+                                        },
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "age",
+                                                    span: 205..208,
+                                                },
+                                                value: Int {
+                                                    value: 36,
+                                                    span: 210..212,
+                                                },
+                                            },
+                                            span: 205..212,
+                                        },
+                                    ],
+                                    span: 181..213,
+                                },
+                                span: 160..213,
+                            },
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "person2",
+                                        span: 222..229,
+                                    },
+                                ),
+                                ty: None,
+                                value: StructLit {
+                                    ty: Some(
+                                        Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "Person",
+                                                    span: 232..238,
+                                                },
+                                                args: [],
+                                                span: 232..238,
+                                            },
+                                        },
+                                    ),
+                                    fields: [
+                                        StructLitField {
+                                            kind: Spread(
+                                                Ident(
+                                                    Ident {
+                                                        name: "person",
+                                                        span: 243..249,
+                                                    },
+                                                ),
+                                            ),
+                                            span: 240..249,
+                                        },
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "surname",
+                                                    span: 251..258,
+                                                },
+                                                value: Str {
+                                                    parts: [
+                                                        Text(
+                                                            "Elliott",
+                                                        ),
+                                                    ],
+                                                    span: 260..269,
+                                                },
+                                            },
+                                            span: 251..269,
+                                        },
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "age",
+                                                    span: 271..274,
+                                                },
+                                                value: Int {
+                                                    value: 25,
+                                                    span: 276..278,
+                                                },
+                                            },
+                                            span: 271..278,
+                                        },
+                                    ],
+                                    span: 232..279,
+                                },
+                                span: 218..279,
+                            },
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "mutable_person",
+                                        span: 288..302,
+                                    },
+                                ),
+                                ty: None,
+                                value: StructLit {
+                                    ty: Some(
+                                        Named {
+                                            qualifiers: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Mut",
+                                                        span: 305..308,
+                                                    },
+                                                    args: [],
+                                                    span: 305..308,
+                                                },
+                                            ],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "Person",
+                                                    span: 309..315,
+                                                },
+                                                args: [],
+                                                span: 309..315,
+                                            },
+                                        },
+                                    ),
+                                    fields: [
+                                        StructLitField {
+                                            kind: Spread(
+                                                Ident(
+                                                    Ident {
+                                                        name: "person",
+                                                        span: 320..326,
+                                                    },
+                                                ),
+                                            ),
+                                            span: 317..326,
+                                        },
+                                    ],
+                                    span: 305..327,
+                                },
+                                span: 284..327,
+                            },
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "person3",
+                                        span: 336..343,
+                                    },
+                                ),
+                                ty: Some(
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Person",
+                                                span: 345..351,
+                                            },
+                                            args: [],
+                                            span: 345..351,
+                                        },
+                                    },
+                                ),
+                                value: StructLit {
+                                    ty: None,
+                                    fields: [
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "name",
+                                                    span: 355..359,
+                                                },
+                                                value: Str {
+                                                    parts: [
+                                                        Text(
+                                                            "Roland",
+                                                        ),
+                                                    ],
+                                                    span: 361..369,
+                                                },
+                                            },
+                                            span: 355..369,
+                                        },
+                                        StructLitField {
+                                            kind: Named {
+                                                name: Ident {
+                                                    name: "age",
+                                                    span: 371..374,
+                                                },
+                                                value: Int {
+                                                    value: 36,
+                                                    span: 376..378,
+                                                },
+                                            },
+                                            span: 371..378,
+                                        },
+                                    ],
+                                    span: 354..379,
+                                },
+                                span: 332..379,
+                            },
+                            Let {
+                                pattern: Struct {
+                                    fields: [
+                                        StructPatternField {
+                                            field: Ident {
+                                                name: "name",
+                                                span: 389..393,
+                                            },
+                                            binding: Ident {
+                                                name: "name",
+                                                span: 389..393,
+                                            },
+                                            span: 389..393,
+                                        },
+                                        StructPatternField {
+                                            field: Ident {
+                                                name: "age",
+                                                span: 395..398,
+                                            },
+                                            binding: Ident {
+                                                name: "their_age",
+                                                span: 400..409,
+                                            },
+                                            span: 395..409,
+                                        },
+                                    ],
+                                    span: 388..410,
+                                },
+                                ty: None,
+                                value: Ident(
+                                    Ident {
+                                        name: "person",
+                                        span: 413..419,
+                                    },
+                                ),
+                                span: 384..419,
+                            },
+                            Let {
+                                pattern: Tuple {
+                                    elems: [
+                                        Ident(
+                                            Ident {
+                                                name: "a",
+                                                span: 429..430,
+                                            },
+                                        ),
+                                        Ident(
+                                            Ident {
+                                                name: "b",
+                                                span: 432..433,
+                                            },
+                                        ),
+                                        Ident(
+                                            Ident {
+                                                name: "c",
+                                                span: 435..436,
+                                            },
+                                        ),
+                                    ],
+                                    span: 428..437,
+                                },
+                                ty: None,
+                                value: Tuple {
+                                    elems: [
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "String",
+                                                ),
+                                            ],
+                                            span: 441..449,
+                                        },
+                                        Unary {
+                                            op: Neg,
+                                            operand: Int {
+                                                value: 1,
+                                                span: 452..453,
+                                            },
+                                            span: 451..453,
+                                        },
+                                        Bool {
+                                            value: true,
+                                            span: 455..459,
+                                        },
+                                    ],
+                                    span: 440..460,
+                                },
+                                span: 424..460,
+                            },
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "surname",
+                                        span: 469..476,
+                                    },
+                                ),
+                                ty: Some(
+                                    Nullable {
+                                        inner: Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "Str",
+                                                    span: 478..481,
+                                                },
+                                                args: [],
+                                                span: 478..481,
+                                            },
+                                        },
+                                        span: 478..482,
+                                    },
+                                ),
+                                value: Field {
+                                    base: Ident(
+                                        Ident {
+                                            name: "person",
+                                            span: 485..491,
+                                        },
+                                    ),
+                                    field: Ident {
+                                        name: "surname",
+                                        span: 492..499,
+                                    },
+                                    span: 485..499,
+                                },
+                                span: 465..499,
+                            },
+                            Return {
+                                value: Some(
+                                    Ident(
+                                        Ident {
+                                            name: "person2",
+                                            span: 511..518,
+                                        },
+                                    ),
+                                ),
+                                span: 504..518,
+                            },
+                        ],
+                        span: 154..520,
+                    },
+                ),
+                span: 133..520,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: None,
+                name: Ident {
+                    name: "mutate",
+                    span: 525..531,
+                },
+                generics: [],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "person",
+                            span: 532..538,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 540..543,
+                                    },
+                                    args: [],
+                                    span: 540..543,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Person",
+                                    span: 544..550,
+                                },
+                                args: [],
+                                span: 544..550,
+                            },
+                        },
+                        variadic: false,
+                        span: 532..550,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Assign {
+                                target: Field {
+                                    base: Ident(
+                                        Ident {
+                                            name: "person",
+                                            span: 558..564,
+                                        },
+                                    ),
+                                    field: Ident {
+                                        name: "name",
+                                        span: 565..569,
+                                    },
+                                    span: 558..569,
+                                },
+                                value: Str {
+                                    parts: [
+                                        Text(
+                                            "Someone else",
+                                        ),
+                                    ],
+                                    span: 572..586,
+                                },
+                                span: 558..586,
+                            },
+                        ],
+                        span: 552..588,
+                    },
+                ),
+                span: 522..588,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: None,
+                name: Ident {
+                    name: "interpolate",
+                    span: 593..604,
+                },
+                generics: [],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "person",
+                            span: 605..611,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Person",
+                                    span: 613..619,
+                                },
+                                args: [],
+                                span: 613..619,
+                            },
+                        },
+                        variadic: false,
+                        span: 605..619,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 624..627,
+                            },
+                            args: [],
+                            span: 624..627,
+                        },
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    Str {
+                                        parts: [
+                                            Text(
+                                                "Surname is ",
+                                            ),
+                                            Interp(
+                                                NonNull {
+                                                    operand: Field {
+                                                        base: Ident(
+                                                            Ident {
+                                                                name: "person",
+                                                                span: 655..661,
+                                                            },
+                                                        ),
+                                                        field: Ident {
+                                                            name: "surname",
+                                                            span: 662..669,
+                                                        },
+                                                        span: 655..669,
+                                                    },
+                                                    span: 655..670,
+                                                },
+                                            ),
+                                        ],
+                                        span: 641..672,
+                                    },
+                                ),
+                                span: 634..672,
+                            },
+                        ],
+                        span: 628..674,
+                    },
+                ),
+                span: 590..674,
+            },
+        ),
+    ],
+}

@@ -1,0 +1,220 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&corpus(\"imports_externals.sv\"))"
+---
+Module {
+    items: [
+        Import(
+            ImportDecl {
+                path: [
+                    Ident {
+                        name: "random",
+                        span: 7..13,
+                    },
+                    Ident {
+                        name: "Random",
+                        span: 14..20,
+                    },
+                ],
+                alias: None,
+                span: 0..20,
+            },
+        ),
+        Import(
+            ImportDecl {
+                path: [
+                    Ident {
+                        name: "list",
+                        span: 28..32,
+                    },
+                    Ident {
+                        name: "add",
+                        span: 33..36,
+                    },
+                ],
+                alias: None,
+                span: 21..36,
+            },
+        ),
+        Import(
+            ImportDecl {
+                path: [
+                    Ident {
+                        name: "list",
+                        span: 44..48,
+                    },
+                    Ident {
+                        name: "ext",
+                        span: 49..52,
+                    },
+                    Ident {
+                        name: "add",
+                        span: 53..56,
+                    },
+                ],
+                alias: Some(
+                    Ident {
+                        name: "ext_add",
+                        span: 60..67,
+                    },
+                ),
+                span: 37..67,
+            },
+        ),
+        Import(
+            ImportDecl {
+                path: [
+                    Ident {
+                        name: "core",
+                        span: 75..79,
+                    },
+                    Ident {
+                        name: "Str",
+                        span: 80..83,
+                    },
+                ],
+                alias: None,
+                span: 68..83,
+            },
+        ),
+        Type(
+            TypeDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "LinkedList",
+                    span: 99..109,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 110..111,
+                    },
+                ],
+                alias: None,
+                span: 94..109,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "chars",
+                    span: 126..131,
+                },
+                generics: [],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 132..135,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 137..140,
+                                },
+                                args: [],
+                                span: 137..140,
+                            },
+                        },
+                        variadic: false,
+                        span: 132..140,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Array {
+                        elem: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Char",
+                                    span: 145..149,
+                                },
+                                args: [],
+                                span: 145..149,
+                            },
+                        },
+                        span: 145..151,
+                    },
+                ),
+                body: None,
+                span: 123..151,
+            },
+        ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    External,
+                ),
+                name: Ident {
+                    name: "complicated_func",
+                    span: 165..181,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 182..183,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 185..189,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 191..195,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 196..197,
+                                            },
+                                            args: [],
+                                            span: 196..197,
+                                        },
+                                    },
+                                ],
+                                span: 191..198,
+                            },
+                        },
+                        variadic: false,
+                        span: 185..198,
+                    },
+                ],
+                effects: None,
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 203..206,
+                            },
+                            args: [],
+                            span: 203..206,
+                        },
+                    },
+                ),
+                body: None,
+                span: 162..206,
+            },
+        ),
+    ],
+}
