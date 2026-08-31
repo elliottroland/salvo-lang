@@ -1,4 +1,4 @@
-//! Parser integration tests: the standard library and a corpus of README
+//! Parser integration tests: the standard library and a corpus of LANGUAGE.md
 //! examples must parse without errors, with AST snapshots for regressions.
 
 use std::path::{Path, PathBuf};
@@ -91,7 +91,7 @@ fn snapshot_std_console_kotlin() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("console.kotlin.sv")));
 }
 
-// --- README example corpus ---
+// --- LANGUAGE.md example corpus ---
 
 #[test]
 fn snapshot_corpus_structs() {

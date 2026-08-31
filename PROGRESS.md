@@ -27,7 +27,7 @@ kotlinc out/main.kt out/unions.kt out/core/console.kt -d classes && kotlin -cp c
 crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
-│   └── tests/corpus/     # README-example .sv files + insta snapshots
+│   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs (M3)
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 └── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
@@ -43,7 +43,7 @@ filters define files per backend at load time (`SourceSet::classify`).
 
 ### M0+M1 — CLI skeleton + full parser
 
-- Hand-written lexer + recursive-descent parser covering the entire README
+- Hand-written lexer + recursive-descent parser covering the entire LANGUAGE.md
   grammar (deliberately hand-written: newline-terminated statements,
   template/interpolation lexer modes, struct-literal-vs-block ambiguity, and
   speculative parses for generic calls / paren lambdas make grammar
@@ -62,7 +62,7 @@ filters define files per backend at load time (`SourceSet::classify`).
   - `` `` templates `` in define blocks lex as raw `Template` tokens, dedented.
 - Diagnostics render with file:line:col and a caret underline; parser
   recovers at item/statement level, so all errors in a file are reported.
-- Fixed inconsistencies in README + std (typos, `Iterator<T>`→`Iter<T>`,
+- Fixed inconsistencies in LANGUAGE.md + std (typos, `Iterator<T>`→`Iter<T>`,
   `String`→`Str`, Kotlin `.size`→`.length` for strings, `getOrNull`, added
   `Byte`/`Any`/`Nothing`/`Iter<T>` internal types to `std/core/basic.sv`,
   `kotlin.io.print` qualification in the StdOutConsole define to avoid
@@ -128,7 +128,7 @@ side tables instead of most syntactic heuristics.
     the `is`-expr or `when`-branch span (how the check lowers at runtime);
   - `call_fn`: type-resolved overload per call site (fixes the `size`
     Str-vs-List collision; scoring prefers exact matches and qualified
-    params, per the README `full_name` example).
+    params, per the LANGUAGE.md `full_name` example).
   - Flow narrowing: `is` narrows ident subjects in then/else, `elif`
     exclusion, `&&`/`||`/`!` propagation, binding declaration, narrowing
     reset for variables assigned inside branches. Rules enforced:
@@ -183,7 +183,7 @@ kotlinc and exact stdout asserted.
   package `salvo` (collisions possible). `unions.kt` is emitted whenever
   any wrapper size is used.
 - A std module is emitted only if it produces code — currently just
-  `core/console.kt`. "Only used modules" per the README is not yet enforced.
+  `core/console.kt`. "Only used modules" per LANGUAGE.md is not yet enforced.
 - Deductions (`-> [list: Mut] T`) are parsed and preserved in the AST but
   ignored by the Kotlin backend (they matter for the Rust backend).
 - The effect environment is still string-keyed
@@ -228,7 +228,7 @@ kotlinc and exact stdout asserted.
 
 ### M6 — Deductions + loops-as-values
 
-- Deduction inference (strictest deduction over all uses, per README) and
+- Deduction inference (strictest deduction over all uses, per LANGUAGE.md) and
   validation against explicit annotations. Kotlin ignores them; they are the
   Rust backend's ownership/borrow contract, so compute + store them in the
   typed IR now.
@@ -236,7 +236,7 @@ kotlinc and exact stdout asserted.
   blocks. Kotlin lowering sketch: `run { ... }` block with a labeled loop,
   assigning to a local before `break`.
 
-### M7 — Polish + README compliance
+### M7 — Polish + LANGUAGE.md compliance
 
 - "Only used modules are transpiled": reachability from `main` (or all user
   fns) over the resolved call graph.
@@ -245,7 +245,7 @@ kotlinc and exact stdout asserted.
 - Define coverage check at compile time: every reachable `external` item
   must have a define for the selected backend (currently only surfaces when
   a call site fails to resolve).
-- Companion-file copying (`complicated.kt` support from the README).
+- Companion-file copying (`complicated.kt` support from LANGUAGE.md).
 - `T[]` may want `IntArray`/`DoubleArray` specializations.
 - Effect-param name collision handling; `__destructured` temp uniquing (two
   struct-destructuring `let`s in one block currently collide).
@@ -263,7 +263,7 @@ them written); `Mut` → `mut`/`&mut`.
 
 - `salvo-core`: 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection).
-- `salvo-syntax`: 17 — std + README-corpus parse-clean assertions with insta
+- `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
 - `salvo-backend-kotlin`: 9 — golden snapshots of the M2 demo and the M3
   unions demo, wrapper/wrap/`is`-lowering assertions

@@ -1,7 +1,7 @@
 //! Per-module name resolution.
 //!
 //! Each source file gets a [`ModuleScope`]: the names visible to code in
-//! that file. Visibility rules per the README:
+//! that file. Visibility rules per LANGUAGE.md:
 //!
 //! * everything declared in the same module (all files of that module,
 //!   including the backend define file),
