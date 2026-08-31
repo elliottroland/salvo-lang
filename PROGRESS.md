@@ -1,14 +1,15 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-08-31. This document is the handoff point for
-continuing development: it records what is built, the key design decisions,
-known limitations, and a detailed plan for the remaining milestones.
+Status snapshot as of 2026-08-31 (evening). This document is the handoff
+point for continuing development: it records what is built, the key design
+decisions, known limitations, and a detailed plan for the remaining
+milestones.
 
 ## How to build and test
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 25 tests; includes a kotlinc compile+run test
+cargo test                  # 34 tests; includes two kotlinc compile+run tests
                             # (skipped gracefully if kotlinc is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
@@ -17,7 +18,7 @@ cargo run -- compile --backend kotlin --src ./some_dir --target ./out
 cargo run -- compile --backend kotlin --src ./some_dir --target ./out --emit-ast  # debug AST dump
 
 # Verify generated Kotlin manually:
-kotlinc out/main.kt out/core/console.kt -d classes && kotlin -cp classes salvo.MainKt
+kotlinc out/main.kt out/unions.kt out/core/console.kt -d classes && kotlin -cp classes salvo.MainKt
 ```
 
 ## Workspace layout
@@ -27,7 +28,7 @@ crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # README-example .sv files + insta snapshots
-├── salvo-core/           # SourceSet (file discovery/classification), Program, Symbols
+├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs (M3)
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 └── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
 std/core/                 # stdlib: basic.sv, string.sv, list.sv, console.sv (+ .kotlin.sv defines)
@@ -95,72 +96,116 @@ Supported and emitted:
 | variadics `...xs: T[]` / spread arg `...xs` | `vararg xs: T` / `*xs` |
 | `main() [use]` | `fun main()` (package `salvo`, entry `salvo.MainKt`) |
 
-Deliberate M2 cuts — reported as codegen **errors** (never silent bad code):
-general unions (only `T | None`), `when`, loop-as-value, `break <value>`,
-`while x is T`, qualifier `is`-checks with qualifiers, multi-spread struct
-literals, early `return` inside lambdas, tuples beyond Pair/Triple,
-struct-literal without inferable type.
+Deliberate cuts still reported as codegen **errors** (never silent bad code):
+loop-as-value, `break <value>`, `while x is T`, predicate-qualifier `is`
+checks on non-union values, multi-spread struct literals, early `return`
+inside lambdas, tuples beyond Pair/Triple, struct-literal without inferable
+type.
+
+### M3 — Typechecker + unions/`when` (Kotlin end-to-end)
+
+New `salvo-core` modules; the Kotlin emitter now consults the checker's
+side tables instead of most syntactic heuristics.
+
+- **`types.rs`** — semantic `Ty`: `Named`, `Qualified` (sorted qual set,
+  e.g. `Ok Int`), `Union` (flattened, deduped, *declaration order preserved*
+  — arm order is the wrapper arm identity), `Tuple`, `Array`, `Fn`,
+  `Var` (generic), `Any`, `Nothing`, `Unknown`. Subtyping
+  (`Nothing <: T <: Any`, `Qual T <: T`, arm-wise unions); `Unknown` is
+  compatible both ways so unchecked code never cascades errors.
+- **`resolve.rs`** — per-file `ModuleScope`: own module (all files of the
+  module, including backend define files) + implicit `core.*` + `import`s
+  with `as` aliases. Unresolved/ambiguous imports are rendered errors.
+  Import prefixes match module paths exactly or as a leading path
+  (`import core.Str` finds `core.string`).
+- **`check.rs`** — checks every fn body (params, handler state/ctor params
+  in scope). Output `Checked` tables keyed by `(file_idx, span)`:
+  - `expr_ty`: logical type of each expression (post-narrowing);
+  - `repr_ty`: declared (physical) type for narrowed ident uses;
+  - `coerce`: `WrapUnion { target, arm }` / `Rewrap { from, to }` at
+    boundaries (let/assign/return/args/branch values);
+  - `is_tests`: `UnionTest { size, arms, nullable, match_none }` keyed by
+    the `is`-expr or `when`-branch span (how the check lowers at runtime);
+  - `call_fn`: type-resolved overload per call site (fixes the `size`
+    Str-vs-List collision; scoring prefers exact matches and qualified
+    params, per the README `full_name` example).
+  - Flow narrowing: `is` narrows ident subjects in then/else, `elif`
+    exclusion, `&&`/`||`/`!` propagation, binding declaration, narrowing
+    reset for variables assigned inside branches. Rules enforced:
+    no shadowing, no widening assignment, `when` needs a union-typed
+    variable subject, `when` exhaustiveness (sequential arm consumption),
+    branch-matches-nothing, `None` not an arm, ambiguous-arm wrap.
+  - Deliberately lenient elsewhere: unknown names/fields/methods stay
+    `Unknown` (Kotlin interop pass-through), effects are not yet validated
+    (M5), predicate qualifiers not yet callable (M4).
+- **Kotlin union encoding** — non-`None` arms become
+  `UnionN<T1..TN>` (qualifiers erased, arm identity positional); a `None`
+  arm becomes outer nullability (`Union2<..>?`); 1 non-`None` arm stays
+  `T?`. `unions.kt` is generated with sealed wrappers for every size used:
+  `sealed interface Union2<out T1, out T2> { val value: Any? }` +
+  `data class U2_1/U2_2(override val value: Ti)`.
+  - Wrap at boundaries: `U2_1<Int, String>(expr)`; re-wrap between union
+    reprs via `expr.let { when (it) { is U3_2<*,*,*> -> U2_1<...>(it.value as ...) ... } }`.
+  - `is` checks: `x is U3_2<*, *, *>` (multi-arm → `||` chain, all arms →
+    `!= null`/`true`, `is None` → `== null`, `T?` repr → null tests).
+  - Ident uses narrowed to a single arm unwrap in place:
+    `(x.value as Int)`; interpolating a still-union value appends `.value`.
+  - `when` → Kotlin `when (subj)` over the sealed wrappers (checker
+    guarantees exhaustiveness; kotlinc re-proves it); `T?` subjects lower
+    to a subject-less `when` whose last branch becomes `else`.
+- Emitter restructuring: `emit_expr` = `emit_expr_base` (ident unwraps) +
+  `apply_coercion`; raw variants for assign targets/`is` subjects/`++`.
+  Call emission prefers `call_fn`-resolved declarations; external
+  signatures route to their define template by shape. Generic type aliases
+  now expand in the emitter too (`subst_ast_type`).
+
+Verified end-to-end (`kotlinc_compiles_and_runs_unions`): `Ok Int | Err Str`
+construction via `as Ok`/`as Err`, `when` value + statement forms, precise
+`is Err Str` on a 3-union with elif/else exclusion narrowing — compiled by
+kotlinc and exact stdout asserted.
 
 ### Current architectural facts worth knowing
 
-- **Flat namespace**: `Symbols::collect` merges all modules; `import` is
-  parsed but ignored. Overload resolution is arity-based only
-  (`Symbols::resolve_fn`) — e.g. `size(Str)` vs a hypothetical `size(List)`
-  collide; the test suite works around it with `list_size`.
-- **No typechecker yet.** The emitter works syntax-directed. Everything in
-  M3+ hinges on adding one.
-- Modules are emitted to `<module/path>.kt`, all in the single Kotlin package
-  `salvo` (collisions possible; acceptable until the resolver lands).
-- A std module is emitted only if it produces code (struct/effect/handler/fn
-  with body) — currently just `core/console.kt`. "Only used modules" per the
-  README is not yet enforced (unused std modules would be emitted too).
+- **Resolution/checking pipeline**: `emit_program` runs
+  `Symbols::collect` (flat, still used for define templates and arity
+  fallbacks) → `salvo_core::resolve` (per-file scopes) →
+  `salvo_core::check_program`. Type errors abort emission and surface as
+  `BackendError::Codegen` (still strings; spanned rendering happens inside
+  the checker via `Diagnostic::render`).
+- The checker is *lenient by design*: anything it cannot type is
+  `Ty::Unknown` and emits like before (Kotlin interop pass-through).
+  Coercions/unwraps only fire where the tables say so — the emitter's
+  syntactic paths remain the fallback everywhere else.
+- Wrapper-union arm identity is positional over the **declared** type's
+  non-`None` arms; narrowing never re-wraps a variable in place (uses are
+  unwrapped/re-wrapped at expression sites instead).
+- Modules are emitted to `<module/path>.kt`, all in the single Kotlin
+  package `salvo` (collisions possible). `unions.kt` is emitted whenever
+  any wrapper size is used.
+- A std module is emitted only if it produces code — currently just
+  `core/console.kt`. "Only used modules" per the README is not yet enforced.
 - Deductions (`-> [list: Mut] T`) are parsed and preserved in the AST but
   ignored by the Kotlin backend (they matter for the Rust backend).
-- The effect environment is a `Vec<(canonical-type-string, kotlin-expr)>`;
-  matching is by emitted type string with a same-base-name fallback for
-  generic callee effects. Good enough until the typechecker owns this.
+- The effect environment is still string-keyed
+  (`Vec<(canonical-type-string, kotlin-expr)>`); the checker does not yet
+  validate effects (M5).
 
 ## Remaining milestones
 
-### M3 — Typechecker + unions/when (the big one; do first)
+### M3 leftovers (small, do alongside M4)
 
-Everything else is blocked on this. Suggested new crate module:
-`salvo-core/src/{resolve,types,check}.rs`.
+- `while x is T` conditions (rebinding per iteration) — still a codegen
+  error; the checker already narrows the body, only the emission is missing.
+- Struct-field subjects of union type in `is`/`when` (only ident subjects
+  get union-test lowering; `T?` fields work via Kotlin smart casts).
+- `Ty::Var` bounds/occurs checks in `unify` are loose (first-binding wins);
+  fine for the std surface, revisit with real generic libraries.
+- Non-fn name collisions across visible modules silently last-win in
+  `resolve.rs` (only imports get ambiguity errors).
+- Coercion of union values inside arrays/tuples/lambda returns is not
+  recorded (only direct boundary positions).
 
-1. **Name resolution honoring modules/imports**: per-module scope; `core.*`
-   implicit; `import a.b.c` / `as` aliases; ambiguity diagnostics. Replaces
-   the flat `Symbols` (keep `Symbols` as the resolver's output, but keyed per
-   module).
-2. **Type representation** (`types.rs`): interned `Ty` with `Named`,
-   `Union` (normalized: flattened, deduped, `T? ≡ T | None`), qualifier sets
-   on named types (`Ok Str`), generics, arrays, fn types, tuples, `Any`,
-   `Nothing`. Union simplification and subtype relation
-   (`Nothing <: T <: Any`; `Qual T <: T`; arm-wise union subtyping).
-3. **Checker** (`check.rs`): infer/check every expression, producing a
-   side-table `ExprId -> Ty` (add stable IDs or use spans as keys). Flow
-   narrowing: `is` checks narrow the subject binding in then/else branches
-   and while bodies, per the README rules (including qualifier-subset
-   narrowing and `elif` exclusion). `when` exhaustiveness over union arms.
-   Overload resolution by parameter types (fixes the `size` collision).
-   Variable "type can never widen" rule + no-shadowing rule.
-4. **Union codegen (Kotlin)**: per README — sealed interface wrappers sized
-   1..N. Sketch: generate once per compilation into `salvo/unions.kt`:
-   `sealed interface Union2<A, B>; data class U2A<A, B>(val value: A) : Union2<A, B>; ...`
-   With the type table, insert wrap at assignment/argument/return boundaries
-   and unwrap at `is` branches (`when (u) { is U2A -> ... }`). Qualifier tags
-   (`Ok Str | Err Str`) need the qualifier to be part of the arm identity —
-   encode arms positionally (arm index = position in the *declared* union
-   type), not structurally.
-5. **`when` expressions** → Kotlin `when` over the sealed wrapper, plus
-   if-chains for qualifier predicates.
-6. Rewire the emitter to consult the type table instead of its syntactic
-   heuristics (bare struct literals, effect matching, overloads, `Mut`).
-
-Definition of done: README's `Result`-style examples (`Ok Str | Err Int`,
-`when` with exhaustiveness, precise `is Err Str` checks) compile and run
-under kotlinc, with tests like `kotlinc_compiles_and_runs_demo`.
-
-### M4 — Qualifiers with semantics
+### M4 — Qualifiers with semantics (next)
 
 - Predicate qualifiers: `is Positive` calls `qualifies()` at runtime;
   narrowing tracked by the checker. Struct-field overrides (`Surname.surname:
@@ -214,28 +259,43 @@ Only start after M3/M6 (needs the typed IR + deductions). Reuse the
 deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
 them written); `Mut` → `mut`/`&mut`.
 
-## Test inventory (all green)
+## Test inventory (all green: 34)
 
-- `salvo-core`: 4 unit tests (file classification).
+- `salvo-core`: 8 unit tests (file classification; `types.rs` union
+  normalization, subtyping, display, wrapper detection).
 - `salvo-syntax`: 17 — std + README-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 4 — golden snapshot of generated Kotlin for the
-  demo, two negative tests (missing effect handler, general-union rejection),
-  and the kotlinc compile+run test with exact stdout assertion.
+- `salvo-backend-kotlin`: 9 — golden snapshots of the M2 demo and the M3
+  unions demo, wrapper/wrap/`is`-lowering assertions
+  (`unions_emit_sealed_wrappers`), three negative tests (non-exhaustive
+  `when`, non-union `when` subject, no-matching-arm wrap), missing effect
+  handler, and two kotlinc compile+run tests with exact stdout assertions.
 
-When intentionally changing std, the parser AST, or the emitter output, rerun
-with `INSTA_UPDATE=always` and review the snapshot diffs.
+When intentionally changing std, the parser AST, the checker's lowering, or
+the emitter output, rerun with `INSTA_UPDATE=always` and review the
+snapshot diffs.
 
 ## Gotchas / lessons learned
 
 - Kotlin smart casts make some emitted `as` casts redundant (kotlinc warns
-  "no cast needed") — harmless, but the typechecker could skip emitting the
-  binding cast when the subject is a stable val.
+  "no cast needed") — harmless. The `(x.value as T)` unwrap casts are
+  *required* though: narrowing may come from `elif` exclusion where Kotlin
+  has no smart cast, and `value` is typed `Any?` on the sealed interface.
+- `is UN_i` checks need star projections (`is U2_1<*, *>`) — kotlinc
+  rejects bare generic classes in `is`. Sealed exhaustiveness still works.
+- A subject-less Kotlin `when` used as an expression demands an `else`
+  branch — the emitter converts the last branch of a `T?`-subject `when`
+  to `else` (sound because the checker proved exhaustiveness).
+- The checker and emitter must agree on the ident-unwrap rule
+  (`repr is wrapper && logical is a single non-None arm`); `maybe_coerce`
+  computes the "effective repr" with the same predicate the emitter uses.
 - `define` templates that call something with the same name as the effect
   member they implement must qualify it (hence `kotlin.io.print`).
-- Overload resolution pitfalls surface as *Kotlin* compile errors today
-  (e.g. `size`); after M3 they must be Salvo-side diagnostics.
+- Overload resolution now happens in the checker; `size(Str)` vs
+  `size(List<T>)` style collisions are resolved by argument type. The
+  emitter still falls back to arity in unchecked contexts.
 - insta snapshot tests fail on first run by design; accept with
   `INSTA_UPDATE=always`.
-- The parser's `Number` type alias in std is a general union — fine, because
-  type aliases are only expanded on use, and nothing uses `Number` yet.
+- The `Number` type alias in std is a general union — fine: aliases expand
+  on use (now with generic substitution in both checker and emitter), and
+  nothing uses `Number` yet.

@@ -128,19 +128,173 @@ fn missing_effect_handler_is_an_error() {
     );
 }
 
+/// The M3 demo: Result-style unions with qualifiers, `when` exhaustiveness,
+/// precise `is Err Str` checks, and flow narrowing.
+const UNIONS_DEMO: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn parse_age(input: Int) [as] -> Ok Int | Err Str {
+    if input >= 0 {
+        return input as Ok
+    }
+    return "negative age" as Err
+}
+
+fn describe(result: Ok Int | Err Str) -> Str {
+    let msg = when result {
+        is Ok {
+            "age ${result}"
+        }
+        is Err {
+            "error: ${result}"
+        }
+    }
+    return msg
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let good = parse_age(36)
+    println(describe(good))
+    let bad = parse_age(-1)
+    println(describe(bad))
+
+    let precise: Ok Str | Err Str | Err Bool = "yes" as Ok
+    if precise is Err Str {
+        println("err str: ${precise}")
+    } elif precise is Ok {
+        println("ok: ${precise}")
+    } else {
+        println("err bool: ${precise}")
+    }
+
+    let value = when good {
+        is Ok {
+            good
+        }
+        is Err {
+            return
+        }
+    }
+    println("value plus one is ${value + 1}")
+}
+"#;
+
+fn generate_unions_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(&[("main.sv", UNIONS_DEMO, false)]);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
 #[test]
-fn general_unions_are_rejected_for_now() {
-    let program = build_program(&[(
-        "bad.sv",
-        "fn f(x: Str | Int) -> None {\n}\n",
-        false,
-    )]);
-    let result = salvo_backend_kotlin::emit_program(&program);
-    let errors = result.err().expect("expected codegen errors");
+fn golden_unions_kotlin() {
+    let files = generate_unions_demo();
+    let combined: String = files
+        .iter()
+        .map(|f| format!("// ===== {} =====\n{}", f.rel_path.display(), f.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::assert_snapshot!(combined);
+}
+
+#[test]
+fn unions_emit_sealed_wrappers() {
+    let files = generate_unions_demo();
+    let unions = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "unions.kt")
+        .expect("unions.kt should be generated");
+    assert!(unions.content.contains("sealed interface Union2"));
+    assert!(unions.content.contains("sealed interface Union3"));
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // Wrap at return boundaries, positional arm identity.
+    assert!(main.content.contains("return U2_1<Int, String>(input)"));
+    assert!(main.content.contains("return U2_2<Int, String>(\"negative age\")"));
+    // Qualifier-tagged wrap picks the right arm of the 3-union.
+    assert!(main.content.contains("U3_1<String, String, Boolean>(\"yes\")"));
+    // Precise `is Err Str` tests a single arm; `is Ok` another.
+    assert!(main.content.contains("precise is U3_2<*, *, *>"));
+    assert!(main.content.contains("precise is U3_1<*, *, *>"));
+    // `when` lowers to a sealed when with unwrapped uses.
+    assert!(main.content.contains("when (result) {"));
+    assert!(main.content.contains("is U2_1<*, *> ->"));
+    assert!(main.content.contains("(result.value as Int)"));
+}
+
+#[test]
+fn when_must_be_exhaustive() {
+    let src = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn f(x: Ok Int | Err Str) -> Int {
+    let v = when x {
+        is Ok {
+            1
+        }
+    }
+    return v
+}
+"#;
+    let program = build_program(&[("bad.sv", src, false)]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected type errors");
     assert!(
-        errors.iter().any(|e| e.contains("union types are not supported")),
+        errors.iter().any(|e| e.contains("non-exhaustive `when`")),
         "unexpected errors: {errors:?}"
     );
+}
+
+#[test]
+fn when_requires_union_subject() {
+    let src = "fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
+    let program = build_program(&[("bad.sv", src, false)]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected type errors");
+    assert!(
+        errors.iter().any(|e| e.contains("union-typed subject")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn union_wrap_requires_matching_arm() {
+    let src = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn f() [as] -> Ok Int | Err Str {
+    return true as Err
+}
+"#;
+    let program = build_program(&[("bad.sv", src, false)]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected type errors");
+    assert!(
+        errors.iter().any(|e| e.contains("no arm of")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+/// Full verification of the unions demo under kotlinc (skipped when kotlinc
+/// is not installed).
+#[test]
+fn kotlinc_compiles_and_runs_unions() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let files = generate_unions_demo();
+    let expected = "age 36\nerror: negative age\nok: yes\nvalue plus one is 37\n";
+    run_kotlin_files(&files, "unions", expected);
 }
 
 /// Full verification: compile the generated Kotlin with kotlinc and run it,
@@ -152,12 +306,21 @@ fn kotlinc_compiles_and_runs_demo() {
         return;
     }
     let files = generate_demo();
-    let dir = std::env::temp_dir().join(format!("salvo-kt-test-{}", std::process::id()));
+    let expected = "Hello, Roland Elliott!\n  1: 37\n  2: 38\n  3: 39\n\
+                    Hello, Roland!\n  1: 37\n  2: 38\n  3: 39\n\
+                    first: a\nsize: 2\n";
+    run_kotlin_files(&files, "demo", expected);
+}
+
+/// Compiles the given files with kotlinc, runs `salvo.MainKt`, and asserts
+/// the exact stdout.
+fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expected: &str) {
+    let dir = std::env::temp_dir().join(format!("salvo-kt-test-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let src_dir = dir.join("src");
     let out_dir = dir.join("out");
     let mut kt_paths = Vec::new();
-    for f in &files {
+    for f in files {
         let path = src_dir.join(&f.rel_path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, &f.content).unwrap();
@@ -188,9 +351,6 @@ fn kotlinc_compiles_and_runs_demo() {
         String::from_utf8_lossy(&run.stderr)
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
-    let expected = "Hello, Roland Elliott!\n  1: 37\n  2: 38\n  3: 39\n\
-                    Hello, Roland!\n  1: 37\n  2: 38\n  3: 39\n\
-                    first: a\nsize: 2\n";
     assert_eq!(stdout, expected, "unexpected program output");
 
     let _ = std::fs::remove_dir_all(&dir);

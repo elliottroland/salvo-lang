@@ -1,0 +1,1942 @@
+//! The type checker.
+//!
+//! Walks every function body of every language file, inferring a type for
+//! each expression and recording side tables the backend consults:
+//!
+//! * `expr_ty`: the logical type of each expression (after flow narrowing).
+//! * `repr_ty`: for narrowed identifier uses, the *declared* type — the
+//!   physical representation the variable is stored in.
+//! * `coerce`: expressions that must be wrapped/re-wrapped into a union
+//!   representation at a boundary (let/assign/return/argument/branch value).
+//! * `is_tests`: how an `is` check (or `when` branch) lowers against a
+//!   union representation (which sealed arms to test / null checks).
+//! * `call_fn`: resolved fn targets for call sites (type-based overloads).
+//!
+//! The checker is deliberately lenient: anything it cannot type becomes
+//! `Ty::Unknown`, which is compatible with everything and never produces
+//! cascading errors. Hard errors are reserved for union/`when` misuse,
+//! shadowing, widening assignments, and unresolvable overloads.
+
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+use salvo_syntax::ast::{self, *};
+use salvo_syntax::diag::Diagnostic;
+use salvo_syntax::Span;
+
+use crate::program::{Program, Symbols};
+use crate::resolve::{FnKey, ModuleScope, Resolution};
+use crate::source::SourceKind;
+use crate::types::{is_subtype, Qual, Ty};
+
+/// Table key: (file index, expression span).
+pub type Key = (usize, Span);
+
+/// How an `is` check (or `when` branch check) lowers at runtime against the
+/// subject's *declared* representation.
+#[derive(Clone, Debug)]
+pub struct UnionTest {
+    /// Number of non-`None` arms in the declared union (wrapper size).
+    /// `1` means the nullable `T?` representation (no wrapper).
+    pub size: usize,
+    /// Indices (into the declared union's non-`None` arms) this check
+    /// matches. Empty together with `match_none` means a null test.
+    pub arms: Vec<usize>,
+    /// Whether the declared union has a `None` arm (Kotlin `?` suffix).
+    pub nullable: bool,
+    /// True for `is None` checks (lowered to `== null`).
+    pub match_none: bool,
+}
+
+/// A representation change the emitter must apply to an expression.
+#[derive(Clone, Debug)]
+pub enum Coercion {
+    /// Wrap a plain value into arm `arm` (index into non-`None` arms) of
+    /// the `target` union.
+    WrapUnion { target: Ty, arm: usize },
+    /// Re-wrap a value between two union representations (matching arms by
+    /// type equality; unmatched source arms are unreachable at runtime).
+    Rewrap { from: Ty, to: Ty },
+}
+
+/// The checker's output.
+#[derive(Default)]
+pub struct Checked {
+    pub expr_ty: HashMap<Key, Ty>,
+    /// Declared (physical) type for identifier uses whose logical type was
+    /// narrowed by flow analysis.
+    pub repr_ty: HashMap<Key, Ty>,
+    pub coerce: HashMap<Key, Coercion>,
+    /// Keyed by the span of the `is` expression or the `when` branch.
+    pub is_tests: HashMap<Key, UnionTest>,
+    /// Resolved fn declaration for call sites (keyed by call span).
+    pub call_fn: HashMap<Key, FnKey>,
+    /// Wrapper union sizes needed by the program (for `unions.kt`).
+    pub union_sizes: BTreeSet<usize>,
+    /// Rendered type errors.
+    pub errors: Vec<String>,
+}
+
+impl Checked {
+    pub fn ty_of(&self, file: usize, span: Span) -> Option<&Ty> {
+        self.expr_ty.get(&(file, span))
+    }
+}
+
+/// Checks the whole program (resolution must come from the same program).
+pub fn check_program<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+) -> Checked {
+    let mut out = Checked::default();
+    out.errors.extend(resolution.errors.iter().cloned());
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        if file.kind != SourceKind::Language {
+            continue;
+        }
+        let mut checker = Checker {
+            scope: &resolution.scopes[file_idx],
+            symbols,
+            file_idx,
+            file_name: &file.name,
+            source: &file.content,
+            out: &mut out,
+            locals: Vec::new(),
+            generics: HashSet::new(),
+            ret_ty: Ty::none(),
+        };
+        checker.check_module(ast);
+    }
+    out
+}
+
+#[derive(Clone)]
+struct LocalVar {
+    declared: Ty,
+    narrowed: Ty,
+}
+
+struct Checker<'p, 'r> {
+    scope: &'r ModuleScope<'p>,
+    symbols: &'r Symbols<'p>,
+    file_idx: usize,
+    file_name: &'p str,
+    source: &'p str,
+    out: &'r mut Checked,
+    /// Lexical scope stack of local variables (params + lets + bindings).
+    locals: Vec<HashMap<String, LocalVar>>,
+    /// Generic type parameters currently in scope.
+    generics: HashSet<String>,
+    /// Return type of the function being checked.
+    ret_ty: Ty,
+}
+
+/// Narrowing facts derived from a condition.
+#[derive(Default, Clone)]
+struct CondInfo {
+    /// Variable narrowings that hold when the condition is true.
+    then_narrows: Vec<(String, Ty)>,
+    /// Narrowings that hold when the condition is false.
+    else_narrows: Vec<(String, Ty)>,
+    /// `is T name` bindings introduced in the true branch.
+    bindings: Vec<(Ident, Ty)>,
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    fn key(&self, span: Span) -> Key {
+        (self.file_idx, span)
+    }
+
+    fn error(&mut self, span: Span, msg: impl Into<String>) {
+        self.out
+            .errors
+            .push(Diagnostic::error(msg, span).render(self.file_name, self.source));
+    }
+
+    // ================= module / function traversal =================
+
+    fn check_module(&mut self, module: &'p Module) {
+        for item in &module.items {
+            match item {
+                Item::Fn(f) => self.check_fn(f, &[], &[]),
+                Item::Handler(h) => {
+                    let saved = self.enter_generics(&h.generics);
+                    for f in &h.fns {
+                        self.check_fn(f, &h.params, &h.state);
+                    }
+                    self.generics = saved;
+                }
+                Item::Qualifier(q) => {
+                    let saved = self.enter_generics(&q.generics);
+                    for f in &q.fns {
+                        self.check_fn(f, &[], &[]);
+                    }
+                    self.generics = saved;
+                }
+                Item::Struct(s) => {
+                    let saved = self.enter_generics(&s.generics);
+                    for field in &s.fields {
+                        if let Some(default) = &field.default {
+                            let expected = self.lower_type(&field.ty);
+                            self.locals.push(HashMap::new());
+                            self.check_expr(default, Some(&expected));
+                            self.locals.pop();
+                        }
+                    }
+                    self.generics = saved;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Checks one function body. `extra_params`/`state` provide handler
+    /// constructor parameters and state fields as in-scope variables.
+    fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
+        let Some(body) = &f.body else { return };
+        let saved_generics = self.enter_generics(&f.generics);
+        self.ret_ty = f
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+
+        let mut top = HashMap::new();
+        for p in extra_params.iter().chain(&f.params) {
+            let ty = self.lower_type(&p.ty);
+            top.insert(
+                p.name.name.clone(),
+                LocalVar {
+                    declared: ty.clone(),
+                    narrowed: ty,
+                },
+            );
+        }
+        for field in state {
+            let ty = self.lower_type(&field.ty);
+            top.insert(
+                field.name.name.clone(),
+                LocalVar {
+                    declared: ty.clone(),
+                    narrowed: ty,
+                },
+            );
+        }
+        self.locals.push(top);
+        self.check_block_value(body);
+        self.locals.pop();
+        self.generics = saved_generics;
+    }
+
+    // ================= scopes, locals, narrowing =================
+
+    fn enter_generics(&mut self, generics: &[Ident]) -> HashSet<String> {
+        let saved = self.generics.clone();
+        for g in generics {
+            self.generics.insert(g.name.clone());
+        }
+        saved
+    }
+
+    fn lookup(&self, name: &str) -> Option<&LocalVar> {
+        self.locals.iter().rev().find_map(|s| s.get(name))
+    }
+
+    fn lookup_mut(&mut self, name: &str) -> Option<&mut LocalVar> {
+        self.locals.iter_mut().rev().find_map(|s| s.get_mut(name))
+    }
+
+    /// Declares a new local, enforcing the no-shadowing rule.
+    fn declare(&mut self, name: &Ident, ty: Ty) {
+        if self.lookup(&name.name).is_some() {
+            self.error(
+                name.span,
+                format!("`{}` is already declared (shadowing is not allowed)", name.name),
+            );
+        }
+        self.locals.last_mut().expect("scope stack").insert(
+            name.name.clone(),
+            LocalVar {
+                declared: ty.clone(),
+                narrowed: ty,
+            },
+        );
+    }
+
+    /// Runs `f` with the given narrowings applied, restoring afterwards.
+    fn with_narrows<T>(
+        &mut self,
+        narrows: &[(String, Ty)],
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let mut saved: Vec<(String, Ty)> = Vec::new();
+        for (name, ty) in narrows {
+            if let Some(var) = self.lookup_mut(name) {
+                saved.push((name.clone(), var.narrowed.clone()));
+                var.narrowed = ty.clone();
+            }
+        }
+        let result = f(self);
+        for (name, ty) in saved.into_iter().rev() {
+            if let Some(var) = self.lookup_mut(&name) {
+                var.narrowed = ty;
+            }
+        }
+        result
+    }
+
+    /// Resets narrowing to the declared type for every variable assigned
+    /// inside `block` (called after branching constructs).
+    fn reset_assigned(&mut self, block: &Block) {
+        let mut names = HashSet::new();
+        collect_assigned(block, &mut names);
+        for name in names {
+            if let Some(var) = self.lookup_mut(&name) {
+                var.narrowed = var.declared.clone();
+            }
+        }
+    }
+
+    // ================= type lowering =================
+
+    fn lower_type(&mut self, ty: &ast::Type) -> Ty {
+        let subst = HashMap::new();
+        self.lower_type_subst(ty, &subst, 0)
+    }
+
+    fn lower_type_subst(
+        &mut self,
+        ty: &ast::Type,
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Ty {
+        if depth > 32 {
+            return Ty::Unknown;
+        }
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                let lowered = self.lower_base_ref(base, subst, depth);
+                let quals = self.lower_quals(qualifiers, subst, depth);
+                lowered.qualify(quals)
+            }
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                let lowered = self.lower_type_subst(base, subst, depth);
+                let quals = self.lower_quals(qualifiers, subst, depth);
+                lowered.qualify(quals)
+            }
+            ast::Type::Union { arms, .. } => {
+                let arms = arms
+                    .iter()
+                    .map(|a| self.lower_type_subst(a, subst, depth))
+                    .collect();
+                self.mk_union(arms)
+            }
+            ast::Type::Nullable { inner, .. } => {
+                let inner = self.lower_type_subst(inner, subst, depth);
+                self.mk_union(vec![inner, Ty::none()])
+            }
+            ast::Type::Tuple { elems, .. } => Ty::Tuple(
+                elems
+                    .iter()
+                    .map(|e| self.lower_type_subst(e, subst, depth))
+                    .collect(),
+            ),
+            ast::Type::Array { elem, .. } => {
+                Ty::Array(Box::new(self.lower_type_subst(elem, subst, depth)))
+            }
+            ast::Type::Fn { params, ret, .. } => Ty::Fn {
+                params: params
+                    .iter()
+                    .map(|p| self.lower_type_subst(p, subst, depth))
+                    .collect(),
+                ret: Box::new(self.lower_type_subst(ret, subst, depth)),
+            },
+        }
+    }
+
+    fn lower_quals(
+        &mut self,
+        qualifiers: &[TypeRef],
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Vec<Qual> {
+        qualifiers
+            .iter()
+            .map(|q| Qual {
+                name: q.name.name.clone(),
+                args: q
+                    .args
+                    .iter()
+                    .map(|a| self.lower_type_subst(a, subst, depth))
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Lowers the base of a named type: substitutions, generic parameters,
+    /// alias expansion, plain nominals.
+    fn lower_base_ref(
+        &mut self,
+        base: &TypeRef,
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Ty {
+        let name = base.name.name.as_str();
+        if base.args.is_empty() {
+            if let Some(bound) = subst.get(name) {
+                return bound.clone();
+            }
+            if self.generics.contains(name) {
+                return Ty::Var(name.to_string());
+            }
+        }
+        let args: Vec<Ty> = base
+            .args
+            .iter()
+            .map(|a| self.lower_type_subst(a, subst, depth))
+            .collect();
+        // Type aliases expand structurally (with generic substitution).
+        if let Some(alias) = self.scope.type_aliases.get(name) {
+            if let Some(target) = &alias.alias {
+                let mut alias_subst = HashMap::new();
+                for (g, arg) in alias.generics.iter().zip(&args) {
+                    alias_subst.insert(g.name.clone(), arg.clone());
+                }
+                let target = target.clone();
+                return self.lower_type_subst(&target, &alias_subst, depth + 1);
+            }
+        }
+        Ty::Named {
+            name: name.to_string(),
+            args,
+        }
+    }
+
+    /// Builds a union, recording the wrapper size when one is needed.
+    fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
+        let ty = Ty::union_of(arms);
+        if ty.is_wrapper_union() {
+            self.out.union_sizes.insert(ty.value_arms().len());
+        }
+        ty
+    }
+}
+
+/// Collects names assigned (or incremented) anywhere in a block, for
+/// post-branch narrowing resets.
+fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Assign { target, .. } => {
+                if let Expr::Ident(id) = target {
+                    out.insert(id.name.clone());
+                }
+            }
+            Stmt::Expr(e) | Stmt::Let { value: e, .. } => collect_assigned_expr(e, out),
+            Stmt::Return { value: Some(e), .. }
+            | Stmt::Break { value: Some(e), .. }
+            | Stmt::Yield { value: e, .. } => collect_assigned_expr(e, out),
+            _ => {}
+        }
+    }
+}
+
+fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
+    match expr {
+        Expr::PostIncrement { operand, .. } => {
+            if let Expr::Ident(id) = operand.as_ref() {
+                out.insert(id.name.clone());
+            }
+        }
+        Expr::If { branches, else_block, .. } => {
+            for (c, b) in branches {
+                collect_assigned_expr(c, out);
+                collect_assigned(b, out);
+            }
+            if let Some(b) = else_block {
+                collect_assigned(b, out);
+            }
+        }
+        Expr::While { cond, body, else_block, .. } => {
+            collect_assigned_expr(cond, out);
+            collect_assigned(body, out);
+            if let Some(b) = else_block {
+                collect_assigned(b, out);
+            }
+        }
+        Expr::For { iterable, body, else_block, .. } => {
+            collect_assigned_expr(iterable, out);
+            collect_assigned(body, out);
+            if let Some(b) = else_block {
+                collect_assigned(b, out);
+            }
+        }
+        Expr::When { subject, branches, .. } => {
+            collect_assigned_expr(subject, out);
+            for b in branches {
+                collect_assigned(&b.body, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Value info about a block's trailing expression (for branch-value
+/// coercions applied once the join type is known).
+struct TailInfo {
+    span: Span,
+    logical: Ty,
+    repr: Ty,
+}
+
+/// A parsed `is` check: qualifiers + optional base type (or `None`).
+struct CheckPat {
+    quals: Vec<String>,
+    base: Option<Ty>,
+    is_none: bool,
+}
+
+/// The outcome of analyzing one `is` expression.
+struct IsInfo {
+    /// Subject variable name when the subject is a plain identifier.
+    subject_name: Option<String>,
+    /// Logical type when the check succeeds.
+    matched: Ty,
+    /// Logical type when the check fails (union subjects only).
+    remaining: Option<Ty>,
+    binding: Option<(Ident, Ty)>,
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    // ================= blocks & statements =================
+
+    /// Checks a block in value position: returns its value type (last
+    /// expression, `Nothing` after return/break/continue, else `None`).
+    fn check_block_value(&mut self, block: &'p Block) -> Ty {
+        self.check_branch_block(block, Vec::new()).0
+    }
+
+    /// Checks a block with `is`-bindings pre-declared in its scope.
+    fn check_branch_block(
+        &mut self,
+        block: &'p Block,
+        bindings: Vec<(Ident, Ty)>,
+    ) -> (Ty, Option<TailInfo>) {
+        self.locals.push(HashMap::new());
+        for (ident, ty) in bindings {
+            self.declare(&ident, ty);
+        }
+        let mut value = Ty::none();
+        let mut tail = None;
+        for stmt in &block.stmts {
+            value = self.check_stmt(stmt);
+            tail = match stmt {
+                Stmt::Expr(e) => Some(TailInfo {
+                    span: e.span(),
+                    logical: value.clone(),
+                    repr: self.repr_of(e, &value),
+                }),
+                _ => None,
+            };
+        }
+        self.locals.pop();
+        (value, tail)
+    }
+
+    fn check_stmt(&mut self, stmt: &'p Stmt) -> Ty {
+        match stmt {
+            Stmt::Let { pattern, ty, value, .. } => {
+                let annotated = ty.as_ref().map(|t| self.lower_type(t));
+                let value_ty = self.check_expr(value, annotated.as_ref());
+                if let Some(ann) = &annotated {
+                    if !is_subtype(&value_ty, ann) {
+                        self.error(
+                            value.span(),
+                            format!("expected `{ann}`, found `{value_ty}`"),
+                        );
+                    }
+                }
+                let declared = annotated.unwrap_or_else(|| {
+                    // Without an annotation the *logical* value type becomes
+                    // the declared type; re-wrap narrowed unions physically.
+                    let repr = self.repr_of(value, &value_ty);
+                    self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
+                    value_ty.clone()
+                });
+                self.declare_pattern(pattern, declared);
+                Ty::none()
+            }
+            Stmt::Assign { target, value, .. } => {
+                let target_ty = match target {
+                    Expr::Ident(id) => match self.lookup(&id.name) {
+                        Some(var) => var.declared.clone(),
+                        None => {
+                            self.error(
+                                id.span,
+                                format!("assignment to undeclared variable `{}`", id.name),
+                            );
+                            Ty::Unknown
+                        }
+                    },
+                    other => self.check_expr(other, None),
+                };
+                let value_ty = self.check_expr(value, Some(&target_ty));
+                if !is_subtype(&value_ty, &target_ty) {
+                    self.error(
+                        value.span(),
+                        format!(
+                            "cannot assign `{value_ty}` to `{target_ty}` \
+                             (a variable's type can never widen)"
+                        ),
+                    );
+                } else if let Expr::Ident(id) = target {
+                    let value_ty = value_ty.clone();
+                    if let Some(var) = self.lookup_mut(&id.name) {
+                        var.narrowed = value_ty;
+                    }
+                }
+                Ty::none()
+            }
+            Stmt::Return { value, span } => {
+                let expected = self.ret_ty.clone();
+                match value {
+                    Some(v) => {
+                        let vty = self.check_expr(v, Some(&expected));
+                        if !is_subtype(&vty, &expected) {
+                            self.error(
+                                v.span(),
+                                format!("expected return type `{expected}`, found `{vty}`"),
+                            );
+                        }
+                    }
+                    None => {
+                        if !expected.is_none_ty()
+                            && !expected.is_unknown()
+                            && !matches!(expected, Ty::Named { ref name, .. } if name == "Iter")
+                        {
+                            self.error(
+                                *span,
+                                format!("bare `return` in a function returning `{expected}`"),
+                            );
+                        }
+                    }
+                }
+                Ty::Nothing
+            }
+            Stmt::Break { value, .. } => {
+                if let Some(v) = value {
+                    self.check_expr(v, None);
+                }
+                Ty::Nothing
+            }
+            Stmt::Continue { .. } => Ty::Nothing,
+            Stmt::Yield { value, .. } => {
+                let elem = match &self.ret_ty {
+                    Ty::Named { name, args } if name == "Iter" && !args.is_empty() => {
+                        args[0].clone()
+                    }
+                    _ => Ty::Unknown,
+                };
+                self.check_expr(value, Some(&elem));
+                Ty::none()
+            }
+            Stmt::Use { handler, .. } => {
+                self.check_expr(handler, None);
+                Ty::none()
+            }
+            Stmt::Expr(e) => self.check_expr(e, None),
+        }
+    }
+
+    fn declare_pattern(&mut self, pattern: &Pattern, ty: Ty) {
+        match pattern {
+            Pattern::Ident(id) => self.declare(id, ty),
+            Pattern::Tuple { elems, .. } => {
+                let elem_tys: Vec<Ty> = match &ty {
+                    Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
+                    _ => vec![Ty::Unknown; elems.len()],
+                };
+                for (p, t) in elems.iter().zip(elem_tys) {
+                    self.declare_pattern(p, t);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for f in fields {
+                    let fty = self
+                        .field_ty(&ty, &f.field.name)
+                        .unwrap_or(Ty::Unknown);
+                    self.declare(&f.binding, fty);
+                }
+            }
+        }
+    }
+
+    // ================= expressions =================
+
+    fn check_expr(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
+        let ty = self.check_expr_inner(expr, expected);
+        self.out.expr_ty.insert(self.key(expr.span()), ty.clone());
+        if let Some(exp) = expected {
+            let repr = self.repr_of(expr, &ty);
+            self.maybe_coerce(expr.span(), &ty, &repr, exp);
+        }
+        ty
+    }
+
+    /// The physical representation type of an expression: for identifier
+    /// uses this is the declared type (narrowing does not re-wrap values).
+    fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
+        if let Expr::Ident(id) = expr {
+            if let Some(var) = self.lookup(&id.name) {
+                return var.declared.clone();
+            }
+        }
+        logical.clone()
+    }
+
+    fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
+        match expr {
+            Expr::Int { .. } => Ty::named("Int"),
+            Expr::Float { .. } => Ty::named("Double"),
+            Expr::Bool { .. } => Ty::named("Bool"),
+            Expr::Char { .. } => Ty::named("Char"),
+            Expr::Str { parts, .. } => {
+                for part in parts {
+                    if let StrExprPart::Interp(e) = part {
+                        self.check_expr(e, None);
+                    }
+                }
+                Ty::named("Str")
+            }
+            Expr::Ident(id) => {
+                if id.name == "None" {
+                    return Ty::none();
+                }
+                if let Some(var) = self.lookup(&id.name) {
+                    let narrowed = var.narrowed.clone();
+                    let declared = var.declared.clone();
+                    if narrowed != declared {
+                        self.out.repr_ty.insert(self.key(id.span), declared);
+                    }
+                    return narrowed;
+                }
+                if self.scope.handlers.contains_key(id.name.as_str()) {
+                    return Ty::named(&id.name);
+                }
+                if let Some(entries) = self.scope.fns.get(id.name.as_str()) {
+                    // Passing a function by name.
+                    let decl = entries[0].decl;
+                    let saved = self.enter_generics(&decl.generics);
+                    let params: Vec<Ty> =
+                        decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+                    let ret = decl
+                        .return_type
+                        .as_ref()
+                        .map(|t| self.lower_type(t))
+                        .unwrap_or_else(Ty::none);
+                    self.generics = saved;
+                    return Ty::Fn {
+                        params,
+                        ret: Box::new(ret),
+                    };
+                }
+                Ty::Unknown
+            }
+            Expr::Field { base, field, .. } => {
+                let base_ty = self.check_expr(base, None);
+                self.field_ty_or_error(&base_ty, field)
+            }
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                span,
+            } => self.check_call(callee, type_args, args, *span),
+            Expr::Index { base, index, .. } => {
+                let base_ty = self.check_expr(base, None);
+                self.check_expr(index, None);
+                match base_ty.strip_quals() {
+                    Ty::Array(elem) => (**elem).clone(),
+                    _ => Ty::Unknown,
+                }
+            }
+            Expr::ArrayLit { elems, .. } => {
+                let expected_elem = match expected.map(|t| t.strip_quals()) {
+                    Some(Ty::Array(e)) => Some((**e).clone()),
+                    _ => None,
+                };
+                let mut tys = Vec::new();
+                for e in elems {
+                    tys.push(self.check_expr(e, expected_elem.as_ref()));
+                }
+                let elem = expected_elem.unwrap_or_else(|| {
+                    if tys.is_empty() {
+                        Ty::Unknown
+                    } else {
+                        self.mk_union(tys)
+                    }
+                });
+                Ty::Array(Box::new(elem))
+            }
+            Expr::ArrayInit {
+                elem_type,
+                size,
+                init,
+                ..
+            } => {
+                let empty = HashMap::new();
+                let elem = self.lower_base_ref(elem_type, &empty, 0);
+                self.check_expr(size, Some(&Ty::named("Int")));
+                let init_ty = Ty::Fn {
+                    params: vec![Ty::named("Int")],
+                    ret: Box::new(elem.clone()),
+                };
+                self.check_expr(init, Some(&init_ty));
+                Ty::Array(Box::new(elem))
+            }
+            Expr::Tuple { elems, .. } => {
+                let expected_elems: Option<&Vec<Ty>> = match expected {
+                    Some(Ty::Tuple(ts)) if ts.len() == elems.len() => Some(ts),
+                    _ => None,
+                };
+                let mut tys = Vec::new();
+                for (i, e) in elems.iter().enumerate() {
+                    tys.push(self.check_expr(e, expected_elems.map(|ts| &ts[i])));
+                }
+                Ty::Tuple(tys)
+            }
+            Expr::StructLit { ty, fields, span } => {
+                self.check_struct_lit(ty.as_ref(), fields, expected, *span)
+            }
+            Expr::Unary { op, operand, .. } => {
+                let t = self.check_expr(operand, None);
+                match op {
+                    UnaryOp::Neg => t,
+                    UnaryOp::Not => Ty::named("Bool"),
+                }
+            }
+            Expr::Binary { op, lhs, rhs, .. } => {
+                use BinaryOp::*;
+                match op {
+                    Add | Sub | Mul | Div | Rem => {
+                        let l = self.check_expr(lhs, None);
+                        self.check_expr(rhs, None);
+                        if l.is_unknown() {
+                            Ty::Unknown
+                        } else {
+                            l.strip_quals().clone()
+                        }
+                    }
+                    And | Or => {
+                        // Value-position boolean: no narrowing propagation.
+                        self.check_expr(lhs, None);
+                        self.check_expr(rhs, None);
+                        Ty::named("Bool")
+                    }
+                    _ => {
+                        self.check_expr(lhs, None);
+                        self.check_expr(rhs, None);
+                        Ty::named("Bool")
+                    }
+                }
+            }
+            Expr::Is { .. } => {
+                self.is_info(expr);
+                Ty::named("Bool")
+            }
+            Expr::As { value, target, .. } => {
+                let vty = self.check_expr(value, None);
+                let empty = HashMap::new();
+                let qual = Qual {
+                    name: target.name.name.clone(),
+                    args: target
+                        .args
+                        .iter()
+                        .map(|a| self.lower_type_subst(a, &empty, 0))
+                        .collect(),
+                };
+                vty.qualify(vec![qual])
+            }
+            Expr::NonNull { operand, .. } => {
+                let t = self.check_expr(operand, None);
+                t.without_none()
+            }
+            Expr::PostIncrement { operand, .. } => self.check_expr(operand, None),
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => self.check_if(branches, else_block.as_ref()),
+            Expr::When {
+                subject,
+                branches,
+                span,
+            } => self.check_when(subject, branches, *span),
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
+                let info = self.analyze_cond(cond);
+                self.with_narrows(&info.then_narrows.clone(), |c| {
+                    c.check_branch_block(body, info.bindings.clone());
+                });
+                if let Some(b) = else_block {
+                    self.check_block_value(b);
+                }
+                self.reset_assigned(body);
+                Ty::none()
+            }
+            Expr::For {
+                pattern,
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
+                let iter_ty = self.check_expr(iterable, None);
+                let elem = self.iter_elem_ty(&iter_ty);
+                self.locals.push(HashMap::new());
+                self.declare_pattern(pattern, elem);
+                for stmt in &body.stmts {
+                    self.check_stmt(stmt);
+                }
+                self.locals.pop();
+                if let Some(b) = else_block {
+                    self.check_block_value(b);
+                }
+                self.reset_assigned(body);
+                Ty::none()
+            }
+            Expr::Lambda { params, body, .. } => self.check_lambda(params, body, expected),
+            Expr::Spread { operand, .. } => self.check_expr(operand, None),
+            Expr::Error { .. } => Ty::Unknown,
+        }
+    }
+
+    fn field_ty_or_error(&mut self, base_ty: &Ty, field: &Ident) -> Ty {
+        match self.field_ty(base_ty, &field.name) {
+            Some(t) => t,
+            None => {
+                // Only report when the base is a known struct (anything else
+                // may be backend interop).
+                if let Ty::Named { name, .. } = base_ty.strip_quals() {
+                    if self.scope.structs.contains_key(name.as_str()) {
+                        let name = name.clone();
+                        self.error(
+                            field.span,
+                            format!("struct `{name}` has no field `{}`", field.name),
+                        );
+                    }
+                }
+                Ty::Unknown
+            }
+        }
+    }
+
+    fn field_ty(&mut self, base_ty: &Ty, field_name: &str) -> Option<Ty> {
+        let Ty::Named { name, args } = base_ty.strip_quals() else {
+            return None;
+        };
+        let decl: &'p StructDecl = self.scope.structs.get(name.as_str())?;
+        let field = decl.fields.iter().find(|f| f.name.name == field_name)?;
+        let mut subst = HashMap::new();
+        for (i, g) in decl.generics.iter().enumerate() {
+            subst.insert(
+                g.name.clone(),
+                args.get(i).cloned().unwrap_or(Ty::Unknown),
+            );
+        }
+        Some(self.lower_type_subst(&field.ty, &subst, 0))
+    }
+
+    fn iter_elem_ty(&mut self, iter_ty: &Ty) -> Ty {
+        match iter_ty.strip_quals() {
+            Ty::Named { name, args } if name == "Iter" && !args.is_empty() => args[0].clone(),
+            Ty::Array(elem) => (**elem).clone(),
+            other => {
+                // `for x in list` implicitly calls `iter(list)`.
+                let other = other.clone();
+                if let Some(entries) = self.scope.fns.get("iter") {
+                    let entries: Vec<crate::resolve::FnEntry<'p>> = entries.clone();
+                    for entry in entries {
+                        let decl = entry.decl;
+                        if decl.params.len() != 1 {
+                            continue;
+                        }
+                        let saved = self.enter_generics(&decl.generics);
+                        let pt = self.lower_type(&decl.params[0].ty);
+                        let ret = decl
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.lower_type(t))
+                            .unwrap_or_else(Ty::none);
+                        self.generics = saved;
+                        let mut subst = HashMap::new();
+                        if unify(&pt, &other, &mut subst) {
+                            let callee_generics: HashSet<String> =
+                                decl.generics.iter().map(|g| g.name.clone()).collect();
+                            let ret = substitute_vars(&ret, &subst, &callee_generics);
+                            if let Ty::Named { name, args } = ret.strip_quals() {
+                                if name == "Iter" && !args.is_empty() {
+                                    return args[0].clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                Ty::Unknown
+            }
+        }
+    }
+
+    fn check_lambda(
+        &mut self,
+        params: &'p [LambdaParam],
+        body: &'p LambdaBody,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let (exp_params, exp_ret) = match expected {
+            Some(Ty::Fn { params, ret }) => (Some(params.clone()), Some((**ret).clone())),
+            _ => (None, None),
+        };
+        self.locals.push(HashMap::new());
+        let mut param_tys = Vec::new();
+        for (i, p) in params.iter().enumerate() {
+            let ty = p
+                .ty
+                .as_ref()
+                .map(|t| self.lower_type(t))
+                .or_else(|| exp_params.as_ref().and_then(|ps| ps.get(i).cloned()))
+                .unwrap_or(Ty::Unknown);
+            self.declare(&p.name, ty.clone());
+            param_tys.push(ty);
+        }
+        let saved_ret = std::mem::replace(
+            &mut self.ret_ty,
+            exp_ret.clone().unwrap_or(Ty::Unknown),
+        );
+        let ret = match body {
+            LambdaBody::Expr(e) => self.check_expr(e, exp_ret.as_ref()),
+            LambdaBody::Block(b) => {
+                for stmt in &b.stmts {
+                    self.check_stmt(stmt);
+                }
+                exp_ret.unwrap_or(Ty::Unknown)
+            }
+        };
+        self.ret_ty = saved_ret;
+        self.locals.pop();
+        Ty::Fn {
+            params: param_tys,
+            ret: Box::new(ret),
+        }
+    }
+
+    fn check_struct_lit(
+        &mut self,
+        ty: Option<&ast::Type>,
+        fields: &'p [StructLitField],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        let annotated = ty
+            .map(|t| self.lower_type(t))
+            .or_else(|| expected.cloned());
+        let Some(struct_ty) = annotated else {
+            for f in fields {
+                match &f.kind {
+                    StructLitFieldKind::Named { value, .. } => {
+                        self.check_expr(value, None);
+                    }
+                    StructLitFieldKind::Spread(e) => {
+                        self.check_expr(e, None);
+                    }
+                }
+            }
+            return Ty::Unknown;
+        };
+        let (decl, subst) = match struct_ty.strip_quals() {
+            Ty::Named { name, args } => {
+                match self.scope.structs.get(name.as_str()).copied() {
+                    Some(decl) => {
+                        let mut subst = HashMap::new();
+                        for (i, g) in decl.generics.iter().enumerate() {
+                            subst.insert(
+                                g.name.clone(),
+                                args.get(i).cloned().unwrap_or(Ty::Unknown),
+                            );
+                        }
+                        (Some(decl), subst)
+                    }
+                    None => (None, HashMap::new()),
+                }
+            }
+            _ => (None, HashMap::new()),
+        };
+        let Some(decl) = decl else {
+            for f in fields {
+                match &f.kind {
+                    StructLitFieldKind::Named { value, .. } => {
+                        self.check_expr(value, None);
+                    }
+                    StructLitFieldKind::Spread(e) => {
+                        self.check_expr(e, None);
+                    }
+                }
+            }
+            return struct_ty;
+        };
+        let mut has_spread = false;
+        let mut provided: HashSet<&str> = HashSet::new();
+        for f in fields {
+            match &f.kind {
+                StructLitFieldKind::Named { name, value } => {
+                    match decl.fields.iter().find(|df| df.name.name == name.name) {
+                        Some(df) => {
+                            let fty = self.lower_type_subst(&df.ty, &subst, 0);
+                            self.check_expr(value, Some(&fty));
+                            let vty = self.out.expr_ty[&self.key(value.span())].clone();
+                            if !is_subtype(&vty, &fty) {
+                                self.error(
+                                    value.span(),
+                                    format!(
+                                        "field `{}` expects `{fty}`, found `{vty}`",
+                                        name.name
+                                    ),
+                                );
+                            }
+                            provided.insert(&name.name);
+                        }
+                        None => {
+                            self.check_expr(value, None);
+                            self.error(
+                                name.span,
+                                format!(
+                                    "struct `{}` has no field `{}`",
+                                    decl.name.name, name.name
+                                ),
+                            );
+                        }
+                    }
+                }
+                StructLitFieldKind::Spread(e) => {
+                    has_spread = true;
+                    self.check_expr(e, None);
+                }
+            }
+        }
+        if !has_spread {
+            for df in &decl.fields {
+                if df.default.is_none() && !provided.contains(df.name.name.as_str()) {
+                    self.error(
+                        span,
+                        format!(
+                            "missing field `{}` in `{}` literal",
+                            df.name.name, decl.name.name
+                        ),
+                    );
+                }
+            }
+        }
+        struct_ty
+    }
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    // ================= conditions & narrowing =================
+
+    /// Checks a condition expression and derives narrowing facts.
+    fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
+        match cond {
+            Expr::Is { .. } => {
+                let info = self.is_info(cond);
+                self.out
+                    .expr_ty
+                    .insert(self.key(cond.span()), Ty::named("Bool"));
+                let mut out = CondInfo::default();
+                if let Some(name) = &info.subject_name {
+                    out.then_narrows.push((name.clone(), info.matched.clone()));
+                    if let Some(rem) = &info.remaining {
+                        out.else_narrows.push((name.clone(), rem.clone()));
+                    }
+                }
+                if let Some((ident, ty)) = info.binding {
+                    out.bindings.push((ident, ty));
+                }
+                out
+            }
+            Expr::Binary {
+                op: BinaryOp::And,
+                lhs,
+                rhs,
+                ..
+            } => {
+                let l = self.analyze_cond(lhs);
+                let r = self.with_narrows(&l.then_narrows.clone(), |c| {
+                    c.locals.push(HashMap::new());
+                    for (ident, ty) in &l.bindings {
+                        c.declare(ident, ty.clone());
+                    }
+                    let r = c.analyze_cond(rhs);
+                    c.locals.pop();
+                    r
+                });
+                let mut out = CondInfo::default();
+                out.then_narrows.extend(l.then_narrows);
+                out.then_narrows.extend(r.then_narrows);
+                out.bindings.extend(l.bindings);
+                out.bindings.extend(r.bindings);
+                out
+            }
+            Expr::Binary {
+                op: BinaryOp::Or,
+                lhs,
+                rhs,
+                ..
+            } => {
+                let l = self.analyze_cond(lhs);
+                let r = self.with_narrows(&l.else_narrows.clone(), |c| c.analyze_cond(rhs));
+                let mut out = CondInfo::default();
+                out.else_narrows.extend(l.else_narrows);
+                out.else_narrows.extend(r.else_narrows);
+                out
+            }
+            Expr::Unary {
+                op: UnaryOp::Not,
+                operand,
+                ..
+            } => {
+                let inner = self.analyze_cond(operand);
+                CondInfo {
+                    then_narrows: inner.else_narrows,
+                    else_narrows: inner.then_narrows,
+                    bindings: Vec::new(),
+                }
+            }
+            other => {
+                self.check_expr(other, None);
+                CondInfo::default()
+            }
+        }
+    }
+
+    /// Analyzes an `is` expression: checks the subject, records the runtime
+    /// lowering (`is_tests`), and computes matched/remaining types.
+    fn is_info(&mut self, is_expr: &'p Expr) -> IsInfo {
+        let Expr::Is {
+            subject,
+            check,
+            binding,
+            span,
+        } = is_expr
+        else {
+            unreachable!("is_info called on non-is expression")
+        };
+        let subj_ty = self.check_expr(subject, None);
+        let repr = self.repr_of(subject, &subj_ty);
+        let pat = self.parse_check(check);
+
+        // Runtime lowering against the declared representation.
+        if let Some(test) = self.union_test_for(&repr, &pat) {
+            self.out.is_tests.insert(self.key(*span), test);
+        } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) {
+            self.error(
+                *span,
+                "qualifier predicate checks on non-union values are not supported yet",
+            );
+        }
+
+        // Narrowing math on the logical (possibly already narrowed) type.
+        let (matched, remaining) = match &subj_ty {
+            Ty::Union(arms) => {
+                let (m, r): (Vec<Ty>, Vec<Ty>) = arms
+                    .iter()
+                    .cloned()
+                    .partition(|arm| self.arm_matches(arm, &pat));
+                if m.is_empty() {
+                    self.error(*span, "this check can never succeed".to_string());
+                }
+                (self.mk_union(m), Some(self.mk_union(r)))
+            }
+            other => (other.clone(), None),
+        };
+
+        let subject_name = match subject.as_ref() {
+            Expr::Ident(id) => Some(id.name.clone()),
+            _ => None,
+        };
+        let binding = binding.as_ref().map(|b| {
+            let bty = if matches!(matched, Ty::Union(_)) {
+                self.error(
+                    b.span,
+                    "an `is` binding requires a check matching a single type",
+                );
+                matched.clone()
+            } else {
+                matched.clone()
+            };
+            self.out.expr_ty.insert(self.key(b.span), bty.clone());
+            (b.clone(), bty)
+        });
+
+        IsInfo {
+            subject_name,
+            matched,
+            remaining,
+            binding,
+        }
+    }
+
+    /// Splits an `is` check into qualifier names and an optional base type.
+    fn parse_check(&mut self, check: &[TypeRef]) -> CheckPat {
+        if check.len() == 1 && check[0].name.name == "None" && check[0].args.is_empty() {
+            return CheckPat {
+                quals: Vec::new(),
+                base: None,
+                is_none: true,
+            };
+        }
+        let mut quals = Vec::new();
+        let mut base = None;
+        for (i, r) in check.iter().enumerate() {
+            let last = i + 1 == check.len();
+            if self.scope.is_qualifier(&r.name.name) || !last {
+                quals.push(r.name.name.clone());
+            } else {
+                let empty = HashMap::new();
+                base = Some(self.lower_base_ref(r, &empty, 0));
+            }
+        }
+        CheckPat {
+            quals,
+            base,
+            is_none: false,
+        }
+    }
+
+    /// Whether a union arm matches an `is` check pattern.
+    fn arm_matches(&self, arm: &Ty, pat: &CheckPat) -> bool {
+        if pat.is_none {
+            return arm.is_none_ty();
+        }
+        if arm.is_none_ty() {
+            return false;
+        }
+        if let Some(base) = &pat.base {
+            if !is_subtype(arm.strip_quals(), base) {
+                return false;
+            }
+        }
+        let arm_quals: Vec<&str> = arm.quals().iter().map(|q| q.name.as_str()).collect();
+        pat.quals.iter().all(|q| arm_quals.contains(&q.as_str()))
+    }
+
+    /// The runtime lowering of a check against a union representation.
+    fn union_test_for(&mut self, repr: &Ty, pat: &CheckPat) -> Option<UnionTest> {
+        let Ty::Union(_) = repr else { return None };
+        let value_arms = repr.value_arms();
+        let size = value_arms.len();
+        let nullable = repr.has_none_arm();
+        if size >= 2 {
+            self.out.union_sizes.insert(size);
+        }
+        if pat.is_none {
+            return Some(UnionTest {
+                size,
+                arms: Vec::new(),
+                nullable,
+                match_none: true,
+            });
+        }
+        let arms: Vec<usize> = value_arms
+            .iter()
+            .enumerate()
+            .filter(|(_, arm)| self.arm_matches(arm, pat))
+            .map(|(i, _)| i)
+            .collect();
+        Some(UnionTest {
+            size,
+            arms,
+            nullable,
+            match_none: false,
+        })
+    }
+
+    // ================= if / when =================
+
+    fn check_if(
+        &mut self,
+        branches: &'p [(Expr, Block)],
+        else_block: Option<&'p Block>,
+    ) -> Ty {
+        let mut acc_else: Vec<(String, Ty)> = Vec::new();
+        let mut branch_tys = Vec::new();
+        let mut tails: Vec<Option<TailInfo>> = Vec::new();
+        for (cond, block) in branches {
+            let info = self.with_narrows(&acc_else.clone(), |c| c.analyze_cond(cond));
+            let mut narrows = acc_else.clone();
+            narrows.extend(info.then_narrows.iter().cloned());
+            let (ty, tail) = self.with_narrows(&narrows, |c| {
+                c.check_branch_block(block, info.bindings.clone())
+            });
+            branch_tys.push(ty);
+            tails.push(tail);
+            acc_else.extend(info.else_narrows);
+        }
+        match else_block {
+            Some(block) => {
+                let (ty, tail) =
+                    self.with_narrows(&acc_else.clone(), |c| c.check_branch_block(block, Vec::new()));
+                branch_tys.push(ty);
+                tails.push(tail);
+            }
+            None => {
+                branch_tys.push(Ty::none());
+                tails.push(None);
+            }
+        }
+        let join = self.mk_union(branch_tys);
+        for tail in tails.into_iter().flatten() {
+            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+        }
+        for (_, block) in branches {
+            self.reset_assigned(block);
+        }
+        if let Some(block) = else_block {
+            self.reset_assigned(block);
+        }
+        join
+    }
+
+    fn check_when(
+        &mut self,
+        subject: &'p Expr,
+        branches: &'p [WhenBranch],
+        span: Span,
+    ) -> Ty {
+        let subj_ty = self.check_expr(subject, None);
+        let Expr::Ident(subject_id) = subject else {
+            self.error(span, "`when` requires a plain variable as its subject");
+            for b in branches {
+                self.check_branch_block(&b.body, Vec::new());
+            }
+            return Ty::Unknown;
+        };
+        let repr = self.repr_of(subject, &subj_ty);
+        let Ty::Union(all_arms) = &subj_ty else {
+            self.error(
+                span,
+                format!("`when` requires a union-typed subject (found `{subj_ty}`)"),
+            );
+            for b in branches {
+                self.check_branch_block(&b.body, Vec::new());
+            }
+            return Ty::Unknown;
+        };
+
+        let mut remaining: Vec<Ty> = all_arms.clone();
+        let mut branch_tys = Vec::new();
+        let mut tails: Vec<Option<TailInfo>> = Vec::new();
+        for branch in branches {
+            let pat = self.parse_check(&branch.check);
+            let matched: Vec<Ty> = remaining
+                .iter()
+                .filter(|arm| self.arm_matches(arm, &pat))
+                .cloned()
+                .collect();
+            if matched.is_empty() {
+                self.error(
+                    branch.span,
+                    "this `when` branch matches no remaining union arm",
+                );
+            }
+            if let Some(test) = self.union_test_for(&repr, &pat) {
+                self.out.is_tests.insert(self.key(branch.span), test);
+            }
+            let narrow_ty = self.mk_union(matched.clone());
+            let mut bindings = Vec::new();
+            if let Some(b) = &branch.binding {
+                if matches!(narrow_ty, Ty::Union(_)) {
+                    self.error(
+                        b.span,
+                        "a `when` binding requires a check matching a single type",
+                    );
+                }
+                self.out
+                    .expr_ty
+                    .insert(self.key(b.span), narrow_ty.clone());
+                bindings.push((b.clone(), narrow_ty.clone()));
+            }
+            let narrows = vec![(subject_id.name.clone(), narrow_ty)];
+            let (ty, tail) = self.with_narrows(&narrows, |c| {
+                c.check_branch_block(&branch.body, bindings)
+            });
+            branch_tys.push(ty);
+            tails.push(tail);
+            remaining.retain(|arm| !matched.contains(arm));
+        }
+        if !remaining.is_empty() {
+            let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
+            self.error(
+                span,
+                format!(
+                    "non-exhaustive `when`: unhandled union arm{} {}",
+                    if missing.len() == 1 { "" } else { "s" },
+                    missing.join(", ")
+                ),
+            );
+        }
+        let join = self.mk_union(branch_tys);
+        for tail in tails.into_iter().flatten() {
+            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+        }
+        for branch in branches {
+            self.reset_assigned(&branch.body);
+        }
+        join
+    }
+
+    // ================= coercions =================
+
+    /// Records the representation change (if any) needed to use a value of
+    /// (`logical`, `repr`) where `expected` is required.
+    fn maybe_coerce(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
+        if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Nothing) {
+            return;
+        }
+        // The emitter unwraps identifier uses narrowed to a single arm, so
+        // the effective representation is the narrowed type in that case.
+        let effective = if repr.is_wrapper_union() && !matches!(logical, Ty::Union(_)) {
+            logical.clone()
+        } else {
+            repr.clone()
+        };
+        if expected.is_wrapper_union() {
+            if effective == *expected {
+                return;
+            }
+            if let Ty::Union(_) = effective {
+                if effective.value_arms() == expected.value_arms()
+                    && (!effective.has_none_arm() || expected.has_none_arm())
+                {
+                    return;
+                }
+                self.out.union_sizes.insert(effective.value_arms().len().max(2));
+                self.out.union_sizes.insert(expected.value_arms().len());
+                self.out.coerce.insert(
+                    self.key(span),
+                    Coercion::Rewrap {
+                        from: effective,
+                        to: expected.clone(),
+                    },
+                );
+                return;
+            }
+            if effective.is_none_ty() {
+                if !expected.has_none_arm() {
+                    self.error(span, format!("`None` is not an arm of `{expected}`"));
+                }
+                return;
+            }
+            let arms = expected.value_arms();
+            let matches: Vec<usize> = arms
+                .iter()
+                .enumerate()
+                .filter(|(_, arm)| is_subtype(&effective, arm))
+                .map(|(i, _)| i)
+                .collect();
+            match matches.len() {
+                1 => {
+                    self.out.union_sizes.insert(arms.len());
+                    self.out.coerce.insert(
+                        self.key(span),
+                        Coercion::WrapUnion {
+                            target: expected.clone(),
+                            arm: matches[0],
+                        },
+                    );
+                }
+                0 => self.error(
+                    span,
+                    format!("no arm of `{expected}` accepts a value of type `{logical}`"),
+                ),
+                _ => self.error(
+                    span,
+                    format!(
+                        "a value of type `{logical}` matches multiple arms of `{expected}`; \
+                         qualify the value to disambiguate"
+                    ),
+                ),
+            }
+        }
+        // Nullable-style or plain expected types need no wrapping; a
+        // wrapper-union value in a non-union slot is a plain type error
+        // reported at the boundary.
+    }
+}
+
+// ================= unification =================
+
+/// Structural unification of a (possibly generic) parameter type pattern
+/// against an argument type, binding `Var`s in `subst`. Lenient: `Unknown`
+/// matches anything; qualified arguments match unqualified parameters.
+fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
+    if arg.is_unknown() || param.is_unknown() || *arg == Ty::Nothing {
+        return true;
+    }
+    match (param, arg) {
+        (Ty::Var(g), _) => {
+            if let Some(bound) = subst.get(g) {
+                let bound = bound.clone();
+                is_subtype(arg, &bound) || is_subtype(&bound, arg)
+            } else {
+                subst.insert(g.clone(), arg.clone());
+                true
+            }
+        }
+        (
+            Ty::Qualified {
+                quals: pq,
+                base: pb,
+            },
+            _,
+        ) => {
+            let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
+            pq.iter().all(|q| arg_quals.contains(&q.name.as_str()))
+                && unify(pb, arg.strip_quals(), subst)
+        }
+        // `Qual T` can be passed where `T` is expected.
+        (_, Ty::Qualified { base, .. }) => unify(param, base, subst),
+        (Ty::Union(parms), _) => match arg {
+            Ty::Union(aarms) => aarms
+                .iter()
+                .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))),
+            _ => parms.iter().any(|p| unify(p, arg, subst)),
+        },
+        (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
+            pn == an
+                && pa.len() == aa.len()
+                && pa.iter().zip(aa).all(|(p, a)| unify(p, a, subst))
+        }
+        (Ty::Array(p), Ty::Array(a)) => unify(p, a, subst),
+        (Ty::Tuple(ps), Ty::Tuple(as_)) => {
+            ps.len() == as_.len() && ps.iter().zip(as_).all(|(p, a)| unify(p, a, subst))
+        }
+        (
+            Ty::Fn {
+                params: pp,
+                ret: pr,
+            },
+            Ty::Fn {
+                params: ap,
+                ret: ar,
+            },
+        ) => {
+            pp.len() == ap.len()
+                && pp.iter().zip(ap).all(|(p, a)| unify(p, a, subst))
+                && unify(pr, ar, subst)
+        }
+        (Ty::Any, _) => true,
+        _ => param == arg,
+    }
+}
+
+/// Replaces the callee's generic parameters with their bindings (`Unknown`
+/// when unbound). Foreign `Var`s (the caller's generics) are left alone.
+fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
+    match ty {
+        Ty::Var(g) if callee_generics.contains(g) => {
+            subst.get(g).cloned().unwrap_or(Ty::Unknown)
+        }
+        Ty::Named { name, args } => Ty::Named {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| substitute_vars(a, subst, callee_generics))
+                .collect(),
+        },
+        Ty::Qualified { quals, base } => Ty::Qualified {
+            quals: quals
+                .iter()
+                .map(|q| Qual {
+                    name: q.name.clone(),
+                    args: q
+                        .args
+                        .iter()
+                        .map(|a| substitute_vars(a, subst, callee_generics))
+                        .collect(),
+                })
+                .collect(),
+            base: Box::new(substitute_vars(base, subst, callee_generics)),
+        },
+        Ty::Union(arms) => Ty::union_of(
+            arms.iter()
+                .map(|a| substitute_vars(a, subst, callee_generics))
+                .collect(),
+        ),
+        Ty::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|e| substitute_vars(e, subst, callee_generics))
+                .collect(),
+        ),
+        Ty::Array(elem) => Ty::Array(Box::new(substitute_vars(elem, subst, callee_generics))),
+        Ty::Fn { params, ret } => Ty::Fn {
+            params: params
+                .iter()
+                .map(|p| substitute_vars(p, subst, callee_generics))
+                .collect(),
+            ret: Box::new(substitute_vars(ret, subst, callee_generics)),
+        },
+        other => other.clone(),
+    }
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    // ================= calls =================
+
+    fn check_call(
+        &mut self,
+        callee: &'p Expr,
+        type_args: &'p [ast::Type],
+        args: &'p [Expr],
+        span: Span,
+    ) -> Ty {
+        // Dot-notation: `base.f(args)` == `f(base, args)` when `f` is a
+        // known function/define/effect member; otherwise backend interop.
+        if let Expr::Field { base, field, .. } = callee {
+            let name = field.name.as_str();
+            let known = self.scope.effect_members.contains_key(name)
+                || self.scope.fns.contains_key(name)
+                || self.symbols.define_fns.contains_key(name);
+            if known {
+                let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+                all_args.push(base);
+                all_args.extend(args.iter());
+                return self.resolve_named_call(name, type_args, &all_args, span);
+            }
+            self.check_expr(base, None);
+            for a in args {
+                self.check_expr(a, None);
+            }
+            return Ty::Unknown;
+        }
+
+        if let Expr::Ident(id) = callee {
+            // A local holding a callable (lambda parameter etc.).
+            if let Some(var) = self.lookup(&id.name) {
+                let vty = var.narrowed.clone();
+                if let Ty::Fn { params, ret } = vty {
+                    for (i, a) in args.iter().enumerate() {
+                        self.check_expr(a, params.get(i));
+                    }
+                    return *ret;
+                }
+                for a in args {
+                    self.check_expr(a, None);
+                }
+                return Ty::Unknown;
+            }
+            let arg_refs: Vec<&'p Expr> = args.iter().collect();
+            return self.resolve_named_call(&id.name, type_args, &arg_refs, span);
+        }
+
+        // Computed callee.
+        let cty = self.check_expr(callee, None);
+        if let Ty::Fn { params, ret } = cty {
+            for (i, a) in args.iter().enumerate() {
+                self.check_expr(a, params.get(i));
+            }
+            return *ret;
+        }
+        for a in args {
+            self.check_expr(a, None);
+        }
+        Ty::Unknown
+    }
+
+    fn resolve_named_call(
+        &mut self,
+        name: &str,
+        type_args: &'p [ast::Type],
+        args: &[&'p Expr],
+        span: Span,
+    ) -> Ty {
+        // 1. Effect member call.
+        if let Some(&(effect, member)) = self.scope.effect_members.get(name) {
+            let mut subst = HashMap::new();
+            for (g, ta) in effect.generics.iter().zip(type_args) {
+                let lowered = self.lower_type(ta);
+                subst.insert(g.name.clone(), lowered);
+            }
+            for g in &effect.generics {
+                subst.entry(g.name.clone()).or_insert(Ty::Unknown);
+            }
+            for (i, a) in args.iter().enumerate() {
+                match member.params.get(i) {
+                    Some(p) => {
+                        let pt = self.lower_type_subst(&p.ty, &subst, 0);
+                        self.check_expr(a, Some(&pt));
+                    }
+                    None => {
+                        self.check_expr(a, None);
+                    }
+                }
+            }
+            return member
+                .return_type
+                .as_ref()
+                .map(|t| self.lower_type_subst(t, &subst, 0))
+                .unwrap_or_else(Ty::none);
+        }
+
+        // 2. Function overloads (fn declarations, else define signatures).
+        let mut candidates: Vec<(Option<FnKey>, &'p FnDecl)> = self
+            .scope
+            .fns
+            .get(name)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| (Some(e.key), e.decl))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            if let Some(defs) = self.symbols.define_fns.get(name) {
+                candidates = defs.iter().map(|d| (None, &d.sig)).collect();
+            }
+        }
+        if candidates.is_empty() {
+            // 3. Handler constructor.
+            for a in args {
+                self.check_expr(a, None);
+            }
+            if self.scope.handlers.contains_key(name) {
+                return Ty::named(name);
+            }
+            // Unknown callable (backend interop, struct ctor, ...).
+            return Ty::Unknown;
+        }
+
+        // Type the arguments once, then match candidates against them.
+        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+
+        struct Viable<'p> {
+            key: Option<FnKey>,
+            decl: &'p FnDecl,
+            subst: HashMap<String, Ty>,
+            pairings: Vec<(usize, Ty)>, // (arg index, substituted param type)
+            score: i64,
+        }
+        let mut viable: Vec<Viable<'p>> = Vec::new();
+        for (key, decl) in &candidates {
+            let fixed: Vec<&Param> = decl.params.iter().filter(|p| !p.variadic).collect();
+            let variadic = decl.params.iter().find(|p| p.variadic);
+            let arity_ok = if variadic.is_some() {
+                args.len() >= fixed.len()
+            } else {
+                args.len() == fixed.len()
+            };
+            if !arity_ok {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            // Pattern types for each argument slot.
+            let mut patterns: Vec<Ty> = Vec::with_capacity(args.len());
+            for (i, _) in args.iter().enumerate() {
+                if i < fixed.len() {
+                    patterns.push(self.lower_type(&fixed[i].ty));
+                } else if let Some(vp) = variadic {
+                    let arr = self.lower_type(&vp.ty);
+                    let elem = match (&arr, args[i]) {
+                        // `...spread` passes the whole array along.
+                        (_, Expr::Spread { .. }) => arr.clone(),
+                        (Ty::Array(e), _) => (**e).clone(),
+                        _ => arr.clone(),
+                    };
+                    patterns.push(elem);
+                }
+            }
+            self.generics = saved;
+
+            let mut subst = HashMap::new();
+            let ok = patterns
+                .iter()
+                .zip(&arg_tys)
+                .all(|(p, a)| unify(p, a, &mut subst));
+            if !ok {
+                continue;
+            }
+            let callee_generics: HashSet<String> =
+                decl.generics.iter().map(|g| g.name.clone()).collect();
+            // Explicit type args pin the substitution.
+            for (g, ta) in decl.generics.iter().zip(type_args) {
+                let lowered = self.lower_type(ta);
+                subst.insert(g.name.clone(), lowered);
+            }
+            let mut score = 0i64;
+            let mut pairings = Vec::new();
+            let mut assignable = true;
+            for (i, p) in patterns.iter().enumerate() {
+                let sp = substitute_vars(p, &subst, &callee_generics);
+                if !is_subtype(&arg_tys[i], &sp) {
+                    assignable = false;
+                    break;
+                }
+                if arg_tys[i] == sp {
+                    score += 2;
+                } else {
+                    score += 1;
+                }
+                // Qualified parameters are more specific.
+                score += sp.quals().len() as i64 * 4;
+                pairings.push((i, sp));
+            }
+            if !assignable {
+                continue;
+            }
+            viable.push(Viable {
+                key: *key,
+                decl,
+                subst,
+                pairings,
+                score,
+            });
+        }
+
+        if viable.is_empty() {
+            let shown: Vec<String> = arg_tys.iter().map(|t| t.to_string()).collect();
+            self.error(
+                span,
+                format!("no matching overload for `{name}({})`", shown.join(", ")),
+            );
+            return Ty::Unknown;
+        }
+        viable.sort_by_key(|v| -v.score);
+        let best = &viable[0];
+        if let Some(key) = best.key {
+            self.out.call_fn.insert(self.key(span), key);
+        }
+        // Record argument coercions against the selected parameter types.
+        for (i, pt) in &best.pairings {
+            let logical = arg_tys[*i].clone();
+            let repr = self.repr_of(args[*i], &logical);
+            self.maybe_coerce(args[*i].span(), &logical, &repr, pt);
+        }
+        let callee_generics: HashSet<String> =
+            best.decl.generics.iter().map(|g| g.name.clone()).collect();
+        let subst = best.subst.clone();
+        let decl = best.decl;
+        let saved = self.enter_generics(&decl.generics);
+        let ret = decl
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        self.generics = saved;
+        substitute_vars(&ret, &subst, &callee_generics)
+    }
+}

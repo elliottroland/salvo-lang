@@ -30,7 +30,7 @@ data class Person(
 )
 
 fun full_name(person: Person): String {
-    if (person.surname is String) {
+    if (person.surname != null) {
         val surname = person.surname as String
         return "${person.name} $surname"
     }
