@@ -1,11 +1,13 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01 (after M8: the Rust backend, plus the
-post-M8 tooling: `salvo analyze`, structured diagnostics, and the
-`salvo lsp` language server). This document is
-the handoff point for continuing development: it records what is built, the
-key design decisions, known limitations, and a detailed plan for the
-remaining milestones.
+Status snapshot as of 2026-09-01: both backends (Kotlin, Rust) work
+end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
+the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
+ownership analysis (use-after-consume from declared *and* inferred
+deductions, uniform across types, branch- and loop-aware). This document
+is the handoff point for continuing development: it records what is
+built, the key design decisions, known limitations, and the plan for
+what's next — chiefly the roadmap toward full linear types.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -15,7 +17,9 @@ backend interpretation details and adds backend-prefixed rules (`kt-…`,
 `rs-…`) — load it only when working on that backend. Labels are referenced
 from compiler code and tests (`grep -rn '\[rule-name\]'`); backend-prefixed
 labels may only be referenced from that backend's crate. Keep all of these
-in sync when adding or changing features.
+in sync when adding or changing features. Detailed feature mechanics live
+in those specs; this file keeps the decision log, the plan, and the
+hard-won operational knowledge.
 
 ## How to build and test
 
@@ -54,14 +58,17 @@ rustc --edition 2021 out_rs/main.rs -o program && ./program
 
 ```
 crates/
-├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
+├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir,
+│                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
-├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs (M3)
+├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 ├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests (M8)
-std/core/                 # stdlib: basic.sv, string.sv, list.sv, console.sv (+ .kotlin.sv/.rust.sv defines)
+└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+std/                      # stdlib: core/ (basic, string, list, console) + random.sv
+                          #   (+ .kotlin.sv/.rust.sv defines next to each module)
+vscode/                   # VS Code extension: LSP client + generated TextMate grammar
 ```
 
 Adding another backend = new crate implementing `salvo_backend::Backend`,
@@ -70,678 +77,165 @@ next to the std modules, and add a `BACKEND_SPEC.<name>.md`. Std embedding
 already filters define files per backend at load time
 (`SourceSet::classify`).
 
-## Completed milestones
+## History (condensed)
 
-### M0+M1 — CLI skeleton + full parser
+The milestone-by-milestone detail that used to live here has been folded
+into the spec documents; what follows is the decision log — the choices
+that still shape the code, and where to look for the mechanics.
 
-- Hand-written lexer + recursive-descent parser covering the entire LANGUAGE.md
-  grammar (deliberately hand-written: newline-terminated statements,
-  template/interpolation lexer modes, struct-literal-vs-block ambiguity, and
-  speculative parses for generic calls / paren lambdas make grammar
-  generators a poor fit).
-- Key parser mechanics:
-  - Tokens carry `newline_before`; infix/postfix continuation across a
-    newline only inside groups (`group_depth`). Blocks reset the depth.
-  - `no_struct` flag disables struct-literal speculation in condition
-    position (`if x is Person { ... }`).
-  - `is` checks use a case heuristic: uppercase idents are type refs, a
-    trailing lowercase ident is the binding (`is Str s`).
-  - Snapshot/rollback backtracking for `f<T>(...)` vs comparison, `(a,b) ->`
-    lambdas, brace lambdas `{ i: Int -> 0 }`, and `Int[5] { ... }` ArrayInit.
-  - String interpolation: lexer captures `${...}` raw source + offset; parser
-    re-lexes/parses fragments with spans shifted back into the file.
-  - `` `` templates `` in define blocks lex as raw `Template` tokens, dedented.
-- Diagnostics render with file:line:col and a caret underline; parser
-  recovers at item/statement level, so all errors in a file are reported.
-- Fixed inconsistencies in LANGUAGE.md + std (typos, `Iterator<T>`→`Iter<T>`,
-  `String`→`Str`, Kotlin `.size`→`.length` for strings, `getOrNull`, added
-  `Byte`/`Any`/`Nothing`/`Iter<T>` internal types to `std/core/basic.sv`,
-  `kotlin.io.print` qualification in the StdOutConsole define to avoid
-  self-recursion).
+- **M0+M1 — CLI + parser.** Hand-written lexer + recursive-descent parser
+  (deliberate: newline-terminated statements, template/interpolation
+  lexer modes, struct-literal-vs-block ambiguity, and speculative parses
+  make grammar generators a poor fit). Tokens carry `newline_before`;
+  parser recovers at item/statement level. String interpolation re-lexes
+  `${...}` fragments with spans shifted back into the file.
+- **M2 — Kotlin codegen, end-to-end verified** (kotlinc compiles the
+  output; tests assert exact stdout). Founding invariant
+  [backend-never-wrong]: unsupported constructs are codegen *errors*,
+  never silently wrong code. Remaining deliberate cuts: multi-spread
+  struct literals, early `return` inside lambdas, tuples beyond
+  Pair/Triple.
+- **M3 — Typechecker + unions.** `Ty` model (`Qualified` with sorted qual
+  sets, `Union` flattened/deduped in declaration order), per-file scopes,
+  and the side-table architecture (`Checked`: `expr_ty`, `repr_ty`,
+  `coerce`, `is_tests`, `call_fn`, …) the emitters consult. Two founding
+  decisions: the checker is *lenient* (anything untypable is
+  `Ty::Unknown` and passes through — Kotlin interop), and union arm
+  identity is *positional over the declared type's non-`None` arms*
+  [union-arm-identity]. Kotlin unions lower to generated sealed wrappers
+  (`UnionN`), `None` arms to outer nullability.
+- **M4 — Qualifiers.** User decision replacing the old spec: the `as`
+  effect and value-level `as` expressions were removed; constructive
+  qualifiers are built exclusively through constructor functions
+  (`fn ok<T>(value: T) -> T as Ok`), same-file rule, simple return types
+  [qual-ctor-fn] [qual-ctor-same-file] [qual-ctor-simple]. Predicate
+  qualifiers lower to `{Q}_qualifies` calls at `is` sites; struct-field
+  overrides cast+assert. Overloads identical after erasure get
+  deterministic `__Qual` name mangling. Qualified union groups
+  (`Ok (A | B)`) wrap whole-arm first, then coerce as the bare union.
+- **M5 — Effects.** The checker owns effect semantics: per-fn effect
+  environments seeded from declared lists, grown by `use`, truncated at
+  block boundaries; handler generics *inferred by unification* from `use`
+  constructor args; effect-member disambiguation via explicit type args →
+  argument types → expected type. The emitters prefer the checker's
+  effect tables and fall back to string-keyed environments only in
+  unchecked contexts (see "Current architectural facts").
+- **M6 — Deductions + loops-as-values.** Loops are expressions
+  [while-value] (body tail / `break value` / `else` join; no `else` means
+  optional). Deductions (`deduce.rs`): user decision — a deduction list
+  is interpreted *relative to the callee's declared parameter qualifiers*
+  (a call removes exactly `declared − kept`); inference is a
+  whole-program fixpoint from an optimistic start (facts only removed →
+  terminates); written lists may be stricter than the body but never
+  looser [deduce-syntax] [deduce-infer].
+- **M7 — Polish.** Only reachable modules are emitted [mod-used-only]
+  (name-usage reachability, deliberately conservative); per-module Kotlin
+  packages + generated imports [kt-package] [kt-imports]; define coverage
+  checked upfront for `core.*` and at reference sites
+  [backend-external]; backend-native companion files copy verbatim
+  [backend-companion]. Decision under [type-array]: `T[]` stays
+  `Array<T>` in Kotlin (no primitive-array specialization without
+  profiling data).
+- **M8 — Rust backend.** The point of the design: deductions drive
+  ownership [rs-borrows] — omitted parameter = moved (by value), kept =
+  borrowed (`&mut` when `Mut`); expressions emit owned by default
+  (borrowed reads clone); no emitted signature returns a reference, so no
+  lifetimes exist anywhere. User decision: `Mut` generalized to a
+  language-level qualifier any type opts into with `with Mut`
+  [type-with-mut]; backends map it per type (`Mut inline:` define
+  sections). Unions are generated enums; effects are traits with
+  `&mut dyn` threading; iterators are *eager* (`Iter<T>` = `Vec<T>`,
+  documented divergence [rs-iter-vec]); `WrapOption` coercion added
+  because optionals are physical in Rust and transparent in Kotlin
+  [type-nullable]. Crate layout: main-declaring module is the crate root
+  with `#[path]` mounts [rs-crate].
 
-### M2 — Kotlin codegen, end-to-end verified
+### Post-M8 — tooling and flow analysis (decision log)
 
-`salvo compile --backend kotlin` emits working Kotlin (verified: kotlinc
-compiles it and a test asserts the exact runtime stdout —
-`kotlinc_compiles_and_runs_demo` in `salvo-backend-kotlin/tests/codegen_tests.rs`).
-
-Supported and emitted:
-
-| Salvo | Kotlin |
-|---|---|
-| `struct` (+defaults, `with Mut`) | `data class` (`val`/`var` fields, `= null` defaults) |
-| struct spread `P {...p, f: v}` | `p.copy(f = v)` |
-| tuple/struct destructuring `let` | Kotlin destructuring / `__destructured` temps |
-| `T?`, `is None`, `x!` | `T?`, `== null`, `!!` |
-| `is Str s` binding | `val s = subj as String` at branch top (relies on subject purity) |
-| `effect` | `interface` |
-| `handler` (with state/ctor params) | `class H(private val ...) : Effect { private var state ... override fun }` |
-| `external handler` + `define handler` | `class H(ctor params) : Effect` with template-inlined bodies |
-| fn effect deps `[Console, Random<Int>]` | leading params `console: Console, random_int: Random<Int>`, threaded through call sites |
-| `use Handler(...)` | `val console: Console = Handler(...)` + effect-env registration for rest of scope |
-| iterator fns (`yield`) | `return Iterable<T> { iterator { ... yield(x) ... } }`; bare `return` → `return@iterator` |
-| `define fn` / `define type` | inline expansion at call/type sites, `${arg}` & `${...variadic}` substitution, `imports:` hoisted per file |
-| interpolation `"${a.b}"` | Kotlin templates (short `$name` form when simple) |
-| dot-notation `x.f(y)` | normalized to `f(x, y)` when `f` resolves to fn/define/effect member, else kept as method call (Kotlin interop) |
-| `let` | `val`, or `var` when the name is assigned or `++`-incremented anywhere in the fn (mutation pre-scan) |
-| variadics `...xs: T[]` / spread arg `...xs` | `vararg xs: T` / `*xs` |
-| `main() [use]` | `fun main()` (entry `salvo.<module>.MainKt` since M7) |
-
-Deliberate cuts still reported as codegen **errors** (never silent bad code):
-loop-as-value, `break <value>`, multi-spread struct literals, early `return`
-inside lambdas, tuples beyond Pair/Triple, struct-literal without inferable
-type.
-
-### M3 — Typechecker + unions/`when` (Kotlin end-to-end)
-
-New `salvo-core` modules; the Kotlin emitter now consults the checker's
-side tables instead of most syntactic heuristics.
-
-- **`types.rs`** — semantic `Ty`: `Named`, `Qualified` (sorted qual set,
-  e.g. `Ok Int`), `Union` (flattened, deduped, *declaration order preserved*
-  — arm order is the wrapper arm identity), `Tuple`, `Array`, `Fn`,
-  `Var` (generic), `Any`, `Nothing`, `Unknown`. Subtyping
-  (`Nothing <: T <: Any`, `Qual T <: T`, arm-wise unions); `Unknown` is
-  compatible both ways so unchecked code never cascades errors.
-- **`resolve.rs`** — per-file `ModuleScope`: own module (all files of the
-  module, including backend define files) + implicit `core.*` + `import`s
-  with `as` aliases. Unresolved/ambiguous imports are rendered errors.
-  Import prefixes match module paths exactly or as a leading path
-  (`import core.Str` finds `core.string`).
-- **`check.rs`** — checks every fn body (params, handler state/ctor params
-  in scope). Output `Checked` tables keyed by `(file_idx, span)`:
-  - `expr_ty`: logical type of each expression (post-narrowing);
-  - `repr_ty`: declared (physical) type for narrowed ident uses;
-  - `coerce`: `WrapUnion { target, arm }` / `Rewrap { from, to }` at
-    boundaries (let/assign/return/args/branch values);
-  - `is_tests`: `UnionTest { size, arms, nullable, match_none }` keyed by
-    the `is`-expr or `when`-branch span (how the check lowers at runtime);
-  - `call_fn`: type-resolved overload per call site (fixes the `size`
-    Str-vs-List collision; scoring prefers exact matches and qualified
-    params, per the LANGUAGE.md `full_name` example).
-  - Flow narrowing: `is` narrows ident subjects in then/else, `elif`
-    exclusion, `&&`/`||`/`!` propagation, binding declaration, narrowing
-    reset for variables assigned inside branches. Rules enforced:
-    no shadowing, no widening assignment, `when` needs a union-typed
-    variable subject, `when` exhaustiveness (sequential arm consumption),
-    branch-matches-nothing, `None` not an arm, ambiguous-arm wrap.
-  - Deliberately lenient elsewhere: unknown names/fields/methods stay
-    `Unknown` (Kotlin interop pass-through), effects are not yet validated
-    (M5), predicate qualifiers callable since M4.
-- **Kotlin union encoding** — non-`None` arms become
-  `UnionN<T1..TN>` (qualifiers erased, arm identity positional); a `None`
-  arm becomes outer nullability (`Union2<..>?`); 1 non-`None` arm stays
-  `T?`. `unions.kt` is generated with sealed wrappers for every size used:
-  `sealed interface Union2<out T1, out T2> { val value: Any? }` +
-  `data class U2_1/U2_2(override val value: Ti)`.
-  - Wrap at boundaries: `U2_1<Int, String>(expr)`; re-wrap between union
-    reprs via `expr.let { when (it) { is U3_2<*,*,*> -> U2_1<...>(it.value as ...) ... } }`.
-  - `is` checks: `x is U3_2<*, *, *>` (multi-arm → `||` chain, all arms →
-    `!= null`/`true`, `is None` → `== null`, `T?` repr → null tests).
-  - Ident uses narrowed to a single arm unwrap in place:
-    `(x.value as Int)`; interpolating a still-union value appends `.value`.
-  - `when` → Kotlin `when (subj)` over the sealed wrappers (checker
-    guarantees exhaustiveness; kotlinc re-proves it); `T?` subjects lower
-    to a subject-less `when` whose last branch becomes `else`.
-- Emitter restructuring: `emit_expr` = `emit_expr_base` (ident unwraps) +
-  `apply_coercion`; raw variants for assign targets/`is` subjects/`++`.
-  Call emission prefers `call_fn`-resolved declarations; external
-  signatures route to their define template by shape. Generic type aliases
-  now expand in the emitter too (`subst_ast_type`).
-
-Verified end-to-end (`kotlinc_compiles_and_runs_unions`): `Ok Int | Err Str`
-construction via `ok()`/`err()` constructor fns (M4 syntax), `when` value +
-statement forms, precise `is Err Str` on a 3-union with elif/else exclusion
-narrowing — compiled by kotlinc and exact stdout asserted.
-
-### M4 — Qualifiers with semantics
-
-Design change (user decision, replacing the old spec): the `as` *effect* and
-value-level `as` *expressions* are gone from the language. Constructive
-qualifiers are built exclusively through **constructor functions** marked
-with `-> T as Qualifier` in the return position: every return point returns
-a plain `T` (the qualifier is applied *by construction*), callers see
-`Qualifier T`. Union tagging now goes through generic constructors
-(`fn ok<T>(value: T) -> T as Ok { return value }` … `return ok(input)`).
-LANGUAGE.md + README were rewritten accordingly.
-
-- **Constructive qualifiers** (bodiless decls): constructor fns must be in
-  the same file as the qualifier; predicate qualifiers cannot have
-  constructors; constructor return types must be simple (no union/tuple);
-  the constructed qualifier must satisfy the `of` type. Since plain values
-  never subtype `Qual T`, constructors really are the only way in.
-- **Predicate qualifiers** (decls with a body): `is Positive` on a non-union
-  subject records a `predicate_tests` entry; Kotlin emits the qualifier's
-  `qualifies` fn as a top-level `fun Positive_qualifies(...)` and the check
-  becomes a call (multiple quals `&&`-chain; `qualifies` effects are threaded
-  as leading handler args). Narrowing adds the qualifiers to the subject's
-  type in the then-branch (no else information). `qualifies` signatures are
-  validated (1 param accepting the `of` type, returns `Bool`, no
-  deductions).
-- **Struct-field overrides** (`qualifier Surname of Person { surname: Str …}`):
-  field accesses through a qualified base type get the override type and a
-  `field_casts` entry; Kotlin emits `(person.surname as String)`
-  (cast + assert per spec). Overrides must refine real fields (subtype
-  check). Struct *destructuring* deliberately uses declared field types.
-- **Type-annotation validation** (`validate_type` at declaration sites: fn
-  signatures, `let` annotations, struct fields, qualifier decls): duplicate
-  qualifier application, `of`-type applicability (via `unify`), pairwise
-  `with` compatibility. `internal` qualifiers (`Mut`) compose with
-  everything; `Mut` on a struct is checked against `with Mut`
-  auto-qualifiers. Unresolvable qualifier names are skipped (lenient).
-- **Qualified union groups** `Ok (A | B)` (user request): lowered as
-  `Ty::Qualified { quals, base: Union }`. They wrap as a whole when they are
-  themselves an arm of an expected union (`maybe_coerce` tries whole-group
-  arm equality first), and otherwise coerce as the bare inner union
-  (physically identical after erasure). Subtyping got a dedicated rule
-  (group may drop its quals, tried after exact-arm equality). `Display`
-  parenthesizes union bases.
-- **Overload mangling under erasure**: qualifiers erase in Kotlin, so
-  `full_name(Person)` vs `full_name(Surname Person)` would collide. When
-  two overloads have the same *emitted* parameter signature, the qualified
-  one gets a deterministic `__Qual` suffix (`full_name__Surname`), applied
-  consistently at both the declaration and checker-resolved call sites.
-- **M3 leftover fixed**: `while x is T (name)?` now emits (test in the loop
-  condition, binding re-declared per iteration at the top of the body).
-- Syntax: `FnDecl.constructs: Option<TypeRef>`; `EffectRef::As` and
-  `Expr::As` removed from the AST/parser.
-
-Verified end-to-end (`kotlinc_compiles_and_runs_qualifiers`): predicate
-checks + narrowing, field-override casts, mangled qualifier overloads,
-`while x is Int c` countdown, and a nested `Ok (Ok Str | Err Int) | Err Bool`
-round-trip — compiled by kotlinc and exact stdout asserted.
-
-### M5 — Effects, properly
-
-The checker now owns effect semantics; the emitter consumes its tables.
-Effect errors are spanned checker diagnostics instead of codegen-time
-strings.
-
-- **Checker effect environment** (`Checker.effect_env: Vec<Ty>` +
-  `can_use`): seeded from the fn's declared effect list, grown by `use`
-  statements, truncated at block boundaries (mirroring the emitter's
-  scoping). Validated at fn declarations: unknown effect names, wrong
-  type-argument counts, and duplicate instances (`[Console, Console]`) are
-  errors; same effect with different generics (`[Random<Int>,
-  Random<Double>]`) is fine per the spec.
-- **`use` validation** (`check_use`): requires the `use` effect in the
-  current fn's list; the handler must resolve; constructor args are typed
-  and the handler's generics are *inferred from them by unification* — so
-  `use CyclicRandom(list(1,2,3))` registers concrete `Random<Int>`, not
-  `Random<T>` (which previously leaked into emitted Kotlin as an unresolved
-  `T`). Registering a second handler for the same instance is an error.
-- **Effect member calls** (`check_effect_call`): the providing instance
-  must be in the environment ("no handler for effect `X` in scope").
-  Generic disambiguation, in order: explicit type args
-  (`next_random<Int>()`), argument types, then the *expected type*
-  (`let int: Int = next_random()` picks `Random<Int>`) — `expected` is now
-  threaded through `check_call`/`resolve_named_call` for this. Multiple
-  survivors → "ambiguous effect call" error, zero → "no handler" error.
-- **Fn call sites** (`check_callee_effects`): each callee effect dependency
-  (with the call's generic substitution applied) must match an instance in
-  the caller's environment — exact match first, then a unique
-  unify-compatible match. Predicate-qualifier `is` checks validate the
-  `qualifies` fn's effects the same way (by base name).
-- Effect/handler *member* fns cannot declare effect dependencies (error
-  "… cannot declare effect dependencies yet"): dispatch call sites go
-  through the handler instance and cannot thread extra handler args.
-- **New `Checked` tables** consumed by the emitter (all keyed by
-  `(file_idx, span)`): `use_effects` (concrete instance per `use` stmt),
-  `effect_calls` (instance an effect-member call dispatches through),
-  `call_effects` (instances threaded as leading handler args per fn call,
-  in the callee's declaration order).
-
-**Emitter fallback mechanism (deliberate, revisit later).** The emitter's
-effect environment is still string-keyed (`Vec<(kotlin-type-string,
-kotlin-expr)>`), built from the declared effect refs at fn entry and from
-`use` statements. What changed: at each site the emitter first consults the
-checker table and renders the recorded `Ty` through a new `kotlin_ty(Ty)`
-(which must agree with `emit_type` on the same source type — that agreement
-is what makes exact env-key hits work), and only falls back to the old
-string/base-name matching (`lookup_effect_handler*`) when the table has no
-entry or the recorded type contains `Unknown` (`ty_is_concrete` guard).
-The fallback keeps the lenient-checker contract: unchecked contexts
-(arity-resolved calls, Kotlin-interop pass-through) still emit like before,
-and a checker regression degrades to the old string matching rather than
-wrong code (codegen errors still fire if that also fails). The cost is
-double bookkeeping — two environments that must stay consistent — and the
-subtle `kotlin_ty`/`emit_type` agreement requirement. When the emitter
-eventually keys its environment by checker `Ty` directly (or the typed IR
-lands), the string env and `lookup_effect_handler*` can be deleted.
-
-- **std**: `List<T>` gained `size` (user request) — the `size(Str)` vs
-  `size(List<T>)` overloads share a define name, so `define_for_decl` now
-  prefers templates whose parameter *base types* match the resolved
-  declaration before falling back to arity/shape (`type_base_name`).
-- LANGUAGE.md fix: the effects examples used Kotlin's `val` instead of
-  `let` (`random_numbers` example).
-
-Verified end-to-end (`kotlinc_compiles_and_runs_effects`): two
-`CyclicRandom` instances (`Random<Int>` + `Random<Str>`) registered via
-generic inference at `use` sites, expected-type disambiguation inside a fn
-declaring both, explicit `next_random<Int>()`, and handler threading through
-call sites — compiled by kotlinc and exact stdout asserted.
-
-### M6 — Deductions + loops-as-values
-
-**Loops as values [while-value].** `while`/`for` are now expressions in
-both checker and Kotlin emitter.
-
-- Checker: the loop's value type joins the body's tail type, every
-  `break value` type, and the `else` tail type — or `None` when there is
-  no `else` (the loop may never run). A bare `break` or a `continue` also
-  joins `None` (deliberate, conservative: an iteration may end without
-  producing a value — at runtime a bare `break` keeps the *previous*
-  iteration's tail value, which the optional type soundly covers; `!`
-  recovers the non-optional type). Tails and break values coerce to the
-  join exactly like `if` branch values. New `Checker.loop_stack`
-  (`LoopCtx { breaks, may_skip_value }`) attributes `break`/`continue` to
-  the innermost loop; lambda bodies are a barrier; `break`/`continue`
-  outside a loop are now errors. `while`-`else` blocks are checked under
-  the condition's else-narrows (they run only if the first evaluation
-  failed).
-- Kotlin lowering [kt-loop-value]: a value-position loop becomes a
-  `run {}` block with a `var __loopN` result local — nullable temp
-  initialized `null`, ended with `__loopN!!` when the join has no `None`
-  arm (`Any?` pass-through for `None`-typed/unchecked joins). The body's
-  tail expression assigns the local; `break value` assigns then breaks
-  (routed via an emitter `loop_results` stack mirroring the checker's);
-  with `else`, a `__loopN_ran` flag guards an `if (!__loopN_ran)` block.
-  `None`-typed tails/breaks stay statements and assign `null`;
-  `Nothing`-typed tails stay statements. Statement-position loops keep
-  plain Kotlin loops (an `else` needs only the ran-flag; a discarded
-  `break value` evaluates its operand for side effects).
-  `emit_value_block` routes a *trailing* loop through the value lowering
-  (a Kotlin block would otherwise value the loop statement as `Unit`).
-
-**Deductions [deduce-syntax] [deduce-infer].** New `salvo-core/deduce.rs`
-post-pass (runs at the end of `check_program`); results stored in the
-typed IR as `Checked::deductions: HashMap<FnKey, Vec<ParamDeduction>>`
-(`{ param, kept, quals }`). Kotlin ignores them; they are the Rust
-backend's ownership/borrow contract.
-
-- **Interpretation (user decision):** a deduction is relative to the
-  qualifiers *declared on the callee's parameter* — a call removes
-  exactly the set `declared − kept` from the argument's known
-  qualifiers. Qualifiers beyond the declared ones pass through
-  (`fn f(list: A B List<T>) -> [list: B]` on an `A B C List<T>` argument
-  leaves `B C List<T>`).
-- Inference (unwritten lists): whole-program fixpoint from an optimistic
-  start (everything kept with declared quals); constraints only remove
-  facts (monotone → terminates). Moves: bare parameter passed to a call
-  whose deduction omits it, bound by `let`/assignment, returned,
-  `break`/`yield`-ed, stored in a struct/array/tuple literal, or passed
-  to a `use` handler constructor. Calls resolve through the checker's
-  `call_fn` table (dot-notation receiver = argument 0; trailing args bind
-  the variadic param). Lenient: unresolved callees (interop, effect
-  members) borrow and preserve everything; bare-parameter value flow out
-  of branch/loop tails is not tracked as a move yet.
-- Written lists are shape-checked (unknown/duplicate parameter, keeping a
-  qualifier not declared on the parameter) and validated against the body
-  facts: stricter-than-body is fine; promising a parameter back that the
-  body moves, or a qualifier the body may remove, is an error.
-- Only top-level `fn`s (the ones with `FnKey`s) participate; handler and
-  qualifier member fns are outside `call_fn` resolution anyway.
-
-Verified end-to-end (`kotlinc_compiles_and_runs_loops`): last-evaluated
-value with `else` (ran and never-ran), `break value` out of a `for` over
-an iterator with `T?` + `is` narrowing, statement-position `for`-`else`,
-bare `break` keeping the previous value, and a union-typed loop value
-re-wrapped to the declared arm order — compiled by kotlinc and exact
-stdout asserted. Deduction semantics covered by 8 new salvo-core tests
-(removal-set subtraction, pass-through of undeclared qualifiers, move
-inference, call-graph fixpoint transitivity, lenient interop, validation
-errors).
-
-### M7 — Polish + LANGUAGE.md compliance
-
-**Only used modules [mod-used-only].** New `salvo-core/reach.rs`: roots
-are the user modules declaring `fn main` (all user modules when none —
-library compile); reachability follows *name usage* — every identifier
-and type name a file mentions is looked up in its resolved scope and
-each declaring module becomes reachable. `ModuleScope` gained
-`name_origins: name -> declaring modules` (populated in `add_items`,
-aliases recorded under the alias). Deliberately conservative (shadowed/
-overloaded names pull in every declaring module) — never drops a module
-emitted code could reference. Unreachable modules are not emitted;
-`unions.kt` is now generated from the *emitters'* tracked sizes only.
-
-**Per-module packages + generated imports [kt-package] [kt-imports].**
-Each module emits into `salvo.<module.path>` (was: single `package
-salvo`), killing cross-module collisions; `unions.kt` stays in root
-`salvo`. Files get generated imports: a wildcard `import salvo.<mod>.*`
-per foreign *emitted* module whose names they use (computed from the
-same `used_names` + `name_origins` machinery), `import salvo.*` when the
-file uses union wrappers, plus template `imports:` as before. Aliased
-Salvo imports of Kotlin-visible items (fn with body, struct, effect,
-handler) emit `import salvo.<mod>.<name> as <alias>` and call sites keep
-the alias (`emit_fn_call` uses the source name when it differs from the
-decl); inlined externals/type aliases/qualifiers get no alias import.
-Entry point is now `salvo.<module>.MainKt` (CLI prints it).
-
-**Define coverage [backend-external].** Compile-time checks: (a) upfront
-— every external fn/type/handler in `core.*` must have a define for the
-backend (core is implicitly imported); (b) at reference sites — calls to
-external fns without a define error in both the checker-resolved and
-arity-fallback paths, references to external types without a `define
-type` error instead of passing through, and external handlers without a
-`define handler` already errored at emission.
-
-**Companion files [backend-companion].** `SourceSet`/`Program` carry
-`CompanionFile`s (backend-native extension, e.g. `.kt`, discovered by
-`add_dir`; module = directory + stem). The backend copies them verbatim
-when their module is reachable; a companion colliding with a generated
-file is an error (companion modules should be externals-only, per the
-LANGUAGE.md `complicated.kt` pattern). `Backend` trait gained
-`file_extension()`.
-
-**Emitter fixes.** Effect parameters and `use` variables avoid user
-names ([kt-effect-params]: pre-scan of params + declared locals via
-`collect_declared`; collisions get `console2`-style suffixes).
-`__destructuredN` temps are unique per fn ([let-destructure]). Array
-specialization decision recorded under [type-array]: `T[]` stays
-`Array<T>` — `IntArray`/`DoubleArray` are unrelated types in Kotlin and
-would fracture generics/varargs/interop; revisit only with profiling
-data.
-
-**CLI.** `--backend` defaults to `kotlin`; stale `*.<ext>` files in the
-target that this compile didn't write are deleted (only
-backend-extension files are touched); `--emit-ast` now prints user
-modules only, `--emit-ast=<module>` one module (std included); the entry
-point class is printed after compiling.
-
-Verified end-to-end (`kotlinc_compiles_and_runs_multi_module` + a manual
-CLI run of the LANGUAGE.md companion scenario): multi-module program with
-per-module packages, generated wildcard + alias imports, unused user
-module dropped, companion `.kt` copied and called through its define
-template, stale target file removed — kotlinc-compiled with exact stdout.
-
-### M8 — Rust backend (+ `Mut` as a language feature)
-
-`salvo compile --backend rust` emits a single-binary Rust crate, verified
-end-to-end: six rustc compile+run tests assert exact stdout on the same
-demo programs the Kotlin backend runs (structs/effects/iterators, unions,
-qualifiers, generic effects, loops-as-values, multi-module). Full spec in
-BACKEND_SPEC.rust.md; highlights and decisions:
-
-- **`Mut` generalized (user decision, replacing `internal qualifier`)**
-  [type-with-mut]: `Mut` is now a language-level qualifier any type
-  declaration can opt into with `with Mut` (`external type List<T> with
-  Mut` in std; structs unchanged). The checker validates `Mut` against
-  the declaration's auto-qualifiers (error otherwise) and lets `Mut`
-  compose with every other qualifier. Backends map it per type: a
-  `define type` block may carry a **`Mut inline:`** section
-  (`MutableList<${T}>` in `list.kotlin.sv`); without one `Mut` erases
-  (the Rust defines map both `List<T>` and `Mut List<T>` to `Vec<T>` —
-  mutability lives in bindings/references). Parser: `with` clause on
-  `type` decls (`TypeDecl.auto_qualifiers`), `Mut inline:` define
-  section (`DefineBody.mut_inline`). The Kotlin emitter's hardcoded
-  `Mut List → MutableList` mapping was replaced by the template.
-- **Deductions drive ownership [rs-borrows] (the point of the whole
-  design):** a parameter *omitted* from a fn's deductions is **moved**
-  (passed by value — Salvo guarantees the caller no longer touches it);
-  a *kept* parameter is **borrowed**, `&mut T` when its declared type
-  carries `Mut`, `&T` otherwise; Copy scalars and variadics always pass
-  by value; fns outside the deduction tables (qualifies/handler/effect
-  members) default to the kept rule. Call sites render arguments per the
-  resolved callee's modes (`&x` / `&mut x` / move; parameter bindings
-  reborrow implicitly). Expressions emit *owned* by default: borrowed
-  idents and non-Copy field/index reads clone; owned locals move. Every
-  local is `let mut` (crate-root `#![allow(unused_mut)]`); no emitted
-  signature returns a reference, so no named lifetimes exist anywhere.
-- **New backend-neutral coercion `WrapOption`** [type-nullable]:
-  optionals are physical in Rust (`Some(...)`), transparent in Kotlin
-  (no-op arm in `apply_coercion`). `maybe_coerce` records it at every
-  `T → T?` boundary, and its "effective repr" rule now also treats a
-  `T?`-repr ident narrowed to its value arm as unwrapped — the Rust
-  emitter unwraps those uses physically (`x.unwrap()` /
-  `x.as_ref().unwrap().clone()`) where Kotlin smart-casts.
-- **Crate layout [rs-crate]:** the main-declaring module *is* the crate
-  root (`main.sv` → `main.rs` with `#![allow(...)]` +
-  `#[path = "..."] pub mod core_console;` mounts for every other emitted
-  file; synthetic `lib.rs` for library compiles); modules glob-import
-  each other via `use crate::<mangled>::*;` [rs-imports]; everything is
-  `pub`. The CLI prints the exact `rustc --edition 2021 …` command as
-  the entry point.
-- **Unions [rs-union-enums]:** generated `unions.rs` enums
-  (`pub enum Union2<T1,T2> { U1(T1), U2(T2) }`) with panicking per-arm
-  accessors (`.u1()`) and a `Display` impl (still-union values
-  interpolate directly — no `.value` dance). Wraps use turbofish
-  (`Union2::<i32, String>::U1(x)`, `Some(...)` for nullable targets);
-  `is` tests lower to `matches!` with `|` patterns; `when` lowers to
-  `match` (an expression — no `run{}`-style lowering needed), with a
-  `_ => unreachable!()` arm when narrowing left repr arms uncovered.
-- **Effects [rs-effects]:** traits with `&mut self` methods; deps become
-  leading `&mut dyn E` params; `use` emits `let mut h = H::new(args);`
-  and threads `&mut h` (params thread as themselves — implicit
-  reborrow). Handlers are struct + `new()` + trait impl; member bodies
-  address ctor params/state as `self.x`. Effect members with their own
-  generics are a codegen error (`dyn` incompatible). Same
-  checker-table-first/string-fallback resolution as Kotlin.
-- **Iterators are eager [rs-iter-vec] (deliberate divergence):**
-  `Iter<T>` = `Vec<T>`; `yield` pushes into a `__yielded` vec, bare
-  `return` returns it. Side-effect *timing* differs from Kotlin's lazy
-  sequences; values match. Rust generators are unstable.
-- **Loops as values [rs-loop-value]:** block expression + `Option`
-  result local mirroring the Kotlin lowering (`.unwrap()` when the join
-  has no `None` arm; optional joins assign coerced values directly).
-  `i++` lowers to `({ let __t = i; i += 1; __t })` in value position,
-  `i += 1;` as a statement [rs-postincrement].
-- **No overloading in Rust [rs-fn-mangling]:** the Kotlin qualifier
-  suffix rule applies first, then still-colliding bodied overloads get
-  positional `__2`/`__3` suffixes.
-- Misc: struct literals inline declared defaults (no default args in
-  Rust) and lower spread to functional update with a cloned base;
-  string literals emit `.to_string()`, interpolation `format!` (braces
-  escaped); binary operands re-parenthesize by operator precedence (the
-  AST is right, flat re-rendering wouldn't be); define-template args
-  splice as raw places (method-style templates borrow natively) except
-  variadic parts, which splice owned into `vec![...]`; generic params
-  get a blanket `Clone` bound and structs derive `Clone, Debug`.
-
-Verified end-to-end (6 rustc tests, exact stdout): the M2 demo, unions,
-qualifiers (incl. `full_name__Surname` mangling and field-cast unwraps),
-generic effects with two `CyclicRandom` instances, loops-as-values
-(incl. a union-typed loop join re-wrapped through `match`), and the
-multi-module crate layout. Plus a manual CLI check of a `Mut` struct
-mutated through a `&mut` parameter.
-
-### Post-M8 — `salvo analyze`, structured diagnostics, `salvo lsp`
-
-Editor/LSP support (user request), built in two steps.
-
-- **Structured diagnostics [diag-structured]** (new
-  `salvo-core/src/diag.rs`): `Resolution::errors` and `Checked::errors`
-  are now `Vec<FileDiagnostic>` — `(file index, span, severity, message)`
-  — instead of pre-rendered strings. The three error sinks
-  (`Checker::error`, `resolve_import`, deduce's written-list validation)
-  construct them directly; rendering moved to the consuming boundary
-  (`FileDiagnostic::render(&program.files)` in both backends'
-  `emit_program`, and in the CLI). `Checker` lost its now-unneeded
-  `file_name`/`source` fields. Backend `emit` error signatures are
-  unchanged (`Err(Vec<String>)`), so `BackendError` handling and all
-  negative tests still work on rendered strings.
-- **`salvo analyze` [cli-analyze]**: parse + resolve + check with no
-  code generation. Text mode renders diagnostics to stderr with a
-  summary line; `--format json` prints a
-  `{file, line, col, start, end, severity, message}` array to stdout
-  (hand-rolled JSON — no new dependencies). Exit code 1 iff any
-  diagnostic is an error. Resolve/check always run, even with parse
-  errors: parse-broken files participate with their recovered ASTs but
-  contribute only their parse diagnostics (their resolution/checker
-  diagnostics are dropped — recovered ASTs cascade nonsense), so a
-  broken file never suppresses diagnostics in other files. Design
-  decision: analysis is *backend-neutral* — the checker
-  skips non-Language files and never consults defines, so `--backend`
-  merely opts that backend's define files into loading (they get parse
-  checking); without it, the load filter (empty backend name) matches no
-  define suffix and only language files are analyzed.
-- **`salvo lsp` [cli-lsp]** (`salvo-cli/src/lsp.rs`, in the CLI crate so
-  it shares the embedded std and the pipeline — now factored into
-  `salvo-cli/src/analysis.rs::analyze_sources`, used by both commands):
-  a language server over stdio using `lsp-server` + `lsp-types` 0.95
-  (sync, no tokio; the rust-analyzer stack). No incremental state:
-  every document event re-runs the whole-workspace analysis with open
-  buffers as a content overlay (`analyze_sources`' `overlay` parameter;
-  unsaved files under the root are added to the source set).
-  Implemented: publish-diagnostics on open/change/close/save — every
-  open document gets a publish (empty = clean) and disappeared files
-  get a clearing publish — and hover showing `Checked::expr_ty` for
-  the smallest non-`Unknown` expression span under the cursor.
-  Positions convert byte offset ↔ UTF-16 line/character (the LSP
-  default encoding; `offset_to_position`/`position_to_offset` with
-  unit tests). Go-to-definition needs def-site spans recorded in
-  `Resolution`/`Symbols` — still a leftover.
-- **VS Code extension + `salvo lang tm-grammar` [cli-lang]** (user
-  request): `vscode/` holds a local extension bundling a TextMate
-  grammar with an LSP client that spawns `salvo lsp` over stdio
-  (`vscode-languageclient`, TypeScript). `salvo.serverPath` names the
-  binary — relative paths resolve against the workspace folder, so
-  `target/debug/salvo` picks up a freshly built compiler; a
-  "Salvo: Restart Language Server" command (and automatic restart on
-  settings changes) swaps binaries without reloading the window.
-  `salvo.backend` forwards `--backend` to the server. Design decision:
-  the grammar is *generated by the compiler* — `salvo lang tm-grammar
-  [--out PATH]` (`salvo-cli/src/lang.rs`) derives keyword alternations
-  from the lexer's keyword table, which was lifted into a shared
-  `salvo_syntax::token::KEYWORDS` const that `TokenKind::keyword` now
-  consults. Tests enforce sync in both directions: the highlighting
-  categories must exactly partition `KEYWORDS`, and the checked-in
-  `vscode/syntaxes/salvo.tmLanguage.json` must byte-equal the generated
-  output (regenerate with the command above). Build the extension with
-  `npm install && npm run compile` in `vscode/` (see `vscode/README.md`;
-  `vscode/.npmrc` pins the public npm registry).
-- **Source discovery hygiene + `.svignore` [mod-ignore], resilient
-  checking** (user request, found analyzing the repo root): the source
-  walk (`SourceSet::add_dir`) now skips hidden directories, cache
-  directories carrying a `CACHEDIR.TAG` marker (Cargo writes one into
-  `target/` — stale test fixtures under `target/tmp` were leaking into
-  root-level analysis and their parse errors gated checking for the
-  whole workspace), and entries listed in `<root>/.svignore` (one
-  root-relative path per line, file or directory subtree; `#` comments).
-  The root itself is exempt from the hidden/cache rules so `--src`
-  pointed *at* such a directory still works. Alongside: resolve/check
-  now always run, even with parse errors — parse-broken files
-  participate with their recovered ASTs (their parsed declarations
-  still resolve for other files) but their resolution/checker
-  diagnostics are dropped, so one broken file no longer suppresses
-  diagnostics elsewhere (and LSP hover keeps working in the rest of
-  the workspace).
-- **Import suggestions [diag-import-suggest] + `std/random`** (user
-  request): diagnostics for unresolved names now carry structured
-  import suggestions (`FileDiagnostic::suggested_imports`, populated
-  from a whole-program declaration index `Resolution::declared_in`;
-  effect members map to their owning effect; `core.*` is never
-  suggested — it is implicitly visible). Attached at unknown handler in
-  `use`, unknown effect in an effect list, and unresolved imports
-  (which suggest the correct module path). Text mode renders
-  ``help: add `import …` `` lines, JSON gains an `"imports"` array, and
-  the LSP carries suggestions on `Diagnostic.data` and serves
-  `textDocument/codeAction` quickfixes inserting the import line after
-  the file's last import (the client echoes `data` back in the
-  codeAction context, so no re-analysis). Alongside: a `random` std
-  module (`effect Random { fn random() -> Float }`, `external handler
-  DefaultRandom`) — the first std module outside `core`, so
-  `use DefaultRandom` without an import exercises the suggestion
-  end-to-end. Its Kotlin define exposed an emitter gap: handler members
-  with return types dropped the template's value; they now emit
-  `return run { … }` [kt-handler-template-return] (verified by
-  compiling and running both backends' output).
-- **Numeric literal suffixes [lit-numeric] + three checker features from
-  `experiments/refinements.sv` TODOs** (user request):
-  - Literals: `1` `Int`, `1L` `Long`, `1.2` `Double`, `1.2f` `Float`
-    (`f` requires a decimal point — decision: `1f` is a lex error;
-    underscores allowed; literal running into ident chars is a lex
-    error). Token/AST carry `long`/`single` flags (parser AST snapshots
-    updated); Kotlin renders native suffixes, Rust renders explicit
-    types (`1i64`, `1.2f32`), unsuffixed stays bare for inference. The
-    tm-grammar number regexes gained the suffixes. std `random()` now
-    returns `Double` (was `Float`) to match the Double default.
-  - **Missing-return [fn-must-return]**: fns with non-`None` return
-    types must return on every path (syntactic analysis in `check.rs`:
-    `if` needs `else` + all branches, `when` needs all branches; loops
-    never count; yield-fns exempt).
-  - **Predicate-qualifier constructors [qual-ctor-predicate]**: the
-    constructive-only restriction on `-> T as Q` was lifted; a
-    predicate-qualifier constructor asserts its predicate by
-    construction (no `qualifies` call at the call site). Same-file and
-    simple-return rules unchanged. The Kotlin negative test flipped to
-    a positive one; both backends emit constructors as plain fns.
-  - **Use-after-consume [deduce-consume]**: a *declared* deduction list
-    now consumes bare-identifier arguments bound to unlisted params —
-    the local narrows to `Ty::Nothing`, and referencing a
-    `Nothing`-narrowed variable is a compile error (decision: `Nothing`
-    *is* the consumed marker — it was never produced by narrowing
-    before, and "a value that no longer exists" matches its meaning);
-    assignment revives. Inferred deductions don't participate (computed
-    post-check). Known gap: consumption inside a branch is not merged
-    into the post-branch state.
-- **Signature hover [fn-ref-table]** (user request): hovering a fn name
-  — declaration, call-site callee (dot-notation included), or
-  fn-by-name reference — shows the full source-like signature with an
-  explicit return type and the *effective* deduction list (inferred
-  `Checked::deductions` when available, declared otherwise), e.g.
-  `fn scale(x: Int, factor: Int) -> [factor] Int`. Plumbing: the
-  checker records name spans in a new `Checked::fn_refs` table
-  (name span → `FnKey`); `salvo-syntax` gained source-like `Display`
-  impls for `ast::Type`/`TypeRef`/`EffectRef`; the LSP prefers a
-  fn-ref hit over the expression-type hover. Effect members and define
-  fns are not covered (no `FnKey`) — a future nicety.
-- **Deduction entry forms + call-site qualifier removal** (user request,
-  from `experiments/refinements.sv` TODOs): `ast::Deduction` gained an
-  `explicit` flag — bare `[list]` now keeps *all* declared qualifiers
-  (previously it meant "keep with none"), `[list: Mut]` keeps exactly
-  the listed ones, and the new explicit-empty `[list:]` strips every
-  qualifier [deduce-syntax]. [deduce-consume] extended: kept parameters
-  now shed their removal set (declared − kept) from the argument's
-  narrowed type at each call site, so a second
-  `remove_first(strings)` after `[list: Mut]` stripped `NonEmpty` fails
-  overload resolution. New `Ty::remove_quals`; `deduce::declared_quals`
-  made pub; hover renders a qualified param kept with no qualifiers in
-  the `name:` form. Parser AST snapshots updated (`explicit` field).
-- **Inferred deductions enforced at call sites + copy-type exemption**
-  (user request, from a `refinements.sv` TODO): `check_program` now runs
-  *two rounds* — round one checks with declared lists only and runs
-  deduction inference; round two re-checks with the inferred facts
-  injected into the [deduce-consume] narrowing, then re-infers against
-  the final call resolutions. So `give_back(strings)` (body
-  `return list`, no annotation) consumes `strings` exactly like an
-  explicit `[]`. Round one's diagnostics are discarded (checking is
-  deterministic). Initially basic value types were exempted from
-  consumption ([deduce-copy-types], since removed): enforcing moves on
-  scalars flagged the M6 loops demo (`break ok(n)` then `n++`) even
-  though the generated code is valid. Follow-up user decision:
-  *uniform* consumption across all types (consistency of the abstract
-  contract over target-level permissiveness), enabled by making the
-  analysis **branch-aware** — each `if`/`when` branch body's
-  consumption/qualifier-removal effects are snapshotted, isolated, and
-  merged at the join (`snapshot_narrows`/`restore_narrows`/
-  `merge_fallthrough` + `block_always_exits`): always-exiting branches
-  (return/break/continue) contribute nothing to the code after the
-  construct (the loops demo passes unmodified), a value consumed on any
-  fall-through path stays consumed (maybe-moved, as in Rust), and
-  disagreeing states keep only common qualifiers. Follow-up (user
-  request): both remaining false negatives were closed — the
-  `with_narrows` restore no longer resurrects a value consumed while
-  `is`-narrowed (`Nothing` survives the restore), and loop bodies are
-  re-checked once with their exit state as entry when the first pass
-  changed any variable's state (`check_loop_body`), surfacing back-edge
-  use-after-move exactly like rustc's "moved in previous iteration"
-  (second-pass duplicate diagnostics are deduplicated by
-  file/span/message; the second pass's value results are discarded).
-  Known non-convergence: round two's narrowing can change overload
-  resolution, whose re-inferred deductions are not fed back again (no
-  third round); acceptable at current scale.
+- **Structured diagnostics [diag-structured] + `salvo analyze`
+  [cli-analyze]**: errors are `FileDiagnostic` (file index, span,
+  severity, message) rendered only at the consuming boundary; `analyze`
+  runs the front half of the pipeline with text or JSON output. Analysis
+  is *backend-neutral* (`--backend` only opts define files into parsing).
+  Parse-broken files participate with recovered ASTs but contribute only
+  their parse diagnostics — one broken file never suppresses diagnostics
+  elsewhere.
+- **`salvo lsp` [cli-lsp]**: LSP over stdio (`lsp-server`/`lsp-types`,
+  sync); no incremental state — every document event re-runs
+  whole-workspace analysis with open buffers as an overlay. Diagnostics
+  (with clearing publishes), expression-type hover, fn-signature hover
+  with effective (inferred) deductions [fn-ref-table], and import-fix
+  code actions [diag-import-suggest].
+- **VS Code extension + `salvo lang tm-grammar` [cli-lang]**: `vscode/`
+  bundles a grammar *generated by the compiler* from the lexer's keyword
+  table (tests fail if the checked-in grammar or keyword categories
+  drift); `salvo.serverPath` points at a locally built binary.
+- **Source discovery [mod-ignore]**: the walk skips hidden directories,
+  `CACHEDIR.TAG` directories (Cargo's `target/`), and `.svignore`
+  entries; the root itself is exempt.
+- **Import suggestions [diag-import-suggest]**: unresolved
+  handler/effect/import diagnostics carry `module.Item` suggestions from
+  a whole-program declaration index; rendered as `help:` lines, JSON
+  `imports`, and LSP quickfixes. std gained `random`
+  (`DefaultRandom`), the first non-`core` module — and exposed
+  [kt-handler-template-return]: value-returning handler-member templates
+  emit `return run { … }`.
+- **Numeric literal suffixes [lit-numeric]**: `1` Int, `1L` Long, `1.2`
+  Double, `1.2f` Float; decision: `f` requires a decimal point (`1f` is
+  a lex error). Kotlin renders native suffixes; Rust renders explicit
+  types (`1i64`, `1.2f32`).
+- **Missing-return [fn-must-return]**: non-`None` fns must return on
+  every path (syntactic; loops never count; yield-fns exempt).
+- **Predicate-qualifier constructors [qual-ctor-predicate]**: the
+  constructive-only restriction was lifted; a predicate constructor
+  asserts its predicate by construction.
+- **Deduction entry forms [deduce-syntax]**: bare `[list]` keeps *all*
+  declared qualifiers (semantics change from "keep none"),
+  `[list: Mut]` keeps exactly the listed, `[list:]` strips all
+  (`Deduction.explicit` flag).
+- **Use-after-consume [deduce-consume]** — the largest post-M8 feature,
+  built up across several user decisions:
+  - Consumed values narrow to `Ty::Nothing` (decision: `Nothing` *is*
+    the marker — "a value that no longer exists is an impossibility");
+    referencing one is an error; assignment revives.
+  - `check_program` runs *two rounds* so inferred deductions are
+    enforced at call sites exactly like declared ones (round one checks
+    + infers; round two re-checks with the inferred facts injected,
+    then re-infers). Round one's diagnostics are discarded (checking is
+    deterministic). Known non-convergence: round two's narrowing can
+    change overload resolution, whose re-inferred deductions are not
+    fed back again (no third round); acceptable at current scale.
+  - Decision: consumption is *uniform across all types* (a rejected
+    alternative exempted backend-copyable scalars; consistency of the
+    abstract contract won). Made livable by a **branch-aware** analysis:
+    per-branch snapshot/isolate/merge (`snapshot_narrows`/
+    `restore_narrows`/`merge_fallthrough` + `block_always_exits`) —
+    always-exiting branches contribute nothing, a value consumed on any
+    fall-through path stays consumed (maybe-moved, as in Rust),
+    disagreeing states keep only common qualifiers.
+  - Kept parameters shed their removal set (declared − kept) from the
+    argument's narrowed type, so a second `remove_first` after
+    `[list: Mut]` stripped `NonEmpty` fails overload resolution.
+  - Consumption survives `is`-narrowing restores (`Nothing` is skipped
+    on restore), and loop bodies are re-checked once with their exit
+    state as entry when the first pass changed anything
+    (`check_loop_body`) — back-edge use-after-move surfaces like
+    rustc's "moved in previous iteration" (second-pass duplicates
+    deduplicated by file/span/message; value results discarded).
+- **Union-arm arguments [type-union]**: fixed `unify`'s match-arm order
+  so `describe(ok("x"))` resolves against `Ok Str | Err Str` (see
+  Gotchas).
 
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
   `Symbols::collect` (flat, still used for define templates and arity
   fallbacks) → `salvo_core::resolve` (per-file scopes) →
-  `salvo_core::check_program`. Type errors are structured
-  `FileDiagnostic`s [diag-structured]; they abort emission and are
-  rendered at the backend boundary into `BackendError::Codegen` strings
-  (the CLI `analyze` command consumes them structured instead).
+  `salvo_core::check_program` (two rounds + deduction inference, see
+  [deduce-consume]). Type errors are structured `FileDiagnostic`s
+  [diag-structured]; they abort emission and are rendered at the backend
+  boundary into `BackendError::Codegen` strings (the CLI `analyze`
+  command consumes them structured instead).
 - The checker is *lenient by design*: anything it cannot type is
   `Ty::Unknown` and emits like before (Kotlin interop pass-through).
   Coercions/unwraps only fire where the tables say so — the emitter's
@@ -760,28 +254,185 @@ Editor/LSP support (user request), built in two steps.
 - Deductions (`-> [list: Mut] T`) are inferred/validated by the
   `deduce.rs` post-pass and stored in `Checked::deductions`; the Kotlin
   backend ignores them, the Rust backend derives its parameter modes from
-  them (kept = borrow, omitted = move [rs-borrows]).
-- The effect environment in both emitters is string-keyed; effect
-  resolution prefers the checker's
-  `use_effects`/`effect_calls`/`call_effects` tables and falls back to
-  string matching only in unchecked contexts (see the M5
-  fallback-mechanism note above).
+  them (kept = borrow, omitted = move [rs-borrows]); the checker enforces
+  them flow-sensitively at call sites [deduce-consume].
+- **Emitter effect-environment fallback (deliberate, revisit later)**:
+  the emitters' effect environments are string-keyed; at each site they
+  first consult the checker's `use_effects`/`effect_calls`/`call_effects`
+  tables (rendered through `kotlin_ty`, which must agree with `emit_type`
+  on the same source type) and fall back to string/base-name matching
+  only when the table has no entry or the type contains `Unknown`. The
+  fallback keeps the lenient-checker contract: a checker regression
+  degrades to string matching rather than wrong code. Cost: double
+  bookkeeping. When the emitters key their environments by checker `Ty`
+  directly, the string env can be deleted.
 - The two emitters deliberately share their architecture (side-table
   access, `emit_expr` = base + coercion, fallback paths, is-binding and
-  loop lowering shape). When a lowering rule changes, check both crates -
+  loop lowering shape). When a lowering rule changes, check both crates —
   and the checker, which must agree with them on the ident-unwrap
   predicates (`maybe_coerce`'s "effective repr").
 
-## Remaining milestones
+## Roadmap: toward full linear types
 
-### Leftovers (small; no milestone currently claims them)
+Where we are: an *affine* analysis ("use at most once") that watches one
+event — a bare identifier passed at a call site whose deduction contract
+moves or weakens it — with solid underpinnings: interprocedural contracts
+(inferred + validated deductions), `Nothing`-narrowing with revival, and
+branch-/loop-aware state merging. The deduction *inference* already knows
+every way a value escapes a function; the *local flow analysis* only
+reacts to calls. Closing the gap is mostly feeding more events into the
+same lattice, plus two genuinely new mechanisms (places, must-use).
+Meanwhile the safety net holds: any hole surfaces as a rustc error on the
+generated code (loud, never silently wrong); Kotlin is unaffected.
+
+Each phase below is independently shippable, in rough dependency order.
+Items marked **DECISION** need a language-design call before or during
+implementation — everything else is analysis engineering under decisions
+already made (uniform-across-types consumption, `Nothing` as the marker,
+maybe-moved-is-unusable).
+
+### L1 — Aliasing bindings are moves
+
+`let m = n` and `x = n` (bare non-copy… no — *uniformly*, per the
+uniform-consumption decision) consume `n`: narrow it to `Nothing` exactly
+like a consuming call. This closes the biggest soundness hole (today the
+alias silently duplicates ownership; the Rust backend emits a real move
+and rustc rejects later uses loudly) and aligns local flow with what
+deduction inference already assumes (`let`-binding a parameter counts as
+a move of that parameter).
+
+- **DECISION L1a — the copy escape hatch.** With `let m = n` consuming
+  `n`, users need an explicit way to duplicate: a std
+  `fn copy<T>(value: T) -> T` (define per backend: Kotlin identity /
+  `.copy()` for structs, Rust `.clone()`)? A different name (`clone`,
+  `dup`)? Or qualifier-driven (only `Mut`/owned things need copying)?
+  Recommendation: `copy(n)` in `core`, defined for all types, so the
+  consuming `let` has a one-word remedy in diagnostics ("use
+  `copy(n)`").
+- **DECISION L1b — do projections copy?** `let m = person.name` reads a
+  field. Both emitters *clone* field/index reads today, so semantically
+  this is a copy, not a partial move. Recommendation: keep reads-as-
+  copies (no consumption), and defer real partial moves to L5. This
+  should be stated as a spec rule either way.
+
+### L2 — Remaining consuming sites
+
+Feed the other escape routes into the same narrowing: storing a bare
+identifier in a struct/array/tuple literal, `yield n`, `break n`,
+`return n` (terminal, but matters inside branches), spread `...n`, and
+`use Handler(n)` constructor arguments. Mirrors the move list in
+[deduce-infer]; mostly mechanical. The `yield` case interacts with the
+loop back-edge re-check (a yield in a loop body consumes every
+iteration — the two-pass analysis already models it once the event is
+tracked).
+
+- **DECISION L2a — interpolation.** Is `"${n}"` a read or a move? Both
+  emitters render interpolated values owned-by-clone, so it is
+  physically a copy. Recommendation: reads never consume; spec it.
+
+### L3 — Same-call and convergence tightening
+
+Two known approximations in the current engine:
+
+- `f(a, a)` where both parameters move: arguments are all typed before
+  narrowing applies, so the double move within one call isn't caught.
+  Fix: apply consumption between argument checks (or a post-check scan
+  of the call's own args).
+- Two-round checking doesn't iterate: round two's narrowing can change
+  overload resolution whose re-inferred deductions never feed back.
+  Fix: iterate check→infer to a fixpoint with a small round cap.
+  - **DECISION L3a** — determinism/cost policy: fixed cap (e.g. 4
+    rounds, error if still unstable — making instability *visible*) vs
+    iterate-to-fixpoint (risk of oscillation between overload choices;
+    needs a tie-breaker rule).
+
+### L4 — Lambda captures
+
+Captures are completely untracked (lambda bodies are a barrier). A
+closure that captures `n` and is stored/returned carries `n` with it.
+Prerequisite: audit what the Rust emitter actually does with captured
+locals today (clone vs move) — the checker rule must match the emission
+or change it.
+
+- **DECISION L4a — capture semantics.** Options: (a) captures always
+  *move* (creation consumes; strictest, simplest, matches "no hidden
+  borrows"); (b) captures copy via the L1a `copy` semantics (never
+  consume, costs clones — closest to current emission); (c) inferred
+  per-lambda from usage, with fn-typed values carrying deduction-like
+  capture contracts (most precise, most machinery). Recommendation:
+  start with (b) to match today's emitters, leave (c) as the long-term
+  design.
+
+### L5 — Places and partial moves
+
+Track paths (`x.field`, tuple/array elements), not just whole variables:
+destructuring consumes its source; moving a field out leaves the struct
+partially unusable. This is the largest analysis change (place lattice
+instead of per-variable states).
+
+- **DECISION L5a — allow partial moves at all?** Rust permits moving a
+  field out of an owned struct (struct becomes partially moved);
+  forbidding it (require destructuring or `copy`) keeps states simple
+  and matches the emitters' clone-by-default projections.
+  Recommendation: forbid projections-as-moves initially (L1b keeps them
+  copies); revisit only with a concrete use case, because "reads are
+  copies" may be the permanently right answer for a language without
+  references.
+
+### L6 — Must-use: true linearity
+
+Everything through L5 is affine ("at most once"). The linear half ("at
+least once") makes dropping a value an error — the payoff for resource
+types (file handles, transactions, sockets): forgetting to close/commit
+becomes a compile error. Needs: an opt-in marker on types, an
+obligation check at scope exit on every path (the branch-merge machinery
+provides the paths), and a blessed set of consuming operations.
+
+- **DECISION L6a — the marker.** How does a type opt in? `with Linear`
+  auto-qualifier (parallel to `with Mut`, backend-neutral, fits the
+  existing `type … with` syntax) vs a `Linear` qualifier applied at use
+  sites vs a distinct declaration keyword. Recommendation: `with
+  Linear` on the type declaration.
+- **DECISION L6b — what consumes.** Any move (passing to a consuming
+  call, returning, storing)? Or only designated consumers (fns marked
+  somehow, e.g. by taking the parameter unlisted in deductions — which
+  is exactly "moves it")? Recommendation: consumption = any move; the
+  deduction system already defines it.
+- **DECISION L6c — escape hatches and failure paths.** Is there a
+  `discard(x)` in std for deliberately dropping a linear value? What
+  happens on early-`return` paths (obligation still checked — the
+  merge machinery handles it) and on future panic/abort semantics
+  (out of scope until Salvo has them)?
+- **DECISION L6d — linearity in composite types.** Is a
+  `List<FileHandle>` linear? A union with one linear arm? An optional?
+  Simplest sound rule: a composite containing a linear component is
+  itself linear. Generics: forbid instantiating an unconstrained `T`
+  with a linear type initially (a `where T: Linear`-style opt-in can
+  come later).
+- **DECISION L6e — Kotlin backend stance.** Linearity is enforced
+  purely statically; on the JVM nothing physically prevents reuse, and
+  there are no destructors either way. Recommendation: document that
+  linear types are a *protocol* checker feature, identical on both
+  backends, with no runtime component.
+
+Sequencing note: L1+L2 are small and high-value (they close real
+rustc-rejection gaps); L3 is hygiene; L4 needs the emitter audit first;
+L5 can be deferred indefinitely if L1b's "reads are copies" holds up;
+L6 is the only phase introducing new language surface and should get a
+LANGUAGE.md section of its own before implementation. Per AGENTS.md,
+each phase lands with LANGUAGE_SPEC.md rules (extending
+[deduce-consume], new [linear-*] labels for L6) and tests at every
+affected layer.
+
+## Remaining leftovers (small; no milestone claims them)
 
 - `salvo lsp` go-to-definition: `Resolution`/`Symbols` know the declaring
   items but no def-site *spans* are recorded; add ident spans to the
   declaration tables and a `textDocument/definition` handler. Also worth
   considering: incremental analysis if workspaces outgrow
   re-check-everything-per-keystroke, and a `positionEncoding` negotiation
-  for UTF-8-native clients.
+  for UTF-8-native clients. Signature hover covers fn decls only —
+  effect members and define fns have no `FnKey`.
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
 - Struct destructuring ignores predicate-qualifier field overrides
@@ -801,19 +452,12 @@ Editor/LSP support (user request), built in two steps.
   (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
   intermediate `let`; single-level coercion only (errors, never mis-emits).
 - Retire the emitter's string-keyed effect environment in favor of
-  checker-`Ty` keys (see the M5 fallback-mechanism note).
+  checker-`Ty` keys (see the fallback note under architectural facts).
 - The LANGUAGE.md `CyclicRandom` example calls `values.size()` on a `T[]`;
   std only defines `size` for `Str` and `List<T>` — either add an array
   `size` or move the example to `List<T>`.
 - Effect member fns with their *own* generics are lowered but never
   substituted per-call (only the effect's generics are).
-- Caller-side qualifier narrowing from deductions (the LANGUAGE.md
-  `remove_first` example: after the call, the local's `NonEmpty` is
-  gone and a second `remove_first(list)` should not resolve) is not
-  applied yet — deductions are computed and stored, but call sites do
-  not consume them for flow narrowing. This is also what would make
-  Rust-side moves of locals (`let a = b`, then using `b`) a Salvo
-  error instead of a rustc error.
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
 - Bare `return` inside a value-position loop (or any value block) in an
@@ -829,8 +473,7 @@ Editor/LSP support (user request), built in two steps.
   rustc error (`Option` has no `Display`); Kotlin prints `null`. Narrow
   or `!` first.
 - Rust: `let a = b` moves local `b`; a later Salvo use of `b` is legal in
-  the checker today but fails rustc (loud). Caller-side move/narrowing
-  enforcement in the checker (the `remove_first` leftover below) is the
+  the checker today but fails rustc (loud). Roadmap phase L1 is the
   proper fix.
 - An aliased import of a *mangled* qualified overload maps to the
   unmangled name in the generated Kotlin alias import ([kt-imports];
@@ -901,6 +544,10 @@ Editor/LSP support (user request), built in two steps.
   (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
   effect-resolution assertions (`effects_resolve_through_checker_tables`),
   loop-lowering assertions (`loops_lower_to_run_blocks`);
+  union-arm argument wrapping at call sites [type-union]; numeric literal
+  suffixes; handler-member template returns
+  [kt-handler-template-return]; predicate-qualifier constructors
+  [qual-ctor-predicate];
   negative tests (non-exhaustive `when`, non-union `when` subject,
   no-matching-arm wrap, missing effect handler at a fn call site and at an
   effect-member call site, `use` without the `use` effect, duplicate effect
@@ -923,7 +570,9 @@ Editor/LSP support (user request), built in two steps.
   effect-trait assertions (`effects_lower_to_traits_and_mut_dyn_params`),
   loop-lowering assertions (`loops_lower_to_block_expressions`),
   crate-layout assertions (`crate_layout_mounts_only_used_modules`
-  [rs-crate] [rs-imports]); negative tests (missing defines for external
+  [rs-crate] [rs-imports]); numeric literal suffixes emit explicit types;
+  predicate-qualifier constructors emit plain fns [qual-ctor-predicate];
+  negative tests (missing defines for external
   fns/types, uncovered core externals, generic effect members
   [rs-effects]); and six rustc compile+run tests with exact stdout
   assertions mirroring the kotlinc set (demo, unions, qualifiers,

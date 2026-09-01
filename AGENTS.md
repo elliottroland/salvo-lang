@@ -21,10 +21,11 @@ Guidance for AI agents (and humans) contributing to this repository.
    referenced from that backend's crate and define files; core crates
    reference backend-neutral labels only.
 3. **`PROGRESS.md`** — the living handoff document: what is built, key design
-   decisions, known limitations, the milestone plan (M0–M8), the test
-   inventory, and hard-won gotchas. **Consult it before starting any task**
-   to find the current milestone and avoid re-solving problems already
-   documented under "Gotchas / lessons learned".
+   decisions (condensed history), known limitations, the roadmap (currently:
+   toward full linear types, with marked language-design decision points),
+   the test inventory, and hard-won gotchas. **Consult it before starting
+   any task** to find the current roadmap phase and avoid re-solving
+   problems already documented under "Gotchas / lessons learned".
 
 Do not begin implementation work without reading these. PROGRESS.md tells
 you *where we are and why*; LANGUAGE.md tells you *what correct means*;
@@ -50,7 +51,8 @@ meaningful work (a milestone, a sub-item, a design decision, a new gotcha):
 
 - Update the status snapshot, completed-milestone notes, and test counts.
 - Record new design decisions and *why* they were made.
-- Move finished items out of "Remaining milestones"; add newly discovered
+- Move finished items out of "Remaining leftovers" and the roadmap; add
+  newly discovered
   leftovers to the appropriate milestone section.
 - Add lessons learned to "Gotchas / lessons learned".
 
@@ -109,8 +111,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 ## Non-negotiable invariants
 
 - **Never emit silently wrong code.** Unsupported constructs must produce a
-  codegen/checker *error*, not incorrect output. (See "Deliberate cuts" in
-  PROGRESS.md.)
+  codegen/checker *error*, not incorrect output ([backend-never-wrong];
+  the remaining deliberate cuts are listed in PROGRESS.md's history).
 - **The checker is lenient by design**: anything it cannot type is
   `Ty::Unknown` and must pass through without cascading errors (Kotlin
   interop relies on this). Coercions/unwraps fire only where the checker's
@@ -126,8 +128,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
   kotlinc/rustc end-to-end tests still pass.
 - Keep the spec documents and the implementation consistent. If you find a
   spec bug, fix LANGUAGE.md (and any stale LANGUAGE_SPEC.md rule) *and*
-  note it in PROGRESS.md (there is precedent — see "Fixed inconsistencies
-  in LANGUAGE.md + std").
+  note it in PROGRESS.md (there is precedent — several LANGUAGE.md/std
+  inconsistencies were fixed this way during M0–M8).
 - Backend-prefixed rule labels (`kt-…`) may only be referenced from that
   backend's crate and its define files; `salvo-core`/`salvo-syntax`
   reference backend-neutral labels only. A new backend gets its own
@@ -135,7 +137,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 
 ## Workflow for a typical task
 
-1. Read PROGRESS.md → identify the current milestone and its leftovers.
+1. Read PROGRESS.md → identify the current roadmap phase and the
+   leftovers.
 2. Read the relevant LANGUAGE.md sections for the feature, and grep the
    affected `[rule-labels]` in LANGUAGE_SPEC.md (plus the backend spec if
    the task touches a backend crate or its define files).

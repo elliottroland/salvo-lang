@@ -49,7 +49,7 @@ Conventions:
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
   `Char`→`char`, `Byte`→`u8`, `Nothing`→`!` (LANGUAGE.md's original
-  `u64` for `Long` was a spec bug — `Long` is signed, see PROGRESS.md).
+  `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
 * [kt-none-unit]-equivalent: `None` as a return type is `()` (omitted);
@@ -246,7 +246,8 @@ derives them mechanically:
 * Handler resolution prefers the checker's effect tables
   (`use_effects`/`effect_calls`/`call_effects`) rendered through
   `rust_ty`, with the same string-keyed environment fallback as the
-  Kotlin backend (see PROGRESS.md "Emitter fallback mechanism").
+  Kotlin backend (see PROGRESS.md "Emitter effect-environment fallback"
+  under architectural facts).
 
 ## Functions and calls
 
