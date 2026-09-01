@@ -1351,3 +1351,50 @@ fn companion_collision_with_generated_file_is_an_error() {
         "unexpected errors: {errors:?}"
     );
 }
+
+// [kt-handler-template-return] A handler member with a return type returns
+// its template's value (`return run { ... }`), so value-producing defines
+// like `random() -> Float` compile; statement-only members are unchanged.
+#[test]
+fn handler_members_with_return_types_return_their_template() {
+    let program = build_program(&[(
+        "main.sv",
+        "import random.Random\nimport random.DefaultRandom\n\n\
+         fn roll() [Random] -> Float {\n    return random()\n}\n\n\
+         fn main() [use] -> [] None {\n    use StdOutConsole\n    use DefaultRandom\n    \
+         println(\"${roll() < 2.0}\")\n}\n",
+        false,
+    )]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let random = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "random.kt")
+        .expect("random.kt not emitted");
+    assert!(
+        random.content.contains("override fun random(): Float {"),
+        "content: {}",
+        random.content
+    );
+    assert!(
+        random.content.contains("return run {"),
+        "content: {}",
+        random.content
+    );
+    assert!(
+        random.content.contains("kotlin.random.Random.nextFloat()"),
+        "content: {}",
+        random.content
+    );
+    // Statement-only members (Console.print) keep their plain body.
+    let console = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "core/console.kt")
+        .expect("core/console.kt not emitted");
+    assert!(
+        !console.content.contains("return run {"),
+        "content: {}",
+        console.content
+    );
+}

@@ -203,3 +203,75 @@ fn diagnostics_hover_and_shutdown() {
     let status = lsp.child.wait().expect("failed to wait for salvo lsp");
     assert!(status.success(), "exit status: {status}");
 }
+
+// [diag-import-suggest] An unresolved handler in `use` publishes a
+// diagnostic carrying import suggestions in `data`, and
+// `textDocument/codeAction` turns them into a quickfix inserting the
+// import line at the top of the file.
+#[test]
+fn code_actions_offer_import_quickfix() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_code_action");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1,
+                "text": "fn main() [use] {\n    use DefaultRandom\n}\n"
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    let diags = params["diagnostics"].as_array().unwrap();
+    assert_eq!(diags.len(), 1, "diagnostics: {diags:?}");
+    assert!(diags[0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("unknown handler `DefaultRandom`"));
+    assert_eq!(
+        diags[0]["data"]["imports"],
+        json!(["random.DefaultRandom"]),
+        "diagnostic: {:?}",
+        diags[0]
+    );
+
+    // The client echoes the diagnostic back in the codeAction context.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": {"uri": uri},
+                "range": diags[0]["range"],
+                "context": {"diagnostics": [diags[0]]}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 2);
+    let actions = response["result"].as_array().unwrap();
+    assert_eq!(actions.len(), 1, "actions: {actions:?}");
+    let action = &actions[0];
+    assert_eq!(
+        action["title"].as_str(),
+        Some("Add `import random.DefaultRandom`")
+    );
+    assert_eq!(action["kind"].as_str(), Some("quickfix"));
+    let edit = &action["edit"]["changes"][&uri][0];
+    assert_eq!(edit["newText"].as_str(), Some("import random.DefaultRandom\n"));
+    // No existing imports: inserted at the top of the file.
+    assert_eq!(edit["range"]["start"], json!({"line": 0, "character": 0}));
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 3);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    let status = lsp.child.wait().expect("failed to wait for salvo lsp");
+    assert!(status.success(), "exit status: {status}");
+}

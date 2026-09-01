@@ -20,8 +20,10 @@ pub struct Analysis {
     /// Parse + resolution + type diagnostics [diag-structured], in file
     /// order (checker diagnostics after parse diagnostics).
     pub diagnostics: Vec<FileDiagnostic>,
-    /// Checker side tables (for hover etc.); `None` when parse errors
-    /// prevented checking. Its `errors` have been drained into
+    /// Checker side tables (for hover etc.). Checking always runs, even
+    /// with parse errors: broken files participate with their recovered
+    /// ASTs but contribute no resolution/checker diagnostics of their own
+    /// (only parse ones). Its `errors` have been drained into
     /// `diagnostics`.
     pub checked: Option<Checked>,
     /// Files that could not be read (does not abort the analysis).
@@ -89,10 +91,15 @@ pub fn analyze_sources(
             severity: d.severity,
             message: d.message,
             span: d.span,
+            suggested_imports: Vec::new(),
         }));
         modules.push(module);
     }
-    let parse_errors = diagnostics.iter().filter(|d| d.is_error()).count();
+    let parse_broken: std::collections::HashSet<usize> = diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.file)
+        .collect();
 
     let program = Program {
         files: sources.files,
@@ -100,17 +107,20 @@ pub fn analyze_sources(
         companions: sources.companions,
     };
 
-    // Resolve + check only on a parse-clean program (recovered ASTs would
-    // produce cascading nonsense); parse diagnostics are still reported.
-    let checked = if parse_errors == 0 {
+    // Resolve + check always run — a parse error in one file must not
+    // suppress diagnostics for the others [cli-analyze]. Parse-broken
+    // files participate with their recovered ASTs (so what did parse
+    // still resolves for other files), but their own resolution/checker
+    // diagnostics are dropped: recovered ASTs cascade nonsense, and the
+    // parse errors are the actionable signal there.
+    let checked = {
         let symbols = Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
         // `check_program` folds resolution errors into its own.
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
+        checked.errors.retain(|d| !parse_broken.contains(&d.file));
         diagnostics.append(&mut checked.errors);
         Some(checked)
-    } else {
-        None
     };
 
     Ok(Analysis {

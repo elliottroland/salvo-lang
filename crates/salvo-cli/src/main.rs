@@ -4,9 +4,11 @@
 //! salvo compile --backend kotlin --src ./some_dir --target ./some_dir_kotlin
 //! salvo analyze --src ./some_dir [--backend kotlin] [--format json]
 //! salvo lsp [--backend kotlin]
+//! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
 //! ```
 
 mod analysis;
+mod lang;
 mod lsp;
 
 use std::path::PathBuf;
@@ -79,6 +81,22 @@ enum Command {
         #[arg(long)]
         backend: Option<String>,
     },
+    /// Emit language metadata for editor tooling [cli-lang].
+    Lang {
+        #[command(subcommand)]
+        command: LangCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum LangCommand {
+    /// Print the TextMate grammar for Salvo (used by the VS Code
+    /// extension). Keywords are derived from the lexer's keyword table.
+    TmGrammar {
+        /// Write the grammar to this file instead of stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -101,6 +119,9 @@ fn main() -> ExitCode {
                 eprintln!("{msg}");
                 ExitCode::FAILURE
             }
+        },
+        Command::Lang { command } => match command {
+            LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
         },
     }
 }
@@ -213,12 +234,20 @@ fn diagnostics_json(diagnostics: &[FileDiagnostic], program: &Program) -> String
         out.push_str(&format!(
             "  {{\"file\": {}, \"line\": {line}, \"col\": {col}, \
              \"start\": {}, \"end\": {}, \"severity\": \"{severity}\", \
-             \"message\": {}}}",
+             \"message\": {}",
             json_str(&file.name),
             diag.span.start,
             diag.span.end,
             json_str(&diag.message)
         ));
+        // Import suggestions [diag-import-suggest], present only when
+        // there are any.
+        if !diag.suggested_imports.is_empty() {
+            let imports: Vec<String> =
+                diag.suggested_imports.iter().map(|s| json_str(s)).collect();
+            out.push_str(&format!(", \"imports\": [{}]", imports.join(", ")));
+        }
+        out.push('}');
     }
     if !diagnostics.is_empty() {
         out.push('\n');

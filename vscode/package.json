@@ -1,0 +1,74 @@
+{
+  "name": "salvo-vscode",
+  "displayName": "Salvo",
+  "description": "Syntax highlighting and language server support for the Salvo programming language.",
+  "version": "0.1.0",
+  "publisher": "salvo-lang",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:salvo"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "salvo",
+        "aliases": [
+          "Salvo",
+          "salvo"
+        ],
+        "extensions": [
+          ".sv"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "salvo",
+        "scopeName": "source.salvo",
+        "path": "./syntaxes/salvo.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Salvo",
+      "properties": {
+        "salvo.serverPath": {
+          "type": "string",
+          "default": "salvo",
+          "markdownDescription": "Path to the `salvo` binary used to start the language server (`salvo lsp`). Relative paths are resolved against the workspace folder, so e.g. `target/debug/salvo` points at a freshly built compiler in this repository."
+        },
+        "salvo.backend": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional backend passed to the language server as `--backend <name>` (e.g. `kotlin` or `rust`). Selects which backend define files (`*.<backend>.sv`) participate in analysis; empty means backend-neutral."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "salvo.restartServer",
+        "title": "Salvo: Restart Language Server"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "@types/vscode": "1.85.0",
+    "typescript": "5.4.5"
+  }
+}

@@ -347,6 +347,12 @@ Conventions:
 
 * [mod-file] `.sv` files are modules; the module path is the file path (no
   in-file module declaration).
+* [mod-ignore] Source discovery walks the source root recursively but
+  skips: hidden directories (`.git`, ...), cache directories carrying a
+  `CACHEDIR.TAG` marker (Cargo's `target/`), and anything listed in
+  `<root>/.svignore` — one path per line, relative to the root, naming a
+  file or a directory subtree; blank lines and `#` comments ignored.
+  The root itself is exempt from the hidden/cache rules.
 * [mod-visibility] Code sees: everything declared in its own module (all
   files of the module, including backend define files), everything in
   `core.*` (implicit), and whatever it imports.
@@ -426,6 +432,23 @@ Conventions:
   diagnostics stay per-file (`salvo_syntax::Diagnostic`); the CLI
   attributes them to files the same way. This is the contract a future
   language server builds on.
+* [diag-import-suggest] Diagnostics for unresolved names carry structured
+  import suggestions: the modules elsewhere in the program that declare
+  the name, as `module.Item` paths (`FileDiagnostic::suggested_imports`).
+  * Computed from a whole-program declaration index
+    (`Resolution::declared_in`); effect members map to their owning
+    *effect* (importing the effect brings its members). `core.*` modules
+    are never suggested — they are implicitly visible, so an unknown
+    name cannot be fixed by importing from core.
+  * Attached at: unknown handler in `use`, unknown effect in an effect
+    list, and unresolved imports (which suggest the correct module path
+    for the item, e.g. `import std.random.Random` -> `import
+    random.Random`).
+  * Rendering: text mode appends one ``help: add `import …` `` line per
+    suggestion; `--format json` adds an `"imports"` array (only when
+    non-empty); the LSP carries them on `Diagnostic.data` and serves
+    `textDocument/codeAction` quickfixes ("Add `import …`") that insert
+    the import line after the file's last import (or at the top).
 * [cli-analyze] `salvo analyze --src DIR [--backend NAME]
   [--format text|json]` runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
@@ -434,8 +457,12 @@ Conventions:
     `--backend` only opts that backend's `*.<backend>.sv` define files
     into loading (so they get parse checking); without it only language
     files are loaded.
-  * Resolve/check run only on a parse-clean program (recovered ASTs
-    would cascade); parse diagnostics are always reported.
+  * Resolve/check always run, even with parse errors — a broken file
+    must not suppress diagnostics elsewhere. Parse-broken files
+    participate with their recovered ASTs (their parsed declarations
+    still resolve for other files) but contribute only their parse
+    diagnostics; their resolution/checker diagnostics are dropped
+    (recovered ASTs cascade nonsense).
   * `--format json` prints a JSON array of
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
@@ -454,6 +481,20 @@ Conventions:
     document under (clients compare URIs exactly).
   * Hover returns the checker's type (`Checked::expr_ty`) for the
     smallest expression under the cursor; `Unknown`-typed expressions
-    and parse-broken workspaces yield no hover.
+    yield no hover.
+  * `textDocument/codeAction` serves import quickfixes from the
+    suggestions on published diagnostics [diag-import-suggest].
   * Positions convert between byte offsets (Salvo spans) and UTF-16
     line/character pairs (the LSP default encoding).
+* [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
+  grammar consumed by the VS Code extension (`vscode/syntaxes/`);
+  without `--out` it prints to stdout.
+  * Keyword alternations are derived from the lexer's keyword table
+    (`salvo_syntax::token::KEYWORDS` — the same table
+    `TokenKind::keyword` consults), partitioned into highlighting
+    categories (control / declaration / other / boolean). A test
+    asserts the partition covers the table exactly, so adding a keyword
+    without categorizing it fails `cargo test`.
+  * The checked-in extension grammar must byte-equal the generated one
+    (`vscode_extension_grammar_is_up_to_date`); regenerate with
+    `cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json`.

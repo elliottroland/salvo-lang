@@ -33,6 +33,8 @@ cargo run -- analyze --src ./my_project              # or --format json
 
 # Start a language server (LSP over stdio) for editor integration:
 cargo run -- lsp
+# A VS Code extension bundling syntax highlighting and the language server
+# lives in vscode/ — see vscode/README.md.
 
 # Compile a directory of .sv sources to Kotlin:
 cargo run -- compile --backend kotlin --src ./my_project --target ./out

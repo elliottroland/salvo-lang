@@ -22,13 +22,15 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{HoverRequest, Request as _};
+use lsp_types::request::{CodeActionRequest, HoverRequest, Request as _};
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, LanguageString, MarkedString,
-    Position, PublishDiagnosticsParams, Range, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeActionProviderCapability, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, LanguageString, MarkedString, Position, PublishDiagnosticsParams,
+    Range, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    Url, WorkspaceEdit,
 };
 
 use salvo_core::{FileDiagnostic, Ty};
@@ -59,6 +61,8 @@ fn serve(filter: String, native_ext: String) -> Result<(), Box<dyn Error + Sync 
             TextDocumentSyncKind::FULL,
         )),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        // Quickfixes adding suggested imports [diag-import-suggest].
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         ..Default::default()
     })?;
     let init_params: InitializeParams =
@@ -131,6 +135,11 @@ impl Server<'_> {
             HoverRequest::METHOD => {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 let result = self.hover(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            CodeActionRequest::METHOD => {
+                let params: CodeActionParams = serde_json::from_value(req.params)?;
+                let result = self.code_actions(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
             _ => self.respond(Response::new_err(
@@ -263,8 +272,8 @@ impl Server<'_> {
     }
 
     /// The checker's type for the smallest expression under the cursor
-    /// (`Checked::expr_ty`); `None` on parse errors, unknown types, or
-    /// positions without a typed expression.
+    /// (`Checked::expr_ty`); `None` on unknown types or positions
+    /// without a typed expression.
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
         let doc = &params.text_document_position_params;
         let path = file_path(&doc.text_document.uri)?;
@@ -301,10 +310,71 @@ impl Server<'_> {
         })
     }
 
+    /// Quickfix code actions for the import suggestions carried on
+    /// diagnostics [diag-import-suggest]: one "Add `import …`" action per
+    /// suggested path, inserting the import line after the file's last
+    /// existing import (or at the top). The suggestions ride on
+    /// `Diagnostic::data`, which the client echoes back in
+    /// `context.diagnostics` — no re-analysis needed.
+    fn code_actions(&self, params: &CodeActionParams) -> Vec<CodeActionOrCommand> {
+        let Some(path) = file_path(&params.text_document.uri) else {
+            return Vec::new();
+        };
+        let content = match self.overlay.get(&path) {
+            Some(content) => content.clone(),
+            None => match std::fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(_) => return Vec::new(),
+            },
+        };
+        let insert = import_insert_position(&content);
+
+        let mut actions = Vec::new();
+        for diag in &params.context.diagnostics {
+            let imports = diag
+                .data
+                .as_ref()
+                .and_then(|d| d.get("imports"))
+                .and_then(|v| v.as_array());
+            let Some(imports) = imports else { continue };
+            for import in imports.iter().filter_map(|v| v.as_str()) {
+                let edit = TextEdit {
+                    range: Range::new(insert, insert),
+                    new_text: format!("import {import}\n"),
+                };
+                let changes =
+                    HashMap::from([(params.text_document.uri.clone(), vec![edit])]);
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: format!("Add `import {import}`"),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
+        }
+        actions
+    }
+
     fn respond(&self, response: Response) -> Result<(), Box<dyn Error + Sync + Send>> {
         self.connection.sender.send(Message::Response(response))?;
         Ok(())
     }
+}
+
+/// Where a new `import` line goes: after the last existing top-level
+/// import, or at the very top of the file [diag-import-suggest].
+fn import_insert_position(content: &str) -> Position {
+    let mut line = 0u32;
+    for (i, text) in content.lines().enumerate() {
+        if text.trim_start().starts_with("import ") {
+            line = i as u32 + 1;
+        }
+    }
+    Position::new(line, 0)
 }
 
 /// URI -> canonical absolute path (`None` for non-file URIs, which the
@@ -334,6 +404,9 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str) -> Diagnostic {
         }),
         source: Some("salvo".to_string()),
         message: diag.message.clone(),
+        // Import suggestions ride along for codeAction [diag-import-suggest].
+        data: (!diag.suggested_imports.is_empty())
+            .then(|| serde_json::json!({ "imports": diag.suggested_imports })),
         ..Default::default()
     }
 }

@@ -100,40 +100,47 @@ pub enum StrPart {
     Interp { source: String, offset: u32 },
 }
 
+/// Every Salvo keyword, paired with its token. The single source of truth
+/// shared by the lexer (`TokenKind::keyword`) and tooling that needs the
+/// keyword inventory (e.g. `salvo lang tm-grammar` [cli-lang]).
+pub const KEYWORDS: &[(&str, TokenKind)] = &[
+    ("fn", TokenKind::KwFn),
+    ("let", TokenKind::KwLet),
+    ("struct", TokenKind::KwStruct),
+    ("qualifier", TokenKind::KwQualifier),
+    ("effect", TokenKind::KwEffect),
+    ("handler", TokenKind::KwHandler),
+    ("type", TokenKind::KwType),
+    ("internal", TokenKind::KwInternal),
+    ("external", TokenKind::KwExternal),
+    ("define", TokenKind::KwDefine),
+    ("import", TokenKind::KwImport),
+    ("as", TokenKind::KwAs),
+    ("of", TokenKind::KwOf),
+    ("with", TokenKind::KwWith),
+    ("is", TokenKind::KwIs),
+    ("if", TokenKind::KwIf),
+    ("elif", TokenKind::KwElif),
+    ("else", TokenKind::KwElse),
+    ("when", TokenKind::KwWhen),
+    ("while", TokenKind::KwWhile),
+    ("for", TokenKind::KwFor),
+    ("in", TokenKind::KwIn),
+    ("return", TokenKind::KwReturn),
+    ("break", TokenKind::KwBreak),
+    ("continue", TokenKind::KwContinue),
+    ("yield", TokenKind::KwYield),
+    ("use", TokenKind::KwUse),
+    ("true", TokenKind::KwTrue),
+    ("false", TokenKind::KwFalse),
+];
+
 impl TokenKind {
     pub fn keyword(ident: &str) -> Option<TokenKind> {
-        Some(match ident {
-            "fn" => TokenKind::KwFn,
-            "let" => TokenKind::KwLet,
-            "struct" => TokenKind::KwStruct,
-            "qualifier" => TokenKind::KwQualifier,
-            "effect" => TokenKind::KwEffect,
-            "handler" => TokenKind::KwHandler,
-            "type" => TokenKind::KwType,
-            "internal" => TokenKind::KwInternal,
-            "external" => TokenKind::KwExternal,
-            "define" => TokenKind::KwDefine,
-            "import" => TokenKind::KwImport,
-            "as" => TokenKind::KwAs,
-            "of" => TokenKind::KwOf,
-            "with" => TokenKind::KwWith,
-            "is" => TokenKind::KwIs,
-            "if" => TokenKind::KwIf,
-            "elif" => TokenKind::KwElif,
-            "else" => TokenKind::KwElse,
-            "when" => TokenKind::KwWhen,
-            "while" => TokenKind::KwWhile,
-            "for" => TokenKind::KwFor,
-            "in" => TokenKind::KwIn,
-            "return" => TokenKind::KwReturn,
-            "break" => TokenKind::KwBreak,
-            "continue" => TokenKind::KwContinue,
-            "yield" => TokenKind::KwYield,
-            "use" => TokenKind::KwUse,
-            "true" => TokenKind::KwTrue,
-            "false" => TokenKind::KwFalse,
-            _ => return None,
-        })
+        KEYWORDS
+            .iter()
+            .find(|(text, _)| *text == ident)
+            .map(|(_, kind)| kind.clone())
     }
 
     /// Human-readable description for diagnostics.

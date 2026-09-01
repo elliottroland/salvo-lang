@@ -23,4 +23,9 @@ tmp/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-experiments/
+# experiments/
+
+# VS Code extension build output
+vscode/node_modules/
+vscode/out/
+vscode/*.vsix

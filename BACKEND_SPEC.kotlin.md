@@ -160,6 +160,12 @@ Conventions:
   Kotlin *classes* (never `object`s) and are instantiated at their `use`
   site; state fields become `private var`, constructor params
   `private val`.
+* [kt-handler-template-return] A `define handler` member with a return
+  type wraps its inline template in `return run { … }`: `run` yields the
+  block's last expression, so both single-expression templates
+  (`kotlin.random.Random.nextFloat()`) and statement-sequence templates
+  work unchanged. Members without a return type keep their plain
+  statement body.
 * [kt-effect-params] Effect dependencies become leading function
   parameters named after the effect type (`Random<Int>` → `random_int`);
   `use` emits `val <name>: <EffectType> = Handler(...)`; effect member

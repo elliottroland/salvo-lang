@@ -23,6 +23,10 @@ pub struct FileDiagnostic {
     pub severity: Severity,
     pub message: String,
     pub span: Span,
+    /// Import paths (`module.Item`) that would bring the unresolved name
+    /// into scope [diag-import-suggest]. Rendered as `help:` lines and
+    /// offered as LSP quickfixes; empty for most diagnostics.
+    pub suggested_imports: Vec<String>,
 }
 
 impl FileDiagnostic {
@@ -32,7 +36,14 @@ impl FileDiagnostic {
             severity: Severity::Error,
             message: message.into(),
             span,
+            suggested_imports: Vec::new(),
         }
+    }
+
+    /// Attaches import suggestions [diag-import-suggest].
+    pub fn with_imports(mut self, imports: Vec<String>) -> Self {
+        self.suggested_imports = imports;
+        self
     }
 
     pub fn is_error(&self) -> bool {
@@ -40,14 +51,19 @@ impl FileDiagnostic {
     }
 
     /// Renders against the file list this diagnostic was produced from,
-    /// e.g. `error: unknown effect --> main.sv:3:7` with a caret line.
+    /// e.g. `error: unknown effect --> main.sv:3:7` with a caret line and
+    /// a `help:` line per suggested import [diag-import-suggest].
     pub fn render(&self, files: &[SourceFile]) -> String {
         let f = &files[self.file];
-        Diagnostic {
+        let mut out = Diagnostic {
             severity: self.severity,
             message: self.message.clone(),
             span: self.span,
         }
-        .render(&f.name, &f.content)
+        .render(&f.name, &f.content);
+        for import in &self.suggested_imports {
+            out.push_str(&format!("\n  help: add `import {import}`"));
+        }
+        out
     }
 }

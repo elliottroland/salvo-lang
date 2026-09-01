@@ -144,6 +144,17 @@ impl SourceSet {
     /// backend, plus every companion file with the backend's native
     /// extension ([backend-companion], e.g. `.kt` for Kotlin). Returns
     /// the paths that failed to read.
+    ///
+    /// Skipped during the walk [mod-ignore]:
+    /// - hidden directories (`.git`, `.vscode`, ...),
+    /// - cache directories carrying a `CACHEDIR.TAG` marker (the cachedir
+    ///   spec; Cargo writes one into `target/`),
+    /// - entries listed in `<root>/.svignore`: one path per line, relative
+    ///   to the root, matching a file or a whole directory subtree;
+    ///   blank lines and `#` comments are ignored.
+    ///
+    /// The `root` itself is exempt from the hidden/cache rules: explicitly
+    /// selecting such a directory still works.
     pub fn add_dir(
         &mut self,
         root: &Path,
@@ -151,6 +162,12 @@ impl SourceSet {
         native_ext: &str,
         is_std: bool,
     ) -> Vec<(PathBuf, String)> {
+        let ignored = read_svignore(root);
+        let is_ignored = |path: &Path| {
+            path.strip_prefix(root)
+                .is_ok_and(|rel| ignored.iter().any(|entry| rel == entry))
+        };
+
         let mut errors = Vec::new();
         let mut stack = vec![root.to_path_buf()];
         let mut paths = Vec::new();
@@ -165,10 +182,18 @@ impl SourceSet {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    let hidden = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with('.'));
+                    if hidden || path.join("CACHEDIR.TAG").is_file() || is_ignored(&path) {
+                        continue;
+                    }
                     stack.push(path);
                 } else if path
                     .extension()
                     .is_some_and(|e| e == "sv" || e == native_ext)
+                    && !is_ignored(&path)
                 {
                     paths.push(path);
                 }
@@ -199,6 +224,22 @@ impl SourceSet {
         }
         errors
     }
+}
+
+/// Parses `<root>/.svignore` [mod-ignore]: one entry per line, `/`-separated
+/// and relative to the root, naming a file or a directory subtree to skip.
+/// Blank lines and lines starting with `#` are ignored; trailing `/` on
+/// directory entries is allowed. Missing file means no ignores.
+fn read_svignore(root: &Path) -> Vec<PathBuf> {
+    let Ok(content) = std::fs::read_to_string(root.join(".svignore")) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| line.trim_end_matches('/').split('/').collect::<PathBuf>())
+        .collect()
 }
 
 #[cfg(test)]

@@ -65,8 +65,37 @@ impl<'p> ModuleScope<'p> {
 pub struct Resolution<'p> {
     /// One scope per file, aligned with `program.files`.
     pub scopes: Vec<ModuleScope<'p>>,
+    /// Whole-program declaration index: name -> (declaring module,
+    /// importable item). For most declarations the item is the name
+    /// itself; for effect members it is the owning *effect* (importing
+    /// the effect brings its members). Drives import suggestions on
+    /// unresolved-name diagnostics [diag-import-suggest].
+    pub declared_in: HashMap<&'p str, Vec<(&'p ModulePath, &'p str)>>,
     /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
     pub errors: Vec<FileDiagnostic>,
+}
+
+impl Resolution<'_> {
+    /// Import paths (`module.Item`) that would bring `name` into scope,
+    /// sorted and deduplicated [diag-import-suggest]. Non-`core` modules
+    /// only: `core.*` is implicitly visible, so an unknown name is never
+    /// fixed by importing it from core.
+    pub fn import_candidates(&self, name: &str) -> Vec<String> {
+        let mut paths: Vec<String> = self
+            .declared_in
+            .get(name)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter(|(module, _)| module.0.first().is_none_or(|p| p != "core"))
+                    .map(|(module, item)| format!("{module}.{item}"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        paths.sort();
+        paths.dedup();
+        paths
+    }
 }
 
 /// One module's own declarations, prior to visibility merging.
@@ -129,6 +158,40 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         .copied()
         .collect();
 
+    // Whole-program declaration index for import suggestions
+    // [diag-import-suggest]. Effect members map to their owning effect:
+    // importing the effect is what brings the member into scope.
+    let mut declared_in: HashMap<&str, Vec<(&ModulePath, &str)>> = HashMap::new();
+    for (module, items) in &by_module {
+        let mut record = |name, item| {
+            declared_in.entry(name).or_default().push((*module, item));
+        };
+        for (_, f) in &items.fns {
+            record(&f.name.name, &f.name.name);
+        }
+        for s in &items.structs {
+            record(&s.name.name, &s.name.name);
+        }
+        for e in &items.effects {
+            record(&e.name.name, &e.name.name);
+            for f in &e.fns {
+                record(&f.name.name, &e.name.name);
+            }
+        }
+        for h in &items.handlers {
+            record(&h.name.name, &h.name.name);
+        }
+        for q in &items.qualifiers {
+            record(&q.name.name, &q.name.name);
+        }
+        for t in &items.type_aliases {
+            record(&t.name.name, &t.name.name);
+        }
+        for t in &items.opaque_types {
+            record(&t.name.name, &t.name.name);
+        }
+    }
+
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
     let mut errors = Vec::new();
@@ -152,7 +215,11 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         scopes.push(scope);
     }
 
-    Resolution { scopes, errors }
+    Resolution {
+        scopes,
+        declared_in,
+        errors,
+    }
 }
 
 /// Adds a module's items to a scope, optionally under a single-name filter
@@ -266,14 +333,28 @@ fn resolve_import<'p>(
         }
     }
     match matches.len() {
-        0 => errors.push(FileDiagnostic::error(
-            file_idx,
-            import.span,
-            format!(
-                "unresolved import: no module matching `{}` declares `{item_name}`",
-                prefix.join(".")
-            ),
-        )),
+        0 => {
+            // Suggest modules that do declare the item, wherever they
+            // live [diag-import-suggest].
+            let mut suggestions: Vec<String> = by_module
+                .iter()
+                .filter(|(_, items)| items.has_name(item_name))
+                .map(|(path, _)| format!("{path}.{item_name}"))
+                .collect();
+            suggestions.sort();
+            suggestions.dedup();
+            errors.push(
+                FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "unresolved import: no module matching `{}` declares `{item_name}`",
+                        prefix.join(".")
+                    ),
+                )
+                .with_imports(suggestions),
+            );
+        }
         1 => {
             let alias: &'p str = import
                 .alias

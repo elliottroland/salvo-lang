@@ -558,8 +558,19 @@ impl<'p> Emitter<'p> {
                 "    override fun {}({params}){ret} {{\n",
                 kt_ident(&dfn.sig.name.name)
             ));
-            for line in body.lines() {
-                out.push_str(&format!("        {line}\n"));
+            // A value-returning member returns its template's value; `run`
+            // makes multi-line templates (statements + final expression)
+            // work unchanged [kt-handler-template-return].
+            if ret.is_empty() {
+                for line in body.lines() {
+                    out.push_str(&format!("        {line}\n"));
+                }
+            } else {
+                out.push_str("        return run {\n");
+                for line in body.lines() {
+                    out.push_str(&format!("            {line}\n"));
+                }
+                out.push_str("        }\n");
             }
             out.push_str("    }\n");
         }

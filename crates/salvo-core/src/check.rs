@@ -127,6 +127,7 @@ pub fn check_program<'p>(
         }
         let mut checker = Checker {
             scope: &resolution.scopes[file_idx],
+            resolution,
             symbols,
             file_idx,
             out: &mut out,
@@ -155,6 +156,9 @@ struct LocalVar {
 
 struct Checker<'p, 'r> {
     scope: &'r ModuleScope<'p>,
+    /// The whole-program resolution (for import suggestions on
+    /// unresolved names [diag-import-suggest]).
+    resolution: &'r Resolution<'p>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
     out: &'r mut Checked,
@@ -199,6 +203,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg));
+    }
+
+    /// An unresolved-name error carrying import suggestions: modules
+    /// elsewhere in the program that declare `name`
+    /// [diag-import-suggest].
+    fn error_unresolved(&mut self, span: Span, msg: impl Into<String>, name: &str) {
+        let imports = self.resolution.import_candidates(name);
+        self.out.errors.push(
+            FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports),
+        );
     }
 
     // ================= module / function traversal =================
@@ -350,7 +364,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn lower_effect_ref(&mut self, r: &TypeRef) -> Option<Ty> {
         let name = r.name.name.as_str();
         let Some(effect) = self.scope.effects.get(name).copied() else {
-            self.error(r.span, format!("unknown effect `{name}`"));
+            self.error_unresolved(r.span, format!("unknown effect `{name}`"), name);
             return None;
         };
         if r.args.len() != effect.generics.len() {
@@ -406,7 +420,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
-            self.error(id.span, format!("unknown handler `{}` in `use`", id.name));
+            self.error_unresolved(
+                id.span,
+                format!("unknown handler `{}` in `use`", id.name),
+                &id.name,
+            );
             for a in args {
                 self.check_expr(a, None);
             }
