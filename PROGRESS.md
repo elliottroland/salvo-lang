@@ -1,6 +1,8 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01 (after M8: the Rust backend). This document is
+Status snapshot as of 2026-09-01 (after M8: the Rust backend, plus the
+post-M8 tooling: `salvo analyze`, structured diagnostics, and the
+`salvo lsp` language server). This document is
 the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
@@ -19,7 +21,7 @@ in sync when adding or changing features.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 101 tests; includes six kotlinc and six rustc
+cargo test                  # 113 tests; includes six kotlinc and six rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -29,6 +31,14 @@ cargo run -- compile --src ./some_dir --target ./out        # --backend defaults
 cargo run -- compile --backend rust --src ./some_dir --target ./out_rs
 cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
 cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
+
+# Type-check without generating code [cli-analyze]:
+cargo run -- analyze --src ./some_dir                       # text diagnostics, exit 1 on errors
+cargo run -- analyze --src ./some_dir --format json         # machine-readable diagnostics
+cargo run -- analyze --src ./some_dir --backend kotlin      # also parse kotlin define files
+
+# Language server over stdio [cli-lsp] (point your editor's LSP client at it):
+cargo run -- lsp
 
 # Verify generated Kotlin manually (the CLI prints the entry point):
 kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
@@ -532,14 +542,58 @@ generic effects with two `CyclicRandom` instances, loops-as-values
 multi-module crate layout. Plus a manual CLI check of a `Mut` struct
 mutated through a `&mut` parameter.
 
+### Post-M8 — `salvo analyze`, structured diagnostics, `salvo lsp`
+
+Editor/LSP support (user request), built in two steps.
+
+- **Structured diagnostics [diag-structured]** (new
+  `salvo-core/src/diag.rs`): `Resolution::errors` and `Checked::errors`
+  are now `Vec<FileDiagnostic>` — `(file index, span, severity, message)`
+  — instead of pre-rendered strings. The three error sinks
+  (`Checker::error`, `resolve_import`, deduce's written-list validation)
+  construct them directly; rendering moved to the consuming boundary
+  (`FileDiagnostic::render(&program.files)` in both backends'
+  `emit_program`, and in the CLI). `Checker` lost its now-unneeded
+  `file_name`/`source` fields. Backend `emit` error signatures are
+  unchanged (`Err(Vec<String>)`), so `BackendError` handling and all
+  negative tests still work on rendered strings.
+- **`salvo analyze` [cli-analyze]**: parse + resolve + check with no
+  code generation. Text mode renders diagnostics to stderr with a
+  summary line; `--format json` prints a
+  `{file, line, col, start, end, severity, message}` array to stdout
+  (hand-rolled JSON — no new dependencies). Exit code 1 iff any
+  diagnostic is an error. Resolve/check only run on a parse-clean
+  program. Design decision: analysis is *backend-neutral* — the checker
+  skips non-Language files and never consults defines, so `--backend`
+  merely opts that backend's define files into loading (they get parse
+  checking); without it, the load filter (empty backend name) matches no
+  define suffix and only language files are analyzed.
+- **`salvo lsp` [cli-lsp]** (`salvo-cli/src/lsp.rs`, in the CLI crate so
+  it shares the embedded std and the pipeline — now factored into
+  `salvo-cli/src/analysis.rs::analyze_sources`, used by both commands):
+  a language server over stdio using `lsp-server` + `lsp-types` 0.95
+  (sync, no tokio; the rust-analyzer stack). No incremental state:
+  every document event re-runs the whole-workspace analysis with open
+  buffers as a content overlay (`analyze_sources`' `overlay` parameter;
+  unsaved files under the root are added to the source set).
+  Implemented: publish-diagnostics on open/change/close/save — every
+  open document gets a publish (empty = clean) and disappeared files
+  get a clearing publish — and hover showing `Checked::expr_ty` for
+  the smallest non-`Unknown` expression span under the cursor.
+  Positions convert byte offset ↔ UTF-16 line/character (the LSP
+  default encoding; `offset_to_position`/`position_to_offset` with
+  unit tests). Go-to-definition needs def-site spans recorded in
+  `Resolution`/`Symbols` — still a leftover.
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
   `Symbols::collect` (flat, still used for define templates and arity
   fallbacks) → `salvo_core::resolve` (per-file scopes) →
-  `salvo_core::check_program`. Type errors abort emission and surface as
-  `BackendError::Codegen` (still strings; spanned rendering happens inside
-  the checker via `Diagnostic::render`).
+  `salvo_core::check_program`. Type errors are structured
+  `FileDiagnostic`s [diag-structured]; they abort emission and are
+  rendered at the backend boundary into `BackendError::Codegen` strings
+  (the CLI `analyze` command consumes them structured instead).
 - The checker is *lenient by design*: anything it cannot type is
   `Ty::Unknown` and emits like before (Kotlin interop pass-through).
   Coercions/unwraps only fire where the tables say so — the emitter's
@@ -574,6 +628,12 @@ mutated through a `&mut` parameter.
 
 ### Leftovers (small; no milestone currently claims them)
 
+- `salvo lsp` go-to-definition: `Resolution`/`Symbols` know the declaring
+  items but no def-site *spans* are recorded; add ident spans to the
+  declaration tables and a `textDocument/definition` handler. Also worth
+  considering: incremental analysis if workspaces outgrow
+  re-check-everything-per-keystroke, and a `positionEncoding` negotiation
+  for UTF-8-native clients.
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
 - Struct destructuring ignores predicate-qualifier field overrides
@@ -631,14 +691,28 @@ mutated through a `&mut` parameter.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 101)
+## Test inventory (all green: 113)
 
-- `salvo-core`: 16 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 18 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 8 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
-  written-list shape validation, stricter-than-body lists).
+  written-list shape validation, stricter-than-body lists) + 2
+  structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
+  carry file index/span/severity and render with file:line:col + caret;
+  multi-file programs index the declaring file [diag-structured]).
+- `salvo-cli`: 10 - 7 `analyze` integration tests running the built
+  binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
+  type errors render with location and exit 1, JSON diagnostics
+  (populated + empty array), parse errors reported, `--backend` opting
+  define files into the analysis, unknown backend rejected) + 2 UTF-16
+  position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
+  supplementary-plane round-trips, clamping) + 1 LSP integration test
+  (`tests/lsp_tests.rs` [cli-lsp]: speaks framed JSON-RPC to the binary —
+  initialize, didOpen of an unsaved broken buffer -> publishDiagnostics
+  with UTF-16 range, didChange fix -> clearing publish, hover -> checked
+  type, shutdown/exit -> clean process exit).
 - `salvo-syntax`: 17 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
 - `salvo-backend-kotlin`: 47 - golden snapshots of the M2 demo, the M3
@@ -688,6 +762,29 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- `SourceSet::classify` with a backend name that matches no define suffix
+  (the CLI passes `""` for backend-neutral `analyze`) loads language
+  files only — every `*.<something>.sv` is treated as another backend's
+  define file and skipped. Cheap way to get a language-only load; don't
+  name a real backend the empty string.
+- CLI integration tests use `env!("CARGO_BIN_EXE_salvo")` +
+  `env!("CARGO_TARGET_TMPDIR")` (both provided by Cargo for integration
+  tests of a crate with a binary) — no `assert_cmd`/`tempfile`
+  dependencies needed.
+- (lsp) `lsp_server::Connection` must be *dropped before*
+  `io_threads.join()`: the writer thread only exits when the
+  connection's channel sender is dropped — joining first deadlocks the
+  server on shutdown (symptom: clean shutdown/exit exchange, then the
+  process never terminates).
+- (lsp) `Path::canonicalize` fails for files that don't exist on disk
+  (unsaved editor buffers): canonicalize the *parent* and re-append the
+  file name, or symlinked roots (macOS `/tmp` -> `/private/tmp`) make
+  overlay paths miss the workspace root and the buffer silently drops
+  out of the analysis.
+- (lsp) Publish diagnostics against the URI the client opened the
+  document under, not one rebuilt from the canonicalized path — clients
+  match URIs textually, and a `/var` vs `/private/var` rewrite makes
+  them ignore the publish.
 - Kotlin smart casts make some emitted `as` casts redundant (kotlinc warns
   "no cast needed") — harmless. The `(x.value as T)` unwrap casts are
   *required* though: narrowing may come from `elif` exclusion where Kotlin

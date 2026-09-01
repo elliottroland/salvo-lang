@@ -20,9 +20,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_syntax::ast::{self, *};
-use salvo_syntax::diag::Diagnostic;
 use salvo_syntax::Span;
 
+use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
 use crate::resolve::{FnKey, ModuleScope, Resolution};
 use crate::source::SourceKind;
@@ -103,8 +103,8 @@ pub struct Checked {
     /// validated; unwritten lists are inferred from the body. The Rust
     /// backend's ownership/borrow contract (Kotlin ignores them).
     pub deductions: HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
-    /// Rendered type errors.
-    pub errors: Vec<String>,
+    /// Type errors, structured for CLI/LSP consumption [diag-structured].
+    pub errors: Vec<FileDiagnostic>,
 }
 
 impl Checked {
@@ -129,8 +129,6 @@ pub fn check_program<'p>(
             scope: &resolution.scopes[file_idx],
             symbols,
             file_idx,
-            file_name: &file.name,
-            source: &file.content,
             out: &mut out,
             locals: Vec::new(),
             generics: HashSet::new(),
@@ -159,8 +157,6 @@ struct Checker<'p, 'r> {
     scope: &'r ModuleScope<'p>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
-    file_name: &'p str,
-    source: &'p str,
     out: &'r mut Checked,
     /// Lexical scope stack of local variables (params + lets + bindings).
     locals: Vec<HashMap<String, LocalVar>>,
@@ -202,7 +198,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn error(&mut self, span: Span, msg: impl Into<String>) {
         self.out
             .errors
-            .push(Diagnostic::error(msg, span).render(self.file_name, self.source));
+            .push(FileDiagnostic::error(self.file_idx, span, msg));
     }
 
     // ================= module / function traversal =================

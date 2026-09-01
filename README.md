@@ -28,6 +28,12 @@ specification and [PROGRESS.md](PROGRESS.md) for implementation status.
 cargo build        # build the compiler
 cargo test         # run the test suite
 
+# Type-check a directory of .sv sources without generating code:
+cargo run -- analyze --src ./my_project              # or --format json
+
+# Start a language server (LSP over stdio) for editor integration:
+cargo run -- lsp
+
 # Compile a directory of .sv sources to Kotlin:
 cargo run -- compile --backend kotlin --src ./my_project --target ./out
 

@@ -414,3 +414,46 @@ Conventions:
 * [backend-never-wrong] A backend must never emit silently wrong code:
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
+
+## Tooling
+
+* [diag-structured] The resolver, checker, and deduction pass report
+  errors as structured diagnostics — `(file index, span, severity,
+  message)` (`salvo_core::FileDiagnostic`) — never as pre-rendered
+  strings. Human-readable rendering (file:line:col + caret) happens at
+  the consuming boundary: the backends render before returning
+  `BackendError`, the CLI renders for terminal output. Parser
+  diagnostics stay per-file (`salvo_syntax::Diagnostic`); the CLI
+  attributes them to files the same way. This is the contract a future
+  language server builds on.
+* [cli-analyze] `salvo analyze --src DIR [--backend NAME]
+  [--format text|json]` runs the front half of the pipeline — parse,
+  resolve, type-check — and reports every diagnostic without generating
+  code. Exit code is nonzero iff any diagnostic is an error.
+  * Analysis is backend-neutral: checking never consults define files.
+    `--backend` only opts that backend's `*.<backend>.sv` define files
+    into loading (so they get parse checking); without it only language
+    files are loaded.
+  * Resolve/check run only on a parse-clean program (recovered ASTs
+    would cascade); parse diagnostics are always reported.
+  * `--format json` prints a JSON array of
+    `{file, line, col, start, end, severity, message}` objects to
+    stdout (line/col 1-based, start/end byte offsets); text mode
+    renders to stderr with a summary line.
+* [cli-lsp] `salvo lsp [--backend NAME]` starts a language server
+  speaking LSP over stdio. The workspace root comes from the client's
+  `initialize` request; `--backend` selects define files exactly like
+  `analyze --backend`.
+  * No incremental state: every document event re-runs the [cli-analyze]
+    pipeline over the whole workspace, with open-editor buffers as a
+    content overlay (unsaved files under the root participate).
+  * Diagnostics are pushed on open/change/close/save; every open
+    document gets a publish (an empty list marks it clean), and files
+    whose diagnostics disappeared get an explicit clearing publish.
+    Diagnostics are published against the URI the client opened the
+    document under (clients compare URIs exactly).
+  * Hover returns the checker's type (`Checked::expr_ty`) for the
+    smallest expression under the cursor; `Unknown`-typed expressions
+    and parse-broken workspaces yield no hover.
+  * Positions convert between byte offsets (Salvo spans) and UTF-16
+    line/character pairs (the LSP default encoding).

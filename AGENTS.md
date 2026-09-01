@@ -91,6 +91,10 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 ```
 
 - **Always run `cargo build` and `cargo test` before presenting changes.**
+- **Temporary files stay inside the repository**: put scratch files,
+  debug scripts, and throwaway output in the repo-local `tmp/` directory
+  (gitignored) — never in `/tmp` or elsewhere outside the repo. Tests
+  use `env!("CARGO_TARGET_TMPDIR")`. Clean up `tmp/` contents when done.
 - Some tests invoke `kotlinc` (or `rustc` for the Rust backend) to compile
   and run emitted code with exact stdout assertions; they skip gracefully if
   the toolchain is not on PATH. If you have it, treat those tests as required.

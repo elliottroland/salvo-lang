@@ -41,7 +41,13 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
     if !checked.errors.is_empty() {
-        return Err(checked.errors);
+        // Checker diagnostics are structured [diag-structured]; render
+        // them here at the backend boundary.
+        return Err(checked
+            .errors
+            .iter()
+            .map(|d| d.render(&program.files))
+            .collect());
     }
     let reachable = salvo_core::reachable_modules(program, &resolution);
     let emitted_modules: HashSet<&ModulePath> = program

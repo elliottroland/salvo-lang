@@ -32,10 +32,10 @@ use salvo_syntax::ast::{
     Block, Deduction, Expr, FnDecl, Item, LambdaBody, Param, Stmt, StrExprPart,
     StructLitFieldKind, Type,
 };
-use salvo_syntax::diag::Diagnostic;
 use salvo_syntax::Span;
 
 use crate::check::{Checked, Key};
+use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::resolve::FnKey;
 
@@ -79,12 +79,12 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
 
     // Initial state: written lists as declared (validating their shape),
     // unwritten lists optimistic (everything kept with declared quals).
-    let mut errors: Vec<String> = Vec::new();
+    let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     for f in &fns {
         let state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, |span, msg| {
-                errors.push(render(program, f.key.file, span, msg));
+                errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
             None => optimistic(f.decl),
         };
@@ -125,8 +125,7 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
                 continue;
             };
             if w.kept && !i.kept {
-                errors.push(render(
-                    program,
+                errors.push(FileDiagnostic::error(
                     f.key.file,
                     entry.span,
                     format!(
@@ -139,8 +138,7 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
             }
             for q in &w.quals {
                 if w.kept && !i.quals.contains(q) {
-                    errors.push(render(
-                        program,
+                    errors.push(FileDiagnostic::error(
                         f.key.file,
                         entry.span,
                         format!(
@@ -156,11 +154,6 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
 
     checked.errors.extend(errors);
     checked.deductions = states;
-}
-
-fn render(program: &Program, file: usize, span: Span, msg: impl Into<String>) -> String {
-    let f = &program.files[file];
-    Diagnostic::error(msg, span).render(&f.name, &f.content)
 }
 
 /// The qualifier names written on the outside of a parameter type, in

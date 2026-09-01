@@ -2,29 +2,39 @@
 //!
 //! ```text
 //! salvo compile --backend kotlin --src ./some_dir --target ./some_dir_kotlin
+//! salvo analyze --src ./some_dir [--backend kotlin] [--format json]
+//! salvo lsp [--backend kotlin]
 //! ```
+
+mod analysis;
+mod lsp;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
-use include_dir::{include_dir, Dir};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use salvo_backend::{BackendError, BackendRegistry};
 use salvo_backend_kotlin::KotlinBackend;
 use salvo_backend_rust::RustBackend;
-use salvo_core::{Program, SourceKind, SourceSet};
+use salvo_core::{FileDiagnostic, Program, SourceKind, SourceSet};
+use salvo_syntax::diag::Severity;
 
-/// The standard library, embedded into the binary at build time. Files are
-/// filtered per backend at load time, so a Kotlin compile never sees
-/// `*.rust.sv` define files.
-static STD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../std");
+use analysis::load_embedded_std;
 
 #[derive(Parser)]
 #[command(name = "salvo", version, about = "The Salvo language compiler")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Format {
+    /// Human-readable diagnostics with caret underlines (stderr).
+    Text,
+    /// A JSON array of diagnostic objects (stdout).
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -46,6 +56,29 @@ enum Command {
         #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "")]
         emit_ast: Option<String>,
     },
+    /// Parse, resolve, and type-check sources without generating code
+    /// [cli-analyze].
+    Analyze {
+        /// Directory containing `.sv` source files.
+        #[arg(long)]
+        src: PathBuf,
+        /// Also parse this backend's define files (`*.<backend>.sv`).
+        /// Without it, analysis is backend-neutral: only language files
+        /// are loaded.
+        #[arg(long)]
+        backend: Option<String>,
+        /// Output format for diagnostics.
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
+    },
+    /// Start a language server speaking LSP over stdio [cli-lsp]. The
+    /// workspace root comes from the client's `initialize` request.
+    Lsp {
+        /// Also parse this backend's define files (`*.<backend>.sv`),
+        /// like `analyze --backend`.
+        #[arg(long)]
+        backend: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -57,7 +90,160 @@ fn main() -> ExitCode {
             target,
             emit_ast,
         } => compile(&backend, &src, &target, emit_ast.as_deref()),
+        Command::Analyze {
+            src,
+            backend,
+            format,
+        } => analyze(&src, backend.as_deref(), format),
+        Command::Lsp { backend } => match backend_filter(backend.as_deref()) {
+            Ok((filter, native_ext)) => lsp::run(filter, native_ext),
+            Err(msg) => {
+                eprintln!("{msg}");
+                ExitCode::FAILURE
+            }
+        },
     }
+}
+
+fn registry() -> BackendRegistry {
+    let mut registry = BackendRegistry::new();
+    registry.register(Box::new(KotlinBackend));
+    registry.register(Box::new(RustBackend));
+    registry
+}
+
+/// Maps an optional `--backend` to the `(filter, native_ext)` pair used
+/// when loading sources: a named backend selects its define files; `None`
+/// means backend-neutral analysis (language files only) [cli-analyze].
+fn backend_filter(backend_name: Option<&str>) -> Result<(String, String), String> {
+    match backend_name {
+        Some(name) => {
+            let registry = registry();
+            let Some(backend) = registry.get(name) else {
+                let available: Vec<_> = registry.names().collect();
+                return Err(format!(
+                    "error: unknown backend `{name}` (available: {})",
+                    available.join(", ")
+                ));
+            };
+            Ok((
+                backend.name().to_string(),
+                backend.file_extension().to_string(),
+            ))
+        }
+        None => Ok((String::new(), String::new())),
+    }
+}
+
+/// `salvo analyze`: the front half of `compile` — parse, resolve, and
+/// type-check — reporting every diagnostic instead of emitting code
+/// [cli-analyze]. Exits nonzero when any diagnostic is an error.
+fn analyze(src: &PathBuf, backend_name: Option<&str>, format: Format) -> ExitCode {
+    // `--backend` only selects which define files participate; checking
+    // itself is backend-neutral (define files are parsed, not checked).
+    let (filter, native_ext) = match backend_filter(backend_name) {
+        Ok(pair) => pair,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let analysis =
+        match analysis::analyze_sources(src, &filter, &native_ext, &Default::default()) {
+            Ok(analysis) => analysis,
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                return ExitCode::FAILURE;
+            }
+        };
+    for (path, err) in &analysis.io_errors {
+        eprintln!("error: failed to read `{}`: {err}", path.display());
+    }
+    if !analysis.io_errors.is_empty() {
+        return ExitCode::FAILURE;
+    }
+    let program = &analysis.program;
+    let diagnostics = &analysis.diagnostics;
+
+    let errors = diagnostics.iter().filter(|d| d.is_error()).count();
+    let warnings = diagnostics.len() - errors;
+    match format {
+        Format::Text => {
+            for diag in diagnostics {
+                eprintln!("{}", diag.render(&program.files));
+            }
+            let user = program.files.iter().filter(|f| !f.is_std).count();
+            let std_count = program.files.len() - user;
+            let status = if diagnostics.is_empty() {
+                "no errors".to_string()
+            } else {
+                format!(
+                    "{errors} error{}, {warnings} warning{}",
+                    if errors == 1 { "" } else { "s" },
+                    if warnings == 1 { "" } else { "s" }
+                )
+            };
+            eprintln!(
+                "analyzed {} file(s) ({user} user, {std_count} std): {status}",
+                program.files.len()
+            );
+        }
+        Format::Json => println!("{}", diagnostics_json(diagnostics, program)),
+    }
+    if errors > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Renders diagnostics as a JSON array (one object per diagnostic, with
+/// file, 1-based line/col, byte span, severity, and message) [cli-analyze].
+fn diagnostics_json(diagnostics: &[FileDiagnostic], program: &Program) -> String {
+    let mut out = String::from("[");
+    for (i, diag) in diagnostics.iter().enumerate() {
+        let file = &program.files[diag.file];
+        let (line, col) = salvo_syntax::span::line_col(&file.content, diag.span.start);
+        let severity = match diag.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        };
+        out.push_str(if i == 0 { "\n" } else { ",\n" });
+        out.push_str(&format!(
+            "  {{\"file\": {}, \"line\": {line}, \"col\": {col}, \
+             \"start\": {}, \"end\": {}, \"severity\": \"{severity}\", \
+             \"message\": {}}}",
+            json_str(&file.name),
+            diag.span.start,
+            diag.span.end,
+            json_str(&diag.message)
+        ));
+    }
+    if !diagnostics.is_empty() {
+        out.push('\n');
+    }
+    out.push(']');
+    out
+}
+
+/// Minimal JSON string escaping (quotes, backslashes, control chars).
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn compile(
@@ -66,9 +252,7 @@ fn compile(
     target: &PathBuf,
     emit_ast: Option<&str>,
 ) -> ExitCode {
-    let mut registry = BackendRegistry::new();
-    registry.register(Box::new(KotlinBackend));
-    registry.register(Box::new(RustBackend));
+    let registry = registry();
 
     let Some(backend) = registry.get(backend_name) else {
         let available: Vec<_> = registry.names().collect();
@@ -243,39 +427,4 @@ fn clean_stale(target: &PathBuf, ext: &str, written: &[PathBuf]) -> Vec<PathBuf>
         }
     }
     removed
-}
-
-/// Loads the embedded standard library, keeping only language files and the
-/// define files of the active backend.
-fn load_embedded_std(sources: &mut SourceSet, backend: &str) {
-    fn walk<'a>(dir: &Dir<'a>, out: &mut Vec<&'a include_dir::File<'a>>) {
-        for file in dir.files() {
-            out.push(file);
-        }
-        for sub in dir.dirs() {
-            walk(sub, out);
-        }
-    }
-    let mut files = Vec::new();
-    walk(&STD_DIR, &mut files);
-    files.sort_by_key(|f| f.path().to_path_buf());
-    for file in files {
-        let path = file.path();
-        if path.extension().is_none_or(|e| e != "sv") {
-            continue;
-        }
-        let Some((module, kind)) = SourceSet::classify(path, backend) else {
-            continue;
-        };
-        let Some(content) = file.contents_utf8() else {
-            continue;
-        };
-        sources.add(
-            format!("std/{}", path.display()),
-            module,
-            kind,
-            content.to_string(),
-            true,
-        );
-    }
 }

@@ -17,8 +17,8 @@ use salvo_syntax::ast::{
     BackingMod, EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, StructDecl,
     TypeDecl,
 };
-use salvo_syntax::diag::Diagnostic;
 
+use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::source::ModulePath;
 
@@ -65,8 +65,8 @@ impl<'p> ModuleScope<'p> {
 pub struct Resolution<'p> {
     /// One scope per file, aligned with `program.files`.
     pub scopes: Vec<ModuleScope<'p>>,
-    /// Rendered resolution errors (unresolved/ambiguous imports).
-    pub errors: Vec<String>,
+    /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
+    pub errors: Vec<FileDiagnostic>,
 }
 
 /// One module's own declarations, prior to visibility merging.
@@ -132,7 +132,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
     let mut errors = Vec::new();
-    for (file, ast) in program.files.iter().zip(&program.modules) {
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut scope = ModuleScope::default();
         // core.* is implicitly visible everywhere.
         for m in &core_modules {
@@ -147,7 +147,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // Explicit imports.
         for item in &ast.items {
             let Item::Import(import) = item else { continue };
-            resolve_import(&mut scope, &by_module, import, file, &mut errors, program);
+            resolve_import(&mut scope, &by_module, import, file_idx, &mut errors);
         }
         scopes.push(scope);
     }
@@ -236,14 +236,12 @@ fn resolve_import<'p>(
     scope: &mut ModuleScope<'p>,
     by_module: &HashMap<&'p ModulePath, ModuleItems<'p>>,
     import: &'p ImportDecl,
-    file: &crate::source::SourceFile,
-    errors: &mut Vec<String>,
-    program: &'p Program,
+    file_idx: usize,
+    errors: &mut Vec<FileDiagnostic>,
 ) {
     if import.path.len() < 2 {
-        errors.push(render_error(
-            program,
-            file,
+        errors.push(FileDiagnostic::error(
+            file_idx,
             import.span,
             "import path must be `module.item`",
         ));
@@ -268,9 +266,8 @@ fn resolve_import<'p>(
         }
     }
     match matches.len() {
-        0 => errors.push(render_error(
-            program,
-            file,
+        0 => errors.push(FileDiagnostic::error(
+            file_idx,
             import.span,
             format!(
                 "unresolved import: no module matching `{}` declares `{item_name}`",
@@ -290,9 +287,8 @@ fn resolve_import<'p>(
         _ => {
             let mut names: Vec<String> = matches.iter().map(|m| m.to_string()).collect();
             names.sort();
-            errors.push(render_error(
-                program,
-                file,
+            errors.push(FileDiagnostic::error(
+                file_idx,
                 import.span,
                 format!(
                     "ambiguous import `{item_name}`: found in modules {}",
@@ -301,14 +297,4 @@ fn resolve_import<'p>(
             ));
         }
     }
-}
-
-fn render_error(
-    program: &Program,
-    file: &crate::source::SourceFile,
-    span: salvo_syntax::Span,
-    msg: impl Into<String>,
-) -> String {
-    let _ = program;
-    Diagnostic::error(msg, span).render(&file.name, &file.content)
 }

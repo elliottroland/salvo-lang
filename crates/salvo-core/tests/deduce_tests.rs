@@ -75,7 +75,7 @@ fn caller<T>(list: A B List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string()]);
@@ -94,7 +94,7 @@ fn caller<T>(list: A B C List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string(), "C".to_string()]);
@@ -116,7 +116,7 @@ fn identity<T>(list: List<T>) -> List<T> {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     assert_eq!(facts(&program, &checked, "caller", "list").0, false);
     assert_eq!(facts(&program, &checked, "identity", "list").0, false);
 }
@@ -137,7 +137,7 @@ fn mid<T>(list: A B List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     assert_eq!(
         facts(&program, &checked, "top", "list"),
         (true, vec!["B".to_string()])
@@ -158,7 +158,7 @@ fn caller<T>(list: A B List<T>) -> Int {{
 "#
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     assert_eq!(
         facts(&program, &checked, "caller", "list"),
         (true, vec!["A".to_string(), "B".to_string()])
@@ -185,7 +185,7 @@ fn bad_qual<T>(list: A B List<T>) -> [list: A B] None {{
         checked
             .errors
             .iter()
-            .any(|e| e.contains("promises `list` back to the caller, but the body moves it")),
+            .any(|e| e.message.contains("promises `list` back to the caller, but the body moves it")),
         "unexpected errors: {:?}",
         checked.errors
     );
@@ -193,7 +193,7 @@ fn bad_qual<T>(list: A B List<T>) -> [list: A B] None {{
         checked
             .errors
             .iter()
-            .any(|e| e.contains("promises qualifier `A` on `list`, but the body may remove it")),
+            .any(|e| e.message.contains("promises qualifier `A` on `list`, but the body may remove it")),
         "unexpected errors: {:?}",
         checked.errors
     );
@@ -219,13 +219,14 @@ fn undeclared_qual<T>(list: List<T>) -> [list: A] None {{
     assert!(checked
         .errors
         .iter()
-        .any(|e| e.contains("deduction names unknown parameter `y`")));
+        .any(|e| e.message.contains("deduction names unknown parameter `y`")));
     assert!(checked
         .errors
         .iter()
-        .any(|e| e.contains("duplicate deduction for parameter `x`")));
+        .any(|e| e.message.contains("duplicate deduction for parameter `x`")));
     assert!(
         checked.errors.iter().any(|e| e
+            .message
             .contains("deduction keeps qualifier `A`, which is not declared on parameter `list`")),
         "unexpected errors: {:?}",
         checked.errors
@@ -246,7 +247,7 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert_eq!(checked.errors, Vec::<String>::new());
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     assert_eq!(
         facts(&program, &checked, "stricter", "list"),
         (true, vec!["B".to_string()])
