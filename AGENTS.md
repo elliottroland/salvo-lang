@@ -38,7 +38,7 @@ which rules are in play and where they live in the code*.
 | `LANGUAGE.md` | Narrative language spec — source of truth | Always |
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
-| `BACKEND_SPEC.<backend>.md` | Same pattern for future backends (`rs-` for Rust, M8) | Only when working on that backend |
+| `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `PROGRESS.md` | Status, milestones, design decisions, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |
@@ -75,7 +75,8 @@ crates/
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 └── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-std/core/                 # Salvo stdlib (.sv) + backend define files (*.kotlin.sv)
+└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+std/core/                 # Salvo stdlib (.sv) + backend define files (*.kotlin.sv, *.rust.sv)
 ```
 
 This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
@@ -90,9 +91,9 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 ```
 
 - **Always run `cargo build` and `cargo test` before presenting changes.**
-- Some tests invoke `kotlinc` to compile and run emitted Kotlin with exact
-  stdout assertions; they skip gracefully if `kotlinc` is not on PATH. If
-  you have kotlinc, treat those tests as required.
+- Some tests invoke `kotlinc` (or `rustc` for the Rust backend) to compile
+  and run emitted code with exact stdout assertions; they skip gracefully if
+  the toolchain is not on PATH. If you have it, treat those tests as required.
 - insta snapshot tests fail on first run by design; accept intentional
   changes with `INSTA_UPDATE=always` and *review every snapshot diff* —
   snapshots encode the parser AST and emitter output contracts.
@@ -117,8 +118,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
   arms, in declaration order. Do not reorder or dedupe in ways that change
   arm indices.
 - When changing std (`std/`), the parser AST, checker lowering, or emitter
-  output: update the insta snapshots deliberately and check the kotlinc
-  end-to-end tests still pass.
+  output: update the insta snapshots deliberately and check the
+  kotlinc/rustc end-to-end tests still pass.
 - Keep the spec documents and the implementation consistent. If you find a
   spec bug, fix LANGUAGE.md (and any stale LANGUAGE_SPEC.md rule) *and*
   note it in PROGRESS.md (there is precedent — see "Fixed inconsistencies
@@ -138,7 +139,7 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 4. Implement across the pipeline in order: syntax → resolve/types/check →
    emit. Add or extend tests at each layer you touch, tagged with the rule
    labels they verify.
-5. `cargo build` (warning-free) + `cargo test`; run kotlinc e2e tests if
+5. `cargo build` (warning-free) + `cargo test`; run kotlinc/rustc e2e tests if
    available.
 6. Update PROGRESS.md with what changed, decisions made, and new gotchas;
    update/add the spec rules for any feature-level change.

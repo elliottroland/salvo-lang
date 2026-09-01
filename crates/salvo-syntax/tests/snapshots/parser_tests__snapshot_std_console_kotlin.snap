@@ -80,6 +80,7 @@ Module {
                                     span: 94..143,
                                 },
                             ),
+                            mut_inline: None,
                         },
                         span: 46..149,
                     },

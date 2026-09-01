@@ -92,6 +92,7 @@ Module {
                         span: 110..111,
                     },
                 ],
+                auto_qualifiers: [],
                 alias: None,
                 span: 94..109,
             },

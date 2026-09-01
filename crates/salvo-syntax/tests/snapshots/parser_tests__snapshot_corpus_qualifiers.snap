@@ -314,6 +314,7 @@ Module {
                         span: 247..248,
                     },
                 ],
+                auto_qualifiers: [],
                 alias: Some(
                     Union {
                         arms: [

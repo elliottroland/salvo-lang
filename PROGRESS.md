@@ -1,6 +1,6 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01 (after M7). This document is
+Status snapshot as of 2026-09-01 (after M8: the Rust backend). This document is
 the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
@@ -8,28 +8,32 @@ remaining milestones.
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
 style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
-(currently `BACKEND_SPEC.kotlin.md`) repeats rules with backend
-interpretation details and adds backend-prefixed rules (`kt-…`) — load it
-only when working on that backend. Labels are referenced from compiler
-code and tests (`grep -rn '\[rule-name\]'`); backend-prefixed labels may
-only be referenced from that backend's crate. Keep all of these in sync
-when adding or changing features.
+(`BACKEND_SPEC.kotlin.md`, `BACKEND_SPEC.rust.md`) repeats rules with
+backend interpretation details and adds backend-prefixed rules (`kt-…`,
+`rs-…`) — load it only when working on that backend. Labels are referenced
+from compiler code and tests (`grep -rn '\[rule-name\]'`); backend-prefixed
+labels may only be referenced from that backend's crate. Keep all of these
+in sync when adding or changing features.
 
 ## How to build and test
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 78 tests; includes six kotlinc compile+run tests
-                            # (skipped gracefully if kotlinc is not on PATH)
+cargo test                  # 101 tests; includes six kotlinc and six rustc
+                            # compile+run tests (skipped gracefully when the
+                            # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
 # End-to-end:
 cargo run -- compile --src ./some_dir --target ./out        # --backend defaults to kotlin
+cargo run -- compile --backend rust --src ./some_dir --target ./out_rs
 cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
 cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
 
 # Verify generated Kotlin manually (the CLI prints the entry point):
 kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
+# Verify generated Rust manually (the CLI prints the exact command):
+rustc --edition 2021 out_rs/main.rs -o program && ./program
 ```
 
 ## Workspace layout
@@ -41,14 +45,16 @@ crates/
 │   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs (M3)
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
-└── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-std/core/                 # stdlib: basic.sv, string.sv, list.sv, console.sv (+ .kotlin.sv defines)
+├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
+└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests (M8)
+std/core/                 # stdlib: basic.sv, string.sv, list.sv, console.sv (+ .kotlin.sv/.rust.sv defines)
 ```
 
-Adding a Rust backend later = new crate implementing `salvo_backend::Backend`
-(name `"rust"`), register it in `salvo-cli/src/main.rs`, and write
-`*.rust.sv` define files next to the std modules. Std embedding already
-filters define files per backend at load time (`SourceSet::classify`).
+Adding another backend = new crate implementing `salvo_backend::Backend`,
+register it in `salvo-cli/src/main.rs`, write `*.<name>.sv` define files
+next to the std modules, and add a `BACKEND_SPEC.<name>.md`. Std embedding
+already filters define files per backend at load time
+(`SourceSet::classify`).
 
 ## Completed milestones
 
@@ -436,6 +442,96 @@ per-module packages, generated wildcard + alias imports, unused user
 module dropped, companion `.kt` copied and called through its define
 template, stale target file removed — kotlinc-compiled with exact stdout.
 
+### M8 — Rust backend (+ `Mut` as a language feature)
+
+`salvo compile --backend rust` emits a single-binary Rust crate, verified
+end-to-end: six rustc compile+run tests assert exact stdout on the same
+demo programs the Kotlin backend runs (structs/effects/iterators, unions,
+qualifiers, generic effects, loops-as-values, multi-module). Full spec in
+BACKEND_SPEC.rust.md; highlights and decisions:
+
+- **`Mut` generalized (user decision, replacing `internal qualifier`)**
+  [type-with-mut]: `Mut` is now a language-level qualifier any type
+  declaration can opt into with `with Mut` (`external type List<T> with
+  Mut` in std; structs unchanged). The checker validates `Mut` against
+  the declaration's auto-qualifiers (error otherwise) and lets `Mut`
+  compose with every other qualifier. Backends map it per type: a
+  `define type` block may carry a **`Mut inline:`** section
+  (`MutableList<${T}>` in `list.kotlin.sv`); without one `Mut` erases
+  (the Rust defines map both `List<T>` and `Mut List<T>` to `Vec<T>` —
+  mutability lives in bindings/references). Parser: `with` clause on
+  `type` decls (`TypeDecl.auto_qualifiers`), `Mut inline:` define
+  section (`DefineBody.mut_inline`). The Kotlin emitter's hardcoded
+  `Mut List → MutableList` mapping was replaced by the template.
+- **Deductions drive ownership [rs-borrows] (the point of the whole
+  design):** a parameter *omitted* from a fn's deductions is **moved**
+  (passed by value — Salvo guarantees the caller no longer touches it);
+  a *kept* parameter is **borrowed**, `&mut T` when its declared type
+  carries `Mut`, `&T` otherwise; Copy scalars and variadics always pass
+  by value; fns outside the deduction tables (qualifies/handler/effect
+  members) default to the kept rule. Call sites render arguments per the
+  resolved callee's modes (`&x` / `&mut x` / move; parameter bindings
+  reborrow implicitly). Expressions emit *owned* by default: borrowed
+  idents and non-Copy field/index reads clone; owned locals move. Every
+  local is `let mut` (crate-root `#![allow(unused_mut)]`); no emitted
+  signature returns a reference, so no named lifetimes exist anywhere.
+- **New backend-neutral coercion `WrapOption`** [type-nullable]:
+  optionals are physical in Rust (`Some(...)`), transparent in Kotlin
+  (no-op arm in `apply_coercion`). `maybe_coerce` records it at every
+  `T → T?` boundary, and its "effective repr" rule now also treats a
+  `T?`-repr ident narrowed to its value arm as unwrapped — the Rust
+  emitter unwraps those uses physically (`x.unwrap()` /
+  `x.as_ref().unwrap().clone()`) where Kotlin smart-casts.
+- **Crate layout [rs-crate]:** the main-declaring module *is* the crate
+  root (`main.sv` → `main.rs` with `#![allow(...)]` +
+  `#[path = "..."] pub mod core_console;` mounts for every other emitted
+  file; synthetic `lib.rs` for library compiles); modules glob-import
+  each other via `use crate::<mangled>::*;` [rs-imports]; everything is
+  `pub`. The CLI prints the exact `rustc --edition 2021 …` command as
+  the entry point.
+- **Unions [rs-union-enums]:** generated `unions.rs` enums
+  (`pub enum Union2<T1,T2> { U1(T1), U2(T2) }`) with panicking per-arm
+  accessors (`.u1()`) and a `Display` impl (still-union values
+  interpolate directly — no `.value` dance). Wraps use turbofish
+  (`Union2::<i32, String>::U1(x)`, `Some(...)` for nullable targets);
+  `is` tests lower to `matches!` with `|` patterns; `when` lowers to
+  `match` (an expression — no `run{}`-style lowering needed), with a
+  `_ => unreachable!()` arm when narrowing left repr arms uncovered.
+- **Effects [rs-effects]:** traits with `&mut self` methods; deps become
+  leading `&mut dyn E` params; `use` emits `let mut h = H::new(args);`
+  and threads `&mut h` (params thread as themselves — implicit
+  reborrow). Handlers are struct + `new()` + trait impl; member bodies
+  address ctor params/state as `self.x`. Effect members with their own
+  generics are a codegen error (`dyn` incompatible). Same
+  checker-table-first/string-fallback resolution as Kotlin.
+- **Iterators are eager [rs-iter-vec] (deliberate divergence):**
+  `Iter<T>` = `Vec<T>`; `yield` pushes into a `__yielded` vec, bare
+  `return` returns it. Side-effect *timing* differs from Kotlin's lazy
+  sequences; values match. Rust generators are unstable.
+- **Loops as values [rs-loop-value]:** block expression + `Option`
+  result local mirroring the Kotlin lowering (`.unwrap()` when the join
+  has no `None` arm; optional joins assign coerced values directly).
+  `i++` lowers to `({ let __t = i; i += 1; __t })` in value position,
+  `i += 1;` as a statement [rs-postincrement].
+- **No overloading in Rust [rs-fn-mangling]:** the Kotlin qualifier
+  suffix rule applies first, then still-colliding bodied overloads get
+  positional `__2`/`__3` suffixes.
+- Misc: struct literals inline declared defaults (no default args in
+  Rust) and lower spread to functional update with a cloned base;
+  string literals emit `.to_string()`, interpolation `format!` (braces
+  escaped); binary operands re-parenthesize by operator precedence (the
+  AST is right, flat re-rendering wouldn't be); define-template args
+  splice as raw places (method-style templates borrow natively) except
+  variadic parts, which splice owned into `vec![...]`; generic params
+  get a blanket `Clone` bound and structs derive `Clone, Debug`.
+
+Verified end-to-end (6 rustc tests, exact stdout): the M2 demo, unions,
+qualifiers (incl. `full_name__Surname` mangling and field-cast unwraps),
+generic effects with two `CyclicRandom` instances, loops-as-values
+(incl. a union-typed loop join re-wrapped through `match`), and the
+multi-module crate layout. Plus a manual CLI check of a `Mut` struct
+mutated through a `&mut` parameter.
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
@@ -451,8 +547,9 @@ template, stale target file removed — kotlinc-compiled with exact stdout.
 - Wrapper-union arm identity is positional over the **declared** type's
   non-`None` arms; narrowing never re-wraps a variable in place (uses are
   unwrapped/re-wrapped at expression sites instead).
-- Modules are emitted to `<module/path>.kt`. `unions.kt` is emitted whenever
-  any wrapper size is used by an *emitted* file.
+- Modules are emitted to `<module/path>.kt` / `<module/path>.rs`.
+  `unions.kt` / `unions.rs` is emitted whenever any wrapper size is used
+  by an *emitted* file.
 - Only reachable modules that produce code are emitted [mod-used-only]
   (`reach.rs`: name-usage edges over `ModuleScope::name_origins`); each
   module gets its own Kotlin package `salvo.<module.path>` with generated
@@ -460,15 +557,22 @@ template, stale target file removed — kotlinc-compiled with exact stdout.
   [backend-companion].
 - Deductions (`-> [list: Mut] T`) are inferred/validated by the
   `deduce.rs` post-pass and stored in `Checked::deductions`; the Kotlin
-  backend ignores them (they are the Rust backend's ownership contract).
-- The effect environment in the emitter is string-keyed; effect resolution
-  prefers the checker's `use_effects`/`effect_calls`/`call_effects` tables
-  and falls back to string matching only in unchecked contexts (see the M5
+  backend ignores them, the Rust backend derives its parameter modes from
+  them (kept = borrow, omitted = move [rs-borrows]).
+- The effect environment in both emitters is string-keyed; effect
+  resolution prefers the checker's
+  `use_effects`/`effect_calls`/`call_effects` tables and falls back to
+  string matching only in unchecked contexts (see the M5
   fallback-mechanism note above).
+- The two emitters deliberately share their architecture (side-table
+  access, `emit_expr` = base + coercion, fallback paths, is-binding and
+  loop lowering shape). When a lowering rule changes, check both crates -
+  and the checker, which must agree with them on the ident-unwrap
+  predicates (`maybe_coerce`'s "effective repr").
 
 ## Remaining milestones
 
-### M3–M7 leftovers (small, do alongside M8)
+### Leftovers (small; no milestone currently claims them)
 
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
@@ -499,11 +603,27 @@ template, stale target file removed — kotlinc-compiled with exact stdout.
   `remove_first` example: after the call, the local's `NonEmpty` is
   gone and a second `remove_first(list)` should not resolve) is not
   applied yet — deductions are computed and stored, but call sites do
-  not consume them for flow narrowing (natural M8 companion).
+  not consume them for flow narrowing. This is also what would make
+  Rust-side moves of locals (`let a = b`, then using `b`) a Salvo
+  error instead of a rustc error.
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
 - Bare `return` inside a value-position loop (or any value block) in an
   iterator body is not re-targeted to `return@iterator`.
+- The Kotlin emitter renders binary expressions flat, without
+  re-parenthesizing by precedence: `(a - b) * c` would emit as
+  `a - b * c` (latent, unexercised by std/demos; the Rust emitter got
+  precedence-aware rendering in M8 - port it back).
+- Rust: passing a named fn where a lambda is expected can mismatch
+  parameter modes (`impl Fn(S) -> T` args are owned; a named fn's params
+  may be borrows) - rustc rejects it loudly, never wrong output.
+- Rust: interpolating a still-optional value (a `T?` never narrowed) is a
+  rustc error (`Option` has no `Display`); Kotlin prints `null`. Narrow
+  or `!` first.
+- Rust: `let a = b` moves local `b`; a later Salvo use of `b` is legal in
+  the checker today but fails rustc (loud). Caller-side move/narrowing
+  enforcement in the checker (the `remove_first` leftover below) is the
+  proper fix.
 - An aliased import of a *mangled* qualified overload maps to the
   unmangled name in the generated Kotlin alias import ([kt-imports];
   same class as the unchecked-context mangling gap).
@@ -511,30 +631,24 @@ template, stale target file removed — kotlinc-compiled with exact stdout.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-### M8 — Rust backend
+## Test inventory (all green: 101)
 
-Prerequisites are in place since M6 (checker tables + deductions in
-`Checked`). Reuse the
-`Backend` trait; unions → enums; effects → trait objects or generics;
-deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
-them written); `Mut` → `mut`/`&mut`.
-
-## Test inventory (all green: 78)
-
-- `salvo-core`: 16 — 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 16 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 8 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
   written-list shape validation, stricter-than-body lists).
-- `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
-  AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 45 — golden snapshots of the M2 demo, the M3
+- `salvo-syntax`: 17 - std + LANGUAGE.md-corpus parse-clean assertions with
+  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
+- `salvo-backend-kotlin`: 47 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
   packages + generated imports, alias imports, effect-param collision
   avoidance, unique destructure temps);
+  M8 `Mut` assertions (`Mut List<T>` maps through the `Mut inline:`
+  template; `Mut` on a non-`with Mut` type is an error [type-with-mut]);
   wrapper/wrap/`is`-lowering assertions (`unions_emit_sealed_wrappers`),
   predicate/mangling/field-cast assertions
   (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
@@ -553,6 +667,20 @@ them written); `Mut` → `mut`/`&mut`.
   companion/generated-file collision); and six kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file).
+- `salvo-backend-rust`: 21 - golden snapshots of the same five demos
+  emitted as Rust; deduction-mode assertions
+  (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
+  omitted -> move, matching call-site argument shapes [rs-borrows]);
+  union-enum assertions (`unions_emit_enums`), predicate/mangling
+  assertions (`qualifiers_lower_to_predicates_and_mangled_fns`),
+  effect-trait assertions (`effects_lower_to_traits_and_mut_dyn_params`),
+  loop-lowering assertions (`loops_lower_to_block_expressions`),
+  crate-layout assertions (`crate_layout_mounts_only_used_modules`
+  [rs-crate] [rs-imports]); negative tests (missing defines for external
+  fns/types, uncovered core externals, generic effect members
+  [rs-effects]); and six rustc compile+run tests with exact stdout
+  assertions mirroring the kotlinc set (demo, unions, qualifiers,
+  effects, loops, multi-module).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -676,3 +804,45 @@ snapshot diffs.
 - The `--emit-ast` flag takes an optional `=MODULE` value
   (`num_args 0..=1` + `require_equals` in clap); a bare flag must not
   swallow the next positional argument.
+- (M8) `matches!(subj, Pat)` and `match subj` on a place do not move it
+  when the patterns bind nothing - union tests and `when` lowering rely
+  on this to test borrowed subjects without clones.
+- (M8) Rust implicitly reborrows `&mut` *place* expressions at call
+  sites, and coerces `&mut T` to `&T` - which is why parameter bindings
+  thread through calls as bare names while locals need explicit
+  `&`/`&mut`. Unsized coercion turns `&mut ConcreteHandler` into
+  `&mut dyn Effect` at the argument position for free.
+- (M8) The Rust ident-unwrap rule is a superset of Kotlin's: it also
+  unwraps `T?`-repr idents narrowed to their value arm (Kotlin smart
+  casts those). `maybe_coerce`'s "effective repr" was extended to match
+  both - if you touch one of the three places, touch all three.
+- (M8) `WrapOption` must be recorded even though Kotlin ignores it:
+  the checker cannot know which backend will consume the tables.
+  Backends must treat unknown-to-them coercions as no-ops only when the
+  representation really is transparent (Kotlin nullability), never by
+  default.
+- (M8) Everything the Rust emitter renders in a *moved* position must be
+  owned; the easy mistake is a field read (`person.name`) - moving out
+  of a borrow is illegal, hence the clone-by-default owned rendering.
+  The place/owned/raw rendering split (`emit_place`/`emit_owned`/
+  `emit_raw`) exists to keep assign targets and `matches!` subjects
+  clone-free.
+- (M8) Define templates receive raw *places* for non-variadic args so
+  method-style templates (`${list}.push(..)`) borrow natively; variadic
+  parts splice owned because they land inside constructors
+  (`vec![${...elems}]`). Getting this backwards either double-clones or
+  moves out of borrows.
+- (M8) rustc needs `match` exhaustiveness over the *representation*:
+  a `when` over a narrowed subject covers only the logical arms, so the
+  emitter appends `_ => unreachable!()` when repr arms are left over
+  (the checker proved them impossible).
+- (M8) Enum-variant wraps need turbofish (`Union2::<A, B>::U1(x)`): the
+  other type parameters are not inferable from one arm's payload.
+- (M8) Eager iterators change side-effect *timing* vs Kotlin's lazy
+  `Iterable` (documented divergence [rs-iter-vec]); values are equal for
+  finite iterators, and infinite ones would hang - revisit if generators
+  stabilize.
+- (M8) The crate root must carry `#![allow(...)]` *before* any item, and
+  `#[path]` mounts resolve relative to the file containing them - the
+  root-file header is prepended after all files are emitted, when the
+  full mount list (unions, companions) is known.

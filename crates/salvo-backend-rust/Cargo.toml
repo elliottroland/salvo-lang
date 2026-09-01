@@ -1,0 +1,14 @@
+[package]
+name = "salvo-backend-rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust backend for the Salvo compiler"
+
+[dependencies]
+salvo-syntax = { workspace = true }
+salvo-core = { workspace = true }
+salvo-backend = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

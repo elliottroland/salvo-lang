@@ -102,8 +102,19 @@ Conventions:
     guess.
 * [struct-mut] `struct Name with Mut { ... }` opts a struct into the `Mut`
   auto-qualifier; only `Mut Name` values may have fields assigned.
-  * `Mut` is the only auto-qualifier. `Mut` on a struct type is validated
-    against the struct's `with Mut` declaration.
+  * `Mut` is the only auto-qualifier.
+* [type-with-mut] `Mut` is a language-level qualifier, not a library
+  declaration: any type declaration may opt into it with `with Mut`
+  (`external type List<T> with Mut`), and applying `Mut` to a type whose
+  declaration does not say `with Mut` is an error. `Mut` composes with
+  every other qualifier (no `with` compatibility needed).
+  * Validated at declaration sites (`validate_quals` in the checker)
+    against struct and opaque-type `auto_qualifiers`.
+  * Backends decide what `Mut` means. A `define type` block may provide
+    a `Mut inline:` template used when the type is `Mut`-qualified
+    (Kotlin maps `Mut List<T>` to `MutableList<T>`); without one, `Mut`
+    erases for that backend (Rust expresses it as `mut` bindings and
+    `&mut` references instead).
 
 ## Qualifiers
 
@@ -115,7 +126,8 @@ Conventions:
 * [qual-no-dup] The same qualifier cannot be applied twice to one type
   (`Old Old Person` is invalid).
 * [qual-with] Two qualifiers may stack on one type only if one declares
-  `with` the other; `internal` qualifiers (`Mut`) compose with everything.
+  `with` the other; the `Mut` auto-qualifier composes with everything
+  [type-with-mut].
   * Pairwise `with` compatibility is validated at declaration sites.
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
   single arm it is written on, never the whole union; qualifiers cannot
@@ -355,9 +367,10 @@ Conventions:
 
 ## Backends
 
-* [backend-internal] `internal` declarations (types, qualifiers) are
+* [backend-internal] `internal` declarations (types) are
   mapped inside the compiler; every backend must handle all of them
-  (`Str`, numeric types, `Iter<T>`, `Mut` on `List`, ...).
+  (`Str`, numeric types, `Iter<T>`, ...). The `Mut` auto-qualifier is
+  mapped per backend via `Mut inline:` define sections [type-with-mut].
 * [backend-external] `external` declarations (fns, types, handlers) carry
   only signatures; each backend that needs them provides `define`
   templates in a sibling `<module>.<backend>.sv` file. Coverage is

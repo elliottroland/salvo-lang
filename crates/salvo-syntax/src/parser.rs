@@ -271,6 +271,16 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident()?;
         let generics = self.parse_generics();
+        // `with Mut` — auto-qualifiers the type opts into [type-with-mut].
+        let mut auto_qualifiers = Vec::new();
+        if self.eat(&TokenKind::KwWith).is_some() {
+            loop {
+                auto_qualifiers.push(self.parse_type_ref()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
         let alias = if self.eat(&TokenKind::Eq).is_some() {
             Some(self.parse_type()?)
         } else {
@@ -279,11 +289,13 @@ impl<'s> Parser<'s> {
         let end = alias
             .as_ref()
             .map(|t| t.span())
+            .or_else(|| auto_qualifiers.last().map(|q| q.span))
             .unwrap_or(name.span);
         Some(TypeDecl {
             backing,
             name,
             generics,
+            auto_qualifiers,
             alias,
             span: start.to(end),
         })
@@ -724,28 +736,46 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `{ imports: `` ... `` inline: `` ... `` }`
+    /// `{ imports: `` ... `` inline: `` ... `` (Mut inline: `` ... ``)? }`
     fn parse_define_body(&mut self) -> Option<(DefineBody, Span)> {
         self.expect(&TokenKind::LBrace)?;
         let mut body = DefineBody::default();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let section = self.ident()?;
+            // `Mut inline:` — the Mut-qualified variant of `inline:`
+            // [type-with-mut].
+            let sub = if section.name == "Mut" && !self.at(&TokenKind::Colon) {
+                Some(self.ident()?)
+            } else {
+                None
+            };
             self.expect(&TokenKind::Colon)?;
             let template = self.parse_template()?;
-            match section.name.as_str() {
-                "imports" => {
+            match (section.name.as_str(), sub.as_ref().map(|s| s.name.as_str())) {
+                ("imports", None) => {
                     if body.imports.replace(template).is_some() {
                         self.error("duplicate `imports:` section", section.span);
                     }
                 }
-                "inline" => {
+                ("inline", None) => {
                     if body.inline.replace(template).is_some() {
                         self.error("duplicate `inline:` section", section.span);
                     }
                 }
-                other => {
+                ("Mut", Some("inline")) => {
+                    if body.mut_inline.replace(template).is_some() {
+                        self.error("duplicate `Mut inline:` section", section.span);
+                    }
+                }
+                _ => {
                     self.error(
-                        format!("unknown define section `{other}` (expected `imports` or `inline`)"),
+                        format!(
+                            "unknown define section `{}` (expected `imports`, `inline`, \
+                             or `Mut inline`)",
+                            sub.as_ref()
+                                .map(|s| format!("{} {}", section.name, s.name))
+                                .unwrap_or_else(|| section.name.clone())
+                        ),
                         section.span,
                     );
                 }

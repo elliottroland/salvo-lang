@@ -18,7 +18,7 @@ Salvo has the following basic data types, similar to the JVM:
 
 * `Byte`: an 8-bit unsigned integer, equivalent to `Byte` in Kotlin and `u8` in Rust.
 * `Int`: a 32-bit signed integer, equivalent to `Int` in Kotlin and `i32` in Rust.
-* `Long`: a 64-bit signed integer, equivalent to `Long` in Kotlin and `u64` in Rust.
+* `Long`: a 64-bit signed integer, equivalent to `Long` in Kotlin and `i64` in Rust.
 * `Float`: a 32-bit floating point number, equivalent to `Float` in Kotlin and `f32` in Rust.
 * `Double`: a 64-bit floating point number, equivalent to `Double` in Kotlin and `f64` in Rust.
 * `Bool`: a boolean, equivalent to `Boolean` in Kotlin and `bool` in Rust.
@@ -256,7 +256,7 @@ let p: Old Surname Person | None = check_old_surname(person)
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
-### Auto-qualifiers for structs
+### Auto-qualifiers and `Mut`
 
 When they're defined, structs can specify "auto-qualifiers", which are precanned qualifiers supported at the language level. At the moment, the only auto-qualifier is `Mut`, which introduces support for a mutable version of the struct, wherein each field can be modified:
 
@@ -275,6 +275,14 @@ person.name = "Someone else" // Compile-time error
 let mutable_person = Mut Person {...person}
 person.name = "Someone else" // No problem
 ```
+
+`Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `with Mut` syntax — for example, the standard library's list type is declared as:
+
+```
+external type List<T> with Mut
+```
+
+Applying `Mut` to a type whose declaration does not say `with Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section (`Mut inline`).
 
 ### Generic types
 
@@ -689,14 +697,11 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 
 The second square bracket includes what we call "deductions". These tell the compiler what happens to the parameters given to a function, which in turn helps us to compile functions with concrete ownership/borrowing rules in Rust.
 
-Suppose that we have two qualifiers for list:
+Suppose that we have the standard library's mutable list (`external type List<T> with Mut`) and a qualifier that tracks non-emptiness:
 
 ```
-// Tells us whether the list is mutable
-qualifier Mut<T> of List<T>
-
 // Tells us that there is at least one element in the list
-qualifier NonEmpty<T> of List<T> with Mut<T>
+qualifier NonEmpty<T> of List<T>
 ```
 
 If we remove an element from the list, then we don't know if it's non-empty any more. We can capture this as follows:
@@ -865,13 +870,30 @@ One of the aims of Salvo is to make it easy to integrate Salvo code with the bac
 
 The `internal` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `internal` backend definitions are declared as part of the standard library (defined in `std`).
 
-For example, the `Mut List<T>` qualifier is declared as `internal` because in some target languages it has implications for syntax:
+For example, the basic types (`Int`, `Str`, `Iter<T>`, ...) are declared as `internal type`s, and each backend maps them natively:
 
 ```
-internal qualifier Mut<T> of List<T>
+internal type Str
 ```
 
 When building the compiler, _all_ `internal` declarations must be handled by _every_ backend module.
+
+The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `with Mut` (`external type List<T> with Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
+
+```
+// In file list.kotlin.sv
+define type List<T> {
+    inline: ``
+    List<${T}>
+    ``
+
+    Mut inline: ``
+    MutableList<${T}>
+    ``
+}
+```
+
+When no `Mut inline` section is given, `Mut` simply erases for that backend (Rust, for example, maps both `List<T>` and `Mut List<T>` to `Vec<T>` — mutability shows up in bindings and references instead).
 
 ### External
 
@@ -971,3 +993,12 @@ Outside of validating that the interpolated variables refer to declared variable
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
 * The `Iter<T>` type should map to the `Iterable<T>` type in Kotlin, since this is what can be looped over in for-loops. A custom iterable type can be defined for dynamic `iterator {}` blocks in Kotlin.
+
+### Rust
+
+* When `None` is the only return type of a function, the return type is omitted (`()`).
+* `T?` maps to a physical `Option<T>`; union types map to generated enums (`Union2<T1, T2>` with one variant per non-`None` arm).
+* Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
+* Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
+* The `Iter<T>` type maps to `Vec<T>`: iterator functions collect eagerly (`yield` pushes into a result vector).
+* See BACKEND_SPEC.rust.md for the full rules.

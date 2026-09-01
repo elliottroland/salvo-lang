@@ -277,6 +277,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "salvo-backend-rust"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "salvo-backend",
+ "salvo-core",
+ "salvo-syntax",
+]
+
+[[package]]
 name = "salvo-cli"
 version = "0.1.0"
 dependencies = [
@@ -284,6 +294,7 @@ dependencies = [
  "include_dir",
  "salvo-backend",
  "salvo-backend-kotlin",
+ "salvo-backend-rust",
  "salvo-core",
  "salvo-syntax",
 ]

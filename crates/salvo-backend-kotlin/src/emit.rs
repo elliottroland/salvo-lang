@@ -812,15 +812,31 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
-        let name = base.name.name.as_str();
+        let name = base.name.name.as_str().to_string();
         let has_mut = qualifiers.iter().any(|q| q.name.name == "Mut");
 
-        // Internal `Mut List<T>` maps to Kotlin MutableList.
-        if has_mut && name == "List" {
-            let args = self.emit_type_args(&base.args);
-            return format!("MutableList{args}");
+        // A `Mut`-qualified type whose define provides a `Mut inline:`
+        // template maps through it [type-with-mut] (e.g. `Mut List<T>` ->
+        // `MutableList<T>`).
+        if has_mut {
+            let arg_strs: Vec<String> = base.args.iter().map(|a| self.emit_type(a)).collect();
+            if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
+                return code;
+            }
         }
-        self.emit_type_ref_named(name, &base.args)
+        self.emit_type_ref_named(&name, &base.args)
+    }
+
+    /// Expands the `Mut inline:` template of a type's define, when the
+    /// define provides one [type-with-mut]. `None` falls back to the
+    /// plain mapping (`Mut` erases like other qualifiers).
+    fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
+        let def = self.symbols.define_types.get(name).copied()?;
+        let mut_inline = def.body.mut_inline.clone()?;
+        if let Some(imports) = &def.body.imports {
+            self.add_template_imports(imports);
+        }
+        Some(self.expand_type_template(&mut_inline, &def.generics, arg_strs))
     }
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
@@ -925,13 +941,17 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // Internal `Mut List<T>` maps to Kotlin MutableList; other
-                // qualifiers erase.
+                // A `Mut`-qualified type maps through its define's
+                // `Mut inline:` template [type-with-mut]; other qualifiers
+                // erase.
                 if let Ty::Named { name, args } = base.as_ref() {
-                    if name == "List" && quals.iter().any(|q| q.name == "Mut") {
+                    if quals.iter().any(|q| q.name == "Mut") {
+                        let name = name.clone();
                         let arg_strs: Vec<String> =
                             args.iter().map(|a| self.kotlin_ty(a)).collect();
-                        return format!("MutableList<{}>", arg_strs.join(", "));
+                        if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
+                            return code;
+                        }
                     }
                 }
                 self.kotlin_ty(base)
@@ -1006,13 +1026,15 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // The internal `Mut List<T>` mapping survives erasure.
+                // The `Mut inline:` define mapping survives erasure
+                // [type-with-mut].
                 if quals.iter().any(|q| q.name == "Mut") {
                     if let Ty::Named { name, args } = base.as_ref() {
-                        if name == "List" {
-                            let arg_strs: Vec<String> =
-                                args.iter().map(|a| self.emit_ty(a)).collect();
-                            return format!("MutableList<{}>", arg_strs.join(", "));
+                        let name = name.clone();
+                        let arg_strs: Vec<String> =
+                            args.iter().map(|a| self.emit_ty(a)).collect();
+                        if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
+                            return code;
                         }
                     }
                 }
@@ -1538,6 +1560,9 @@ impl<'p> Emitter<'p> {
             return code;
         };
         match coercion.clone() {
+            // Kotlin nullability is transparent: a bare value is already a
+            // valid `T?` [type-nullable].
+            Coercion::WrapOption { .. } => code,
             Coercion::WrapUnion { target, arm } => {
                 let value_arms = target.value_arms();
                 let n = value_arms.len();

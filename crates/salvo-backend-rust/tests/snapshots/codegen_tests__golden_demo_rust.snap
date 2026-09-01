@@ -1,0 +1,80 @@
+---
+source: crates/salvo-backend-rust/tests/codegen_tests.rs
+expression: combined
+---
+// ===== core/console.rs =====
+
+pub trait Console {
+    fn print(&mut self, message: &String);
+}
+
+pub struct StdOutConsole {
+}
+
+impl StdOutConsole {
+    pub fn new() -> Self {
+        Self { }
+    }
+}
+
+impl Console for StdOutConsole {
+    fn print(&mut self, message: &String) {
+        print!("{}", message)
+    }
+}
+
+pub fn println(console: &mut dyn Console, message: &String) {
+    console.print(message);
+    console.print(&("\n".to_string()));
+}
+
+// ===== main.rs =====
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use)]
+#[path = "core/console.rs"]
+pub mod core_console;
+
+use crate::core_console::*;
+
+#[derive(Clone, Debug)]
+pub struct Person {
+    pub name: String,
+    pub surname: Option<String>,
+    pub age: i32,
+}
+
+pub fn full_name(person: &Person) -> String {
+    if person.surname.is_some() {
+        let mut surname = person.surname.as_ref().unwrap().clone();
+        return format!("{} {}", person.name.clone(), surname);
+    }
+    return person.name.clone();
+}
+
+pub fn greet(console: &mut dyn Console, person: &Person) {
+    println(console, &(format!("Hello, {}!", full_name(person))));
+    for mut i in range(1, 4) {
+        println(console, &(format!("  {}: {}", i, person.age + i)));
+    }
+}
+
+pub fn range(start: i32, end: i32) -> Vec<i32> {
+    let mut __yielded: Vec<i32> = Vec::new();
+    let mut i = start;
+    while (({ let __t = i; i += 1; __t }) < end) {
+        __yielded.push(i - 1);
+    }
+    return __yielded;
+}
+
+pub fn main() {
+    let mut console = StdOutConsole::new();
+    let mut person = Person { name: "Roland".to_string(), surname: Some("Elliott".to_string()), age: 36 };
+    greet(&mut console, &person);
+    let mut anon = Person { surname: None, ..person.clone() };
+    greet(&mut console, &anon);
+    let mut names = vec!["a".to_string(), "b".to_string()];
+    println(&mut console, &(format!("first: {}", names.first().cloned().unwrap())));
+    let mut mut_names = vec!["x".to_string()];
+    mut_names.push("y".to_string());
+    println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));
+}

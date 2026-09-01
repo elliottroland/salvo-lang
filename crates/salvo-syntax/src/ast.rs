@@ -49,13 +49,17 @@ pub struct ImportDecl {
     pub span: Span,
 }
 
-/// `internal type Str`, `external type List<T>`, or a type alias
+/// `internal type Str`, `external type List<T> with Mut`, or a type alias
 /// `type Result<S, T> = Ok S | Err T`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDecl {
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// Auto-qualifiers, e.g. `with Mut` [type-with-mut]: the type opts
+    /// into the language-level `Mut` qualifier (like `struct ... with
+    /// Mut` [struct-mut]).
+    pub auto_qualifiers: Vec<TypeRef>,
     pub alias: Option<Type>,
     pub span: Span,
 }
@@ -208,6 +212,11 @@ pub struct DefineHandler {
 pub struct DefineBody {
     pub imports: Option<Template>,
     pub inline: Option<Template>,
+    /// `Mut inline:` — the template used instead of `inline:` when the
+    /// type is qualified with `Mut` [type-with-mut] (e.g. Kotlin maps
+    /// `Mut List<T>` to `MutableList<T>`). Only meaningful on
+    /// `define type` for types declared `with Mut`.
+    pub mut_inline: Option<Template>,
 }
 
 /// A backtick template, split into literal text and `${...}` interpolations.

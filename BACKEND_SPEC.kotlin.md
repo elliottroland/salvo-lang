@@ -70,7 +70,8 @@ Conventions:
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`.
 * [kt-mutability] `let` emits `val`, or `var` when the name is assigned or
   `++`-incremented anywhere in the fn (mutation pre-scan);
-  `Mut List<T>` emits `MutableList<T>`; `Mut` struct fields emit `var`.
+  `Mut List<T>` emits `MutableList<T>` via the define's `Mut inline:`
+  template [type-with-mut]; `Mut` struct fields emit `var`.
 * [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
 * [is-binding] `is T name` bindings emit `val name = subj as T` at the top

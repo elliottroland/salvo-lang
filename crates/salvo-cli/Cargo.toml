@@ -14,5 +14,6 @@ salvo-syntax = { workspace = true }
 salvo-core = { workspace = true }
 salvo-backend = { workspace = true }
 salvo-backend-kotlin = { workspace = true }
+salvo-backend-rust = { workspace = true }
 clap = { workspace = true }
 include_dir = { workspace = true }

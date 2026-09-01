@@ -12,6 +12,7 @@ use include_dir::{include_dir, Dir};
 
 use salvo_backend::{BackendError, BackendRegistry};
 use salvo_backend_kotlin::KotlinBackend;
+use salvo_backend_rust::RustBackend;
 use salvo_core::{Program, SourceKind, SourceSet};
 
 /// The standard library, embedded into the binary at build time. Files are
@@ -67,6 +68,7 @@ fn compile(
 ) -> ExitCode {
     let mut registry = BackendRegistry::new();
     registry.register(Box::new(KotlinBackend));
+    registry.register(Box::new(RustBackend));
 
     let Some(backend) = registry.get(backend_name) else {
         let available: Vec<_> = registry.names().collect();
@@ -150,7 +152,8 @@ fn compile(
         sources.files.len() - user_modules
     );
 
-    // The JVM entry-point class, if the program has a `main`.
+    // The entry point, if the program has a `main` (rendering depends on
+    // the backend: JVM class name vs crate-root file).
     let entry = sources
         .files
         .iter()
@@ -162,7 +165,23 @@ fn compile(
                         if f.name.name == "main" && f.body.is_some())
                 })
         })
-        .map(|(file, _)| format!("salvo.{}.MainKt", file.module));
+        .map(|(file, _)| match backend.name() {
+            "rust" => {
+                // The main-declaring module is the crate root (see
+                // BACKEND_SPEC.rust.md).
+                let mut path = std::path::PathBuf::new();
+                for part in &file.module.0 {
+                    path.push(part);
+                }
+                path.set_extension("rs");
+                format!(
+                    "{} (build with: rustc --edition 2021 {})",
+                    target.join(&path).display(),
+                    target.join(&path).display()
+                )
+            }
+            _ => format!("salvo.{}.MainKt", file.module),
+        });
 
     let program = Program {
         files: sources.files,

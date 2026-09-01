@@ -1,9 +1,10 @@
-external type List<T>
+// `with Mut` opts List into the language-level Mut auto-qualifier
+// [type-with-mut]: backends may map `Mut List<T>` to a different native
+// type (see the `Mut inline:` define section).
+external type List<T> with Mut
 
 // Constructor
 external fn list<T>(...elems: T[]) -> List<T>
-
-internal qualifier Mut<T> of List<T>
 
 // Mutable constructor
 external fn mutable_list<T>(...elems: T[]) -> Mut List<T>

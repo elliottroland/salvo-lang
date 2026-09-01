@@ -56,6 +56,11 @@ pub enum Coercion {
     /// Re-wrap a value between two union representations (matching arms by
     /// type equality; unmatched source arms are unreachable at runtime).
     Rewrap { from: Ty, to: Ty },
+    /// Wrap a bare value into an optional (`T?`-style) representation
+    /// [type-nullable]. Backends whose optionals are physical wrap
+    /// (`Some(...)` in Rust); backends with transparent nullability
+    /// (Kotlin) treat this as a no-op.
+    WrapOption { target: Ty },
 }
 
 /// The checker's output.
@@ -713,12 +718,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-of].
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
             for (q, decl) in qualifiers.iter().zip(&decls) {
-                let Some(decl) = decl else { continue };
-                // `Mut` on a struct declaring `with Mut` is the
-                // language-level auto-qualifier path [struct-mut].
-                if q.name.name == "Mut" && self.struct_has_auto_mut(base) {
+                // `Mut` is the language-level auto-qualifier: valid only
+                // on declarations that opt in with `with Mut`
+                // [struct-mut] [type-with-mut].
+                if q.name.name == "Mut" {
+                    if !self.has_auto_mut(base) {
+                        self.error(
+                            q.span,
+                            format!(
+                                "`Mut` does not apply to `{base}` (its declaration \
+                                 does not say `with Mut`)"
+                            ),
+                        );
+                    }
                     continue;
                 }
+                let Some(decl) = decl else { continue };
                 if !self.qual_applies(decl, base) {
                     self.error(
                         q.span,
@@ -731,13 +746,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-with].
         for i in 0..qualifiers.len() {
             for j in (i + 1)..qualifiers.len() {
+                // The `Mut` auto-qualifier composes with everything
+                // [type-with-mut].
+                if qualifiers[i].name.name == "Mut" || qualifiers[j].name.name == "Mut" {
+                    continue;
+                }
                 let (Some(a), Some(b)) = (decls[i], decls[j]) else {
                     continue;
                 };
                 if a.name.name == b.name.name {
                     continue; // duplicate, already reported
                 }
-                // Internal qualifiers (`Mut`) compose with everything.
+                // Internal qualifiers compose with everything.
                 if a.backing == Some(BackingMod::Internal)
                     || b.backing == Some(BackingMod::Internal)
                 {
@@ -771,16 +791,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         unify(&of_ty, base.strip_quals(), &mut subst)
     }
 
-    /// Whether the base type is a struct that opted into the `Mut`
-    /// auto-qualifier (`struct S with Mut`).
-    fn struct_has_auto_mut(&self, base: &Ty) -> bool {
+    /// Whether the base type's declaration opted into the `Mut`
+    /// auto-qualifier: `struct S with Mut` [struct-mut] or
+    /// `external type List<T> with Mut` [type-with-mut].
+    fn has_auto_mut(&self, base: &Ty) -> bool {
         let Ty::Named { name, .. } = base.strip_quals() else {
             return false;
         };
+        let has_mut = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Mut");
         self.scope
             .structs
             .get(name.as_str())
-            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"))
+            .is_some_and(|s| has_mut(&s.auto_qualifiers))
+            || self
+                .scope
+                .opaque_types
+                .get(name.as_str())
+                .is_some_and(|t| has_mut(&t.auto_qualifiers))
     }
 
     /// Validates a qualifier declaration: predicate qualifiers need a
@@ -2290,7 +2317,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // The emitter unwraps identifier uses narrowed to a single arm, so
         // the effective representation is the narrowed type in that case.
+        // The same holds for a `T?` representation narrowed to its value
+        // arm: backends that read optionals physically (Rust) unwrap at
+        // the use site, and Kotlin smart-casts to the same effect.
         let effective = if repr.is_wrapper_union() && !matches!(logical, Ty::Union(_)) {
+            logical.clone()
+        } else if repr.has_none_arm()
+            && matches!(repr, Ty::Union(_))
+            && !logical.has_none_arm()
+            && !logical.is_none_ty()
+            && !matches!(logical, Ty::Union(_))
+        {
             logical.clone()
         } else {
             repr.clone()
@@ -2379,9 +2416,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             }
         }
-        // Nullable-style or plain expected types need no wrapping; a
+        // Nullable-style or plain expected types need no union wrapping; a
         // wrapper-union value in a non-union slot is a plain type error
-        // reported at the boundary.
+        // reported at the boundary. A bare value used where an optional
+        // (`T?`-style) representation is expected records a WrapOption
+        // [type-nullable]: physical-optional backends (Rust) wrap it in
+        // `Some(...)`; Kotlin nullability ignores it.
+        if !expected.is_wrapper_union()
+            && matches!(expected, Ty::Union(_))
+            && expected.has_none_arm()
+            && !effective.is_unknown()
+            && !effective.is_none_ty()
+            && !effective.has_none_arm()
+            && !matches!(effective, Ty::Union(_))
+        {
+            self.out.coerce.insert(
+                self.key(span),
+                Coercion::WrapOption {
+                    target: expected.clone(),
+                },
+            );
+        }
     }
 }
 

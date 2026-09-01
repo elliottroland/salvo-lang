@@ -616,6 +616,48 @@ fn constructive_values_only_come_from_constructors() {
     );
 }
 
+// [type-with-mut] `Mut List<T>` maps through the define's `Mut inline:`
+// template; `Mut` on a type without `with Mut` is an error.
+#[test]
+fn mut_types_map_through_the_mut_inline_template() {
+    let src = r#"
+fn fill(target: Mut List<Int>, n: Int) -> [target: Mut] None {
+    add(target, n)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let items: Mut List<Int> = mutable_list(1)
+    fill(items, 2)
+    println("size: ${items.size()}")
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    assert!(
+        main.content.contains("fun fill(target: MutableList<Int>, n: Int)"),
+        "unexpected: {}",
+        main.content
+    );
+    assert!(main.content.contains("val items: MutableList<Int> = mutableListOf(1)"));
+}
+
+// [type-with-mut] `Mut` only applies to declarations that say `with Mut`.
+#[test]
+fn mut_requires_a_with_mut_declaration() {
+    let errors = expect_errors("fn f(x: Mut Str) -> None {\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("`Mut` does not apply to `Str`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
 /// Full verification: compile the generated Kotlin with kotlinc and run it,
 /// checking the program output. Skipped when kotlinc is not installed.
 #[test]

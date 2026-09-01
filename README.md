@@ -1,7 +1,7 @@
 # Salvo
 
 Salvo is an experimental high-level programming language with C-like syntax
-that transpiles to **Kotlin** and (eventually) **Rust**. It supports the
+that transpiles to **Kotlin** and **Rust**. It supports the
 transition from the JVM to a non-garbage-collected language by letting one
 codebase target both worlds — with no explicit pointers, references,
 ownership, or borrowing in the source.
@@ -33,6 +33,10 @@ cargo run -- compile --backend kotlin --src ./my_project --target ./out
 
 # Compile and run the output (requires kotlinc on PATH):
 kotlinc out/*.kt out/core/*.kt -d classes && kotlin -cp classes salvo.main.MainKt
+
+# Or compile the same sources to Rust:
+cargo run -- compile --backend rust --src ./my_project --target ./out_rs
+rustc --edition 2021 out_rs/main.rs -o program && ./program
 ```
 
 ## A taste of Salvo
@@ -89,8 +93,8 @@ fn main() [use] {
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
   value), flow-sensitive narrowing via `is`, exhaustive `when`.
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
-  overloading, union tagging, and precise checks; `Mut` opts structs into
-  mutability.
+  overloading, union tagging, and precise checks; `Mut` opts structs and
+  types (`with Mut`) into mutability.
 - **Everything is an expression**: `if`/`when` produce values; branch types
   union together.
 - **Functions**: overloading by argument types, dot-notation
@@ -106,10 +110,12 @@ fn main() [use] {
 
 ## Status
 
-Work in progress. The Kotlin backend works end-to-end (verified by compiling
-and running the output with `kotlinc`); the Rust backend is planned. See
-[PROGRESS.md](PROGRESS.md) for details and [AGENTS.md](AGENTS.md) if
-contributing.
+Work in progress. Both backends work end-to-end, verified by compiling and
+running the output with `kotlinc` and `rustc`: the Rust backend derives
+ownership mechanically — deductions decide whether parameters are moved or
+borrowed (`&`/`&mut` via `Mut`), unions become enums, and effects become
+traits. See [PROGRESS.md](PROGRESS.md) for details and
+[AGENTS.md](AGENTS.md) if contributing.
 
 ## License
 
