@@ -213,8 +213,14 @@ Conventions:
 * [while-value] `while` evaluates to the last evaluated body expression,
   or a `break value`; `else` runs (and provides the value) only if the
   loop never ran. Same for `for`.
-  * Loop-as-value, `break value`, and loop `else` are *not yet
-    implemented*: codegen errors, never wrong code (M6).
+  * The value type joins: the body's tail type, every `break value` type,
+    and the `else` tail type — or `None` when there is no `else` (the
+    loop may never run). A bare `break` or a `continue` also joins `None`
+    (an iteration may end without producing a value); `!` recovers the
+    non-optional type when the user knows better.
+  * Tails and break values coerce to the join like `if` branch values;
+    `break`/`continue` outside a loop are errors; a lambda body is a
+    loop barrier.
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body.
 * [for-iter] `for x in e` iterates `iter(e)` implicitly when `e` is not
@@ -294,17 +300,36 @@ Conventions:
 
 ## Deductions
 
-* [deduct-syntax] The `-> [param: Quals, ...]` list states what a call
+* [deduce-syntax] The `-> [param: Quals, ...]` list states what a call
   does to each parameter: listed = returned to the caller (borrowed) with
   exactly the listed qualifiers still known; omitted from a specified
   list = moved (caller loses access).
-* [deduct-infer] An unspecified deduction list is inferred as the
+  * Deductions are interpreted relative to the qualifiers *declared on
+    the parameter*: a call removes exactly `declared − kept` from the
+    argument's known qualifiers. Qualifiers the argument carries beyond
+    the declared ones are unaffected (`fn f(list: A B List<T>) ->
+    [list: B]` applied to an `A B C List<T>` leaves `B C List<T>`).
+  * Written lists are shape-checked: entries must name a parameter
+    (once), and may only keep qualifiers declared on that parameter.
+* [deduce-infer] An unspecified deduction list is inferred as the
   strictest deduction over all uses of each parameter in the body;
   deductions never depend on the return value. If inference is impossible,
   they must be written.
-  * Deductions are parsed and preserved in the AST but not yet computed
-    or validated; they are the Rust backend's ownership/borrow contract
-    (M6 computes and stores them in the typed IR).
+  * Inference runs as a whole-program fixpoint after checking
+    (`deduce.rs`), starting optimistic (everything kept with its declared
+    qualifiers); constraints only remove facts, so it terminates. Results
+    are stored in the typed IR (`Checked::deductions`); Kotlin ignores
+    them — they are the Rust backend's ownership/borrow contract.
+  * Moves are inferred when a bare parameter is: passed to a call whose
+    deduction omits it, bound by `let`/assignment, returned, `break`- or
+    `yield`-ed, stored in a struct/array/tuple literal, or passed to a
+    `use` handler constructor. Unresolved callees (backend interop,
+    effect members) borrow leniently and preserve all qualifiers; value
+    flow out of a branch/loop tail is not tracked as a move yet.
+  * A written list is validated against the same body facts: it may be
+    *stricter* than the body (drop qualifiers, move parameters the body
+    gives back), but promising a parameter back that the body moves, or
+    a qualifier the body may remove, is an error.
 
 ## Modules, imports, files
 

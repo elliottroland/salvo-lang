@@ -1,6 +1,6 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01 (morning, after M5). This document is
+Status snapshot as of 2026-09-01 (after M6). This document is
 the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
@@ -19,7 +19,7 @@ when adding or changing features.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 56 tests; includes four kotlinc compile+run tests
+cargo test                  # 68 tests; includes five kotlinc compile+run tests
                             # (skipped gracefully if kotlinc is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
@@ -301,6 +301,77 @@ generic inference at `use` sites, expected-type disambiguation inside a fn
 declaring both, explicit `next_random<Int>()`, and handler threading through
 call sites — compiled by kotlinc and exact stdout asserted.
 
+### M6 — Deductions + loops-as-values
+
+**Loops as values [while-value].** `while`/`for` are now expressions in
+both checker and Kotlin emitter.
+
+- Checker: the loop's value type joins the body's tail type, every
+  `break value` type, and the `else` tail type — or `None` when there is
+  no `else` (the loop may never run). A bare `break` or a `continue` also
+  joins `None` (deliberate, conservative: an iteration may end without
+  producing a value — at runtime a bare `break` keeps the *previous*
+  iteration's tail value, which the optional type soundly covers; `!`
+  recovers the non-optional type). Tails and break values coerce to the
+  join exactly like `if` branch values. New `Checker.loop_stack`
+  (`LoopCtx { breaks, may_skip_value }`) attributes `break`/`continue` to
+  the innermost loop; lambda bodies are a barrier; `break`/`continue`
+  outside a loop are now errors. `while`-`else` blocks are checked under
+  the condition's else-narrows (they run only if the first evaluation
+  failed).
+- Kotlin lowering [kt-loop-value]: a value-position loop becomes a
+  `run {}` block with a `var __loopN` result local — nullable temp
+  initialized `null`, ended with `__loopN!!` when the join has no `None`
+  arm (`Any?` pass-through for `None`-typed/unchecked joins). The body's
+  tail expression assigns the local; `break value` assigns then breaks
+  (routed via an emitter `loop_results` stack mirroring the checker's);
+  with `else`, a `__loopN_ran` flag guards an `if (!__loopN_ran)` block.
+  `None`-typed tails/breaks stay statements and assign `null`;
+  `Nothing`-typed tails stay statements. Statement-position loops keep
+  plain Kotlin loops (an `else` needs only the ran-flag; a discarded
+  `break value` evaluates its operand for side effects).
+  `emit_value_block` routes a *trailing* loop through the value lowering
+  (a Kotlin block would otherwise value the loop statement as `Unit`).
+
+**Deductions [deduce-syntax] [deduce-infer].** New `salvo-core/deduce.rs`
+post-pass (runs at the end of `check_program`); results stored in the
+typed IR as `Checked::deductions: HashMap<FnKey, Vec<ParamDeduction>>`
+(`{ param, kept, quals }`). Kotlin ignores them; they are the Rust
+backend's ownership/borrow contract.
+
+- **Interpretation (user decision):** a deduction is relative to the
+  qualifiers *declared on the callee's parameter* — a call removes
+  exactly the set `declared − kept` from the argument's known
+  qualifiers. Qualifiers beyond the declared ones pass through
+  (`fn f(list: A B List<T>) -> [list: B]` on an `A B C List<T>` argument
+  leaves `B C List<T>`).
+- Inference (unwritten lists): whole-program fixpoint from an optimistic
+  start (everything kept with declared quals); constraints only remove
+  facts (monotone → terminates). Moves: bare parameter passed to a call
+  whose deduction omits it, bound by `let`/assignment, returned,
+  `break`/`yield`-ed, stored in a struct/array/tuple literal, or passed
+  to a `use` handler constructor. Calls resolve through the checker's
+  `call_fn` table (dot-notation receiver = argument 0; trailing args bind
+  the variadic param). Lenient: unresolved callees (interop, effect
+  members) borrow and preserve everything; bare-parameter value flow out
+  of branch/loop tails is not tracked as a move yet.
+- Written lists are shape-checked (unknown/duplicate parameter, keeping a
+  qualifier not declared on the parameter) and validated against the body
+  facts: stricter-than-body is fine; promising a parameter back that the
+  body moves, or a qualifier the body may remove, is an error.
+- Only top-level `fn`s (the ones with `FnKey`s) participate; handler and
+  qualifier member fns are outside `call_fn` resolution anyway.
+
+Verified end-to-end (`kotlinc_compiles_and_runs_loops`): last-evaluated
+value with `else` (ran and never-ran), `break value` out of a `for` over
+an iterator with `T?` + `is` narrowing, statement-position `for`-`else`,
+bare `break` keeping the previous value, and a union-typed loop value
+re-wrapped to the declared arm order — compiled by kotlinc and exact
+stdout asserted. Deduction semantics covered by 8 new salvo-core tests
+(removal-set subtraction, pass-through of undeclared qualifiers, move
+inference, call-graph fixpoint transitivity, lenient interop, validation
+errors).
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
@@ -321,8 +392,9 @@ call sites — compiled by kotlinc and exact stdout asserted.
   any wrapper size is used.
 - A std module is emitted only if it produces code — currently just
   `core/console.kt`. "Only used modules" per LANGUAGE.md is not yet enforced.
-- Deductions (`-> [list: Mut] T`) are parsed and preserved in the AST but
-  ignored by the Kotlin backend (they matter for the Rust backend).
+- Deductions (`-> [list: Mut] T`) are inferred/validated by the
+  `deduce.rs` post-pass and stored in `Checked::deductions`; the Kotlin
+  backend ignores them (they are the Rust backend's ownership contract).
 - The effect environment in the emitter is string-keyed; effect resolution
   prefers the checker's `use_effects`/`effect_calls`/`call_effects` tables
   and falls back to string matching only in unchecked contexts (see the M5
@@ -330,7 +402,7 @@ call sites — compiled by kotlinc and exact stdout asserted.
 
 ## Remaining milestones
 
-### M3–M5 leftovers (small, do alongside M6)
+### M3–M6 leftovers (small, do alongside M7)
 
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
@@ -357,16 +429,15 @@ call sites — compiled by kotlinc and exact stdout asserted.
   `size` or move the example to `List<T>`.
 - Effect member fns with their *own* generics are lowered but never
   substituted per-call (only the effect's generics are).
-
-### M6 — Deductions + loops-as-values
-
-- Deduction inference (strictest deduction over all uses, per LANGUAGE.md) and
-  validation against explicit annotations. Kotlin ignores them; they are the
-  Rust backend's ownership/borrow contract, so compute + store them in the
-  typed IR now.
-- Loop values: `while`/`for` as expressions with `break value` and `else`
-  blocks. Kotlin lowering sketch: `run { ... }` block with a labeled loop,
-  assigning to a local before `break`.
+- Caller-side qualifier narrowing from deductions (the LANGUAGE.md
+  `remove_first` example: after the call, the local's `NonEmpty` is
+  gone and a second `remove_first(list)` should not resolve) is not
+  applied yet — deductions are computed and stored, but call sites do
+  not consume them for flow narrowing (natural M8 companion).
+- Deduction inference does not track bare-parameter value flow out of
+  branch/loop tails as a move (documented leniency in [deduce-infer]).
+- Bare `return` inside a value-position loop (or any value block) in an
+  iterator body is not re-targeted to `return@iterator`.
 
 ### M7 — Polish + LANGUAGE.md compliance
 
@@ -386,23 +457,30 @@ call sites — compiled by kotlinc and exact stdout asserted.
 
 ### M8 — Rust backend
 
-Only start after M3/M6 (needs the typed IR + deductions). Reuse the
+Prerequisites are in place since M6 (checker tables + deductions in
+`Checked`). Reuse the
 `Backend` trait; unions → enums; effects → trait objects or generics;
 deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
 them written); `Mut` → `mut`/`&mut`.
 
-## Test inventory (all green: 56)
+## Test inventory (all green: 68)
 
-- `salvo-core`: 8 unit tests (file classification; `types.rs` union
-  normalization, subtyping, display, wrapper detection).
+- `salvo-core`: 16 — 8 unit tests (file classification; `types.rs` union
+  normalization, subtyping, display, wrapper detection) + 8 deduction
+  tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
+  qualifiers passing through calls, move inference, call-graph fixpoint
+  transitivity, lenient interop borrows, written-list body validation,
+  written-list shape validation, stricter-than-body lists).
 - `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 31 — golden snapshots of the M2 demo, the M3
-  unions demo, the M4 qualifiers demo, and the M5 effects demo;
+- `salvo-backend-kotlin`: 35 — golden snapshots of the M2 demo, the M3
+  unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
+  loops demo;
   wrapper/wrap/`is`-lowering assertions (`unions_emit_sealed_wrappers`),
   predicate/mangling/field-cast assertions
   (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
-  effect-resolution assertions (`effects_resolve_through_checker_tables`);
+  effect-resolution assertions (`effects_resolve_through_checker_tables`),
+  loop-lowering assertions (`loops_lower_to_run_blocks`);
   negative tests (non-exhaustive `when`, non-union `when` subject,
   no-matching-arm wrap, missing effect handler at a fn call site and at an
   effect-member call site, `use` without the `use` effect, duplicate effect
@@ -411,8 +489,8 @@ them written); `Mut` → `mut`/`&mut`.
   qualifier, incompatible qualifiers, `of`-type mismatch, constructor
   same-file rule, predicate-constructor rejection, non-simple constructor
   return, `is` on constructive qualifiers, `qualifies` signature,
-  constructive values only from constructors); and four kotlinc compile+run
-  tests with exact stdout assertions.
+  constructive values only from constructors, `break` outside a loop); and
+  five kotlinc compile+run tests with exact stdout assertions.
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -490,3 +568,27 @@ snapshot diffs.
   `Random<Str>`; the effect-list duplicate check is separate
   (`check_effect_list`) because declared effects never pass through
   `check_use`.
+- Kotlin loops are *statements*: any block whose value is a trailing
+  `while`/`for` (if-expr branches, `when` branches) must route the loop
+  through `emit_loop_value` — a plain emission would silently value the
+  block as `Unit`. `emit_value_block` special-cases the trailing loop.
+- The loop result local must be a *nullable* temp (`var __loopN: T? =
+  null`) even for non-optional joins: Kotlin cannot prove definite
+  assignment through a loop, so the block ends `__loopN!!` instead. Only
+  loops with `else` produce non-optional joins, and then every path
+  assigns — except the spec-silent corner where every iteration
+  `continue`s before the tail; the checker closes it by joining `None`
+  into the type whenever a bare `break`/`continue` exists.
+- `break`/`continue` attribution needs matching stacks on both sides
+  (checker `loop_stack`, emitter `loop_results`), and both must treat
+  lambda bodies as barriers and *pop before checking/emitting the `else`
+  block* (a `break` in `else` belongs to the outer loop).
+- Deduction inference must interpret a callee's deduction list relative
+  to the callee's *declared* parameter qualifiers (removal set =
+  declared − kept, subtracted from the argument), not as the absolute
+  set of remaining qualifiers — otherwise qualifiers the callee never
+  declared would be wrongly stripped from the caller's argument.
+- Deduction fixpoint direction matters: start optimistic (all kept, all
+  quals) and only remove facts — starting pessimistic would not converge
+  to the least-strict sound answer and recursive fns would infer
+  everything as moved.

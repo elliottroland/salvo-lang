@@ -866,3 +866,172 @@ fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expe
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ===== M6: loops as values =====
+
+/// The M6 demo: loop values from body tails, `break value`, loop `else`
+/// in value and statement position, bare `break` (optional value), and a
+/// union-typed loop value re-wrapped to the declared type [while-value].
+const LOOPS: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn range(start: Int, end: Int) -> Iter<Int> {
+    let i = start
+    while i++ < end {
+        yield i - 1
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+
+    // Last evaluated body expression is the loop's value.
+    let i = 0
+    let last = while i++ < 4 {
+        i * 10
+    } else {
+        -1
+    }
+    println("last: ${last}")
+
+    // `else` provides the value when the loop never runs.
+    let j = 9
+    let never = while j < 3 {
+        j
+    } else {
+        -1
+    }
+    println("never: ${never}")
+
+    // `break value` short-circuits; no `else` makes the value optional.
+    let found = for x in range(0, 10) {
+        if x * x > 10 {
+            break x
+        }
+        x
+    }
+    if found is Int f {
+        println("found: ${f}")
+    }
+
+    // Statement-position loop with `else`.
+    for x in range(0, 0) {
+        println("unreachable")
+    } else {
+        println("empty range")
+    }
+
+    // A bare `break` keeps the previous iteration's value.
+    let k = 0
+    let capped = while k < 5 {
+        k++
+        if k == 3 {
+            break
+        }
+        k
+    }
+    println("capped: ${capped}")
+
+    // Loop values join into unions and re-wrap to the declared type.
+    let n = 0
+    let verdict: Ok Int | Err Str = while n < 3 {
+        if n == 2 {
+            break ok(n)
+        }
+        n++
+        err("not yet")
+    } else {
+        err("empty")
+    }
+    when verdict {
+        is Ok {
+            println("ok: ${verdict}")
+        }
+        is Err {
+            println("err: ${verdict}")
+        }
+    }
+}
+"#;
+
+fn generate_loops_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(&[("main.sv", LOOPS, false)]);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+#[test]
+fn golden_loops_kotlin() {
+    let files = generate_loops_demo();
+    let combined: String = files
+        .iter()
+        .map(|f| format!("// ===== {} =====\n{}", f.rel_path.display(), f.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::assert_snapshot!(combined);
+}
+
+// [while-value] [kt-loop-value]
+#[test]
+fn loops_lower_to_run_blocks() {
+    let files = generate_loops_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // Value loops become `run {}` blocks with a nullable result local,
+    // unwrapped when the join type has no `None` arm.
+    assert!(main.content.contains("val last = run {"));
+    assert!(main.content.contains("var __loop1: Int? = null"));
+    assert!(main.content.contains("__loop1 = i * 10"));
+    assert!(main.content.contains("__loop1!!"));
+    // The `else` runs (and assigns) only when the loop never did.
+    assert!(main.content.contains("var __loop1_ran = false"));
+    assert!(main.content.contains("if (!__loop1_ran) {"));
+    assert!(main.content.contains("__loop1 = -1"));
+    // `break value` assigns the result local before breaking.
+    assert!(main.content.contains("__loop3 = x\n    break"));
+    // Without `else` (or with a bare `break`) the local stays nullable:
+    // no `!!` unwrap on the `found`/`capped` loops.
+    assert!(main.content.contains("__loop3\n}"));
+    assert!(main.content.contains("__loop5\n}"));
+    // Statement-position `else` needs only the ran-flag, no `run {}`.
+    assert!(main.content.contains("var __loop4_ran = false"));
+    assert!(main.content.contains("if (!__loop4_ran) {"));
+    // A union-typed loop value re-wraps to the declared arm order.
+    assert!(main.content.contains("var __loop6: Union2<String, Int>? = null"));
+    assert!(main.content.contains("}.let { when (it) {"));
+}
+
+// [while-value]
+#[test]
+fn break_outside_a_loop_is_an_error() {
+    let errors = expect_errors("fn f() -> None {\n    break\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("`break` outside of a loop")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+/// Full verification of the loops demo under kotlinc (skipped when
+/// kotlinc is not installed).
+#[test]
+fn kotlinc_compiles_and_runs_loops() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let files = generate_loops_demo();
+    let expected = "last: 40\nnever: -1\nfound: 4\nempty range\ncapped: 2\nok: 2\n";
+    run_kotlin_files(&files, "loops", expected);
+}

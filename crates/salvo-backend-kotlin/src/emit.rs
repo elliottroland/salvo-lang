@@ -5,10 +5,12 @@
 //! `define handler` templates), `define fn`/`define type` inline expansion,
 //! string interpolation, `if`/`is` with bindings, iterator functions
 //! (`yield` -> Kotlin `iterator {}` builder), `while`/`for` statements.
+//! M6 adds loops as values: `break value` and loop `else` lower through a
+//! `run {}` block with a result local [while-value] [kt-loop-value].
 //!
 //! Not yet supported (reported as codegen errors, never silently wrong
-//! code [backend-never-wrong]): loop-as-value, value `break`, tuples
-//! beyond Pair/Triple, multi-spread struct literals.
+//! code [backend-never-wrong]): tuples beyond Pair/Triple, multi-spread
+//! struct literals.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -135,6 +137,12 @@ struct Emitter<'p> {
     mutated: HashSet<String>,
     /// Generic parameters in scope (treated as opaque type names).
     generics: HashSet<String>,
+    /// Enclosing loops during emission [while-value]: the result variable
+    /// a `break value` assigns before breaking (`None` for loops whose
+    /// value is discarded). Innermost last.
+    loop_results: Vec<Option<String>>,
+    /// Counter for unique `__loopN` lowering locals.
+    loop_id: usize,
 }
 
 impl<'p> Emitter<'p> {
@@ -157,6 +165,8 @@ impl<'p> Emitter<'p> {
             effect_env: Vec::new(),
             mutated: HashSet::new(),
             generics: HashSet::new(),
+            loop_results: Vec::new(),
+            loop_id: 0,
         }
     }
 
@@ -880,10 +890,29 @@ impl<'p> Emitter<'p> {
                 (_, None) => format!("{pad}return\n"),
             },
             Stmt::Break { value, .. } => {
-                if value.is_some() {
-                    self.error("`break` with a value is not supported yet");
+                let target = self.loop_results.last().cloned().flatten();
+                match (value, target) {
+                    // [while-value] route the value into the enclosing
+                    // loop's result local before breaking.
+                    (Some(v), Some(result)) => {
+                        if self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) {
+                            // A `None`-typed value has no Kotlin payload:
+                            // evaluate for effects, record `null`.
+                            let stmt = self.emit_expr_stmt(v, indent, ctx);
+                            format!("{stmt}{pad}{result} = null\n{pad}break\n")
+                        } else {
+                            let code = self.emit_expr(v);
+                            format!("{pad}{result} = {code}\n{pad}break\n")
+                        }
+                    }
+                    // The loop's value is discarded (statement position):
+                    // evaluate the operand for side effects only.
+                    (Some(v), None) => {
+                        let stmt = self.emit_expr_stmt(v, indent, ctx);
+                        format!("{stmt}{pad}break\n")
+                    }
+                    (None, _) => format!("{pad}break\n"),
                 }
-                format!("{pad}break\n")
             }
             Stmt::Continue { .. } => format!("{pad}continue\n"),
             Stmt::Yield { value, .. } => {
@@ -1016,15 +1045,33 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
-                if else_block.is_some() {
-                    self.error("`while ... else` is not supported yet");
+                // [while-value] statement position: the value is discarded;
+                // `else` still needs a ran-flag (it runs only if the loop
+                // never did).
+                let ran = else_block
+                    .as_ref()
+                    .map(|_| format!("{}_ran", self.fresh_loop_var()));
+                let inner_pad = "    ".repeat(indent + 1);
+                let mut out = String::new();
+                if let Some(ran) = &ran {
+                    out.push_str(&format!("{pad}var {ran} = false\n"));
                 }
                 let c = self.emit_expr(cond);
-                let mut out = format!("{pad}while ({c}) {{\n");
+                out.push_str(&format!("{pad}while ({c}) {{\n"));
+                if let Some(ran) = &ran {
+                    out.push_str(&format!("{inner_pad}{ran} = true\n"));
+                }
                 // `while x is T name` re-binds per iteration.
                 out.push_str(&self.emit_is_bindings(cond, indent + 1));
+                self.loop_results.push(None);
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
+                if let (Some(ran), Some(b)) = (&ran, else_block) {
+                    out.push_str(&format!("{pad}if (!{ran}) {{\n"));
+                    out.push_str(&self.emit_block_stmts(b, indent + 1, ctx));
+                    out.push_str(&format!("{pad}}}\n"));
+                }
                 out
             }
             Expr::For {
@@ -1034,30 +1081,29 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
-                if else_block.is_some() {
-                    self.error("`for ... else` is not supported yet");
-                }
-                let var = match pattern {
-                    Pattern::Ident(id) => kt_ident(&id.name),
-                    Pattern::Tuple { elems, .. } => {
-                        let names: Vec<String> = elems
-                            .iter()
-                            .map(|p| match p {
-                                Pattern::Ident(id) => kt_ident(&id.name),
-                                _ => "_".to_string(),
-                            })
-                            .collect();
-                        format!("({})", names.join(", "))
-                    }
-                    Pattern::Struct { .. } => {
-                        self.error("struct destructuring in `for` is not supported yet");
-                        "_".to_string()
-                    }
-                };
+                let ran = else_block
+                    .as_ref()
+                    .map(|_| format!("{}_ran", self.fresh_loop_var()));
+                let inner_pad = "    ".repeat(indent + 1);
+                let var = self.for_pattern_var(pattern);
                 let iter = self.emit_expr(iterable);
-                let mut out = format!("{pad}for ({var} in {iter}) {{\n");
+                let mut out = String::new();
+                if let Some(ran) = &ran {
+                    out.push_str(&format!("{pad}var {ran} = false\n"));
+                }
+                out.push_str(&format!("{pad}for ({var} in {iter}) {{\n"));
+                if let Some(ran) = &ran {
+                    out.push_str(&format!("{inner_pad}{ran} = true\n"));
+                }
+                self.loop_results.push(None);
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
+                if let (Some(ran), Some(b)) = (&ran, else_block) {
+                    out.push_str(&format!("{pad}if (!{ran}) {{\n"));
+                    out.push_str(&self.emit_block_stmts(b, indent + 1, ctx));
+                    out.push_str(&format!("{pad}}}\n"));
+                }
                 out
             }
             Expr::When {
@@ -1523,10 +1569,7 @@ impl<'p> Emitter<'p> {
             } => self.emit_if_expr(branches, else_block.as_ref()),
             Expr::Lambda { params, body, .. } => self.emit_lambda(params, body),
             Expr::Spread { operand, .. } => format!("*{}", self.emit_expr(operand)),
-            Expr::While { .. } | Expr::For { .. } => {
-                self.error("loops as value expressions are not supported yet");
-                "Unit".to_string()
-            }
+            Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
                 subject, branches, ..
             } => self.emit_when(subject, branches, 0, StmtCtx::Normal, true),
@@ -1603,11 +1646,177 @@ impl<'p> Emitter<'p> {
     fn emit_value_block(&mut self, block: &Block) -> String {
         let mut out = String::new();
         let env_depth = self.effect_env.len();
-        for stmt in &block.stmts {
+        let n = block.stmts.len();
+        for (i, stmt) in block.stmts.iter().enumerate() {
+            // Kotlin loops are never expressions, so a trailing loop (the
+            // block's value [while-value]) needs the value lowering.
+            if i + 1 == n {
+                if let Stmt::Expr(e @ (Expr::While { .. } | Expr::For { .. })) = stmt {
+                    let code = self.emit_expr(e);
+                    out.push_str(&code);
+                    out.push('\n');
+                    continue;
+                }
+            }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
         }
         self.effect_env.truncate(env_depth);
         out
+    }
+
+    /// A fresh `__loopN` local name for loop lowering.
+    fn fresh_loop_var(&mut self) -> String {
+        self.loop_id += 1;
+        format!("__loop{}", self.loop_id)
+    }
+
+    /// The Kotlin `for (<var> in ...)` binding for a Salvo loop pattern.
+    fn for_pattern_var(&mut self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Ident(id) => kt_ident(&id.name),
+            Pattern::Tuple { elems, .. } => {
+                let names: Vec<String> = elems
+                    .iter()
+                    .map(|p| match p {
+                        Pattern::Ident(id) => kt_ident(&id.name),
+                        _ => "_".to_string(),
+                    })
+                    .collect();
+                format!("({})", names.join(", "))
+            }
+            Pattern::Struct { .. } => {
+                self.error("struct destructuring in `for` is not supported yet");
+                "_".to_string()
+            }
+        }
+    }
+
+    /// Lowers a value-position loop [while-value] [kt-loop-value] to a
+    /// `run {}` block: a result local is assigned by the body's tail
+    /// expression, by `break value`s, and by the `else` tail (which runs
+    /// only when the loop never did); the loop itself stays a plain
+    /// Kotlin loop. The local is a nullable temp, unwrapped with `!!` at
+    /// the end when the checked join type has no `None` arm.
+    fn emit_loop_value(&mut self, expr: &Expr) -> String {
+        let join = self.ty_of(expr.span()).cloned();
+        let (kt, needs_unwrap) = match &join {
+            Some(t)
+                if ty_is_concrete(t)
+                    && !t.is_none_ty()
+                    && !matches!(t, Ty::Nothing) =>
+            {
+                if t.has_none_arm() {
+                    // Renders with the trailing `?` already.
+                    (self.emit_ty(t), false)
+                } else {
+                    (format!("{}?", self.emit_ty(t)), true)
+                }
+            }
+            // `None`-typed or unchecked loops flow through untyped.
+            _ => ("Any?".to_string(), false),
+        };
+        let result = self.fresh_loop_var();
+        let ran = format!("{result}_ran");
+        let mut out = String::new();
+        out.push_str("run {\n");
+        out.push_str(&format!("var {result}: {kt} = null\n"));
+        match expr {
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
+                if else_block.is_some() {
+                    out.push_str(&format!("var {ran} = false\n"));
+                }
+                let c = self.emit_expr(cond);
+                out.push_str(&format!("while ({c}) {{\n"));
+                if else_block.is_some() {
+                    out.push_str(&format!("{ran} = true\n"));
+                }
+                // `while x is T name` re-binds per iteration.
+                out.push_str(&self.emit_is_bindings(cond, 0));
+                self.loop_results.push(Some(result.clone()));
+                out.push_str(&self.emit_loop_body_value(body, &result));
+                self.loop_results.pop();
+                out.push_str("}\n");
+                if let Some(b) = else_block {
+                    out.push_str(&format!("if (!{ran}) {{\n"));
+                    out.push_str(&self.emit_loop_body_value(b, &result));
+                    out.push_str("}\n");
+                }
+            }
+            Expr::For {
+                pattern,
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
+                if else_block.is_some() {
+                    out.push_str(&format!("var {ran} = false\n"));
+                }
+                let var = self.for_pattern_var(pattern);
+                let iter = self.emit_expr(iterable);
+                out.push_str(&format!("for ({var} in {iter}) {{\n"));
+                if else_block.is_some() {
+                    out.push_str(&format!("{ran} = true\n"));
+                }
+                self.loop_results.push(Some(result.clone()));
+                out.push_str(&self.emit_loop_body_value(body, &result));
+                self.loop_results.pop();
+                out.push_str("}\n");
+                if let Some(b) = else_block {
+                    out.push_str(&format!("if (!{ran}) {{\n"));
+                    out.push_str(&self.emit_loop_body_value(b, &result));
+                    out.push_str("}\n");
+                }
+            }
+            _ => unreachable!("emit_loop_value only receives loops"),
+        }
+        if needs_unwrap {
+            out.push_str(&format!("{result}!!\n}}"));
+        } else {
+            out.push_str(&format!("{result}\n}}"));
+        }
+        out
+    }
+
+    /// A loop body (or loop `else` block) whose tail expression assigns
+    /// the loop's result local [while-value].
+    fn emit_loop_body_value(&mut self, block: &Block, result: &str) -> String {
+        let mut out = String::new();
+        let env_depth = self.effect_env.len();
+        let n = block.stmts.len();
+        for (i, stmt) in block.stmts.iter().enumerate() {
+            if i + 1 == n {
+                if let Stmt::Expr(e) = stmt {
+                    out.push_str(&self.emit_tail_assign(e, result));
+                    continue;
+                }
+            }
+            out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
+        }
+        self.effect_env.truncate(env_depth);
+        out
+    }
+
+    /// Assigns a block-tail expression to a loop result local.
+    /// `Nothing`-typed tails never fall through (statement as-is);
+    /// `None`-typed tails have no Kotlin payload (statement, then `null`).
+    fn emit_tail_assign(&mut self, e: &Expr, result: &str) -> String {
+        match self.ty_of(e.span()) {
+            Some(Ty::Nothing) => self.emit_expr_stmt(e, 0, StmtCtx::Normal),
+            Some(t) if t.is_none_ty() => {
+                let stmt = self.emit_expr_stmt(e, 0, StmtCtx::Normal);
+                format!("{stmt}{result} = null\n")
+            }
+            _ => {
+                let code = self.emit_expr(e);
+                format!("{result} = {code}\n")
+            }
+        }
     }
 
     fn emit_lambda(&mut self, params: &[LambdaParam], body: &LambdaBody) -> String {

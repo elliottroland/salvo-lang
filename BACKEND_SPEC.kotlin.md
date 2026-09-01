@@ -87,6 +87,32 @@ Conventions:
   `when (subj)` over the sealed wrappers; kotlinc re-proves the
   exhaustiveness the checker established ([when-exhaustive]).
 
+## Control flow
+
+* [while-value] [kt-loop-value] Kotlin loops are never expressions, so a
+  value-position loop lowers to a `run {}` block: a `var __loopN` result
+  local is assigned by the body's tail expression and by each
+  `break value` (assign-then-`break`); with an `else`, a `__loopN_ran`
+  flag guards an `if (!__loopN_ran)` block whose tail also assigns.
+  * The local is a *nullable* temp initialized to `null`; when the
+    checked join type has no `None` arm the block ends `__loopN!!`,
+    otherwise plain `__loopN`. A `None`-typed or unchecked join uses
+    `Any?` (pass-through, [type-unknown-lenient]).
+  * `None`-typed tails/break values have no Kotlin payload: the
+    expression stays a statement and the local is assigned `null`;
+    `Nothing`-typed tails never fall through and stay statements.
+  * Statement-position loops keep the plain Kotlin loop; an `else` needs
+    only the ran-flag (no `run {}`); a `break value` whose loop value is
+    discarded evaluates the operand for side effects only.
+  * A block whose trailing expression is a loop routes it through the
+    value lowering (`emit_value_block`), since the Kotlin block value
+    would otherwise be the loop *statement* (`Unit`).
+  * `break` routing uses an emitter stack of enclosing loop result
+    locals, mirroring the checker's loop stack; `__loopN` ids are
+    globally unique per file. Bare `return` inside a value-position loop
+    in an iterator body is not re-targeted to `return@iterator` yet
+    (shared limitation with all value blocks).
+
 ## Qualifiers
 
 * [qual-erasure] Qualifiers erase entirely from emitted Kotlin; wrapper
@@ -143,7 +169,6 @@ Conventions:
 
 Reported as codegen errors, never silent wrong code:
 
-* loop-as-value, `break value`, loop `else` (M6);
 * multi-spread struct literals;
 * early `return` inside expression-position lambdas;
 * tuples beyond `Pair`/`Triple`;

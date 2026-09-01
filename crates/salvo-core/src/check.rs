@@ -92,6 +92,12 @@ pub struct Checked {
     pub call_effects: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
+    /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
+    /// a call gives the value back to the caller and which of its declared
+    /// qualifiers are still known afterwards. Written lists are stored as
+    /// validated; unwritten lists are inferred from the body. The Rust
+    /// backend's ownership/borrow contract (Kotlin ignores them).
+    pub deductions: HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
     /// Rendered type errors.
     pub errors: Vec<String>,
 }
@@ -127,9 +133,14 @@ pub fn check_program<'p>(
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             can_use: false,
+            loop_stack: Vec::new(),
         };
         checker.check_module(ast);
     }
+    // Deductions are a whole-program fact (strictest over the call graph),
+    // computed once every body has been checked and every call site
+    // resolved [deduce-infer].
+    crate::deduce::infer(program, &mut out);
     out
 }
 
@@ -161,6 +172,10 @@ struct Checker<'p, 'r> {
     effect_env: Vec<Ty>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
+    /// Enclosing loops of the code being checked; `break`/`continue`
+    /// statements record their value contributions into the innermost
+    /// entry [while-value]. Lambda bodies are a barrier.
+    loop_stack: Vec<LoopCtx>,
 }
 
 /// Narrowing facts derived from a condition.
@@ -1012,6 +1027,17 @@ struct TailInfo {
     repr: Ty,
 }
 
+/// Value contributions collected while checking one loop body
+/// [while-value].
+#[derive(Default)]
+struct LoopCtx {
+    /// `break value` contributions (span of the value expression).
+    breaks: Vec<TailInfo>,
+    /// A bare `break` or a `continue` occurred: an iteration may end
+    /// without producing a value, so `None` joins the loop's value type.
+    may_skip_value: bool,
+}
+
 /// A parsed `is` check: qualifiers + optional base type (or `None`).
 struct CheckPat {
     quals: Vec<String>,
@@ -1154,13 +1180,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Nothing
             }
-            Stmt::Break { value, .. } => {
-                if let Some(v) = value {
-                    self.check_expr(v, None);
+            Stmt::Break { value, span } => {
+                if self.loop_stack.is_empty() {
+                    self.error(*span, "`break` outside of a loop");
+                }
+                // [while-value] `break value` contributes to the loop's
+                // value; a bare `break` may leave the loop without a value.
+                match value {
+                    Some(v) => {
+                        let vty = self.check_expr(v, None);
+                        let repr = self.repr_of(v, &vty);
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.breaks.push(TailInfo {
+                                span: v.span(),
+                                logical: vty,
+                                repr,
+                            });
+                        }
+                    }
+                    None => {
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.may_skip_value = true;
+                        }
+                    }
                 }
                 Ty::Nothing
             }
-            Stmt::Continue { .. } => Ty::Nothing,
+            Stmt::Continue { span } => {
+                match self.loop_stack.last_mut() {
+                    Some(ctx) => ctx.may_skip_value = true,
+                    None => self.error(*span, "`continue` outside of a loop"),
+                }
+                Ty::Nothing
+            }
             Stmt::Yield { value, .. } => {
                 let elem = match &self.ret_ty {
                     Ty::Named { name, args } if name == "Iter" && !args.is_empty() => {
@@ -1412,15 +1464,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 else_block,
                 ..
             } => {
+                // [while-value] The loop is an expression: its value is the
+                // body's tail (last iteration), a `break value`, or the
+                // `else` tail when the loop never ran.
                 let info = self.analyze_cond(cond);
-                self.with_narrows(&info.then_narrows.clone(), |c| {
-                    c.check_branch_block(body, info.bindings.clone());
+                self.loop_stack.push(LoopCtx::default());
+                let (body_ty, body_tail) = self.with_narrows(&info.then_narrows.clone(), |c| {
+                    c.check_branch_block(body, info.bindings.clone())
                 });
-                if let Some(b) = else_block {
-                    self.check_block_value(b);
-                }
+                let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
+                // `else` runs only when the loop never ran, i.e. the
+                // condition failed on first evaluation: else-narrows apply.
+                let (else_ty, else_tail) = match else_block {
+                    Some(b) => {
+                        let (t, tail) = self.with_narrows(&info.else_narrows.clone(), |c| {
+                            c.check_branch_block(b, Vec::new())
+                        });
+                        (Some(t), tail)
+                    }
+                    None => (None, None),
+                };
                 self.reset_assigned(body);
-                Ty::none()
+                if let Some(b) = else_block {
+                    self.reset_assigned(b);
+                }
+                self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
             Expr::For {
                 pattern,
@@ -1433,15 +1501,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let elem = self.iter_elem_ty(&iter_ty);
                 self.locals.push(HashMap::new());
                 self.declare_pattern(pattern, elem);
-                for stmt in &body.stmts {
-                    self.check_stmt(stmt);
-                }
+                self.loop_stack.push(LoopCtx::default());
+                let (body_ty, body_tail) = self.check_branch_block(body, Vec::new());
+                let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 self.locals.pop();
-                if let Some(b) = else_block {
-                    self.check_block_value(b);
-                }
+                let (else_ty, else_tail) = match else_block {
+                    Some(b) => {
+                        let (t, tail) = self.check_branch_block(b, Vec::new());
+                        (Some(t), tail)
+                    }
+                    None => (None, None),
+                };
                 self.reset_assigned(body);
-                Ty::none()
+                if let Some(b) = else_block {
+                    self.reset_assigned(b);
+                }
+                self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
             Expr::Lambda { params, body, .. } => self.check_lambda(params, body, expected),
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
@@ -1586,6 +1661,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             &mut self.ret_ty,
             exp_ret.clone().unwrap_or(Ty::Unknown),
         );
+        // A lambda body is a loop barrier: `break`/`continue` inside it
+        // never bind a loop enclosing the lambda expression.
+        let saved_loops = std::mem::take(&mut self.loop_stack);
         let ret = match body {
             LambdaBody::Expr(e) => self.check_expr(e, exp_ret.as_ref()),
             LambdaBody::Block(b) => {
@@ -1595,6 +1673,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 exp_ret.unwrap_or(Ty::Unknown)
             }
         };
+        self.loop_stack = saved_loops;
         self.ret_ty = saved_ret;
         self.locals.pop();
         Ty::Fn {
@@ -2166,6 +2245,39 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     // ================= coercions =================
+
+    /// Joins a loop's value contributions [while-value]: the body tail,
+    /// each `break value`, and the `else` tail — or `None` when there is
+    /// no `else` (the loop may never run). A bare `break` or a `continue`
+    /// also joins `None` (an iteration may end without producing a value).
+    /// Tails and break values are coerced to the join like `if` branches.
+    fn finish_loop_value(
+        &mut self,
+        body_ty: Ty,
+        body_tail: Option<TailInfo>,
+        ctx: LoopCtx,
+        else_ty: Option<Ty>,
+        else_tail: Option<TailInfo>,
+    ) -> Ty {
+        let mut arms = vec![body_ty];
+        arms.extend(ctx.breaks.iter().map(|b| b.logical.clone()));
+        match else_ty {
+            Some(t) => arms.push(t),
+            None => arms.push(Ty::none()),
+        }
+        if ctx.may_skip_value {
+            arms.push(Ty::none());
+        }
+        let join = self.mk_union(arms);
+        for tail in body_tail
+            .into_iter()
+            .chain(ctx.breaks)
+            .chain(else_tail)
+        {
+            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+        }
+        join
+    }
 
     /// Records the representation change (if any) needed to use a value of
     /// (`logical`, `repr`) where `expected` is required. Arm matching is
