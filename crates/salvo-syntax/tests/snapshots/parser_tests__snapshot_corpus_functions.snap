@@ -779,14 +779,17 @@ Module {
                                     args: [
                                         Int {
                                             value: 1,
+                                            long: false,
                                             span: 630..631,
                                         },
                                         Int {
                                             value: 2,
+                                            long: false,
                                             span: 633..634,
                                         },
                                         Int {
                                             value: 3,
+                                            long: false,
                                             span: 636..637,
                                         },
                                     ],
@@ -1297,14 +1300,17 @@ Module {
                                     elems: [
                                         Int {
                                             value: 1,
+                                            long: false,
                                             span: 1047..1048,
                                         },
                                         Int {
                                             value: 2,
+                                            long: false,
                                             span: 1050..1051,
                                         },
                                         Int {
                                             value: 3,
+                                            long: false,
                                             span: 1053..1054,
                                         },
                                     ],
@@ -1346,6 +1352,7 @@ Module {
                                     },
                                     size: Int {
                                         value: 5,
+                                        long: false,
                                         span: 1087..1088,
                                     },
                                     init: Lambda {
@@ -1377,6 +1384,7 @@ Module {
                                                     Expr(
                                                         Int {
                                                             value: 0,
+                                                            long: false,
                                                             span: 1102..1103,
                                                         },
                                                     ),
@@ -1435,6 +1443,7 @@ Module {
                                     ),
                                     index: Int {
                                         value: 0,
+                                        long: false,
                                         span: 1160..1161,
                                     },
                                     span: 1152..1162,
@@ -1529,6 +1538,7 @@ Module {
                                     span: 1223..1226,
                                 },
                             ],
+                            explicit: true,
                             span: 1217..1226,
                         },
                     ],
@@ -1748,6 +1758,7 @@ Module {
                                                 },
                                                 rhs: Int {
                                                     value: 0,
+                                                    long: false,
                                                     span: 1370..1371,
                                                 },
                                                 span: 1354..1371,

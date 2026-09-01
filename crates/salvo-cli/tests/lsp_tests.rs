@@ -193,6 +193,60 @@ fn diagnostics_hover_and_shutdown() {
         "unexpected hover: {response}"
     );
 
+    // [fn-ref-table] Hovering a fn name shows the full signature with the
+    // *inferred* deductions: `x` is returned (moved), `factor` is unused
+    // (kept), so the effective list is `[factor]`.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 3},
+                "contentChanges": [{
+                    "text": "fn scale(x: Int, factor: Int) -> Int {\n    return x\n}\n\nfn use_it() -> Int {\n    return scale(1, 2)\n}\n"
+                }]
+            }
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0);
+
+    // On the declaration name...
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 0, "character": 5}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 4);
+    assert_eq!(
+        response["result"]["contents"]["value"].as_str(),
+        Some("fn scale(x: Int, factor: Int) -> [factor] Int"),
+        "unexpected hover: {response}"
+    );
+
+    // ...and on the call-site callee.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 5, "character": 13}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 5);
+    assert_eq!(
+        response["result"]["contents"]["value"].as_str(),
+        Some("fn scale(x: Int, factor: Int) -> [factor] Int"),
+        "unexpected hover: {response}"
+    );
+
     // Clean shutdown.
     send(
         &mut lsp.stdin,

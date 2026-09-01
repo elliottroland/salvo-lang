@@ -543,9 +543,12 @@ fn constructor_must_live_with_its_qualifier() {
     );
 }
 
-// [qual-ctor-simple]
+// [qual-ctor-predicate] Predicate qualifiers may have constructor
+// functions (same-file rule still applies): the constructor asserts the
+// predicate by construction, qualifiers erase, and overloads on the
+// qualified type resolve statically.
 #[test]
-fn predicate_qualifiers_cannot_have_constructors() {
+fn predicate_qualifiers_may_have_constructors() {
     let src = r#"
 qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
@@ -556,11 +559,35 @@ qualifier Positive of Int {
 fn make() -> Int as Positive {
     return 1
 }
+
+fn describe(x: Positive Int) -> Str {
+    return "positive"
+}
+
+fn describe(x: Int) -> Str {
+    return "unknown"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(describe(make()))
+}
 "#;
-    let errors = expect_errors(src);
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt not emitted");
+    // The constructor is a plain fn after erasure; the call site resolves
+    // to the Positive overload (mangled name).
+    assert!(main.content.contains("fun make(): Int"), "content: {}", main.content);
     assert!(
-        errors.iter().any(|e| e.contains("is a predicate qualifier")),
-        "unexpected errors: {errors:?}"
+        main.content.contains("describe__Positive(make())"),
+        "content: {}",
+        main.content
     );
 }
 
@@ -1354,13 +1381,13 @@ fn companion_collision_with_generated_file_is_an_error() {
 
 // [kt-handler-template-return] A handler member with a return type returns
 // its template's value (`return run { ... }`), so value-producing defines
-// like `random() -> Float` compile; statement-only members are unchanged.
+// like `random() -> Double` compile; statement-only members are unchanged.
 #[test]
 fn handler_members_with_return_types_return_their_template() {
     let program = build_program(&[(
         "main.sv",
         "import random.Random\nimport random.DefaultRandom\n\n\
-         fn roll() [Random] -> Float {\n    return random()\n}\n\n\
+         fn roll() [Random] -> Double {\n    return random()\n}\n\n\
          fn main() [use] -> [] None {\n    use StdOutConsole\n    use DefaultRandom\n    \
          println(\"${roll() < 2.0}\")\n}\n",
         false,
@@ -1373,7 +1400,7 @@ fn handler_members_with_return_types_return_their_template() {
         .find(|f| f.rel_path.to_string_lossy() == "random.kt")
         .expect("random.kt not emitted");
     assert!(
-        random.content.contains("override fun random(): Float {"),
+        random.content.contains("override fun random(): Double {"),
         "content: {}",
         random.content
     );
@@ -1383,7 +1410,7 @@ fn handler_members_with_return_types_return_their_template() {
         random.content
     );
     assert!(
-        random.content.contains("kotlin.random.Random.nextFloat()"),
+        random.content.contains("kotlin.random.Random.nextDouble()"),
         "content: {}",
         random.content
     );
@@ -1396,5 +1423,83 @@ fn handler_members_with_return_types_return_their_template() {
         !console.content.contains("return run {"),
         "content: {}",
         console.content
+    );
+}
+
+// [lit-numeric] Literal suffixes map onto Kotlin's: `5L` stays `5L`,
+// `2.5f` stays `2.5f`, unsuffixed floats are Double (`1.5`).
+#[test]
+fn numeric_literal_suffixes_emit_kotlin_suffixes() {
+    let program = build_program(&[(
+        "main.sv",
+        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+         let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
+         println(\"${big} ${ratio} ${d}\")\n}\n",
+        false,
+    )]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt not emitted");
+    assert!(main.content.contains("= 5L"), "content: {}", main.content);
+    assert!(main.content.contains("= 2.5f"), "content: {}", main.content);
+    assert!(main.content.contains("= 1.5"), "content: {}", main.content);
+}
+
+// [type-union] A union-arm argument (`ok("x")` where `Ok Str | Err Str`
+// is expected) resolves and wraps into the declared union's arm at the
+// call site — checker overload resolution and emitter wrapping agree.
+#[test]
+fn union_arm_arguments_wrap_at_call_sites() {
+    let src = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn describe(v: Ok Str | Err Str) -> Str {
+    when v {
+        is Ok {
+            return "ok"
+        }
+        is Err {
+            return "err"
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(describe(ok("x")))
+    println(describe(err("y")))
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt not emitted");
+    // Positional arm identity: Ok -> first arm, Err -> second arm.
+    assert!(
+        main.content.contains("describe(U2_1<String, String>(ok(\"x\")))"),
+        "content: {}",
+        main.content
+    );
+    assert!(
+        main.content.contains("describe(U2_2<String, String>(err(\"y\")))"),
+        "content: {}",
+        main.content
     );
 }

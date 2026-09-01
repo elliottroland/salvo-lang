@@ -1,9 +1,9 @@
 // Kotlin defines for random [backend-define-handler].
 
 define handler DefaultRandom of Random {
-    define fn random() -> Float {
+    define fn random() -> Double {
         inline: ``
-        kotlin.random.Random.nextFloat()
+        kotlin.random.Random.nextDouble()
         ``
     }
 }

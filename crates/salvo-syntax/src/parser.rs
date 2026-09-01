@@ -601,7 +601,7 @@ impl<'s> Parser<'s> {
         Some(effects)
     }
 
-    /// `[person]`, `[list: Mut]`, `[]`
+    /// `[person]`, `[list: Mut]`, `[list:]`, `[]` [deduce-syntax]
     fn parse_deduction_list(&mut self) -> Option<Vec<Deduction>> {
         self.expect(&TokenKind::LBracket)?;
         self.group_depth += 1;
@@ -612,8 +612,11 @@ impl<'s> Parser<'s> {
                 return None;
             };
             let mut qualifiers = Vec::new();
+            let mut explicit = false;
             if self.eat(&TokenKind::Colon).is_some() {
-                // Space-separated qualifier list: `list: Mut NonEmpty`
+                // A colon makes the (possibly empty) qualifier list exact:
+                // `list: Mut NonEmpty` keeps those, `list:` keeps none.
+                explicit = true;
                 while self.at_ident() {
                     match self.parse_type_ref() {
                         Some(r) => qualifiers.push(r),
@@ -626,6 +629,7 @@ impl<'s> Parser<'s> {
             deductions.push(Deduction {
                 param,
                 qualifiers,
+                explicit,
                 span,
             });
             if self.eat(&TokenKind::Comma).is_none() {
@@ -1631,17 +1635,19 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.kind().clone() {
-            TokenKind::Int(value) => {
+            TokenKind::Int { value, long } => {
                 let tok = self.bump();
                 Some(Expr::Int {
                     value,
+                    long,
                     span: tok.span,
                 })
             }
-            TokenKind::Float(value) => {
+            TokenKind::Float { value, single } => {
                 let tok = self.bump();
                 Some(Expr::Float {
                     value,
+                    single,
                     span: tok.span,
                 })
             }

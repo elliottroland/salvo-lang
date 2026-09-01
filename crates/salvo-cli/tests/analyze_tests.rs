@@ -242,3 +242,405 @@ fn import_suggestions_cover_user_modules_and_bad_imports() {
     // ...and the effect list's unknown `Audit` gets the same suggestion.
     assert!(stderr.contains("unknown effect `Audit`"), "stderr: {stderr}");
 }
+
+// [fn-must-return] A fn with a non-`None` return type must return on all
+// paths; `if/else` and `when` where every branch returns count, yield-based
+// iterator fns are exempt.
+#[test]
+fn missing_return_is_an_error() {
+    let dir = src_dir("missing_return");
+    fs::write(
+        dir.join("bad.sv"),
+        "fn sign(x: Int) -> Int {\n    if x < 0 {\n        return -1\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("missing return: not all paths in `sign` return a value"),
+        "stderr: {stderr}"
+    );
+
+    // All-paths-return via if/else, iterator fns, and None-returning fns
+    // are fine.
+    fs::write(
+        dir.join("bad.sv"),
+        "fn sign(x: Int) -> Int {\n    if x < 0 {\n        return -1\n    } else {\n        return 1\n    }\n}\n\
+         fn nums() -> Iter<Int> {\n    yield 1\n    yield 2\n}\n\
+         fn nothing(x: Int) {\n    let y = x\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [deduce-consume] A deduction list consumes unlisted identifier
+// arguments uniformly across all types: their type narrows to `Nothing`
+// and later uses are errors; reassignment revives them; listed (kept)
+// parameters are unaffected. Consumption on an always-exiting branch
+// does not leak past the branch.
+#[test]
+fn use_after_consume_is_an_error() {
+    let dir = src_dir("consume");
+    fs::write(
+        dir.join("main.sv"),
+        "fn add(a: Int, b: Int) -> [] Int {\n    return a + b\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let a = 1\n    let b = 2\n    \
+         let c = a.add(b)\n    println(\"${a}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`a` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+
+    // Reassignment revives the variable; kept parameters (`[a]`) are
+    // never consumed; consumption inside an always-exiting `if` branch
+    // never reaches the code after the `if`.
+    fs::write(
+        dir.join("main.sv"),
+        "fn add(a: Int, b: Int) -> [] Int {\n    return a + b\n}\n\n\
+         fn double(a: Int) -> [a] Int {\n    return a + a\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let a = 1\n    let b = 2\n    \
+         let c = a.add(b)\n    a = 5\n    println(\"${a}\")\n    \
+         let d = double(a)\n    println(\"${a}\")\n    \
+         let n = 0\n    let found = while n < 5 {\n        if n == 3 {\n            break add(n, 10)\n        }\n        n++\n        n\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Consumption in a *fall-through* branch is conservative: the value
+    // is maybe-moved after the `if`, so using it is an error.
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume(text: Str) -> [] None {\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let s = \"x\"\n    let flag = true\n    \
+         if flag {\n        consume(s)\n    }\n    println(\"${s}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`s` cannot be used here"),
+        "stderr: {stderr}"
+    );
+}
+
+// [deduce-consume] *Inferred* deductions are enforced like declared ones
+// (second checking round): a callee that returns its parameter moves it,
+// so the caller's argument is consumed with no annotation in sight.
+#[test]
+fn inferred_moves_consume_arguments() {
+    let dir = src_dir("consume_inferred");
+    fs::write(
+        dir.join("main.sv"),
+        "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let strings = list(\"a\", \"b\")\n    give_back(strings)\n    \
+         println(\"${strings.size()}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`strings` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+
+    // Rebinding through the return value keeps it usable.
+    fs::write(
+        dir.join("main.sv"),
+        "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let strings = list(\"a\", \"b\")\n    strings = give_back(strings)\n    \
+         println(\"${strings.size()}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [deduce-consume] A kept parameter sheds its removal set (declared −
+// kept qualifiers) from the argument at the call site: after
+// `remove_first` (`[list: Mut]` on a `NonEmpty Mut` param) the variable
+// is no longer `NonEmpty`, so a second call fails overload resolution.
+// The explicit-empty `[list:]` form strips all declared qualifiers.
+#[test]
+fn calls_remove_qualifiers_per_declared_deductions() {
+    let dir = src_dir("dedu_quals");
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
+         fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {\n    return list.get(0)!\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let strings = mutable_list(\"a\", \"b\")\n    \
+         if strings is NonEmpty {\n        let s = remove_first(strings)\n        let t = remove_first(strings)\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("no matching overload for `remove_first(Mut List<Str>)`"),
+        "stderr: {stderr}"
+    );
+
+    // `[list:]` strips every declared qualifier: after `weaken` the value
+    // no longer satisfies a `NonEmpty`-requiring overload.
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
+         fn weaken<T>(list: NonEmpty List<T>) -> [list:] None {\n}\n\n\
+         fn head<T>(list: NonEmpty List<T>) -> T {\n    return list.get(0)!\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let strings = list(\"a\", \"b\")\n    \
+         if strings is NonEmpty {\n        weaken(strings)\n        let s = head(strings)\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("no matching overload for `head(List<Str>)`"),
+        "stderr: {stderr}"
+    );
+}
+
+// [deduce-consume] Flow-analysis edge cases: consuming an `is`-narrowed
+// variable inside its own narrowed branch survives the narrowing restore,
+// and loop bodies are re-checked with their exit state so back-edge flows
+// (use early, consume late) surface. Consume-then-revive per iteration
+// stays clean.
+#[test]
+fn consumption_survives_narrowing_and_loop_back_edges() {
+    let dir = src_dir("consume_flow");
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
+         fn consume(strings: List<Str>) -> [] None {\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let strings = list(\"a\", \"b\")\n    if strings is NonEmpty {\n        consume(strings)\n    }\n    println(\"${strings.size()}\")\n    \
+         let s = list(\"x\")\n    let i = 0\n    while i < 3 {\n        println(\"${s.size()}\")\n        consume(s)\n        i++\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // The consumption in the `is`-narrowed branch reaches the code after
+    // the `if`...
+    assert!(
+        stderr.contains("`strings` cannot be used here"),
+        "stderr: {stderr}"
+    );
+    // ...and the loop's second pass flags the use-before-consume on the
+    // back edge.
+    assert!(stderr.contains("`s` cannot be used here"), "stderr: {stderr}");
+
+    // Consume-then-revive inside the body is clean across iterations.
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume(strings: List<Str>) -> [] None {\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let s = list(\"x\")\n    let i = 0\n    while i < 3 {\n        consume(s)\n        s = list(\"y\")\n        i++\n    }\n    println(\"${s.size()}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [deduce-consume] `when` branches merge like `if` branches: consumption
+// of the *subject* inside an arm survives the arm's narrowing restore and
+// reaches the code after the `when` (any-fall-through-path rule), while a
+// consuming arm that always exits contributes nothing.
+#[test]
+fn when_branches_merge_consumption() {
+    let dir = src_dir("consume_when");
+    let prelude = "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
+         fn ok<T>(value: T) -> T as Ok {\n    return value\n}\n\n\
+         fn err<T>(value: T) -> T as Err {\n    return value\n}\n\n\
+         fn consume(v: Ok Str) -> [] None {\n}\n\n";
+
+    // Consumed in one fall-through arm -> unusable after the `when`.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}fn main() [use] {{\n    use StdOutConsole\n    \
+             let result: Ok Str | Err Str = ok(\"x\")\n    \
+             when result {{\n        is Ok {{\n            consume(result)\n        }}\n        is Err {{\n        }}\n    }}\n    \
+             println(\"${{result}}\")\n}}\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`result` cannot be used here"),
+        "stderr: {stderr}"
+    );
+
+    // The consuming arm always exits -> usable after the `when`.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}fn main() [use] {{\n    use StdOutConsole\n    \
+             let result: Ok Str | Err Str = ok(\"x\")\n    \
+             when result {{\n        is Ok {{\n            consume(result)\n            return\n        }}\n        is Err {{\n        }}\n    }}\n    \
+             println(\"${{result}}\")\n}}\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [deduce-consume] The `if`/`else` merge matrix: consumed on every
+// fall-through path, consumed on the only fall-through path (other exits),
+// and consumed on an always-exiting path only (clean after).
+#[test]
+fn if_branch_merge_matrix() {
+    let dir = src_dir("consume_if_matrix");
+    let prelude = "fn consume(strings: List<Str>) -> [] None {\n}\n\n";
+
+    // Both branches consume -> consumed after.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}fn both(flag: Bool) {{\n    let a = list(\"a\")\n    \
+             if flag {{\n        consume(a)\n    }} else {{\n        consume(a)\n    }}\n    \
+             let n = a.size()\n}}\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("`a` cannot be used here"), "stderr: {stderr}");
+
+    // One branch consumes, the other exits: the only fall-through path
+    // consumed it -> consumed after.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}fn one_exits(flag: Bool) {{\n    let b = list(\"b\")\n    \
+             if flag {{\n        consume(b)\n    }} else {{\n        return\n    }}\n    \
+             let n = b.size()\n}}\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("`b` cannot be used here"), "stderr: {stderr}");
+
+    // The consuming branch always exits -> clean after.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}fn consuming_exits(flag: Bool) {{\n    let c = list(\"c\")\n    \
+             if flag {{\n        consume(c)\n        return\n    }}\n    \
+             let n = c.size()\n}}\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [deduce-consume] Qualifier removal on only *some* fall-through paths is
+// conservative: the join keeps only the qualifiers common to all paths,
+// so an overload requiring the maybe-removed qualifier no longer resolves
+// (nested inside the `is` branch that established it).
+#[test]
+fn partial_qualifier_removal_merges_conservatively() {
+    let dir = src_dir("consume_partial_qual");
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
+         fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {\n    return list.get(0)!\n}\n\n\
+         fn partial(flag: Bool) {\n    let strings = mutable_list(\"a\", \"b\")\n    \
+         if strings is NonEmpty {\n        if flag {\n            let x = remove_first(strings)\n        }\n        let y = remove_first(strings)\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("no matching overload for `remove_first(Mut List<Str>)`"),
+        "stderr: {stderr}"
+    );
+}
+
+// [deduce-consume] `for` loops re-check their body with the exit state
+// like `while` loops do: the back edge surfaces use-early/consume-late.
+#[test]
+fn for_loop_back_edge() {
+    let dir = src_dir("consume_for");
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume(strings: List<Str>) -> [] None {\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    let s = list(\"x\")\n    \
+         for i in list(1, 2, 3).iter() {\n        println(\"${s.size()}\")\n        consume(s)\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("`s` cannot be used here"), "stderr: {stderr}");
+}
+
+// [type-union] A union-arm value passes where the union is expected, in
+// argument position too: `describe(ok("x"))` against
+// `describe(v: Ok Str | Err Str)` resolves and wraps (regression: the
+// qualifier-stripping unify arm used to precede the union arm, so a
+// qualified argument could never match a union's qualified arm).
+#[test]
+fn union_arm_arguments_resolve_against_union_params() {
+    let dir = src_dir("union_arm_arg");
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
+         fn ok<T>(value: T) -> T as Ok {\n    return value\n}\n\n\
+         fn err<T>(value: T) -> T as Err {\n    return value\n}\n\n\
+         fn describe(v: Ok Str | Err Str) -> Str {\n    when v {\n        is Ok {\n            return \"ok\"\n        }\n        is Err {\n            return \"err\"\n        }\n    }\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    println(describe(ok(\"x\")))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("no errors"), "stderr: {stderr}");
+}

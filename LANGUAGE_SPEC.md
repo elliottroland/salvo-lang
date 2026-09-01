@@ -30,6 +30,18 @@ Conventions:
   `Bool`, `Char`, `None` (unit/no-value singleton), `Str`.
   * Declared as `internal type` in `std/core/basic.sv` /
     `std/core/string.sv`; each backend maps them natively.
+* [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
+  `Double`; `1.2f` is `Float`. Underscore separators are allowed
+  (`1_000L`).
+  * The `f` suffix requires a decimal point (`1f` is a lex error telling
+    you to write `1.0f`); `L` forbids one (`1.2L` is a lex error); a
+    literal running into identifier characters (`10x`, `1.2fx`) is a lex
+    error. `1.size()` still lexes as an int followed by a method call.
+  * There are no implicit numeric widenings: `let x: Long = 1` is a type
+    error — write `1L`.
+  * Backends: Kotlin renders the suffixes as its own (`1L`, `1.2f`);
+    Rust renders explicit types (`1i64`, `1.2f32`) and leaves unsuffixed
+    literals bare for inference.
 * [type-str] Strings are immutable, with `${...}` interpolation in
   literals.
   * The lexer captures each `${...}` fragment as raw source + offset; the
@@ -181,8 +193,13 @@ Conventions:
 * [qual-ctor-same-file] Constructor functions must be declared in the same
   file as their qualifier.
 * [qual-ctor-simple] Constructor return types must be simple (no
-  union/tuple); predicate qualifiers cannot have constructors; the
-  constructed qualifier must satisfy the `of` type.
+  union/tuple); the constructed qualifier must satisfy the `of` type.
+* [qual-ctor-predicate] Predicate qualifiers may have constructor
+  functions too: the constructor asserts its predicate holds *by
+  construction*, so callers get `Q T` without a runtime `is` check (no
+  `qualifies` call is emitted for constructed values). All other
+  constructor rules apply unchanged ([qual-ctor-same-file],
+  [qual-ctor-simple]).
 * [qual-erasure] Qualifiers are erased in generated code; only their
   compile-time consequences (overload choice, casts, predicate calls,
   union arm choice) survive.
@@ -245,6 +262,14 @@ Conventions:
   means `None`; omitted effect list means pure (`[]`).
 * [fn-return-none] Functions returning `None` may `return` bare or not
   return at all.
+* [fn-must-return] A fn with a non-`None` return type must return on
+  every path. Definitely-returning constructs: `return`, `if` with an
+  `else` where every branch returns, `when` where every branch returns
+  (exhaustiveness is enforced separately [when-exhaustive]).
+  * Conservative by design: loops never count as returning (they may run
+    zero times).
+  * Yield-based iterator fns are exempt — their body produces elements,
+    not a return value.
 * [fn-overload] Functions overload by parameter types (including
   qualifiers: `full_name(Person)` vs `full_name(Surname Person)`).
   * The checker scores viable candidates (exact type match > subtype;
@@ -316,6 +341,10 @@ Conventions:
   does to each parameter: listed = returned to the caller (borrowed) with
   exactly the listed qualifiers still known; omitted from a specified
   list = moved (caller loses access).
+  * Entry forms: bare `[list]` keeps the parameter with *all* its
+    declared qualifiers; `[list: Q1 Q2]` keeps exactly the listed ones;
+    the explicit-empty `[list:]` keeps the parameter but strips every
+    declared qualifier.
   * Deductions are interpreted relative to the qualifiers *declared on
     the parameter*: a call removes exactly `declared − kept` from the
     argument's known qualifiers. Qualifiers the argument carries beyond
@@ -342,6 +371,44 @@ Conventions:
     *stricter* than the body (drop qualifiers, move parameters the body
     gives back), but promising a parameter back that the body moves, or
     a qualifier the body may remove, is an error.
+* [deduce-consume] Deduction lists are enforced flow-sensitively at call
+  sites on bare identifier arguments — written lists directly, and
+  unannotated fns through their *inferred* facts: checking runs twice,
+  with round two re-checking under round one's inferred deductions (so
+  `return list` in a callee consumes the caller's argument exactly like
+  an explicit `[]`).
+  * A parameter *not kept* is consumed — the variable's type narrows to
+    `Nothing`, and any later reference to it is a compile error (a
+    `Nothing`-typed value represents an impossibility). Reassigning the
+    variable revives it. Consumption is uniform across all types: for
+    backend-copyable scalars the move never appears in generated code,
+    but the Salvo-level contract is enforced the same (decision:
+    consistency over target-level permissiveness).
+  * A *kept* parameter sheds its removal set: the argument's narrowed
+    type loses `declared − kept` qualifiers, so a follow-up call whose
+    overload requires a removed qualifier fails resolution (e.g. a
+    second `remove_first` after `[list: Mut]` stripped `NonEmpty`).
+  * Branch-aware merging: each `if`/`when` branch body's consumption and
+    qualifier-removal effects are isolated and joined at the construct's
+    exit. A branch that always exits (`return`/`break`/`continue` on
+    every path) contributes nothing to the code after the construct —
+    so `if n == 2 { break ok(n) }` followed by `n++` is legal. Across
+    fall-through paths: a value consumed on *any* path stays consumed
+    (maybe-moved is unusable, as in Rust); disagreeing states keep only
+    the qualifiers common to all paths.
+  * Round one's diagnostics are discarded (checking is deterministic;
+    round two re-derives them); deductions are re-inferred against round
+    two's final call resolutions.
+  * Consumption is preserved across narrowing scopes: consuming an
+    `is`-narrowed variable (or `when` subject) inside its own narrowed
+    branch survives the narrowing restore.
+  * Loop bodies are checked twice when the first pass consumed or
+    weakened any variable: the second pass runs with the body's exit
+    state as its entry state, so back-edge flows surface — a use early
+    in the body errors when a later statement consumed the value in the
+    previous iteration (re-derived duplicate diagnostics are dropped;
+    consume-then-reassign within the body stays clean).
+  * Variadic parameters and non-identifier arguments are not tracked.
 
 ## Modules, imports, files
 
@@ -432,6 +499,16 @@ Conventions:
   diagnostics stay per-file (`salvo_syntax::Diagnostic`); the CLI
   attributes them to files the same way. This is the contract a future
   language server builds on.
+* [fn-ref-table] The checker records every fn-*name* reference —
+  declaration names, call-site callees (incl. dot-notation), and
+  fn-by-name uses — as `Checked::fn_refs: (file, name span) -> FnKey`.
+  The LSP's hover renders the referenced declaration as a full
+  source-like signature with an explicit return type (`None` when
+  omitted) and the *effective* deduction list: the inferred/validated
+  one (`Checked::deductions` [deduce-infer]) when available, else as
+  declared. Moved parameters are omitted from the rendered list; an
+  empty list renders as `[]` (moves everything). Effect-member calls
+  and backend define fns have no `FnKey` and are not recorded.
 * [diag-import-suggest] Diagnostics for unresolved names carry structured
   import suggestions: the modules elsewhere in the program that declare
   the name, as `module.Item` paths (`FileDiagnostic::suggested_imports`).
@@ -481,7 +558,8 @@ Conventions:
     document under (clients compare URIs exactly).
   * Hover returns the checker's type (`Checked::expr_ty`) for the
     smallest expression under the cursor; `Unknown`-typed expressions
-    yield no hover.
+    yield no hover. On a fn *name* it instead returns the full
+    source-like signature ([fn-ref-table]).
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
   * Positions convert between byte offsets (Salvo spans) and UTF-16

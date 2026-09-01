@@ -42,6 +42,7 @@ Module {
                                 span: 33..39,
                             },
                             qualifiers: [],
+                            explicit: false,
                             span: 33..39,
                         },
                     ],
@@ -893,6 +894,7 @@ Module {
                                 ty: None,
                                 value: Int {
                                     value: 0,
+                                    long: false,
                                     span: 872..873,
                                 },
                                 span: 864..873,
@@ -967,6 +969,7 @@ Module {
                                                         op: Neg,
                                                         operand: Int {
                                                             value: 1,
+                                                            long: false,
                                                             span: 959..960,
                                                         },
                                                         span: 958..960,
@@ -1049,6 +1052,7 @@ Module {
                                 span: 1025..1031,
                             },
                             qualifiers: [],
+                            explicit: false,
                             span: 1025..1031,
                         },
                     ],
@@ -1089,6 +1093,7 @@ Module {
                                         args: [
                                             Int {
                                                 value: 0,
+                                                long: false,
                                                 span: 1059..1060,
                                             },
                                             Field {
@@ -1194,6 +1199,7 @@ Module {
                                 span: 1171..1177,
                             },
                             qualifiers: [],
+                            explicit: false,
                             span: 1171..1177,
                         },
                     ],

@@ -5,6 +5,7 @@
 //! sorted set. Structural equality (`PartialEq`/`Hash`) is meaningful and is
 //! used for union arm identity.
 
+use std::collections::HashSet;
 use std::fmt;
 
 /// A qualifier applied to a type, e.g. `Ok` in `Ok Int` or `Mut` in
@@ -92,6 +93,26 @@ impl Ty {
         Ty::Qualified {
             quals,
             base: Box::new(base),
+        }
+    }
+
+    /// The type with the named qualifiers removed (a no-op when none
+    /// match); collapses to the base type when no qualifiers remain
+    /// [deduce-consume].
+    pub fn remove_quals(self, names: &HashSet<String>) -> Ty {
+        match self {
+            Ty::Qualified { quals, base } => {
+                let quals: Vec<Qual> = quals
+                    .into_iter()
+                    .filter(|q| !names.contains(&q.name))
+                    .collect();
+                if quals.is_empty() {
+                    *base
+                } else {
+                    Ty::Qualified { quals, base }
+                }
+            }
+            other => other,
         }
     }
 

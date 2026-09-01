@@ -2,8 +2,8 @@
 // explicitly: `import random.Random` / `import random.DefaultRandom`.
 
 effect Random {
-    // A uniformly distributed float in [0, 1).
-    fn random() -> Float
+    // A uniformly distributed double in [0, 1).
+    fn random() -> Double
 }
 
 external handler DefaultRandom of Random

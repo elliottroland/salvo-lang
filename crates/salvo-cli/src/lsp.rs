@@ -33,7 +33,8 @@ use lsp_types::{
     Url, WorkspaceEdit,
 };
 
-use salvo_core::{FileDiagnostic, Ty};
+use salvo_core::{Checked, FileDiagnostic, FnKey, ParamDeduction, Program, Ty};
+use salvo_syntax::ast::Item;
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
@@ -271,9 +272,11 @@ impl Server<'_> {
         Ok(())
     }
 
-    /// The checker's type for the smallest expression under the cursor
-    /// (`Checked::expr_ty`); `None` on unknown types or positions
-    /// without a typed expression.
+    /// Hover contents for the position: a fn's full signature when the
+    /// cursor is on a fn name ([fn-ref-table] — declaration, callee, or
+    /// fn-by-name reference), otherwise the checker's type for the
+    /// smallest expression under the cursor (`Checked::expr_ty`); `None`
+    /// on unknown types or positions without a typed expression.
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
         let doc = &params.text_document_position_params;
         let path = file_path(&doc.text_document.uri)?;
@@ -287,6 +290,34 @@ impl Server<'_> {
             .position(|f| !f.is_std && self.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
+
+        // A fn name under the cursor hovers as the full signature,
+        // including inferred deductions [fn-ref-table].
+        let mut best_ref: Option<(Span, FnKey)> = None;
+        for ((file, span), key) in &checked.fn_refs {
+            if *file != file_idx {
+                continue;
+            }
+            if span.start <= offset
+                && offset < span.end
+                && best_ref.is_none_or(|(b, _)| span.len() < b.len())
+            {
+                best_ref = Some((*span, *key));
+            }
+        }
+        if let Some((span, key)) = best_ref {
+            if let Some(signature) = fn_signature(&analysis.program, &checked, key) {
+                return Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::LanguageString(
+                        LanguageString {
+                            language: "salvo".to_string(),
+                            value: signature,
+                        },
+                    )),
+                    range: Some(span_to_range(content, span)),
+                });
+            }
+        }
 
         let mut best: Option<(Span, &Ty)> = None;
         for ((file, span), ty) in &checked.expr_ty {
@@ -375,6 +406,114 @@ fn import_insert_position(content: &str) -> Position {
         }
     }
     Position::new(line, 0)
+}
+
+/// Renders the full source-like signature of a fn declaration, with the
+/// *effective* deduction list — inferred/validated (`Checked::deductions`)
+/// when available, else as declared — and an explicit return type
+/// [fn-ref-table]:
+///
+/// ```text
+/// fn add(a: Int, b: Int) -> [] Int
+/// fn greet(person: Person) [Console] -> [person] None
+/// fn ok<T>(value: T) -> [] T as Ok
+/// ```
+fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<String> {
+    let module = program.modules.get(key.file)?;
+    let Item::Fn(decl) = module.items.get(key.item)? else {
+        return None;
+    };
+
+    let mut sig = String::from("fn ");
+    sig.push_str(&decl.name.name);
+    if !decl.generics.is_empty() {
+        let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
+        sig.push_str(&format!("<{}>", generics.join(", ")));
+    }
+    let params: Vec<String> = decl
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}{}: {}",
+                if p.variadic { "..." } else { "" },
+                p.name.name,
+                p.ty
+            )
+        })
+        .collect();
+    sig.push_str(&format!("({})", params.join(", ")));
+
+    if let Some(effects) = &decl.effects {
+        let effects: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+        sig.push_str(&format!(" [{}]", effects.join(", ")));
+    }
+
+    sig.push_str(" ->");
+    // Deductions: the inferred/validated list when the whole-program pass
+    // produced one, else the declared list. Kept params render with their
+    // remaining qualifiers (`name:` when a qualified param keeps none);
+    // moved params are omitted [deduce-syntax].
+    if let Some(deductions) = checked.deductions.get(&key) {
+        sig.push_str(&format!(" {}", render_deductions(deductions, decl)));
+    } else if let Some(declared) = &decl.deductions {
+        let entries: Vec<String> = declared
+            .iter()
+            .map(|d| {
+                let quals: Vec<String> = d.qualifiers.iter().map(|q| q.to_string()).collect();
+                if quals.is_empty() {
+                    if d.explicit {
+                        format!("{}:", d.param.name)
+                    } else {
+                        d.param.name.clone()
+                    }
+                } else {
+                    format!("{}: {}", d.param.name, quals.join(" "))
+                }
+            })
+            .collect();
+        sig.push_str(&format!(" [{}]", entries.join(", ")));
+    }
+
+    match &decl.return_type {
+        Some(ty) => sig.push_str(&format!(" {ty}")),
+        None => sig.push_str(" None"),
+    }
+    if let Some(cref) = &decl.constructs {
+        sig.push_str(&format!(" as {cref}"));
+    }
+    Some(sig)
+}
+
+/// Renders an effective deduction list: kept parameters with their
+/// remaining qualifiers, moved parameters omitted [deduce-syntax]. A
+/// qualified parameter kept with *no* qualifiers renders in the
+/// explicit-empty form (`name:`) to distinguish it from an unqualified
+/// bare keep.
+fn render_deductions(
+    deductions: &[ParamDeduction],
+    decl: &salvo_syntax::ast::FnDecl,
+) -> String {
+    let entries: Vec<String> = deductions
+        .iter()
+        .filter(|d| d.kept)
+        .map(|d| {
+            if !d.quals.is_empty() {
+                return format!("{}: {}", d.param, d.quals.join(" "));
+            }
+            let declares_quals = decl
+                .params
+                .iter()
+                .find(|p| p.name.name == d.param)
+                .is_some_and(|p| !salvo_core::deduce::declared_quals(&p.ty).is_empty());
+            if declares_quals {
+                format!("{}:", d.param)
+            } else {
+                d.param.clone()
+            }
+        })
+        .collect();
+    format!("[{}]", entries.join(", "))
 }
 
 /// URI -> canonical absolute path (`None` for non-file URIs, which the

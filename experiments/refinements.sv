@@ -12,12 +12,12 @@ qualifier NonEmpty<T> of List<T> with Mut<T> {
     // refn add(list: Mut List<T>, elem: T) -> [list: Mut NonEmpty] None
 }
 
-// TODO: We should support qualifer constructors even for predicate qualifiers, so that the following is valid
-//       the same restriction still applies, though, namely that the constructors must be in the same file as the
-//       qualifier definition.
-// fn list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
-//     return init_list(first, ...rest)
-// }
+// Predicate qualifiers support constructor functions like constructive
+// qualifiers do; the same restriction applies: constructors must live in
+// the same file as the qualifier definition.
+fn list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
+    return init_list(first, ...rest)
+}
 
 fn first<T>(list: List<T>) -> T? {
     return list.get(0)
@@ -27,23 +27,28 @@ fn first<T>(list: NonEmpty List<T>) -> T {
     return list.get(0)!
 }
 
+fn give_back<T>(list: NonEmpty List<T>) -> List<T> {
+    return list
+}
+
+fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
+    return list.remove_at(0)
+}
+
 fn main() [use] {
     use StdOutConsole
     use DefaultRandom
 
-    let strings = list("name", "surname", "something")
+    let strings = mutable_list("name", "surname", "something")
     if strings is NonEmpty {
         println("First element length: ${strings.first().size()}")
+        give_back(strings)
+        // TODO: the empty deduction from `give_back` should make `strings` unusable here?
+        let s = strings.remove_first()
     }
-
-    // This line should fail
-    // println("First element length: ${strings.first().size()}")
 
     let (a, b) = (1, 2)
     let c = a.add(b)
-
-    // TODO: Because `add` deduces an empty result, `a` shouldn't be accessible here -- this should be a compile time error
-    println("${a}")
 }
 
 fn add(a: Int, b: Int) -> [] Int {
@@ -54,5 +59,13 @@ fn random() [Random] -> Int {
     if random() < 0.5 {
         return -1
     }
-    // TODO: Compiler should complain that not all branches return something
+    return 1
+}
+
+fn try_get_number() [Random] -> Ok Int | Err Str | None {
+    if random() < 0 {
+        return ok(1)
+    } else {
+        return err("it was negative")
+    }
 }

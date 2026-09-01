@@ -21,7 +21,7 @@ in sync when adding or changing features.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 124 tests; includes six kotlinc and six rustc
+cargo test                  # 142 tests; includes six kotlinc and six rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -647,6 +647,91 @@ Editor/LSP support (user request), built in two steps.
   with return types dropped the template's value; they now emit
   `return run { … }` [kt-handler-template-return] (verified by
   compiling and running both backends' output).
+- **Numeric literal suffixes [lit-numeric] + three checker features from
+  `experiments/refinements.sv` TODOs** (user request):
+  - Literals: `1` `Int`, `1L` `Long`, `1.2` `Double`, `1.2f` `Float`
+    (`f` requires a decimal point — decision: `1f` is a lex error;
+    underscores allowed; literal running into ident chars is a lex
+    error). Token/AST carry `long`/`single` flags (parser AST snapshots
+    updated); Kotlin renders native suffixes, Rust renders explicit
+    types (`1i64`, `1.2f32`), unsuffixed stays bare for inference. The
+    tm-grammar number regexes gained the suffixes. std `random()` now
+    returns `Double` (was `Float`) to match the Double default.
+  - **Missing-return [fn-must-return]**: fns with non-`None` return
+    types must return on every path (syntactic analysis in `check.rs`:
+    `if` needs `else` + all branches, `when` needs all branches; loops
+    never count; yield-fns exempt).
+  - **Predicate-qualifier constructors [qual-ctor-predicate]**: the
+    constructive-only restriction on `-> T as Q` was lifted; a
+    predicate-qualifier constructor asserts its predicate by
+    construction (no `qualifies` call at the call site). Same-file and
+    simple-return rules unchanged. The Kotlin negative test flipped to
+    a positive one; both backends emit constructors as plain fns.
+  - **Use-after-consume [deduce-consume]**: a *declared* deduction list
+    now consumes bare-identifier arguments bound to unlisted params —
+    the local narrows to `Ty::Nothing`, and referencing a
+    `Nothing`-narrowed variable is a compile error (decision: `Nothing`
+    *is* the consumed marker — it was never produced by narrowing
+    before, and "a value that no longer exists" matches its meaning);
+    assignment revives. Inferred deductions don't participate (computed
+    post-check). Known gap: consumption inside a branch is not merged
+    into the post-branch state.
+- **Signature hover [fn-ref-table]** (user request): hovering a fn name
+  — declaration, call-site callee (dot-notation included), or
+  fn-by-name reference — shows the full source-like signature with an
+  explicit return type and the *effective* deduction list (inferred
+  `Checked::deductions` when available, declared otherwise), e.g.
+  `fn scale(x: Int, factor: Int) -> [factor] Int`. Plumbing: the
+  checker records name spans in a new `Checked::fn_refs` table
+  (name span → `FnKey`); `salvo-syntax` gained source-like `Display`
+  impls for `ast::Type`/`TypeRef`/`EffectRef`; the LSP prefers a
+  fn-ref hit over the expression-type hover. Effect members and define
+  fns are not covered (no `FnKey`) — a future nicety.
+- **Deduction entry forms + call-site qualifier removal** (user request,
+  from `experiments/refinements.sv` TODOs): `ast::Deduction` gained an
+  `explicit` flag — bare `[list]` now keeps *all* declared qualifiers
+  (previously it meant "keep with none"), `[list: Mut]` keeps exactly
+  the listed ones, and the new explicit-empty `[list:]` strips every
+  qualifier [deduce-syntax]. [deduce-consume] extended: kept parameters
+  now shed their removal set (declared − kept) from the argument's
+  narrowed type at each call site, so a second
+  `remove_first(strings)` after `[list: Mut]` stripped `NonEmpty` fails
+  overload resolution. New `Ty::remove_quals`; `deduce::declared_quals`
+  made pub; hover renders a qualified param kept with no qualifiers in
+  the `name:` form. Parser AST snapshots updated (`explicit` field).
+- **Inferred deductions enforced at call sites + copy-type exemption**
+  (user request, from a `refinements.sv` TODO): `check_program` now runs
+  *two rounds* — round one checks with declared lists only and runs
+  deduction inference; round two re-checks with the inferred facts
+  injected into the [deduce-consume] narrowing, then re-infers against
+  the final call resolutions. So `give_back(strings)` (body
+  `return list`, no annotation) consumes `strings` exactly like an
+  explicit `[]`. Round one's diagnostics are discarded (checking is
+  deterministic). Initially basic value types were exempted from
+  consumption ([deduce-copy-types], since removed): enforcing moves on
+  scalars flagged the M6 loops demo (`break ok(n)` then `n++`) even
+  though the generated code is valid. Follow-up user decision:
+  *uniform* consumption across all types (consistency of the abstract
+  contract over target-level permissiveness), enabled by making the
+  analysis **branch-aware** — each `if`/`when` branch body's
+  consumption/qualifier-removal effects are snapshotted, isolated, and
+  merged at the join (`snapshot_narrows`/`restore_narrows`/
+  `merge_fallthrough` + `block_always_exits`): always-exiting branches
+  (return/break/continue) contribute nothing to the code after the
+  construct (the loops demo passes unmodified), a value consumed on any
+  fall-through path stays consumed (maybe-moved, as in Rust), and
+  disagreeing states keep only common qualifiers. Follow-up (user
+  request): both remaining false negatives were closed — the
+  `with_narrows` restore no longer resurrects a value consumed while
+  `is`-narrowed (`Nothing` survives the restore), and loop bodies are
+  re-checked once with their exit state as entry when the first pass
+  changed any variable's state (`check_loop_body`), surfacing back-edge
+  use-after-move exactly like rustc's "moved in previous iteration"
+  (second-pass duplicate diagnostics are deduplicated by
+  file/span/message; the second pass's value results are discarded).
+  Known non-convergence: round two's narrowing can change overload
+  resolution, whose re-inferred deductions are not fed back again (no
+  third round); acceptable at current scale.
 
 ### Current architectural facts worth knowing
 
@@ -754,13 +839,13 @@ Editor/LSP support (user request), built in two steps.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 124)
+## Test inventory (all green: 142)
 
-- `salvo-core`: 20 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 21 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 8 deduction
+  skipped with the root exempt) + 9 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
@@ -768,13 +853,23 @@ Editor/LSP support (user request), built in two steps.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 18 - 11 `analyze` integration tests running the built
+- `salvo-cli`: 28 - 21 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
   file not suppressing checker diagnostics in others, `.svignore`
   exclusions [mod-ignore], import suggestions rendered as help lines +
   JSON `imports` for std and user modules [diag-import-suggest],
+  missing-return analysis [fn-must-return], use-after-consume from
+  declared *and inferred* deductions, uniform across types, incl.
+  reassignment revival, consumption surviving `is`-narrowing restores,
+  `while`/`for` loop back-edge re-checking with consume-then-revive
+  staying clean, the `if`/`else` merge matrix (consumed on every
+  fall-through path / on the only fall-through path / only on an
+  always-exiting path), `when`-arm merging incl. subject consumption,
+  partial qualifier removal joining conservatively, and call-site
+  qualifier removal for kept params incl. `[list:]` [deduce-consume],
+  union-arm arguments resolving against union params [type-union],
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -782,14 +877,18 @@ Editor/LSP support (user request), built in two steps.
   (`tests/lsp_tests.rs` [cli-lsp]: speaks framed JSON-RPC to the binary —
   initialize, didOpen of an unsaved broken buffer -> publishDiagnostics
   with UTF-16 range, didChange fix -> clearing publish, hover -> checked
-  type, shutdown/exit -> clean process exit; codeAction import quickfix
+  type, fn-name hover -> full signature with inferred deductions at both
+  the declaration and a call site [fn-ref-table],
+  shutdown/exit -> clean process exit; codeAction import quickfix
   round-trip [diag-import-suggest]) + 3 grammar tests
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 17 - std + LANGUAGE.md-corpus parse-clean assertions with
-  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 48 - golden snapshots of the M2 demo, the M3
+- `salvo-syntax`: 20 - std + LANGUAGE.md-corpus parse-clean assertions with
+  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
+  lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
+  `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
+- `salvo-backend-kotlin`: 50 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -808,14 +907,14 @@ Editor/LSP support (user request), built in two steps.
   in an effect list, duplicate `use` registration, unknown effect,
   ambiguous generic effect call, handler-member effect deps, duplicate
   qualifier, incompatible qualifiers, `of`-type mismatch, constructor
-  same-file rule, predicate-constructor rejection, non-simple constructor
+  same-file rule, non-simple constructor
   return, `is` on constructive qualifiers, `qualifies` signature,
   constructive values only from constructors, `break` outside a loop,
   missing defines for used external fns/types, uncovered core externals,
   companion/generated-file collision); and six kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file).
-- `salvo-backend-rust`: 21 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 23 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -836,6 +935,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- `unify` (overload resolution) is *order-sensitive across its match
+  arms*: the argument-qualifier-stripping arm
+  (`(_, Ty::Qualified { .. })`) must come *after* the union-parameter
+  arm, or a qualified argument (`Ok Str`) loses its qualifier before the
+  union's qualified arms are tried and `describe(ok("x"))` against
+  `Ok Str | Err Str` never resolves. Found passing a union-arm value in
+  argument position; `is_subtype` had the arm→union rule all along, but
+  candidates were rejected by `unify` before the subtype check ran.
 - `SourceSet::classify` with a backend name that matches no define suffix
   (the CLI passes `""` for backend-neutral `analyze`) loads language
   files only — every `*.<something>.sv` is treated as another backend's

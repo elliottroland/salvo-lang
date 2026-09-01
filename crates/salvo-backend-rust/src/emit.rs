@@ -2018,14 +2018,16 @@ impl<'p> Emitter<'p> {
     /// renderings — these all produce owned values).
     fn emit_raw_like(&mut self, expr: &Expr) -> String {
         match expr {
-            Expr::Int { value, .. } => value.to_string(),
-            Expr::Float { value, .. } => {
+            // Literal suffixes emit explicit Rust types [lit-numeric]
+            // [type-basic]: `1L` -> `1i64`, `1.2f` -> `1.2f32`;
+            // unsuffixed literals stay bare for inference.
+            Expr::Int { value, long, .. } => {
+                format!("{value}{}", if *long { "i64" } else { "" })
+            }
+            Expr::Float { value, single, .. } => {
                 let s = value.to_string();
-                if s.contains('.') {
-                    s
-                } else {
-                    format!("{s}.0")
-                }
+                let s = if s.contains('.') { s } else { format!("{s}.0") };
+                format!("{s}{}", if *single { "f32" } else { "" })
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),

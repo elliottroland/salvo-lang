@@ -5,7 +5,7 @@
 // reproducible generators belong in dedicated handlers.
 
 define handler DefaultRandom of Random {
-    define fn random() -> Float {
+    define fn random() -> Double {
         inline: ``
         {
             let mut x = std::time::SystemTime::now()
@@ -16,7 +16,7 @@ define handler DefaultRandom of Random {
             x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
             x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
             x ^= x >> 31;
-            (((x >> 11) as f64) / ((1u64 << 53) as f64)) as f32
+            (((x >> 11) as f64) / ((1u64 << 53) as f64))
         }
         ``
     }

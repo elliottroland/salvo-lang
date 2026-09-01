@@ -254,3 +254,25 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
     );
     assert_eq!(facts(&program, &checked, "moves_anyway", "list").0, false);
 }
+
+// [deduce-syntax] A bare `[list]` entry keeps *all* declared qualifiers;
+// the explicit-empty `[list:]` keeps none.
+#[test]
+fn bare_entries_keep_all_qualifiers_and_explicit_empty_keeps_none() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+external fn keep_all<T>(list: A B List<T>) -> [list] None
+external fn strip_all<T>(list: A B List<T>) -> [list:] None
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert_eq!(
+        facts(&program, &checked, "keep_all", "list"),
+        (true, vec!["A".to_string(), "B".to_string()])
+    );
+    assert_eq!(
+        facts(&program, &checked, "strip_all", "list"),
+        (true, Vec::<String>::new())
+    );
+}

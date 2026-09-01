@@ -125,11 +125,11 @@ pub fn tm_grammar() -> String {
       "patterns": [
         {{
           "name": "constant.numeric.float.salvo",
-          "match": "\\b[0-9][0-9_]*\\.[0-9]+\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9]+f?\\b"
         }},
         {{
           "name": "constant.numeric.integer.salvo",
-          "match": "\\b[0-9][0-9_]*\\b"
+          "match": "\\b[0-9][0-9_]*L?\\b"
         }}
       ]
     }},

@@ -15,8 +15,12 @@ pub struct Token {
 pub enum TokenKind {
     // Literals and identifiers
     Ident(String),
-    Int(i64),
-    Float(f64),
+    /// Integer literal [lit-numeric]: `1` is `Int`; the `L` suffix
+    /// (`1L`, `long: true`) makes it a `Long`.
+    Int { value: i64, long: bool },
+    /// Floating-point literal [lit-numeric]: `1.2` is `Double`; the `f`
+    /// suffix (`1.2f`, `single: true`) makes it a `Float`.
+    Float { value: f64, single: bool },
     /// String literal, decomposed into text and `${...}` interpolation parts.
     Str(Vec<StrPart>),
     Char(char),
@@ -147,8 +151,12 @@ impl TokenKind {
     pub fn describe(&self) -> String {
         match self {
             TokenKind::Ident(name) => format!("identifier `{name}`"),
-            TokenKind::Int(v) => format!("integer `{v}`"),
-            TokenKind::Float(v) => format!("float `{v}`"),
+            TokenKind::Int { value, long } => {
+                format!("integer `{value}{}`", if *long { "L" } else { "" })
+            }
+            TokenKind::Float { value, single } => {
+                format!("float `{value}{}`", if *single { "f" } else { "" })
+            }
             TokenKind::Str(_) => "string literal".to_string(),
             TokenKind::Char(c) => format!("character literal `{c}`"),
             TokenKind::Template(_) => "template literal".to_string(),

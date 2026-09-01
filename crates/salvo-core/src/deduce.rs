@@ -158,7 +158,7 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
 
 /// The qualifier names written on the outside of a parameter type, in
 /// declaration order (`Mut NonEmpty List<T>` -> `["Mut", "NonEmpty"]`).
-fn declared_quals(ty: &Type) -> Vec<String> {
+pub fn declared_quals(ty: &Type) -> Vec<String> {
     match ty {
         Type::Named { qualifiers, .. } => {
             qualifiers.iter().map(|q| q.name.name.clone()).collect()
@@ -187,7 +187,7 @@ fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
 /// A written deduction list, validated for shape: entries must name a
 /// parameter (once), and may only keep qualifiers declared on that
 /// parameter's type [deduce-syntax].
-fn from_written(
+pub(crate) fn from_written(
     decl: &FnDecl,
     list: &[Deduction],
     mut error: impl FnMut(Span, String),
@@ -212,21 +212,29 @@ fn from_written(
             let declared = declared_quals(&p.ty);
             match list.iter().find(|d| d.param.name == p.name.name) {
                 Some(d) => {
-                    let mut quals = Vec::new();
-                    for q in &d.qualifiers {
-                        if !declared.contains(&q.name.name) {
-                            error(
-                                q.span,
-                                format!(
-                                    "deduction keeps qualifier `{}`, which is not \
-                                     declared on parameter `{}`",
-                                    q.name.name, p.name.name
-                                ),
-                            );
-                        } else {
-                            quals.push(q.name.name.clone());
+                    // Bare `[list]` keeps every declared qualifier; a colon
+                    // makes the written list exact (`[list:]` keeps none)
+                    // [deduce-syntax].
+                    let quals = if !d.explicit {
+                        declared.clone()
+                    } else {
+                        let mut quals = Vec::new();
+                        for q in &d.qualifiers {
+                            if !declared.contains(&q.name.name) {
+                                error(
+                                    q.span,
+                                    format!(
+                                        "deduction keeps qualifier `{}`, which is not \
+                                         declared on parameter `{}`",
+                                        q.name.name, p.name.name
+                                    ),
+                                );
+                            } else {
+                                quals.push(q.name.name.clone());
+                            }
                         }
-                    }
+                        quals
+                    };
                     ParamDeduction {
                         param: p.name.name.clone(),
                         kept: true,

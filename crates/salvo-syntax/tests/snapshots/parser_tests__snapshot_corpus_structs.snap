@@ -241,6 +241,7 @@ Module {
                                                 },
                                                 value: Int {
                                                     value: 36,
+                                                    long: false,
                                                     span: 210..212,
                                                 },
                                             },
@@ -310,6 +311,7 @@ Module {
                                                 },
                                                 value: Int {
                                                     value: 25,
+                                                    long: false,
                                                     span: 276..278,
                                                 },
                                             },
@@ -416,6 +418,7 @@ Module {
                                                 },
                                                 value: Int {
                                                     value: 36,
+                                                    long: false,
                                                     span: 376..378,
                                                 },
                                             },
@@ -502,6 +505,7 @@ Module {
                                             op: Neg,
                                             operand: Int {
                                                 value: 1,
+                                                long: false,
                                                 span: 452..453,
                                             },
                                             span: 451..453,

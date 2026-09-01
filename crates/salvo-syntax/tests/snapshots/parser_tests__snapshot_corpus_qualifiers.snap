@@ -446,6 +446,7 @@ Module {
                                                 ),
                                                 rhs: Int {
                                                     value: 0,
+                                                    long: false,
                                                     span: 352..353,
                                                 },
                                                 span: 346..353,
@@ -554,6 +555,7 @@ Module {
                                                 ),
                                                 rhs: Int {
                                                     value: 0,
+                                                    long: false,
                                                     span: 467..468,
                                                 },
                                                 span: 460..468,
@@ -825,6 +827,7 @@ Module {
                                         ),
                                         rhs: Int {
                                             value: 0,
+                                            long: false,
                                             span: 907..908,
                                         },
                                         span: 900..908,

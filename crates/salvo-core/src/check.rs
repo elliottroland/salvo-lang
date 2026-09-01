@@ -103,6 +103,11 @@ pub struct Checked {
     /// validated; unwritten lists are inferred from the body. The Rust
     /// backend's ownership/borrow contract (Kotlin ignores them).
     pub deductions: HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>,
+    /// Fn-name references [fn-ref-table]: the span of a fn *name* — at
+    /// its declaration, as a call-site callee, or a fn-by-name use —
+    /// mapped to the declaration it resolves to. Drives the LSP's
+    /// signature hover.
+    pub fn_refs: HashMap<Key, FnKey>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -114,10 +119,39 @@ impl Checked {
 }
 
 /// Checks the whole program (resolution must come from the same program).
+///
+/// Runs in two rounds so that *inferred* deductions are enforced at call
+/// sites exactly like declared ones [deduce-consume]: round one checks
+/// with only declared lists and runs whole-program deduction inference
+/// [deduce-infer]; round two re-checks with the inferred lists injected
+/// (moves consume arguments, kept parameters shed their removal set) and
+/// re-infers against the final call resolutions. Round one's diagnostics
+/// are discarded — checking is deterministic, so round two re-derives
+/// them.
 pub fn check_program<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
+) -> Checked {
+    let mut first = check_once(program, resolution, symbols, None);
+    crate::deduce::infer(program, &mut first);
+    let inferred = std::mem::take(&mut first.deductions);
+
+    let mut out = check_once(program, resolution, symbols, Some(&inferred));
+    // Deductions are a whole-program fact (strictest over the call graph),
+    // computed once every body has been checked and every call site
+    // resolved [deduce-infer].
+    crate::deduce::infer(program, &mut out);
+    out
+}
+
+/// One checking round; `inferred` carries the previous round's deduction
+/// facts for fns without a written list [deduce-consume].
+fn check_once<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+    inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
@@ -129,6 +163,7 @@ pub fn check_program<'p>(
             scope: &resolution.scopes[file_idx],
             resolution,
             symbols,
+            inferred,
             file_idx,
             out: &mut out,
             locals: Vec::new(),
@@ -141,10 +176,6 @@ pub fn check_program<'p>(
         };
         checker.check_module(ast);
     }
-    // Deductions are a whole-program fact (strictest over the call graph),
-    // computed once every body has been checked and every call site
-    // resolved [deduce-infer].
-    crate::deduce::infer(program, &mut out);
     out
 }
 
@@ -154,11 +185,17 @@ struct LocalVar {
     narrowed: Ty,
 }
 
+/// Narrowed types of every local, per scope frame [deduce-consume].
+type NarrowSnapshot = Vec<HashMap<String, Ty>>;
+
 struct Checker<'p, 'r> {
     scope: &'r ModuleScope<'p>,
     /// The whole-program resolution (for import suggestions on
     /// unresolved names [diag-import-suggest]).
     resolution: &'r Resolution<'p>,
+    /// Round one's inferred deduction facts, enforced at call sites for
+    /// fns without a written list [deduce-consume]. `None` in round one.
+    inferred: Option<&'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
     out: &'r mut Checked,
@@ -226,9 +263,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             })
             .collect();
-        for item in &module.items {
+        for (item_idx, item) in module.items.iter().enumerate() {
             match item {
-                Item::Fn(f) => self.check_fn(f, &[], &[]),
+                Item::Fn(f) => {
+                    // The declaration's own name is a fn reference
+                    // [fn-ref-table].
+                    self.out.fn_refs.insert(
+                        self.key(f.name.span),
+                        FnKey {
+                            file: self.file_idx,
+                            item: item_idx,
+                        },
+                    );
+                    self.check_fn(f, &[], &[])
+                }
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
                     for f in &h.fns {
@@ -322,6 +370,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(top);
         self.check_block_value(body);
         self.locals.pop();
+        // [fn-must-return] A fn with a non-`None` return type must return
+        // on every path. Yield-based iterator fns are exempt: their body
+        // produces elements, not a return value.
+        if !self.ret_ty.is_none_ty()
+            && !matches!(self.ret_ty, Ty::Unknown)
+            && !block_contains_yield(body)
+            && !block_always_returns(body)
+        {
+            self.error(
+                f.name.span,
+                format!(
+                    "missing return: not all paths in `{}` return a value \
+                     (declared return type is `{}`)",
+                    f.name.name, self.ret_ty
+                ),
+            );
+        }
         self.effect_env = saved_env;
         self.can_use = saved_can_use;
         self.generics = saved_generics;
@@ -525,6 +590,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let result = f(self);
         for (name, ty) in saved.into_iter().rev() {
             if let Some(var) = self.lookup_mut(&name) {
+                // A value consumed while narrowed stays consumed: the
+                // `is`-narrowing restore must not resurrect it — the
+                // consumption is a flow fact, not part of the narrowing
+                // [deduce-consume].
+                if matches!(var.narrowed, Ty::Nothing) {
+                    continue;
+                }
                 var.narrowed = ty;
             }
         }
@@ -539,6 +611,117 @@ impl<'p, 'r> Checker<'p, 'r> {
         for name in names {
             if let Some(var) = self.lookup_mut(&name) {
                 var.narrowed = var.declared.clone();
+            }
+        }
+    }
+
+    /// Snapshot of every local's narrowed type, per scope frame — the
+    /// basis for branch-aware merging of consumption/qualifier-removal
+    /// narrowing [deduce-consume].
+    fn snapshot_narrows(&self) -> NarrowSnapshot {
+        self.locals
+            .iter()
+            .map(|frame| {
+                frame
+                    .iter()
+                    .map(|(name, var)| (name.clone(), var.narrowed.clone()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn restore_narrows(&mut self, snap: &NarrowSnapshot) {
+        for (frame, saved) in self.locals.iter_mut().zip(snap) {
+            for (name, ty) in saved {
+                if let Some(var) = frame.get_mut(name) {
+                    var.narrowed = ty.clone();
+                }
+            }
+        }
+    }
+
+    /// Checks a loop body; when the body's exit state consumed or
+    /// weakened any variable, re-checks it once with that exit state as
+    /// the entry state, so back-edge flows surface — a use early in the
+    /// body errors when a later statement consumed the value in the
+    /// previous iteration [deduce-consume]. The re-check's diagnostics
+    /// are deduplicated against already-reported ones (checking is
+    /// deterministic, so pass one's errors re-derive identically); its
+    /// value results are discarded.
+    fn check_loop_body(
+        &mut self,
+        body: &'p Block,
+        narrows: &[(String, Ty)],
+        bindings: Vec<(Ident, Ty)>,
+    ) -> (Ty, Option<TailInfo>) {
+        let entry = self.snapshot_narrows();
+        let result =
+            self.with_narrows(narrows, |c| c.check_branch_block(body, bindings.clone()));
+        if self.snapshot_narrows() != entry {
+            let seen: HashSet<(usize, Span, String)> = self
+                .out
+                .errors
+                .iter()
+                .map(|e| (e.file, e.span, e.message.clone()))
+                .collect();
+            let before = self.out.errors.len();
+            let _ = self.with_narrows(narrows, |c| c.check_branch_block(body, bindings));
+            let second_pass: Vec<FileDiagnostic> = self.out.errors.split_off(before);
+            for e in second_pass {
+                if !seen.contains(&(e.file, e.span, e.message.clone())) {
+                    self.out.errors.push(e);
+                }
+            }
+        }
+        result
+    }
+
+    /// Merges the fall-through branch states of a branching construct
+    /// into the current state [deduce-consume]. For each local: states
+    /// that all agree win; a value consumed (`Nothing`) on *any*
+    /// fall-through path stays consumed (maybe-moved is unusable, as in
+    /// Rust); otherwise disagreeing states conservatively keep only the
+    /// qualifiers common to all of them. An empty list (every branch
+    /// exits) leaves the pre-branch state untouched — the consumption
+    /// happened on paths that never reach the code after the construct.
+    fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot]) {
+        if fallthrough.is_empty() {
+            return;
+        }
+        for (frame_idx, frame_snap) in fallthrough[0].iter().enumerate() {
+            for name in frame_snap.keys() {
+                let states: Vec<&Ty> = fallthrough
+                    .iter()
+                    .filter_map(|s| s.get(frame_idx).and_then(|f| f.get(name)))
+                    .collect();
+                if states.len() != fallthrough.len() {
+                    continue;
+                }
+                let joined = if states.iter().all(|t| **t == *states[0]) {
+                    states[0].clone()
+                } else if states.iter().any(|t| matches!(t, Ty::Nothing)) {
+                    Ty::Nothing
+                } else {
+                    // Keep only qualifiers every path preserves.
+                    let mut common: HashSet<String> =
+                        states[0].quals().iter().map(|q| q.name.clone()).collect();
+                    for t in &states[1..] {
+                        let names: HashSet<String> =
+                            t.quals().iter().map(|q| q.name.clone()).collect();
+                        common.retain(|q| names.contains(q));
+                    }
+                    let removed: HashSet<String> = states[0]
+                        .quals()
+                        .iter()
+                        .map(|q| q.name.clone())
+                        .filter(|q| !common.contains(q))
+                        .collect();
+                    states[0].clone().remove_quals(&removed)
+                };
+                if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
+                {
+                    var.narrowed = joined;
+                }
             }
         }
     }
@@ -920,8 +1103,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Validates a qualifier-constructor signature (`fn f(...) -> T as Q`)
     /// [qual-ctor-fn]: same file as the qualifier [qual-ctor-same-file],
-    /// simple return type, constructive qualifier only, `of`-type
-    /// satisfaction [qual-ctor-simple].
+    /// simple return type, `of`-type satisfaction [qual-ctor-simple].
+    /// Both constructive and predicate qualifiers may have constructors
+    /// [qual-ctor-predicate]: a predicate-qualifier constructor asserts
+    /// its predicate holds by construction, so callers get the qualified
+    /// type without a runtime `is` check.
     fn check_constructor_sig(&mut self, f: &'p FnDecl) {
         let Some(cref) = &f.constructs else { return };
         let name = cref.name.name.as_str();
@@ -932,15 +1118,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         };
-        if decl.has_body {
-            self.error(
-                cref.span,
-                format!(
-                    "`{name}` is a predicate qualifier; it is established by `is` \
-                     checks, not by constructor functions"
-                ),
-            );
-        }
         if !self.own_qualifiers.contains(name) {
             self.error(
                 cref.span,
@@ -1331,8 +1508,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
         match expr {
-            Expr::Int { .. } => Ty::named("Int"),
-            Expr::Float { .. } => Ty::named("Double"),
+            Expr::Int { long, .. } => Ty::named(if *long { "Long" } else { "Int" }),
+            Expr::Float { single, .. } => {
+                Ty::named(if *single { "Float" } else { "Double" })
+            }
             Expr::Bool { .. } => Ty::named("Bool"),
             Expr::Char { .. } => Ty::named("Char"),
             Expr::Str { parts, .. } => {
@@ -1350,6 +1529,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(var) = self.lookup(&id.name) {
                     let narrowed = var.narrowed.clone();
                     let declared = var.declared.clone();
+                    // [deduce-consume] `Nothing` marks a consumed (moved)
+                    // value: referring to it is an impossibility.
+                    if matches!(narrowed, Ty::Nothing) {
+                        self.error(
+                            id.span,
+                            format!(
+                                "`{}` cannot be used here: it was consumed (moved) \
+                                 by an earlier call, so its type is `Nothing`; \
+                                 reassign it before use",
+                                id.name
+                            ),
+                        );
+                        return Ty::Unknown;
+                    }
                     if narrowed != declared {
                         self.out.repr_ty.insert(self.key(id.span), declared);
                     }
@@ -1360,7 +1553,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 if let Some(entries) = self.scope.fns.get(id.name.as_str()) {
                     // Passing a function by name.
-                    let decl = entries[0].decl;
+                    let entry = entries[0];
+                    // [fn-ref-table]
+                    self.out.fn_refs.insert(self.key(id.span), entry.key);
+                    let decl = entry.decl;
                     let saved = self.enter_generics(&decl.generics);
                     let params: Vec<Ty> =
                         decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
@@ -1510,9 +1706,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // `else` tail when the loop never ran.
                 let info = self.analyze_cond(cond);
                 self.loop_stack.push(LoopCtx::default());
-                let (body_ty, body_tail) = self.with_narrows(&info.then_narrows.clone(), |c| {
-                    c.check_branch_block(body, info.bindings.clone())
-                });
+                let (body_ty, body_tail) = self.check_loop_body(
+                    body,
+                    &info.then_narrows.clone(),
+                    info.bindings.clone(),
+                );
                 let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // `else` runs only when the loop never ran, i.e. the
                 // condition failed on first evaluation: else-narrows apply.
@@ -1543,7 +1741,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.locals.push(HashMap::new());
                 self.declare_pattern(pattern, elem);
                 self.loop_stack.push(LoopCtx::default());
-                let (body_ty, body_tail) = self.check_branch_block(body, Vec::new());
+                let (body_ty, body_tail) = self.check_loop_body(body, &[], Vec::new());
                 let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 self.locals.pop();
                 let (else_ty, else_tail) = match else_block {
@@ -2157,29 +2355,48 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut acc_else: Vec<(String, Ty)> = Vec::new();
         let mut branch_tys = Vec::new();
         let mut tails: Vec<Option<TailInfo>> = Vec::new();
+        // Branch-aware consumption merging [deduce-consume]: each branch
+        // body's narrowing effects (moves, qualifier removal) are isolated
+        // and merged at the join — a branch that always exits never
+        // contributes to the state after the `if`.
+        let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
         for (cond, block) in branches {
             let info = self.with_narrows(&acc_else.clone(), |c| c.analyze_cond(cond));
+            let entry = self.snapshot_narrows();
             let mut narrows = acc_else.clone();
             narrows.extend(info.then_narrows.iter().cloned());
             let (ty, tail) = self.with_narrows(&narrows, |c| {
                 c.check_branch_block(block, info.bindings.clone())
             });
+            if !block_always_exits(block) {
+                fallthrough.push(self.snapshot_narrows());
+            }
+            self.restore_narrows(&entry);
             branch_tys.push(ty);
             tails.push(tail);
             acc_else.extend(info.else_narrows);
         }
         match else_block {
             Some(block) => {
+                let entry = self.snapshot_narrows();
                 let (ty, tail) =
                     self.with_narrows(&acc_else.clone(), |c| c.check_branch_block(block, Vec::new()));
+                if !block_always_exits(block) {
+                    fallthrough.push(self.snapshot_narrows());
+                }
+                self.restore_narrows(&entry);
                 branch_tys.push(ty);
                 tails.push(tail);
             }
             None => {
+                // No `else`: the no-branch-taken path falls through with
+                // the current state.
+                fallthrough.push(self.snapshot_narrows());
                 branch_tys.push(Ty::none());
                 tails.push(None);
             }
         }
+        self.merge_fallthrough(&fallthrough);
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
@@ -2226,6 +2443,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut remaining: Vec<Ty> = all_arms.clone();
         let mut branch_tys = Vec::new();
         let mut tails: Vec<Option<TailInfo>> = Vec::new();
+        let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
         for branch in branches {
             let pat = self.parse_check(&branch.check);
             let matched: Vec<Ty> = remaining
@@ -2257,13 +2475,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 bindings.push((b.clone(), narrow_ty.clone()));
             }
             let narrows = vec![(subject_id.name.clone(), narrow_ty)];
+            // Isolate this branch's consumption effects; only
+            // fall-through branches reach the code after the `when`
+            // [deduce-consume].
+            let entry = self.snapshot_narrows();
             let (ty, tail) = self.with_narrows(&narrows, |c| {
                 c.check_branch_block(&branch.body, bindings)
             });
+            if !block_always_exits(&branch.body) {
+                fallthrough.push(self.snapshot_narrows());
+            }
+            self.restore_narrows(&entry);
             branch_tys.push(ty);
             tails.push(tail);
             remaining.retain(|arm| !matched.contains(arm));
         }
+        self.merge_fallthrough(&fallthrough);
         if !remaining.is_empty() {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(
@@ -2484,14 +2711,18 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             pq.iter().all(|q| arg_quals.contains(&q.name.as_str()))
                 && unify(pb, arg.strip_quals(), subst)
         }
-        // `Qual T` can be passed where `T` is expected.
-        (_, Ty::Qualified { base, .. }) => unify(param, base, subst),
+        // A union parameter tries each arm against the *intact* argument —
+        // this must precede the qualifier-stripping arm below, or a
+        // qualified argument (`Ok Str`) could never match a union's
+        // qualified arm (`Ok Str | Err Str`) [type-union].
         (Ty::Union(parms), _) => match arg {
             Ty::Union(aarms) => aarms
                 .iter()
                 .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))),
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
+        // `Qual T` can be passed where `T` is expected.
+        (_, Ty::Qualified { base, .. }) => unify(param, base, subst),
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
             pn == an
                 && pa.len() == aa.len()
@@ -2598,7 +2829,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
                 all_args.extend(args.iter());
-                return self.resolve_named_call(name, type_args, &all_args, expected, span);
+                return self.resolve_named_call(
+                    name, field.span, type_args, &all_args, expected, span,
+                );
             }
             self.check_expr(base, None);
             for a in args {
@@ -2623,7 +2856,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
-            return self.resolve_named_call(&id.name, type_args, &arg_refs, expected, span);
+            return self.resolve_named_call(
+                &id.name, id.span, type_args, &arg_refs, expected, span,
+            );
         }
 
         // Computed callee.
@@ -2643,6 +2878,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn resolve_named_call(
         &mut self,
         name: &str,
+        name_span: Span,
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
         expected: Option<&Ty>,
@@ -2783,6 +3019,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let best = &viable[0];
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
+            // The callee name resolves to this declaration [fn-ref-table].
+            self.out.fn_refs.insert(self.key(name_span), key);
         }
         // Record argument coercions against the selected parameter types.
         for (i, pt) in &best.pairings {
@@ -2794,6 +3032,55 @@ impl<'p, 'r> Checker<'p, 'r> {
             best.decl.generics.iter().map(|g| g.name.clone()).collect();
         let subst = best.subst.clone();
         let decl = best.decl;
+        // [deduce-consume] Deduction lists are a contract, enforced
+        // flow-sensitively on bare identifier arguments: parameters *not*
+        // kept are consumed (moved) — the variable narrows to `Nothing`
+        // and any later use is an error until it is reassigned. Kept
+        // parameters shed their removal set (declared − kept qualifiers)
+        // from the argument's narrowed type, so e.g.
+        // `remove_first(list: NonEmpty Mut List<T>) -> [list: Mut]`
+        // leaves the argument un-`NonEmpty` and a second call fails
+        // overload resolution. Written lists are enforced directly;
+        // unannotated fns are enforced through round one's *inferred*
+        // facts (`self.inferred`), so `return list` in a callee consumes
+        // the caller's argument just like an explicit `[]`.
+        let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
+            // Shape errors on written lists are reported by the deduce
+            // pass; the mapping here is silent.
+            Some(list) => Some(crate::deduce::from_written(decl, list, |_, _| {})),
+            None => best.key.and_then(|key| {
+                self.inferred.and_then(|table| table.get(&key).cloned())
+            }),
+        };
+        if let Some(contract) = contract {
+            let fixed_count = decl.params.iter().filter(|p| !p.variadic).count();
+            for (i, arg) in args.iter().enumerate().take(fixed_count) {
+                let Expr::Ident(id) = arg else { continue };
+                let param = &decl.params[i];
+                let Some(d) = contract.iter().find(|d| d.param == param.name.name)
+                else {
+                    continue;
+                };
+                if !d.kept {
+                    // Moved.
+                    if let Some(var) = self.lookup_mut(&id.name) {
+                        var.narrowed = Ty::Nothing;
+                    }
+                    continue;
+                }
+                let kept: HashSet<&str> = d.quals.iter().map(String::as_str).collect();
+                let removed: HashSet<String> = crate::deduce::declared_quals(&param.ty)
+                    .into_iter()
+                    .filter(|q| !kept.contains(q.as_str()))
+                    .collect();
+                if removed.is_empty() {
+                    continue;
+                }
+                if let Some(var) = self.lookup_mut(&id.name) {
+                    var.narrowed = var.narrowed.clone().remove_quals(&removed);
+                }
+            }
+        }
         // The callee's declared effect dependencies must be satisfiable
         // here: each must match an instance in the caller's effect
         // environment (declared or `use`d).
@@ -3049,5 +3336,103 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .insert(self.key(span), instance.clone());
         }
         substitute_vars(&member_ret, &subst, &generic_set)
+    }
+}
+
+/// Whether a block always leaves the enclosing construct — every path
+/// hits a `return`, `break`, or `continue` — so its state never reaches
+/// the code *after* a branching construct [deduce-consume]. Same shape as
+/// [fn-must-return]'s walker, with loop exits counted too.
+fn block_always_exits(block: &Block) -> bool {
+    block.stmts.iter().any(|stmt| match stmt {
+        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
+        Stmt::Expr(e) => expr_always_exits(e),
+        _ => false,
+    })
+}
+
+fn expr_always_exits(expr: &Expr) -> bool {
+    match expr {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
+            else_block.as_ref().is_some_and(block_always_exits)
+                && branches.iter().all(|(_, b)| block_always_exits(b))
+        }
+        Expr::When { branches, .. } => {
+            !branches.is_empty() && branches.iter().all(|b| block_always_exits(&b.body))
+        }
+        _ => false,
+    }
+}
+
+// ================= missing-return analysis [fn-must-return] =================
+
+/// Whether a block always exits the enclosing fn (every path hits a
+/// `return`). Conservative: loops never count (they may run zero times),
+/// `if` needs an `else`, `when` needs every branch to exit (exhaustiveness
+/// over union arms is enforced separately [when-exhaustive]).
+fn block_always_returns(block: &Block) -> bool {
+    block.stmts.iter().any(stmt_always_returns)
+}
+
+fn stmt_always_returns(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } => true,
+        Stmt::Expr(e) => expr_always_returns(e),
+        _ => false,
+    }
+}
+
+fn expr_always_returns(expr: &Expr) -> bool {
+    match expr {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
+            else_block.as_ref().is_some_and(block_always_returns)
+                && branches.iter().all(|(_, b)| block_always_returns(b))
+        }
+        Expr::When { branches, .. } => {
+            !branches.is_empty() && branches.iter().all(|b| block_always_returns(&b.body))
+        }
+        _ => false,
+    }
+}
+
+/// Whether the fn body contains a `yield` statement — iterator fns build
+/// their `Iter` return value from yields and are exempt from
+/// [fn-must-return]. Lambdas are their own fns and are not descended into.
+fn block_contains_yield(block: &Block) -> bool {
+    block.stmts.iter().any(|stmt| match stmt {
+        Stmt::Yield { .. } => true,
+        Stmt::Expr(e) => expr_contains_yield(e),
+        _ => false,
+    })
+}
+
+fn expr_contains_yield(expr: &Expr) -> bool {
+    match expr {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
+            branches.iter().any(|(_, b)| block_contains_yield(b))
+                || else_block.as_ref().is_some_and(block_contains_yield)
+        }
+        Expr::When { branches, .. } => {
+            branches.iter().any(|b| block_contains_yield(&b.body))
+        }
+        Expr::While {
+            body, else_block, ..
+        }
+        | Expr::For {
+            body, else_block, ..
+        } => block_contains_yield(body) || else_block.as_ref().is_some_and(block_contains_yield),
+        _ => false,
     }
 }

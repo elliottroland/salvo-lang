@@ -836,3 +836,77 @@ fn main() [use] -> [] None {
         "unexpected errors: {errors:?}"
     );
 }
+
+// [lit-numeric] [type-basic] Literal suffixes emit explicit Rust types:
+// `5L` -> `5i64`, `2.5f` -> `2.5f32`; unsuffixed literals stay bare.
+#[test]
+fn numeric_literal_suffixes_emit_rust_types() {
+    let program = build_program(&[(
+        "main.sv",
+        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+         let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
+         println(\"${big} ${ratio} ${d}\")\n}\n",
+        false,
+    )]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs not emitted");
+    assert!(main.content.contains("= 5i64"), "content: {}", main.content);
+    assert!(main.content.contains("= 2.5f32"), "content: {}", main.content);
+    assert!(main.content.contains("= 1.5"), "content: {}", main.content);
+}
+
+// [qual-ctor-predicate] Predicate-qualifier constructors emit as plain
+// fns after erasure; overloads on the qualified type resolve statically
+// (mangled name).
+#[test]
+fn predicate_qualifier_constructors_emit_plain_fns() {
+    let src = r#"
+qualifier Positive of Int {
+    fn qualifies(int: Int) -> Bool {
+        return int > 0
+    }
+}
+
+fn make() -> Int as Positive {
+    return 1
+}
+
+fn describe(x: Positive Int) -> Str {
+    return "positive"
+}
+
+fn describe(x: Int) -> Str {
+    return "unknown"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(describe(make()))
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs not emitted");
+    assert!(
+        main.content.contains("fn make() -> i32"),
+        "content: {}",
+        main.content
+    );
+    // The Positive overload wins at the call site (reads borrow
+    // [rs-borrows], hence the mangled fn taking `&i32`).
+    assert!(
+        main.content.contains("describe__Positive(&"),
+        "content: {}",
+        main.content
+    );
+}

@@ -3,6 +3,8 @@
 //! The AST is deliberately close to the surface syntax; desugaring (e.g.
 //! `T?` -> `T | None`) happens during lowering in `salvo-core`.
 
+use std::fmt;
+
 use crate::span::Span;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -169,12 +171,20 @@ pub enum EffectRef {
     Effect(TypeRef),
 }
 
-/// An entry in a function's deduction list: `[person]` or `[list: Mut]`.
+/// An entry in a function's deduction list [deduce-syntax]:
+/// `[person]` (bare — kept with *all* its declared qualifiers),
+/// `[list: Mut]` (kept with exactly the listed qualifiers), or
+/// `[list:]` (explicit empty list — kept with *no* qualifiers).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deduction {
     pub param: Ident,
-    /// Qualifiers that remain known after the call, e.g. `Mut` in `[list: Mut]`.
+    /// Qualifiers that remain known after the call, e.g. `Mut` in
+    /// `[list: Mut]`. Only meaningful when `explicit`.
     pub qualifiers: Vec<TypeRef>,
+    /// True when a `:` followed the parameter name: the written qualifier
+    /// list (possibly empty) is exact. False for a bare `[param]` entry,
+    /// which keeps every qualifier declared on the parameter.
+    pub explicit: bool,
     pub span: Span,
 }
 
@@ -297,6 +307,74 @@ pub struct TypeRef {
     pub span: Span,
 }
 
+// --- Source-like rendering (hover, diagnostics) ---
+
+impl fmt::Display for TypeRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name.name)?;
+        if !self.args.is_empty() {
+            let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
+            write!(f, "<{}>", args.join(", "))?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    write!(f, "{q} ")?;
+                }
+                write!(f, "{base}")
+            }
+            Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                for q in qualifiers {
+                    write!(f, "{q} ")?;
+                }
+                write!(f, "({base})")
+            }
+            Type::Union { arms, .. } => {
+                let arms: Vec<String> = arms.iter().map(|a| a.to_string()).collect();
+                write!(f, "{}", arms.join(" | "))
+            }
+            Type::Tuple { elems, .. } => {
+                let elems: Vec<String> = elems.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", elems.join(", "))
+            }
+            Type::Array { elem, .. } => write!(f, "{elem}[]"),
+            Type::Nullable { inner, .. } => write!(f, "{inner}?"),
+            Type::Fn {
+                params,
+                effects,
+                ret,
+                ..
+            } => {
+                let params: Vec<String> = params.iter().map(|p| p.to_string()).collect();
+                write!(f, "({})", params.join(", "))?;
+                if let Some(effects) = effects {
+                    let effects: Vec<String> =
+                        effects.iter().map(|e| e.to_string()).collect();
+                    write!(f, " [{}]", effects.join(", "))?;
+                }
+                write!(f, " -> {ret}")
+            }
+        }
+    }
+}
+
+impl fmt::Display for EffectRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EffectRef::Use(_) => write!(f, "use"),
+            EffectRef::Effect(r) => write!(f, "{r}"),
+        }
+    }
+}
+
 // --- Statements and expressions ---
 
 #[derive(Clone, Debug, PartialEq)]
@@ -358,10 +436,12 @@ pub struct StructPatternField {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
-    /// Integer literal.
-    Int { value: i64, span: Span },
-    /// Float literal.
-    Float { value: f64, span: Span },
+    /// Integer literal [lit-numeric]: `Int`, or `Long` with the `L`
+    /// suffix (`long: true`).
+    Int { value: i64, long: bool, span: Span },
+    /// Floating-point literal [lit-numeric]: `Double`, or `Float` with
+    /// the `f` suffix (`single: true`).
+    Float { value: f64, single: bool, span: Span },
     /// Boolean literal.
     Bool { value: bool, span: Span },
     /// Character literal.

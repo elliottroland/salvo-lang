@@ -1707,14 +1707,15 @@ impl<'p> Emitter<'p> {
 
     fn emit_expr_raw(&mut self, expr: &Expr) -> String {
         match expr {
-            Expr::Int { value, .. } => value.to_string(),
-            Expr::Float { value, .. } => {
+            // Literal suffixes map 1:1 onto Kotlin's [lit-numeric]:
+            // `1L` -> `1L` (Long), `1.2f` -> `1.2f` (Float).
+            Expr::Int { value, long, .. } => {
+                format!("{value}{}", if *long { "L" } else { "" })
+            }
+            Expr::Float { value, single, .. } => {
                 let s = value.to_string();
-                if s.contains('.') {
-                    s
-                } else {
-                    format!("{s}.0")
-                }
+                let s = if s.contains('.') { s } else { format!("{s}.0") };
+                format!("{s}{}", if *single { "f" } else { "" })
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),

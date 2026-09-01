@@ -27,6 +27,8 @@ Salvo has the following basic data types, similar to the JVM:
 
 All numbers include the usual arithmetic operations.
 
+Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). There are no implicit numeric widenings: assigning `1` to a `Long` variable is a type error; write `1L`.
+
 ### Strings
 
 Salvo strings work much the same way as in Kotlin: they are immutable, and can be defined using literals:
@@ -467,7 +469,7 @@ Function syntax largely resembles the Rust function syntax, except for the extra
 fn function_name<generic_param1, generic_param2, ...>(arg1: type1, arg2: type2, ...) [effect1, effect2, ...] -> [deduction1, deduction2, ...] return_type
 ```
 
-There are no implicit returns of functions (unlike `if`, `while`, and `for` blocks). The `generic_param`s define generics which can be used throughout the rest of the function signature.
+There are no implicit returns of functions (unlike `if`, `while`, and `for` blocks). A function with a return type other than `None` must return on every path: an `if` needs an `else` (or a return after it), and a `when` counts when every branch returns. Iterator functions built from `yield` are exempt. The `generic_param`s define generics which can be used throughout the rest of the function signature.
 
 Like Koka, we support "dot-notation" for calling functions: the first argument can be pulled forward before the function name, like a method call:
 
@@ -710,6 +712,8 @@ If we remove an element from the list, then we don't know if it's non-empty any 
 fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T
 ```
 
+A deduction entry takes one of three forms: a bare `[list]` keeps the parameter with _all_ of its declared qualifiers; `[list: Mut]` keeps it with exactly the listed qualifiers; and the explicit-empty `[list:]` keeps the parameter but strips every declared qualifier. These are enforced at each call site: passing a variable to `remove_first` above removes `NonEmpty` from what the compiler knows about it, so a second `remove_first(list)` without an intervening `is NonEmpty` check fails overload resolution.
+
 This tells us that after the function has returned, _we no longer know that the list is NonEmpty_. From the calling context, then, we have the following:
 
 ```
@@ -732,7 +736,7 @@ In Rust, the `NonEmpty` state was not captured: this is a Salvo compile-time inf
 fn consume<T>(list: List<T>) -> [] Unit
 ```
 
-In this case calling `consume(list)` would _move_ the variable to the function, and future references to `list` in the calling function would be compile-time errors.
+In this case calling `consume(list)` would _move_ the variable to the function: `list`'s type narrows to `Nothing` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the deduction list is written out or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
 
 When the deduction list is not specified, then it is implied that all parameters are included, with the qualifiers that are inferred from their usage in the function. For example:
 
@@ -747,6 +751,12 @@ fn maybe_remove_first<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
 ```
 
 Deductions must be statically computable, and so do not depend on the return type of the function. The deductions are automatically made as the strictest deductions of all functions interacting with the respective variable (including moves). If the compiler cannot determine the deductions for a functions, perhaps because it is too complicated, then they must be provided manually.
+
+### Why returning a parameter is a move
+
+A parameter that is kept (listed in the deductions) compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is always *owned* by the caller. If a function returns one of its parameters, these two facts collide: returning a borrowed parameter would tie the return value's lifetime to the argument, and Salvo deliberately has no lifetimes to express that — the alternative, an implicit clone, is a hidden cost the compiler never inserts. So returning a parameter transfers ownership out through the return channel, and the value is deduced as _moved_: the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, binding it with `let`, `yield`-ing it, or passing it to a consuming call. Consequently, a written deduction list cannot promise a parameter back when the body returns it: `-> [x] T` with `return x` is a compile-time error.
+
+This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere. When the caller should keep access to a value, keep the parameter and return something derived from it instead (an element copy, an index, a new value).
 
 ## Qualifiers continued
 
@@ -820,6 +830,21 @@ fn random_positive_int() [Random<Int>] -> Int as RandomPositive {
 
     // Returns a plain Int; it qualifies as RandomPositive by construction.
     return num
+}
+```
+
+Constructor functions are not limited to constructive qualifiers: a predicate qualifier may declare constructors too. The constructor asserts that its predicate holds _by construction_, so callers get the qualified type without a runtime `qualifies` check. The same rules apply — constructors must live in the same file as the qualifier and return a simple type:
+
+```
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+// Requiring a first element guarantees the predicate by construction.
+fn non_empty_list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
+    return list(first, ...rest)
 }
 ```
 

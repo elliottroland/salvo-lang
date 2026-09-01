@@ -93,6 +93,7 @@ Module {
                                         span: 98..105,
                                     },
                                     qualifiers: [],
+                                    explicit: false,
                                     span: 98..105,
                                 },
                             ],
@@ -198,6 +199,7 @@ Module {
                         default: Some(
                             Int {
                                 value: 0,
+                                long: false,
                                 span: 180..181,
                             },
                         ),
@@ -251,6 +253,7 @@ Module {
                                                 ),
                                                 rhs: Int {
                                                     value: 1,
+                                                    long: false,
                                                     span: 228..229,
                                                 },
                                                 span: 224..229,
@@ -384,18 +387,22 @@ Module {
                                             elems: [
                                                 Int {
                                                     value: 1,
+                                                    long: false,
                                                     span: 375..376,
                                                 },
                                                 Int {
                                                     value: 2,
+                                                    long: false,
                                                     span: 378..379,
                                                 },
                                                 Int {
                                                     value: 3,
+                                                    long: false,
                                                     span: 381..382,
                                                 },
                                                 Int {
                                                     value: 4,
+                                                    long: false,
                                                     span: 384..385,
                                                 },
                                             ],
@@ -516,6 +523,7 @@ Module {
                                 span: 488..494,
                             },
                             qualifiers: [],
+                            explicit: false,
                             span: 488..494,
                         },
                     ],

@@ -132,6 +132,9 @@ impl<'s> Lexer<'s> {
         self.push_here(kind, start);
     }
 
+    /// Scans a numeric literal [lit-numeric]: `1` (`Int`), `1L` (`Long`),
+    /// `1.2` (`Double`), `1.2f` (`Float`). The `f` suffix requires a
+    /// decimal point; `L` forbids one.
     fn number(&mut self, start: u32) {
         let mut text = String::new();
         while let Some(c) = self.peek() {
@@ -160,17 +163,56 @@ impl<'s> Lexer<'s> {
                 }
             }
         }
+        // Optional suffix: `f` (Float, fractional literals only) or `L`
+        // (Long, integer literals only) [lit-numeric].
+        let suffix = match self.peek() {
+            Some(c @ ('f' | 'L')) => {
+                self.bump();
+                Some(c)
+            }
+            _ => None,
+        };
+        // The literal must end here: `1.2fx` or `10Lx` is an error, and a
+        // suffixless literal followed by an identifier char (`10x`) too.
+        let lit_end = self.offset();
+        while self.peek().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            self.bump();
+        }
         let span = Span::new(start, self.offset());
-        if is_float {
-            match text.parse::<f64>() {
-                Ok(v) => self.push(TokenKind::Float(v), span),
+        if span.end > lit_end {
+            let source = &self.source[start as usize..span.end as usize];
+            self.error(format!("invalid numeric literal `{source}`"), span);
+            return;
+        }
+        match suffix {
+            Some('f') if !is_float => {
+                self.error(
+                    format!("float suffix `f` requires a decimal point (write `{text}.0f`)"),
+                    span,
+                );
+            }
+            Some('L') if is_float => {
+                self.error(
+                    format!("long suffix `L` is not valid on the float literal `{text}`"),
+                    span,
+                );
+            }
+            Some('f') => match text.parse::<f64>() {
+                Ok(value) => self.push(TokenKind::Float { value, single: true }, span),
                 Err(_) => self.error(format!("invalid float literal `{text}`"), span),
-            }
-        } else {
-            match text.parse::<i64>() {
-                Ok(v) => self.push(TokenKind::Int(v), span),
+            },
+            Some('L') => match text.parse::<i64>() {
+                Ok(value) => self.push(TokenKind::Int { value, long: true }, span),
                 Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
-            }
+            },
+            _ if is_float => match text.parse::<f64>() {
+                Ok(value) => self.push(TokenKind::Float { value, single: false }, span),
+                Err(_) => self.error(format!("invalid float literal `{text}`"), span),
+            },
+            _ => match text.parse::<i64>() {
+                Ok(value) => self.push(TokenKind::Int { value, long: false }, span),
+                Err(_) => self.error(format!("invalid integer literal `{text}`"), span),
+            },
         }
     }
 
@@ -418,4 +460,77 @@ fn dedent_template(raw: &str) -> String {
         .map(|l| if l.len() >= indent { &l[indent..] } else { l })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token::TokenKind;
+
+    fn kinds(source: &str) -> (Vec<TokenKind>, Vec<Diagnostic>) {
+        let result = lex(source);
+        let kinds = result
+            .tokens
+            .into_iter()
+            .map(|t| t.kind)
+            .filter(|k| *k != TokenKind::Eof)
+            .collect();
+        (kinds, result.diagnostics)
+    }
+
+    // [lit-numeric] `1` Int, `1L` Long, `1.2` Double, `1.2f` Float;
+    // underscores allowed.
+    #[test]
+    fn numeric_literal_suffixes() {
+        let (kinds, diags) = kinds("1 1L 1.2 1.2f 1_000L 3.5");
+        assert!(diags.is_empty(), "{diags:?}");
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Int { value: 1, long: false },
+                TokenKind::Int { value: 1, long: true },
+                TokenKind::Float { value: 1.2, single: false },
+                TokenKind::Float { value: 1.2, single: true },
+                TokenKind::Int { value: 1000, long: true },
+                TokenKind::Float { value: 3.5, single: false },
+            ]
+        );
+    }
+
+    // [lit-numeric] `f` requires a decimal point; `L` forbids one; and a
+    // literal must not run into identifier characters.
+    #[test]
+    fn invalid_numeric_suffixes() {
+        let (_, diags) = kinds("1f");
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("requires a decimal point"));
+
+        let (_, diags) = kinds("1.2L");
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("not valid on the float literal"));
+
+        let (_, diags) = kinds("10x");
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("invalid numeric literal `10x`"));
+
+        let (_, diags) = kinds("1.2fx");
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("invalid numeric literal `1.2fx`"));
+    }
+
+    // The float rule is unchanged by suffixes: `1.size()` lexes as an
+    // int, `.`, ident — not a float.
+    #[test]
+    fn dot_method_call_on_int_is_not_a_float() {
+        let (kinds, diags) = kinds("1.size");
+        assert!(diags.is_empty(), "{diags:?}");
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Int { value: 1, long: false },
+                TokenKind::Dot,
+                TokenKind::Ident("size".into()),
+            ]
+        );
+    }
 }
