@@ -566,7 +566,7 @@ Module {
                 sig: FnDecl {
                     backing: None,
                     name: Ident {
-                        name: "iter",
+                        name: "size",
                         span: 580..584,
                     },
                     generics: [
@@ -615,29 +615,17 @@ Module {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "Iter",
-                                    span: 606..610,
+                                    name: "Int",
+                                    span: 606..609,
                                 },
-                                args: [
-                                    Named {
-                                        qualifiers: [],
-                                        base: TypeRef {
-                                            name: Ident {
-                                                name: "T",
-                                                span: 611..612,
-                                            },
-                                            args: [],
-                                            span: 611..612,
-                                        },
-                                    },
-                                ],
-                                span: 606..613,
+                                args: [],
+                                span: 606..609,
                             },
                         },
                     ),
                     constructs: None,
                     body: None,
-                    span: 577..613,
+                    span: 577..609,
                 },
                 body: DefineBody {
                     imports: None,
@@ -647,15 +635,115 @@ Module {
                                 Interp(
                                     Ident {
                                         name: "list",
-                                        span: 628..649,
+                                        span: 624..650,
                                     },
                                 ),
+                                Text(
+                                    ".size",
+                                ),
                             ],
-                            span: 628..649,
+                            span: 624..650,
                         },
                     ),
                 },
-                span: 570..651,
+                span: 570..652,
+            },
+        ),
+        DefineFn(
+            DefineFn {
+                sig: FnDecl {
+                    backing: None,
+                    name: Ident {
+                        name: "iter",
+                        span: 664..668,
+                    },
+                    generics: [
+                        Ident {
+                            name: "T",
+                            span: 669..670,
+                        },
+                    ],
+                    params: [
+                        Param {
+                            name: Ident {
+                                name: "list",
+                                span: 672..676,
+                            },
+                            ty: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "List",
+                                        span: 678..682,
+                                    },
+                                    args: [
+                                        Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "T",
+                                                    span: 683..684,
+                                                },
+                                                args: [],
+                                                span: 683..684,
+                                            },
+                                        },
+                                    ],
+                                    span: 678..685,
+                                },
+                            },
+                            variadic: false,
+                            span: 672..685,
+                        },
+                    ],
+                    effects: None,
+                    deductions: None,
+                    return_type: Some(
+                        Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Iter",
+                                    span: 690..694,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 695..696,
+                                            },
+                                            args: [],
+                                            span: 695..696,
+                                        },
+                                    },
+                                ],
+                                span: 690..697,
+                            },
+                        },
+                    ),
+                    constructs: None,
+                    body: None,
+                    span: 661..697,
+                },
+                body: DefineBody {
+                    imports: None,
+                    inline: Some(
+                        Template {
+                            parts: [
+                                Interp(
+                                    Ident {
+                                        name: "list",
+                                        span: 712..733,
+                                    },
+                                ),
+                            ],
+                            span: 712..733,
+                        },
+                    ),
+                },
+                span: 654..735,
             },
         ),
     ],

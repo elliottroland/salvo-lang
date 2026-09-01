@@ -34,6 +34,12 @@ define fn first<T>(list: List<T>) -> T? {
     ``
 }
 
+define fn size<T>(list: List<T>) -> Int {
+    inline: ``
+    ${list}.size
+    ``
+}
+
 define fn iter<T>(list: List<T>) -> Iter<T> {
     inline: ``
     ${list}

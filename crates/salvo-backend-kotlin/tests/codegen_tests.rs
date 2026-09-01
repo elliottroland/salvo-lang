@@ -615,6 +615,191 @@ fn kotlinc_compiles_and_runs_demo() {
     run_kotlin_files(&files, "demo", expected);
 }
 
+/// The M5 demo: generic effects with multiple instances in scope,
+/// checker-driven disambiguation (explicit type args, expected type),
+/// handler generic inference at `use` sites, and handler threading through
+/// fn call sites — all resolved from the checker's effect tables.
+const EFFECTS_DEMO: &str = r#"
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler CyclicRandom<T>(values: List<T>) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        let value = get(values, i % values.size())!
+        i = i + 1
+        return value
+    }
+}
+
+fn draw() [Random<Int>, Random<Str>, Console] {
+    let n: Int = next_random()
+    let s: Str = next_random()
+    println("${s}: ${n}")
+}
+
+fn lucky_number() [Random<Int>] -> Int {
+    return next_random()
+}
+
+fn main() [use] {
+    use StdOutConsole
+    use CyclicRandom(list(10, 20, 30))
+    use CyclicRandom(list("a", "b"))
+    draw()
+    draw()
+    println("lucky: ${next_random<Int>()}")
+    println("again: ${lucky_number()}")
+}
+"#;
+
+fn generate_effects_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(&[("main.sv", EFFECTS_DEMO, false)]);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+#[test]
+fn golden_effects_kotlin() {
+    let files = generate_effects_demo();
+    let combined: String = files
+        .iter()
+        .map(|f| format!("// ===== {} =====\n{}", f.rel_path.display(), f.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::assert_snapshot!(combined);
+}
+
+#[test]
+fn effects_resolve_through_checker_tables() {
+    let files = generate_effects_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // `use` registers the *concrete* effect instance: the handler's
+    // generics are inferred from the constructor arguments.
+    assert!(main
+        .content
+        .contains("val random_int: Random<Int> = CyclicRandom(listOf(10, 20, 30))"));
+    assert!(main
+        .content
+        .contains("val random_string: Random<String> = CyclicRandom(listOf(\"a\", \"b\"))"));
+    // Callee effect dependencies are threaded in declaration order.
+    assert!(main.content.contains("draw(random_int, random_string, console)"));
+    assert!(main.content.contains("lucky_number(random_int)"));
+    // Expected-type disambiguation picks the right handler per call.
+    assert!(main.content.contains("val n: Int = random_int.next_random()"));
+    assert!(main.content.contains("val s: String = random_string.next_random()"));
+}
+
+/// Full verification of the effects demo under kotlinc (skipped when
+/// kotlinc is not installed).
+#[test]
+fn kotlinc_compiles_and_runs_effects() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let files = generate_effects_demo();
+    let expected = "a: 10\nb: 20\nlucky: 30\nagain: 10\n";
+    run_kotlin_files(&files, "effects", expected);
+}
+
+#[test]
+fn use_requires_the_use_effect() {
+    let errors = expect_errors("fn setup() -> None {\n    use StdOutConsole\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("requires the `use` effect")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn duplicate_effect_in_list_is_rejected() {
+    let errors = expect_errors("fn f() [Console, Console] -> None {\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("duplicate effect `Console`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn duplicate_use_registration_is_rejected() {
+    let errors = expect_errors(
+        "fn main() [use] -> None {\n    use StdOutConsole\n    use StdOutConsole\n}\n",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("a handler for `Console` is already registered")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn unknown_effect_is_rejected() {
+    let errors = expect_errors("fn f() [Consle] -> None {\n}\n");
+    assert!(
+        errors.iter().any(|e| e.contains("unknown effect `Consle`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn ambiguous_generic_effect_call_is_rejected() {
+    let src = r#"
+effect Random<T> {
+    fn next_random() -> T
+}
+
+fn f() [Random<Int>, Random<Double>] -> None {
+    let x = next_random()
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("ambiguous effect call")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn effect_member_call_requires_handler_in_scope() {
+    let errors = expect_errors("fn main() [use] -> None {\n    print(\"no handler\")\n}\n");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("no handler for effect `Console`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn handler_member_effects_are_rejected() {
+    let src = r#"
+effect Ping {
+    fn ping()
+}
+
+handler LoudPing of Ping {
+    fn ping() [Console] {
+        println("ping")
+    }
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("handler member functions cannot declare effect dependencies")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
 /// Compiles the given files with kotlinc, runs `salvo.MainKt`, and asserts
 /// the exact stdout.
 fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expected: &str) {

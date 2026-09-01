@@ -78,6 +78,18 @@ pub struct Checked {
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
+    /// Concrete effect instance registered by each `use` statement (keyed
+    /// by the statement span), with handler generics inferred from the
+    /// constructor arguments (e.g. `Random<Int>` for
+    /// `use CyclicRandom([1,2,3])`).
+    pub use_effects: HashMap<Key, Ty>,
+    /// The concrete effect instance an effect-member call dispatches
+    /// through (keyed by the call span), after generic disambiguation.
+    pub effect_calls: HashMap<Key, Ty>,
+    /// Concrete effect instances threaded as leading handler arguments for
+    /// a call to a fn that declares effect dependencies (keyed by the call
+    /// span, in the callee's declaration order).
+    pub call_effects: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
     /// Rendered type errors.
@@ -113,6 +125,8 @@ pub fn check_program<'p>(
             generics: HashSet::new(),
             ret_ty: Ty::none(),
             own_qualifiers: HashSet::new(),
+            effect_env: Vec::new(),
+            can_use: false,
         };
         checker.check_module(ast);
     }
@@ -141,6 +155,12 @@ struct Checker<'p, 'r> {
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
+    /// Effect instances available to the code being checked: the current
+    /// fn's declared effect dependencies plus `use`d handlers. Entries
+    /// added by `use` are truncated at block boundaries.
+    effect_env: Vec<Ty>,
+    /// Whether the current fn declared the special `use` effect.
+    can_use: bool,
 }
 
 /// Narrowing facts derived from a condition.
@@ -182,9 +202,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
                     for f in &h.fns {
+                        self.reject_member_effects(f, "handler member functions");
                         self.check_fn(f, &h.params, &h.state);
                     }
                     self.generics = saved;
+                }
+                Item::Effect(e) => {
+                    for f in &e.fns {
+                        self.reject_member_effects(f, "effect member functions");
+                    }
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
@@ -224,10 +250,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
+        // Validate the declared effect list (unknown effects, duplicates)
+        // and build the fn's effect environment.
+        let (fn_effects, can_use) = self.check_effect_list(f);
         let Some(body) = &f.body else {
             self.generics = saved_generics;
             return;
         };
+        let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
+        let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
         // Inside a qualifier constructor (`-> T as Qual`) return points
         // produce plain `T` values; the qualifier is applied by construction
         // (callers see `Qual T`).
@@ -261,7 +292,150 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(top);
         self.check_block_value(body);
         self.locals.pop();
+        self.effect_env = saved_env;
+        self.can_use = saved_can_use;
         self.generics = saved_generics;
+    }
+
+    // ================= effects =================
+
+    /// Validates a fn's declared effect list and lowers it into the
+    /// starting effect environment. Returns `(env, can_use)`.
+    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool) {
+        let mut env: Vec<Ty> = Vec::new();
+        let mut can_use = false;
+        for eff in f.effects.iter().flatten() {
+            match eff {
+                EffectRef::Use(_) => can_use = true,
+                EffectRef::Effect(r) => {
+                    let Some(ty) = self.lower_effect_ref(r) else {
+                        continue;
+                    };
+                    if env.contains(&ty) {
+                        self.error(
+                            r.span,
+                            format!(
+                                "duplicate effect `{ty}` in the effect list (two effects \
+                                 of the same type must differ in their generic arguments)"
+                            ),
+                        );
+                    } else {
+                        env.push(ty);
+                    }
+                }
+            }
+        }
+        (env, can_use)
+    }
+
+    /// Lowers one named entry of an effect list, validating that it refers
+    /// to a declared effect with the right number of type arguments.
+    fn lower_effect_ref(&mut self, r: &TypeRef) -> Option<Ty> {
+        let name = r.name.name.as_str();
+        let Some(effect) = self.scope.effects.get(name).copied() else {
+            self.error(r.span, format!("unknown effect `{name}`"));
+            return None;
+        };
+        if r.args.len() != effect.generics.len() {
+            self.error(
+                r.span,
+                format!(
+                    "effect `{name}` expects {} type argument(s), found {}",
+                    effect.generics.len(),
+                    r.args.len()
+                ),
+            );
+        }
+        let empty = HashMap::new();
+        Some(self.lower_base_ref(r, &empty, 0))
+    }
+
+    /// Rejects declared effect dependencies on effect/handler member fns:
+    /// dispatch call sites go through the handler instance and cannot
+    /// thread extra handler arguments.
+    fn reject_member_effects(&mut self, f: &'p FnDecl, what: &str) {
+        for eff in f.effects.iter().flatten() {
+            let span = match eff {
+                EffectRef::Use(s) => *s,
+                EffectRef::Effect(r) => r.span,
+            };
+            self.error(
+                span,
+                format!("{what} cannot declare effect dependencies yet"),
+            );
+        }
+    }
+
+    /// Checks a `use Handler(...)` statement: resolves the handler, types
+    /// its constructor arguments (inferring the handler's generics from
+    /// them), and registers the concrete effect instance in the current
+    /// scope. Registering two handlers for the same effect instance is an
+    /// error.
+    fn check_use(&mut self, handler: &'p Expr, span: Span) {
+        let (id, args): (&Ident, &'p [Expr]) = match handler {
+            Expr::Ident(id) => (id, &[]),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => (id, args.as_slice()),
+                _ => {
+                    self.error(span, "`use` expects a handler name or constructor call");
+                    self.check_expr(handler, None);
+                    return;
+                }
+            },
+            _ => {
+                self.error(span, "`use` expects a handler name or constructor call");
+                self.check_expr(handler, None);
+                return;
+            }
+        };
+        let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
+            self.error(id.span, format!("unknown handler `{}` in `use`", id.name));
+            for a in args {
+                self.check_expr(a, None);
+            }
+            return;
+        };
+        let saved = self.enter_generics(&decl.generics);
+        let param_tys: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let of_ty = self.lower_type(&decl.of);
+        self.generics = saved;
+
+        let has_variadic = decl.params.iter().any(|p| p.variadic);
+        if !has_variadic && args.len() != decl.params.len() {
+            self.error(
+                span,
+                format!(
+                    "handler `{}` expects {} constructor argument(s), found {}",
+                    id.name,
+                    decl.params.len(),
+                    args.len()
+                ),
+            );
+        }
+        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        for (p, a) in param_tys.iter().zip(&arg_tys) {
+            unify(p, a, &mut subst);
+        }
+        let generic_set: HashSet<String> =
+            decl.generics.iter().map(|g| g.name.clone()).collect();
+        // Record argument coercions against the substituted param types.
+        for (i, p) in param_tys.iter().enumerate().take(arg_tys.len()) {
+            let sp = substitute_vars(p, &subst, &generic_set);
+            let logical = arg_tys[i].clone();
+            let repr = self.repr_of(&args[i], &logical);
+            self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+        }
+        let concrete = substitute_vars(&of_ty, &subst, &generic_set);
+        if self.effect_env.contains(&concrete) {
+            self.error(
+                span,
+                format!("a handler for `{concrete}` is already registered in this scope"),
+            );
+            return;
+        }
+        self.out.use_effects.insert(self.key(span), concrete.clone());
+        self.effect_env.push(concrete);
     }
 
     // ================= scopes, locals, narrowing =================
@@ -865,6 +1039,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         bindings: Vec<(Ident, Ty)>,
     ) -> (Ty, Option<TailInfo>) {
         self.locals.push(HashMap::new());
+        let effect_depth = self.effect_env.len();
         for (ident, ty) in bindings {
             self.declare(&ident, ty);
         }
@@ -882,6 +1057,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
         }
         self.locals.pop();
+        self.effect_env.truncate(effect_depth);
         (value, tail)
     }
 
@@ -985,8 +1161,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_expr(value, Some(&elem));
                 Ty::none()
             }
-            Stmt::Use { handler, .. } => {
-                self.check_expr(handler, None);
+            Stmt::Use { handler, span } => {
+                if !self.can_use {
+                    self.error(
+                        *span,
+                        "`use` requires the `use` effect in the function's effect list",
+                    );
+                }
+                self.check_use(handler, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => self.check_expr(e, None),
@@ -1103,7 +1285,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 type_args,
                 args,
                 span,
-            } => self.check_call(callee, type_args, args, *span),
+            } => self.check_call(callee, type_args, args, expected, *span),
             Expr::Index { base, index, .. } => {
                 let base_ty = self.check_expr(base, None);
                 self.check_expr(index, None);
@@ -1642,6 +1824,32 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out
                 .predicate_tests
                 .insert(self.key(*span), pat.quals.clone());
+            // The `qualifies` call happens here at runtime: its declared
+            // effects must be available in this scope.
+            for q in &pat.quals {
+                let decl = self.scope.qualifiers[q.as_str()];
+                let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
+                    continue;
+                };
+                for eff in qf.effects.iter().flatten() {
+                    let EffectRef::Effect(r) = eff else { continue };
+                    let ename = r.name.name.as_str();
+                    let available = self
+                        .effect_env
+                        .iter()
+                        .any(|c| matches!(c, Ty::Named { name, .. } if name == ename));
+                    if !available {
+                        self.error(
+                            *span,
+                            format!(
+                                "predicate qualifier `{q}` requires effect `{ename}`, \
+                                 but no handler for it is in scope (declare it in the \
+                                 function's effect list or `use` a handler)"
+                            ),
+                        );
+                    }
+                }
+            }
         } else if let Some(test) = self.union_test_for(&repr, &pat) {
             // Runtime lowering against the declared union representation.
             self.out.is_tests.insert(self.key(*span), test);
@@ -2169,6 +2377,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         callee: &'p Expr,
         type_args: &'p [ast::Type],
         args: &'p [Expr],
+        expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
         // Dot-notation: `base.f(args)` == `f(base, args)` when `f` is a
@@ -2182,7 +2391,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
                 all_args.extend(args.iter());
-                return self.resolve_named_call(name, type_args, &all_args, span);
+                return self.resolve_named_call(name, type_args, &all_args, expected, span);
             }
             self.check_expr(base, None);
             for a in args {
@@ -2207,7 +2416,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
-            return self.resolve_named_call(&id.name, type_args, &arg_refs, span);
+            return self.resolve_named_call(&id.name, type_args, &arg_refs, expected, span);
         }
 
         // Computed callee.
@@ -2229,34 +2438,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         name: &str,
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
+        expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        // 1. Effect member call.
+        // 1. Effect member call: resolve which effect instance in scope
+        // provides it (validating availability and disambiguating generic
+        // effects).
         if let Some(&(effect, member)) = self.scope.effect_members.get(name) {
-            let mut subst = HashMap::new();
-            for (g, ta) in effect.generics.iter().zip(type_args) {
-                let lowered = self.lower_type(ta);
-                subst.insert(g.name.clone(), lowered);
-            }
-            for g in &effect.generics {
-                subst.entry(g.name.clone()).or_insert(Ty::Unknown);
-            }
-            for (i, a) in args.iter().enumerate() {
-                match member.params.get(i) {
-                    Some(p) => {
-                        let pt = self.lower_type_subst(&p.ty, &subst, 0);
-                        self.check_expr(a, Some(&pt));
-                    }
-                    None => {
-                        self.check_expr(a, None);
-                    }
-                }
-            }
-            return member
-                .return_type
-                .as_ref()
-                .map(|t| self.lower_type_subst(t, &subst, 0))
-                .unwrap_or_else(Ty::none);
+            return self.check_effect_call(effect, member, type_args, args, expected, span);
         }
 
         // 2. Function overloads (fn declarations, else define signatures).
@@ -2397,9 +2586,258 @@ impl<'p, 'r> Checker<'p, 'r> {
             best.decl.generics.iter().map(|g| g.name.clone()).collect();
         let subst = best.subst.clone();
         let decl = best.decl;
+        // The callee's declared effect dependencies must be satisfiable
+        // here: each must match an instance in the caller's effect
+        // environment (declared or `use`d).
+        self.check_callee_effects(name, decl, &subst, &callee_generics, span);
         let saved = self.enter_generics(&decl.generics);
         let ret = self.fn_return_ty(decl);
         self.generics = saved;
         substitute_vars(&ret, &subst, &callee_generics)
+    }
+
+    /// Resolves each effect dependency of a called fn against the caller's
+    /// effect environment and records the concrete instances (in
+    /// declaration order) for the backend to thread as handler arguments.
+    fn check_callee_effects(
+        &mut self,
+        name: &str,
+        decl: &'p FnDecl,
+        subst: &HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        span: Span,
+    ) {
+        let mut resolved: Vec<Ty> = Vec::new();
+        for eff in decl.effects.iter().flatten() {
+            let EffectRef::Effect(r) = eff else { continue };
+            // Unknown effect names are reported at the callee's own
+            // declaration; skip them here.
+            if !self.scope.effects.contains_key(r.name.name.as_str()) {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let lowered = {
+                let empty = HashMap::new();
+                self.lower_base_ref(r, &empty, 0)
+            };
+            self.generics = saved;
+            let want = substitute_vars(&lowered, subst, callee_generics);
+            // Exact instance first, then a unique compatible match (the
+            // callee's requirement may still contain unresolved parts).
+            let found = self.effect_env.iter().find(|c| **c == want).cloned();
+            let found = found.or_else(|| {
+                let compatible: Vec<&Ty> = self
+                    .effect_env
+                    .iter()
+                    .filter(|c| unify(&want, c, &mut HashMap::new()))
+                    .collect();
+                match compatible.len() {
+                    1 => Some(compatible[0].clone()),
+                    _ => None,
+                }
+            });
+            match found {
+                Some(instance) => resolved.push(instance),
+                None => {
+                    self.error(
+                        span,
+                        format!(
+                            "no handler for effect `{want}` in scope, required \
+                             by `{name}` (declare it in the function's effect \
+                             list or `use` a handler)"
+                        ),
+                    );
+                    resolved.push(want);
+                }
+            }
+        }
+        if !resolved.is_empty() {
+            self.out.call_effects.insert(self.key(span), resolved);
+        }
+    }
+
+    /// Checks a call to an effect member fn. The providing effect instance
+    /// must be available (declared in the caller's effect list or `use`d);
+    /// generic effects are disambiguated by explicit type arguments, the
+    /// argument types, and the expected type, in that order.
+    fn check_effect_call(
+        &mut self,
+        effect: &'p EffectDecl,
+        member: &'p FnDecl,
+        type_args: &'p [ast::Type],
+        args: &[&'p Expr],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        // The member's signature, lowered with the effect's generics as
+        // `Var`s.
+        let saved = self.enter_generics(&effect.generics);
+        let member_params: Vec<Ty> = member
+            .params
+            .iter()
+            .map(|p| self.lower_type(&p.ty))
+            .collect();
+        let member_ret: Ty = member
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        self.generics = saved;
+        let generic_set: HashSet<String> =
+            effect.generics.iter().map(|g| g.name.clone()).collect();
+        let subst_for = |instance: &Ty| -> HashMap<String, Ty> {
+            match instance {
+                Ty::Named { args, .. } => effect
+                    .generics
+                    .iter()
+                    .map(|g| g.name.clone())
+                    .zip(args.iter().cloned())
+                    .collect(),
+                _ => HashMap::new(),
+            }
+        };
+
+        // Instances of this effect currently available.
+        let candidates: Vec<Ty> = self
+            .effect_env
+            .iter()
+            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect.name.name))
+            .cloned()
+            .collect();
+
+        // Argument types when they had to be computed for disambiguation
+        // (in that case coercions are recorded afterwards; otherwise the
+        // args are checked below with the resolved param types expected).
+        let mut typed_args: Option<Vec<Ty>> = None;
+
+        let resolved: Option<Ty> = if !type_args.is_empty() {
+            // Explicit type arguments pin the instance.
+            let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
+            let want = Ty::Named {
+                name: effect.name.name.clone(),
+                args: targs,
+            };
+            if candidates
+                .iter()
+                .any(|c| *c == want || unify(c, &want, &mut HashMap::new()))
+            {
+                Some(want)
+            } else {
+                self.error(
+                    span,
+                    format!(
+                        "no handler for effect `{want}` in scope (declare it in \
+                         the function's effect list or `use` a handler)"
+                    ),
+                );
+                None
+            }
+        } else if candidates.len() == 1 {
+            Some(candidates[0].clone())
+        } else if candidates.is_empty() {
+            self.error(
+                span,
+                format!(
+                    "no handler for effect `{}` in scope (declare it in the \
+                     function's effect list or `use` a handler)",
+                    effect.name.name
+                ),
+            );
+            None
+        } else {
+            // Multiple instances in scope: disambiguate by the argument
+            // types, then by the expected type.
+            let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+            let viable: Vec<Ty> = candidates
+                .iter()
+                .filter(|c| {
+                    let mut subst = subst_for(c);
+                    member_params.iter().zip(&arg_tys).all(|(p, a)| {
+                        let sp = substitute_vars(p, &subst, &generic_set);
+                        unify(&sp, a, &mut subst)
+                    })
+                })
+                .cloned()
+                .collect();
+            let narrowed: Vec<Ty> = match expected {
+                Some(exp) if !exp.is_unknown() => {
+                    let by_ret: Vec<Ty> = viable
+                        .iter()
+                        .filter(|c| {
+                            let subst = subst_for(c);
+                            let sr = substitute_vars(&member_ret, &subst, &generic_set);
+                            sr.is_unknown() || is_subtype(&sr, exp)
+                        })
+                        .cloned()
+                        .collect();
+                    if by_ret.is_empty() {
+                        viable.clone()
+                    } else {
+                        by_ret
+                    }
+                }
+                _ => viable.clone(),
+            };
+            typed_args = Some(arg_tys);
+            match narrowed.len() {
+                1 => Some(narrowed[0].clone()),
+                0 => {
+                    self.error(
+                        span,
+                        format!(
+                            "no handler for effect `{}` in scope matches this \
+                             call (declare it in the function's effect list or \
+                             `use` a handler)",
+                            effect.name.name
+                        ),
+                    );
+                    None
+                }
+                _ => {
+                    self.error(
+                        span,
+                        format!(
+                            "ambiguous effect call: multiple `{}` handlers in \
+                             scope; specify the type, e.g. `{}<T>()`",
+                            effect.name.name, member.name.name
+                        ),
+                    );
+                    Some(narrowed[0].clone())
+                }
+            }
+        };
+
+        let subst = resolved.as_ref().map(&subst_for).unwrap_or_default();
+        match typed_args {
+            Some(arg_tys) => {
+                // Args already typed: record coercions against the
+                // resolved param types.
+                for (i, p) in member_params.iter().enumerate().take(arg_tys.len()) {
+                    let sp = substitute_vars(p, &subst, &generic_set);
+                    let logical = arg_tys[i].clone();
+                    let repr = self.repr_of(args[i], &logical);
+                    self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+                }
+            }
+            None => {
+                for (i, a) in args.iter().enumerate() {
+                    match member_params.get(i) {
+                        Some(p) => {
+                            let sp = substitute_vars(p, &subst, &generic_set);
+                            self.check_expr(a, Some(&sp));
+                        }
+                        None => {
+                            self.check_expr(a, None);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(instance) = &resolved {
+            self.out
+                .effect_calls
+                .insert(self.key(span), instance.clone());
+        }
+        substitute_vars(&member_ret, &subst, &generic_set)
     }
 }

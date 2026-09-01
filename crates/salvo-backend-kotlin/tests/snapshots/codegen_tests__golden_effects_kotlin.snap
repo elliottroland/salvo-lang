@@ -1,0 +1,58 @@
+---
+source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
+expression: combined
+---
+// ===== core/console.kt =====
+package salvo
+
+interface Console {
+    fun print(message: String)
+}
+
+class StdOutConsole : Console {
+    override fun print(message: String) {
+        kotlin.io.print(message)
+    }
+}
+
+fun println(console: Console, message: String) {
+    console.print(message)
+    console.print("\n")
+}
+
+// ===== main.kt =====
+package salvo
+
+interface Random<T> {
+    fun next_random(): T
+}
+
+class CyclicRandom<T>(private val values: List<T>) : Random<T> {
+    private var i: Int = 0
+
+    override fun next_random(): T {
+        val value = values.getOrNull(i % values.size)!!
+        i = i + 1
+        return value
+    }
+}
+
+fun draw(random_int: Random<Int>, random_string: Random<String>, console: Console) {
+    val n: Int = random_int.next_random()
+    val s: String = random_string.next_random()
+    println(console, "$s: $n")
+}
+
+fun lucky_number(random_int: Random<Int>): Int {
+    return random_int.next_random()
+}
+
+fun main() {
+    val console: Console = StdOutConsole()
+    val random_int: Random<Int> = CyclicRandom(listOf(10, 20, 30))
+    val random_string: Random<String> = CyclicRandom(listOf("a", "b"))
+    draw(random_int, random_string, console)
+    draw(random_int, random_string, console)
+    println(console, "lucky: ${random_int.next_random()}")
+    println(console, "again: ${lucky_number(random_int)}")
+}

@@ -1,6 +1,6 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-08-31 (late evening, after M4). This document is
+Status snapshot as of 2026-09-01 (morning, after M5). This document is
 the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
@@ -9,7 +9,7 @@ remaining milestones.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 46 tests; includes three kotlinc compile+run tests
+cargo test                  # 56 tests; includes four kotlinc compile+run tests
                             # (skipped gracefully if kotlinc is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
@@ -220,6 +220,77 @@ checks + narrowing, field-override casts, mangled qualifier overloads,
 `while x is Int c` countdown, and a nested `Ok (Ok Str | Err Int) | Err Bool`
 round-trip — compiled by kotlinc and exact stdout asserted.
 
+### M5 — Effects, properly
+
+The checker now owns effect semantics; the emitter consumes its tables.
+Effect errors are spanned checker diagnostics instead of codegen-time
+strings.
+
+- **Checker effect environment** (`Checker.effect_env: Vec<Ty>` +
+  `can_use`): seeded from the fn's declared effect list, grown by `use`
+  statements, truncated at block boundaries (mirroring the emitter's
+  scoping). Validated at fn declarations: unknown effect names, wrong
+  type-argument counts, and duplicate instances (`[Console, Console]`) are
+  errors; same effect with different generics (`[Random<Int>,
+  Random<Double>]`) is fine per the spec.
+- **`use` validation** (`check_use`): requires the `use` effect in the
+  current fn's list; the handler must resolve; constructor args are typed
+  and the handler's generics are *inferred from them by unification* — so
+  `use CyclicRandom(list(1,2,3))` registers concrete `Random<Int>`, not
+  `Random<T>` (which previously leaked into emitted Kotlin as an unresolved
+  `T`). Registering a second handler for the same instance is an error.
+- **Effect member calls** (`check_effect_call`): the providing instance
+  must be in the environment ("no handler for effect `X` in scope").
+  Generic disambiguation, in order: explicit type args
+  (`next_random<Int>()`), argument types, then the *expected type*
+  (`let int: Int = next_random()` picks `Random<Int>`) — `expected` is now
+  threaded through `check_call`/`resolve_named_call` for this. Multiple
+  survivors → "ambiguous effect call" error, zero → "no handler" error.
+- **Fn call sites** (`check_callee_effects`): each callee effect dependency
+  (with the call's generic substitution applied) must match an instance in
+  the caller's environment — exact match first, then a unique
+  unify-compatible match. Predicate-qualifier `is` checks validate the
+  `qualifies` fn's effects the same way (by base name).
+- Effect/handler *member* fns cannot declare effect dependencies (error
+  "… cannot declare effect dependencies yet"): dispatch call sites go
+  through the handler instance and cannot thread extra handler args.
+- **New `Checked` tables** consumed by the emitter (all keyed by
+  `(file_idx, span)`): `use_effects` (concrete instance per `use` stmt),
+  `effect_calls` (instance an effect-member call dispatches through),
+  `call_effects` (instances threaded as leading handler args per fn call,
+  in the callee's declaration order).
+
+**Emitter fallback mechanism (deliberate, revisit later).** The emitter's
+effect environment is still string-keyed (`Vec<(kotlin-type-string,
+kotlin-expr)>`), built from the declared effect refs at fn entry and from
+`use` statements. What changed: at each site the emitter first consults the
+checker table and renders the recorded `Ty` through a new `kotlin_ty(Ty)`
+(which must agree with `emit_type` on the same source type — that agreement
+is what makes exact env-key hits work), and only falls back to the old
+string/base-name matching (`lookup_effect_handler*`) when the table has no
+entry or the recorded type contains `Unknown` (`ty_is_concrete` guard).
+The fallback keeps the lenient-checker contract: unchecked contexts
+(arity-resolved calls, Kotlin-interop pass-through) still emit like before,
+and a checker regression degrades to the old string matching rather than
+wrong code (codegen errors still fire if that also fails). The cost is
+double bookkeeping — two environments that must stay consistent — and the
+subtle `kotlin_ty`/`emit_type` agreement requirement. When the emitter
+eventually keys its environment by checker `Ty` directly (or the typed IR
+lands), the string env and `lookup_effect_handler*` can be deleted.
+
+- **std**: `List<T>` gained `size` (user request) — the `size(Str)` vs
+  `size(List<T>)` overloads share a define name, so `define_for_decl` now
+  prefers templates whose parameter *base types* match the resolved
+  declaration before falling back to arity/shape (`type_base_name`).
+- LANGUAGE.md fix: the effects examples used Kotlin's `val` instead of
+  `let` (`random_numbers` example).
+
+Verified end-to-end (`kotlinc_compiles_and_runs_effects`): two
+`CyclicRandom` instances (`Random<Int>` + `Random<Str>`) registered via
+generic inference at `use` sites, expected-type disambiguation inside a fn
+declaring both, explicit `next_random<Int>()`, and handler threading through
+call sites — compiled by kotlinc and exact stdout asserted.
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
@@ -242,13 +313,14 @@ round-trip — compiled by kotlinc and exact stdout asserted.
   `core/console.kt`. "Only used modules" per LANGUAGE.md is not yet enforced.
 - Deductions (`-> [list: Mut] T`) are parsed and preserved in the AST but
   ignored by the Kotlin backend (they matter for the Rust backend).
-- The effect environment is still string-keyed
-  (`Vec<(canonical-type-string, kotlin-expr)>`); the checker does not yet
-  validate effects (M5).
+- The effect environment in the emitter is string-keyed; effect resolution
+  prefers the checker's `use_effects`/`effect_calls`/`call_effects` tables
+  and falls back to string matching only in unchecked contexts (see the M5
+  fallback-mechanism note above).
 
 ## Remaining milestones
 
-### M3/M4 leftovers (small, do alongside M5)
+### M3–M5 leftovers (small, do alongside M6)
 
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
@@ -263,17 +335,18 @@ round-trip — compiled by kotlinc and exact stdout asserted.
   recorded (only direct boundary positions).
 - Overload mangling only fires for checker-resolved call sites; unchecked
   (arity-fallback) calls to a mangled overload would emit the base name.
+  Same class of gap: `Symbols::resolve_define_fn` (arity fallback) can pick
+  the wrong same-name define (`size`) in unchecked contexts.
 - Constructing a *nested* qualified union group in one expression
   (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
   intermediate `let`; single-level coercion only (errors, never mis-emits).
-
-### M5 — Effects, properly
-
-- Checker validates: every call's effects are either in the caller's list or
-  `use`d; `use` only in `[use]` fns; duplicate-effect-type rejection;
-  generic effect disambiguation (`next_random<Int>()`) via types instead of
-  the current string matching.
-- Diagnostics move from codegen-time strings to spanned diagnostics.
+- Retire the emitter's string-keyed effect environment in favor of
+  checker-`Ty` keys (see the M5 fallback-mechanism note).
+- The LANGUAGE.md `CyclicRandom` example calls `values.size()` on a `T[]`;
+  std only defines `size` for `Str` and `List<T>` — either add an array
+  `size` or move the example to `List<T>`.
+- Effect member fns with their *own* generics are lowered but never
+  substituted per-call (only the effect's generics are).
 
 ### M6 — Deductions + loops-as-values
 
@@ -308,23 +381,28 @@ Only start after M3/M6 (needs the typed IR + deductions). Reuse the
 deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
 them written); `Mut` → `mut`/`&mut`.
 
-## Test inventory (all green: 46)
+## Test inventory (all green: 56)
 
 - `salvo-core`: 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection).
 - `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 21 — golden snapshots of the M2 demo, the M3
-  unions demo, and the M4 qualifiers demo; wrapper/wrap/`is`-lowering
-  assertions (`unions_emit_sealed_wrappers`), predicate/mangling/field-cast
-  assertions (`qualifiers_lower_to_predicates_and_mangled_overloads`);
+- `salvo-backend-kotlin`: 31 — golden snapshots of the M2 demo, the M3
+  unions demo, the M4 qualifiers demo, and the M5 effects demo;
+  wrapper/wrap/`is`-lowering assertions (`unions_emit_sealed_wrappers`),
+  predicate/mangling/field-cast assertions
+  (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
+  effect-resolution assertions (`effects_resolve_through_checker_tables`);
   negative tests (non-exhaustive `when`, non-union `when` subject,
-  no-matching-arm wrap, missing effect handler, duplicate qualifier,
-  incompatible qualifiers, `of`-type mismatch, constructor same-file rule,
-  predicate-constructor rejection, non-simple constructor return,
-  `is` on constructive qualifiers, `qualifies` signature, constructive
-  values only from constructors); and three kotlinc compile+run tests with
-  exact stdout assertions.
+  no-matching-arm wrap, missing effect handler at a fn call site and at an
+  effect-member call site, `use` without the `use` effect, duplicate effect
+  in an effect list, duplicate `use` registration, unknown effect,
+  ambiguous generic effect call, handler-member effect deps, duplicate
+  qualifier, incompatible qualifiers, `of`-type mismatch, constructor
+  same-file rule, predicate-constructor rejection, non-simple constructor
+  return, `is` on constructive qualifiers, `qualifies` signature,
+  constructive values only from constructors); and four kotlinc compile+run
+  tests with exact stdout assertions.
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -375,3 +453,30 @@ snapshot diffs.
   of StdOutConsole being stateless). Bare `use Handler` is sugar for
   `use Handler()`; external handlers support constructor params like any
   other handler.
+- `kotlin_ty(Ty)` (checker type → Kotlin) must agree with `emit_type`
+  (AST type → Kotlin) on the same source type: checker-resolved effect
+  types are looked up in an effect environment keyed by `emit_type`
+  renderings. Both expand type aliases and map internal names through
+  `emit_named_parts`, which is what keeps them aligned. If they drift, the
+  lookup degrades to base-name fallback matching (or a codegen error) —
+  never silently wrong dispatch, but worth knowing when adding type forms.
+- The checker types effect-member call *args* only when it must
+  disambiguate between multiple instances (multi-candidate path types them
+  with `None` expected, then records coercions afterwards); the
+  single-candidate path checks args directly against the substituted param
+  types, preserving expected-type-driven inference for lambda/struct-lit
+  arguments. Keep the two paths in sync when touching `check_effect_call`.
+- `Stmt::Use` no longer runs `check_expr` on the whole handler expression
+  (ctor args are typed individually in `check_use`), so the handler `Call`
+  expr itself has no `expr_ty` entry — the emitter doesn't need one, but
+  don't add a table lookup keyed on it.
+- Same-name defines for overloaded externals (`size(Str)` vs
+  `size(List<T>)`) are disambiguated in `define_for_decl` by comparing
+  parameter *base type names* against the checker-resolved declaration —
+  the arity-only fallback (`resolve_define_fn`) can still pick the wrong
+  one in unchecked contexts.
+- The `use` duplicate-registration check compares checker `Ty`s, so it
+  catches `Random<Int>` twice while allowing `Random<Int>` +
+  `Random<Str>`; the effect-list duplicate check is separate
+  (`check_effect_list`) because declared effects never pass through
+  `check_use`.

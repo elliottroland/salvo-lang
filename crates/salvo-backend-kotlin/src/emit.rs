@@ -698,6 +698,50 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// Renders a checker `Ty` as Kotlin. Used for effect types resolved by
+    /// the checker (`use_effects`/`effect_calls`/`call_effects`): the
+    /// result keys effect-environment lookups, so it must agree with
+    /// `emit_type` on the rendering of the same source type.
+    fn kotlin_ty(&mut self, ty: &Ty) -> String {
+        match ty {
+            Ty::Named { name, args } => {
+                let arg_strs: Vec<String> = args.iter().map(|a| self.kotlin_ty(a)).collect();
+                self.emit_named_parts(name, &arg_strs)
+            }
+            Ty::Qualified { quals, base } => {
+                // Internal `Mut List<T>` maps to Kotlin MutableList; other
+                // qualifiers erase.
+                if let Ty::Named { name, args } = base.as_ref() {
+                    if name == "List" && quals.iter().any(|q| q.name == "Mut") {
+                        let arg_strs: Vec<String> =
+                            args.iter().map(|a| self.kotlin_ty(a)).collect();
+                        return format!("MutableList<{}>", arg_strs.join(", "));
+                    }
+                }
+                self.kotlin_ty(base)
+            }
+            Ty::Array(elem) => format!("Array<{}>", self.kotlin_ty(elem)),
+            Ty::Tuple(elems) if elems.len() == 2 => format!(
+                "Pair<{}, {}>",
+                self.kotlin_ty(&elems[0]),
+                self.kotlin_ty(&elems[1])
+            ),
+            Ty::Tuple(elems) if elems.len() == 3 => format!(
+                "Triple<{}, {}, {}>",
+                self.kotlin_ty(&elems[0]),
+                self.kotlin_ty(&elems[1]),
+                self.kotlin_ty(&elems[2])
+            ),
+            Ty::Var(v) => v.clone(),
+            Ty::Any => "Any".to_string(),
+            Ty::Nothing => "Nothing".to_string(),
+            // Unions/fn types/unknowns do not occur as effect types; the
+            // Salvo-side rendering keeps the lookup falling back to
+            // base-name matching for anything unexpected.
+            other => other.to_string(),
+        }
+    }
+
     /// Unions lower to the sealed wrapper encoding: `None` arms become
     /// Kotlin nullability, a single remaining arm is `T?`, two or more
     /// become `UnionN<...>`. Duplicate arms (same base and qualifiers) are
@@ -840,7 +884,7 @@ impl<'p> Emitter<'p> {
                 let v = self.emit_expr(value);
                 format!("{pad}yield({v})\n")
             }
-            Stmt::Use { handler, .. } => self.emit_use(handler, indent),
+            Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent, ctx),
         }
     }
@@ -914,7 +958,12 @@ impl<'p> Emitter<'p> {
     /// `use Handler(...)` — instantiate the handler, bind it, and register
     /// it in the effect environment for the rest of the scope. All handlers
     /// are Kotlin classes; a bare `use Handler` is sugar for `Handler()`.
-    fn emit_use(&mut self, handler: &Expr, indent: usize) -> String {
+    ///
+    /// The registered effect type comes from the checker (`use_effects`),
+    /// which infers handler generics from the constructor arguments (e.g.
+    /// `Random<Int>` for `use CyclicRandom([1,2,3])`); the handler's
+    /// declared `of` type is the fallback for unchecked contexts.
+    fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let (handler_name, handler_code) = match handler {
             Expr::Ident(id) => (id.name.clone(), format!("{}()", kt_ident(&id.name))),
@@ -934,7 +983,13 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        let effect_ty = self.emit_type(&decl.of);
+        let effect_ty = match self.checked.use_effects.get(&(self.file_idx, span)) {
+            Some(ty) if ty_is_concrete(ty) => {
+                let ty = ty.clone();
+                self.kotlin_ty(&ty)
+            }
+            _ => self.emit_type(&decl.of),
+        };
         let var = effect_param_name(&effect_ty);
         self.effect_env.push((effect_ty.clone(), var.clone()));
         format!("{pad}val {var}: {effect_ty} = {handler_code}\n")
@@ -1686,9 +1741,19 @@ impl<'p> Emitter<'p> {
         args: &[&Expr],
         span: Span,
     ) -> String {
-        // 1. Effect member call: dispatch through the handler in scope.
+        // 1. Effect member call: dispatch through the handler in scope. The
+        // checker records which effect instance the call resolved to
+        // (`effect_calls`); string matching on the effect name remains the
+        // fallback for unchecked contexts.
         if let Some(effect) = self.symbols.effect_of_fn.get(name).copied() {
-            let handler = self.lookup_effect_handler(effect, type_args);
+            let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
+                Some(ty) if ty_is_concrete(ty) => {
+                    let ty = ty.clone();
+                    let key = self.kotlin_ty(&ty);
+                    self.lookup_effect_handler_by_type(&key)
+                }
+                _ => self.lookup_effect_handler(effect, type_args),
+            };
             let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
             return format!("{handler}.{}({})", kt_ident(name), arg_code.join(", "));
         }
@@ -1710,7 +1775,7 @@ impl<'p> Emitter<'p> {
                 ));
                 return "TODO()".to_string();
             }
-            return self.emit_fn_call(name, f, type_args, args);
+            return self.emit_fn_call(name, f, type_args, args, span);
         }
 
         // 3. `define fn` template by arity (unchecked contexts).
@@ -1720,7 +1785,7 @@ impl<'p> Emitter<'p> {
 
         // 4. Known function by arity.
         if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
-            return self.emit_fn_call(name, f, type_args, args);
+            return self.emit_fn_call(name, f, type_args, args, span);
         }
 
         // 5. Handler constructor / struct / local callable: pass through.
@@ -1730,17 +1795,30 @@ impl<'p> Emitter<'p> {
     }
 
     /// Finds the define template matching an external fn signature.
+    /// Overloaded externals (e.g. `size(Str)` vs `size(List<T>)`) share a
+    /// define name, so templates whose parameter types match the resolved
+    /// declaration take precedence over a mere arity match.
     fn define_for_decl(&self, name: &str, decl: &FnDecl) -> Option<&'p DefineFn> {
         let defs = self.symbols.define_fns.get(name)?;
-        defs.iter()
-            .find(|d| {
-                d.sig.params.len() == decl.params.len()
-                    && d.sig
-                        .params
-                        .iter()
-                        .zip(&decl.params)
-                        .all(|(a, b)| a.variadic == b.variadic)
+        let shape_matches = |d: &DefineFn| {
+            d.sig.params.len() == decl.params.len()
+                && d.sig
+                    .params
+                    .iter()
+                    .zip(&decl.params)
+                    .all(|(a, b)| a.variadic == b.variadic)
+        };
+        let types_match = |d: &DefineFn| {
+            d.sig.params.iter().zip(&decl.params).all(|(a, b)| {
+                match (type_base_name(&a.ty), type_base_name(&b.ty)) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => true,
+                }
             })
+        };
+        defs.iter()
+            .find(|d| shape_matches(d) && types_match(d))
+            .or_else(|| defs.iter().find(|d| shape_matches(d)))
             .or_else(|| defs.first())
             .copied()
     }
@@ -1762,19 +1840,33 @@ impl<'p> Emitter<'p> {
     }
 
     /// A call to a declared function: effect handlers become leading args.
+    /// The checker records the resolved effect instances per call site
+    /// (`call_effects`); the declared effect refs are the string-matching
+    /// fallback for unchecked contexts.
     fn emit_fn_call(
         &mut self,
         name: &str,
         f: &FnDecl,
         type_args: &[Type],
         args: &[&Expr],
+        span: Span,
     ) -> String {
         let _ = name;
         let mut all: Vec<String> = Vec::new();
-        for eff in f.effects.iter().flatten() {
-            if let EffectRef::Effect(r) = eff {
-                let ty = self.emit_type_ref(r);
-                all.push(self.lookup_effect_handler_by_type(&ty));
+        match self.checked.call_effects.get(&(self.file_idx, span)).cloned() {
+            Some(effs) if effs.iter().all(ty_is_concrete) => {
+                for ty in &effs {
+                    let key = self.kotlin_ty(ty);
+                    all.push(self.lookup_effect_handler_by_type(&key));
+                }
+            }
+            _ => {
+                for eff in f.effects.iter().flatten() {
+                    if let EffectRef::Effect(r) = eff {
+                        let ty = self.emit_type_ref(r);
+                        all.push(self.lookup_effect_handler_by_type(&ty));
+                    }
+                }
             }
         }
         for a in args {
@@ -1937,6 +2029,34 @@ enum StmtCtx {
     /// Inside an `iterator {}` builder: bare `return` becomes
     /// `return@iterator`.
     IteratorBody,
+}
+
+/// True when a checker type contains no `Unknown` (inference fully
+/// resolved it) — only then is it safe to render it into emitted code.
+/// The base type name of an AST type, used to pair define templates with
+/// overloaded external declarations. `None` for shapes without a single
+/// base name (unions, tuples, fn types).
+fn type_base_name(ty: &Type) -> Option<&str> {
+    match ty {
+        Type::Named { base, .. } => Some(base.name.name.as_str()),
+        Type::Nullable { inner, .. } => type_base_name(inner),
+        Type::QualifiedGroup { base, .. } => type_base_name(base),
+        Type::Array { .. } => Some("[]"),
+        _ => None,
+    }
+}
+
+fn ty_is_concrete(ty: &Ty) -> bool {
+    match ty {
+        Ty::Unknown => false,
+        Ty::Named { args, .. } => args.iter().all(ty_is_concrete),
+        Ty::Qualified { base, .. } => ty_is_concrete(base),
+        Ty::Union(arms) => arms.iter().all(ty_is_concrete),
+        Ty::Tuple(elems) => elems.iter().all(ty_is_concrete),
+        Ty::Array(elem) => ty_is_concrete(elem),
+        Ty::Fn { params, ret } => params.iter().all(ty_is_concrete) && ty_is_concrete(ret),
+        _ => true,
+    }
 }
 
 fn effect_param_name(effect_ty: &str) -> String {

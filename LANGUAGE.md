@@ -672,16 +672,16 @@ When calling a function, all its effects either need to be `use`d or be declared
 ```
 fn random_numbers() [Random<Int>, Random<Double>] -> None {
     // Ambiguous: will result in compile-time error
-    val number = next_random()
+    let number = next_random()
 
     // Will use Random<Int> handler
-    val int: Int = next_random()
+    let int: Int = next_random()
 
     // Will use Random<Double> handler
-    val double: Double = next_random()
+    let double: Double = next_random()
 
     // The type can also be specified in the function call
-    val number = next_random<Int>()
+    let number = next_random<Int>()
 }
 ```
 

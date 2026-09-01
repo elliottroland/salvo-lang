@@ -16,4 +16,7 @@ external fn add<T>(list: Mut List<T>, elem: T)
 
 external fn first<T>(list: List<T>) -> T?
 
+// Returns the number of elements in the list
+external fn size<T>(list: List<T>) -> Int
+
 external fn iter<T>(list: List<T>) -> Iter<T>
