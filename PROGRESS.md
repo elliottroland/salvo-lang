@@ -5,6 +5,16 @@ the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
 
+Companion documents: LANGUAGE.md is the narrative spec (source of truth);
+LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
+style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
+(currently `BACKEND_SPEC.kotlin.md`) repeats rules with backend
+interpretation details and adds backend-prefixed rules (`kt-…`) — load it
+only when working on that backend. Labels are referenced from compiler
+code and tests (`grep -rn '\[rule-name\]'`); backend-prefixed labels may
+only be referenced from that backend's crate. Keep all of these in sync
+when adding or changing features.
+
 ## How to build and test
 
 ```bash

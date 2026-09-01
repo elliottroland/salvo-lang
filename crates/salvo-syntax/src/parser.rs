@@ -6,10 +6,11 @@
 //!   newline is only allowed inside parentheses/brackets (`group_depth > 0`).
 //! * Struct literals (`Person { ... }`) are ambiguous with blocks in
 //!   condition position (`if x is Person { ... }`), so struct-literal
-//!   speculation is disabled while parsing conditions (`no_struct`).
+//!   speculation is disabled while parsing conditions (`no_struct`)
+//!   [if-bool].
 //! * Type names and qualifiers are uppercase by convention; `is` checks use
 //!   this to distinguish the checked type from an optional binding
-//!   (`if x is Str s`).
+//!   (`if x is Str s`) [is-binding].
 
 use crate::ast::*;
 use crate::diag::Diagnostic;

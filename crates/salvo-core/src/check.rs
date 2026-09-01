@@ -300,7 +300,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= effects =================
 
     /// Validates a fn's declared effect list and lowers it into the
-    /// starting effect environment. Returns `(env, can_use)`.
+    /// starting effect environment [effect-fn-deps] [effect-no-dup].
+    /// Returns `(env, can_use)`.
     fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool) {
         let mut env: Vec<Ty> = Vec::new();
         let mut can_use = false;
@@ -350,9 +351,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(self.lower_base_ref(r, &empty, 0))
     }
 
-    /// Rejects declared effect dependencies on effect/handler member fns:
-    /// dispatch call sites go through the handler instance and cannot
-    /// thread extra handler arguments.
+    /// Rejects declared effect dependencies on effect/handler member fns
+    /// [effect-member-no-effects]: dispatch call sites go through the
+    /// handler instance and cannot thread extra handler arguments.
     fn reject_member_effects(&mut self, f: &'p FnDecl, what: &str) {
         for eff in f.effects.iter().flatten() {
             let span = match eff {
@@ -366,11 +367,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Checks a `use Handler(...)` statement: resolves the handler, types
-    /// its constructor arguments (inferring the handler's generics from
-    /// them), and registers the concrete effect instance in the current
-    /// scope. Registering two handlers for the same effect instance is an
-    /// error.
+    /// Checks a `use Handler(...)` statement [effect-use]: resolves the
+    /// handler, types its constructor arguments (inferring the handler's
+    /// generics from them), and registers the concrete effect instance in
+    /// the current scope. Registering two handlers for the same effect
+    /// instance is an error [use-no-dup].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
         let (id, args): (&Ident, &'p [Expr]) = match handler {
             Expr::Ident(id) => (id, &[]),
@@ -456,7 +457,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.iter_mut().rev().find_map(|s| s.get_mut(name))
     }
 
-    /// Declares a new local, enforcing the no-shadowing rule.
+    /// Declares a new local, enforcing the no-shadowing rule
+    /// [var-no-shadow].
     fn declare(&mut self, name: &Ident, ty: Ty) {
         if self.lookup(&name.name).is_some() {
             self.error(
@@ -679,7 +681,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn validate_quals(&mut self, qualifiers: &[TypeRef], base: &Ty) {
-        // The same qualifier cannot be applied twice.
+        // The same qualifier cannot be applied twice [qual-no-dup].
         for (i, q) in qualifiers.iter().enumerate() {
             if qualifiers[..i].iter().any(|p| p.name.name == q.name.name) {
                 self.error(
@@ -692,12 +694,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|q| self.scope.qualifiers.get(q.name.name.as_str()).copied())
             .collect();
-        // Each qualifier must apply to the base type (per its `of` type).
+        // Each qualifier must apply to the base type (per its `of` type)
+        // [qual-of].
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
             for (q, decl) in qualifiers.iter().zip(&decls) {
                 let Some(decl) = decl else { continue };
                 // `Mut` on a struct declaring `with Mut` is the
-                // language-level auto-qualifier path.
+                // language-level auto-qualifier path [struct-mut].
                 if q.name.name == "Mut" && self.struct_has_auto_mut(base) {
                     continue;
                 }
@@ -709,7 +712,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // Multiple qualifiers require declared `with` compatibility.
+        // Multiple qualifiers require declared `with` compatibility
+        // [qual-with].
         for i in 0..qualifiers.len() {
             for j in (i + 1)..qualifiers.len() {
                 let (Some(a), Some(b)) = (decls[i], decls[j]) else {
@@ -765,9 +769,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Validates a qualifier declaration: predicate qualifiers need a
-    /// well-formed `qualifies` function; field overrides must refine real
-    /// fields of the `of` struct; bodiless (constructive) qualifiers take
-    /// neither.
+    /// well-formed `qualifies` function [qual-predicate]; field overrides
+    /// must refine real fields of the `of` struct [qual-field-override];
+    /// bodiless (constructive) qualifiers take neither [qual-constructive].
     fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
         self.validate_type(&q.of);
         let of_ty = self.lower_type(&q.of);
@@ -858,7 +862,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Validates a qualifier-constructor signature (`fn f(...) -> T as Q`).
+    /// Validates a qualifier-constructor signature (`fn f(...) -> T as Q`)
+    /// [qual-ctor-fn]: same file as the qualifier [qual-ctor-same-file],
+    /// simple return type, constructive qualifier only, `of`-type
+    /// satisfaction [qual-ctor-simple].
     fn check_constructor_sig(&mut self, f: &'p FnDecl) {
         let Some(cref) = &f.constructs else { return };
         let name = cref.name.name.as_str();
@@ -1039,6 +1046,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         bindings: Vec<(Ident, Ty)>,
     ) -> (Ty, Option<TailInfo>) {
         self.locals.push(HashMap::new());
+        // [effect-scope] `use` registrations expire with the block.
         let effect_depth = self.effect_env.len();
         for (ident, ty) in bindings {
             self.declare(&ident, ty);
@@ -1078,7 +1086,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 let declared = annotated.unwrap_or_else(|| {
-                    // Without an annotation the *logical* value type becomes
+                    // [let-infer] Without an annotation the *logical* value
+                    // type becomes
                     // the declared type; re-wrap narrowed unions physically.
                     let repr = self.repr_of(value, &value_ty);
                     self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
@@ -1102,6 +1111,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     other => self.check_expr(other, None),
                 };
                 let value_ty = self.check_expr(value, Some(&target_ty));
+                // [var-no-widen] assignments must fit the declared type.
                 if !is_subtype(&value_ty, &target_ty) {
                     self.error(
                         value.span(),
@@ -1162,6 +1172,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::none()
             }
             Stmt::Use { handler, span } => {
+                // [use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
                     self.error(
                         *span,
@@ -1189,7 +1200,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Pattern::Struct { fields, .. } => {
                 for f in fields {
-                    // Destructuring reads the declared field type (qualifier
+                    // [let-destructure] Destructuring reads the declared
+                    // field type (qualifier
                     // overrides only apply to direct field accesses, which
                     // the backend can cast).
                     let fty = self
@@ -1270,7 +1282,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::Field { base, field, span } => {
                 let base_ty = self.check_expr(base, None);
-                // A predicate-qualifier field override refines the type;
+                // A predicate-qualifier field override refines the type
+                // [qual-field-override];
                 // the backend casts + asserts at the access site.
                 if let Some(override_ty) = self.field_override_ty(&base_ty, &field.name) {
                     self.out
@@ -1794,8 +1807,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let repr = self.repr_of(subject, &subj_ty);
         let pat = self.parse_check(check);
 
-        // A qualifier check on a non-union subject is a predicate test: it
-        // calls each qualifier's `qualifies` function at runtime.
+        // A qualifier check on a non-union subject is a predicate test
+        // [is-qualifies]: it calls each qualifier's `qualifies` function at
+        // runtime.
         let is_predicate = !pat.is_none
             && !pat.quals.is_empty()
             && !matches!(subj_ty, Ty::Union(_))
@@ -1825,7 +1839,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .predicate_tests
                 .insert(self.key(*span), pat.quals.clone());
             // The `qualifies` call happens here at runtime: its declared
-            // effects must be available in this scope.
+            // effects must be available in this scope
+            // [is-qualifies-effects].
             for q in &pat.quals {
                 let decl = self.scope.qualifiers[q.as_str()];
                 let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
@@ -1851,9 +1866,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         } else if let Some(test) = self.union_test_for(&repr, &pat) {
-            // Runtime lowering against the declared union representation.
+            // Runtime lowering against the declared union representation
+            // [is-narrowing] [is-precise].
             self.out.is_tests.insert(self.key(*span), test);
         } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) {
+            // [qual-constructive] no runtime test exists for constructive
+            // qualifiers on non-union values.
             let constructive = pat.quals.iter().find(|q| {
                 self.scope
                     .qualifiers
@@ -2055,6 +2073,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         join
     }
 
+    /// Checks a `when` expression: union-typed variable subject
+    /// [when-union-subject], sequential arm consumption and exhaustiveness
+    /// [when-exhaustive], branch values unioning into the result
+    /// [when-value].
     fn check_when(
         &mut self,
         subject: &'p Expr,
@@ -2146,7 +2168,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= coercions =================
 
     /// Records the representation change (if any) needed to use a value of
-    /// (`logical`, `repr`) where `expected` is required.
+    /// (`logical`, `repr`) where `expected` is required. Arm matching is
+    /// positional over the declared type's non-`None` arms
+    /// [union-arm-identity]; a qualified union group tries wrapping as
+    /// a whole arm before stripping its qualifiers [qual-group].
     fn maybe_coerce(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
         if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Nothing) {
             return;
@@ -2380,8 +2405,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        // Dot-notation: `base.f(args)` == `f(base, args)` when `f` is a
-        // known function/define/effect member; otherwise backend interop.
+        // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)` when `f`
+        // is a known function/define/effect member; otherwise backend
+        // interop.
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let known = self.scope.effect_members.contains_key(name)
@@ -2448,7 +2474,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.check_effect_call(effect, member, type_args, args, expected, span);
         }
 
-        // 2. Function overloads (fn declarations, else define signatures).
+        // 2. Function overloads [fn-overload] (fn declarations, else define
+        // signatures).
         let mut candidates: Vec<(Option<FnKey>, &'p FnDecl)> = self
             .scope
             .fns
@@ -2597,8 +2624,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Resolves each effect dependency of a called fn against the caller's
-    /// effect environment and records the concrete instances (in
-    /// declaration order) for the backend to thread as handler arguments.
+    /// effect environment [effect-fn-deps] and records the concrete
+    /// instances (in declaration order) for the backend to thread as
+    /// handler arguments.
     fn check_callee_effects(
         &mut self,
         name: &str,
@@ -2657,9 +2685,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Checks a call to an effect member fn. The providing effect instance
-    /// must be available (declared in the caller's effect list or `use`d);
-    /// generic effects are disambiguated by explicit type arguments, the
-    /// argument types, and the expected type, in that order.
+    /// must be available (declared in the caller's effect list or `use`d)
+    /// [effect-available]; generic effects are disambiguated by explicit
+    /// type arguments, the argument types, and the expected type, in that
+    /// order [effect-disambiguation].
     fn check_effect_call(
         &mut self,
         effect: &'p EffectDecl,

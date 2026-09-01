@@ -1,14 +1,15 @@
 //! Per-module name resolution.
 //!
 //! Each source file gets a [`ModuleScope`]: the names visible to code in
-//! that file. Visibility rules per LANGUAGE.md:
+//! that file. Visibility rules per LANGUAGE.md [mod-visibility]:
 //!
 //! * everything declared in the same module (all files of that module,
 //!   including the backend define file),
 //! * everything in `core.*` (implicitly imported),
-//! * everything named by an `import` (with optional `as` alias).
+//! * everything named by an `import` (with optional `as` alias)
+//!   [mod-import].
 //!
-//! Unresolved and ambiguous imports are reported as errors.
+//! Unresolved and ambiguous imports are reported as errors [mod-import].
 
 use std::collections::HashMap;
 

@@ -113,6 +113,7 @@ fn golden_demo_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
+// [effect-available] [effect-fn-deps]
 #[test]
 fn missing_effect_handler_is_an_error() {
     let program = build_program(&[(
@@ -208,6 +209,7 @@ fn golden_unions_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
+// [kt-union-wrappers] [union-arm-identity]
 #[test]
 fn unions_emit_sealed_wrappers() {
     let files = generate_unions_demo();
@@ -236,6 +238,7 @@ fn unions_emit_sealed_wrappers() {
     assert!(main.content.contains("(result.value as Int)"));
 }
 
+// [when-exhaustive]
 #[test]
 fn when_must_be_exhaustive() {
     let src = r#"
@@ -261,6 +264,7 @@ fn f(x: Ok Int | Err Str) -> Int {
     );
 }
 
+// [when-union-subject]
 #[test]
 fn when_requires_union_subject() {
     let src = "fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
@@ -274,6 +278,7 @@ fn when_requires_union_subject() {
     );
 }
 
+// [union-arm-identity]
 #[test]
 fn union_wrap_requires_matching_arm() {
     let src = r#"
@@ -412,6 +417,7 @@ fn golden_qualifiers_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
+// [is-qualifies] [kt-qual-mangling] [qual-field-override]
 #[test]
 fn qualifiers_lower_to_predicates_and_mangled_overloads() {
     let files = generate_qualifiers_demo();
@@ -463,6 +469,7 @@ fn expect_errors(src: &str) -> Vec<String> {
         .expect("expected type errors")
 }
 
+// [qual-no-dup]
 #[test]
 fn duplicate_qualifier_is_rejected() {
     let errors = expect_errors(
@@ -474,6 +481,7 @@ fn duplicate_qualifier_is_rejected() {
     );
 }
 
+// [qual-with]
 #[test]
 fn incompatible_qualifiers_are_rejected() {
     let src = r#"
@@ -494,6 +502,7 @@ fn f(p: Old Surname Person) -> None {
     );
 }
 
+// [qual-of]
 #[test]
 fn qualifier_of_type_is_enforced() {
     let src = r#"
@@ -513,6 +522,7 @@ fn f(x: Positive Str) -> None {
     );
 }
 
+// [qual-ctor-same-file]
 #[test]
 fn constructor_must_live_with_its_qualifier() {
     let program = build_program(&[
@@ -532,6 +542,7 @@ fn constructor_must_live_with_its_qualifier() {
     );
 }
 
+// [qual-ctor-simple]
 #[test]
 fn predicate_qualifiers_cannot_have_constructors() {
     let src = r#"
@@ -552,6 +563,7 @@ fn make() -> Int as Positive {
     );
 }
 
+// [qual-ctor-simple]
 #[test]
 fn constructor_return_type_must_be_simple() {
     let src = "qualifier Fancy of Int\n\nfn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
@@ -562,6 +574,7 @@ fn constructor_return_type_must_be_simple() {
     );
 }
 
+// [qual-constructive]
 #[test]
 fn constructive_qualifier_cannot_be_is_tested() {
     let src = "qualifier Fancy of Int\n\nfn f(x: Int) -> None {\n    if x is Fancy {\n    }\n}\n";
@@ -572,6 +585,7 @@ fn constructive_qualifier_cannot_be_is_tested() {
     );
 }
 
+// [qual-predicate]
 #[test]
 fn qualifies_signature_is_validated() {
     let src = r#"
@@ -588,6 +602,7 @@ qualifier Weird of Int {
     );
 }
 
+// [qual-constructive] [qual-ctor-fn]
 #[test]
 fn constructive_values_only_come_from_constructors() {
     // Plain values never satisfy a constructive qualifier: the assignment
@@ -673,6 +688,7 @@ fn golden_effects_kotlin() {
     insta::assert_snapshot!(combined);
 }
 
+// [effect-use] [effect-disambiguation] [kt-effect-params]
 #[test]
 fn effects_resolve_through_checker_tables() {
     let files = generate_effects_demo();
@@ -709,6 +725,7 @@ fn kotlinc_compiles_and_runs_effects() {
     run_kotlin_files(&files, "effects", expected);
 }
 
+// [use-requires-use]
 #[test]
 fn use_requires_the_use_effect() {
     let errors = expect_errors("fn setup() -> None {\n    use StdOutConsole\n}\n");
@@ -718,6 +735,7 @@ fn use_requires_the_use_effect() {
     );
 }
 
+// [effect-no-dup]
 #[test]
 fn duplicate_effect_in_list_is_rejected() {
     let errors = expect_errors("fn f() [Console, Console] -> None {\n}\n");
@@ -727,6 +745,7 @@ fn duplicate_effect_in_list_is_rejected() {
     );
 }
 
+// [use-no-dup]
 #[test]
 fn duplicate_use_registration_is_rejected() {
     let errors = expect_errors(
@@ -740,6 +759,7 @@ fn duplicate_use_registration_is_rejected() {
     );
 }
 
+// [effect-fn-deps]
 #[test]
 fn unknown_effect_is_rejected() {
     let errors = expect_errors("fn f() [Consle] -> None {\n}\n");
@@ -749,6 +769,7 @@ fn unknown_effect_is_rejected() {
     );
 }
 
+// [effect-disambiguation]
 #[test]
 fn ambiguous_generic_effect_call_is_rejected() {
     let src = r#"
@@ -767,6 +788,7 @@ fn f() [Random<Int>, Random<Double>] -> None {
     );
 }
 
+// [effect-available]
 #[test]
 fn effect_member_call_requires_handler_in_scope() {
     let errors = expect_errors("fn main() [use] -> None {\n    print(\"no handler\")\n}\n");
@@ -778,6 +800,7 @@ fn effect_member_call_requires_handler_in_scope() {
     );
 }
 
+// [effect-member-no-effects]
 #[test]
 fn handler_member_effects_are_rejected() {
     let src = r#"

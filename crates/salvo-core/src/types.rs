@@ -24,8 +24,8 @@ pub enum Ty {
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
     /// A union: at least two arms, no arm is itself a union, arms are
-    /// deduplicated, declaration order preserved (arm order is the wrapper
-    /// arm identity for codegen).
+    /// deduplicated [type-union], declaration order preserved (arm order
+    /// is the wrapper arm identity for codegen [union-arm-identity]).
     Union(Vec<Ty>),
     Tuple(Vec<Ty>),
     Array(Box<Ty>),
@@ -33,10 +33,12 @@ pub enum Ty {
     /// A generic type parameter in scope, e.g. `T`.
     Var(String),
     Any,
-    /// The type of `return`/`break`/`continue`; subtype of everything.
+    /// The type of `return`/`break`/`continue`; subtype of everything
+    /// [type-any-nothing].
     Nothing,
     /// An unknown/unchecked type. Compatible with everything; produced when
-    /// the checker cannot determine a type. Never an error by itself.
+    /// the checker cannot determine a type. Never an error by itself
+    /// [type-unknown-lenient].
     Unknown,
 }
 
@@ -170,7 +172,8 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
         // A qualified union group (`Ok (A | B)`) matches an identical union
         // arm, or may drop its group qualifiers (checked before the any-arm
-        // rule below, which would compare the whole group against arms).
+        // rule below, which would compare the whole group against arms)
+        // [qual-group].
         (Ty::Qualified { base, .. }, _) if matches!(**base, Ty::Union(_)) => {
             if let Ty::Union(arms) = b {
                 if arms.iter().any(|arm| a == arm) {
