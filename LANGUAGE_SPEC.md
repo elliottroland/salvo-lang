@@ -115,6 +115,12 @@ Conventions:
 * [struct-mut] `struct Name with Mut { ... }` opts a struct into the `Mut`
   auto-qualifier; only `Mut Name` values may have fields assigned.
   * `Mut` is the only auto-qualifier.
+  * Enforced at field-assignment sites since S1: assigning to a field of
+    a struct value whose type is not `Mut`-qualified is an error (the
+    `copy` intrinsic's identity lowering on Kotlin relies on non-`Mut`
+    values really being immutable [copy-fn]). Arrays remain
+    index-assignable without `Mut` (status quo; `copy` performs a real
+    array copy).
 * [type-with-mut] `Mut` is a language-level qualifier, not a library
   declaration: any type declaration may opt into it with `with Mut`
   (`external type List<T> with Mut`), and applying `Mut` to a type whose
@@ -362,9 +368,13 @@ Conventions:
     are stored in the typed IR (`Checked::deductions`); Kotlin ignores
     them — they are the Rust backend's ownership/borrow contract.
   * Moves are inferred when a bare parameter is: passed to a call whose
-    deduction omits it, bound by `let`/assignment, returned, `break`- or
-    `yield`-ed, stored in a struct/array/tuple literal, or passed to a
-    `use` handler constructor. Unresolved callees (backend interop,
+    deduction omits it, returned, `break`- or `yield`-ed, stored in a
+    struct/array/tuple literal, or passed to a `use` handler
+    constructor. Binding a bare parameter (or a projection of one) with
+    `let`/assignment is *not* a move — it fate-links the new variable to
+    the parameter [fate-link], and every way the linked value could
+    escape is a checker error until `copy` makes it independent
+    [fate-derived-readonly]. Unresolved callees (backend interop,
     effect members) borrow leniently and preserve all qualifiers; value
     flow out of a branch/loop tail is not tracked as a move yet.
   * A written list is validated against the same body facts: it may be
@@ -410,6 +420,58 @@ Conventions:
     consume-then-reassign within the body stays clean).
   * Variadic parameters and non-identifier arguments are not tracked.
 
+## Shared fate
+
+* [fate-link] Binding a variable to the value or a projection of another
+  variable — `let m = n`, `let m = person.name`, assignment,
+  destructuring, `for` loop bindings, `is`/`when` bindings — *links* the
+  new variable to its source: they share fate. Links are directed
+  (derived → root), transitive (flattened to the ultimate roots at the
+  binding), and at whole-variable granularity. Reads never consume and
+  never poison, on any member, at any time. Function results are always
+  independent (a fn returning a projection of a kept parameter must
+  `copy` internally); `copy(...)` produces an unlinked value [copy-fn].
+  * Provenance is static: bare identifiers and field/index/`!` chains
+    over one. Values built by calls, literals, operators, or branch
+    expressions are independent.
+  * Links are flow state: they union across branch merges (may-be-linked
+    is linked) and survive loop back-edge re-checking.
+* [fate-derived-readonly] A fate-linked (derived) variable is read-only:
+  moving it (a call that does not keep it, `return`, `break value`,
+  `yield`) or mutating it (a `Mut` call argument, projection assignment,
+  `++`) is an error at that site; the remedy is `copy`. (Allowing moves
+  of derived values when every root is owned and dead — Rust-style
+  partial moves — is roadmap stage S2.)
+* [fate-poison] Mutating, moving, or reassigning a *root* variable
+  poisons every variable derived from it: they narrow to `Nothing` with
+  the fate recorded, a later use is an error naming the root and the
+  event, and reassignment revives them [deduce-consume]. The root itself
+  stays usable after a mutation or reassignment. Poison is not
+  retroactive (a binding created after the event is unaffected), and a
+  use-free poison never fires — NLL-like precision without a liveness
+  analysis.
+  * Mutation events are defined by the existing machinery: a call
+    keeping a parameter whose declared type carries `Mut`, an assignment
+    through a projection, and `++`. Whole-variable reassignment (`x =
+    ...`, `x++`) is revival for `x` itself but poisons `x`'s previous
+    derivatives (the old value is gone).
+  * The discipline is uniform across all types and purely static: on
+    Kotlin nothing physically prevents the rejected programs — it is the
+    same protocol on both backends, and it is what makes clone-vs-alias
+    emission differences unobservable (any program that could tell the
+    difference is rejected).
+  * Not yet tracked (later stages): non-identifier call arguments,
+    struct/array/tuple literal stores, `use` handler-constructor
+    arguments, and lambda captures.
+* [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
+  duplicates a value: the argument is kept untouched with all its
+  qualifiers (`[value]`), and the result is a fresh value with no fate
+  links. It is the one-word remedy in every fate diagnostic.
+  * Lowered type-directedly by each backend [internal-fn]; identity
+    where no Salvo operation can mutate the value, a real copy where
+    one can, and a codegen error where no correct copy exists yet
+    [backend-never-wrong].
+
 ## Modules, imports, files
 
 * [mod-file] `.sv` files are modules; the module path is the file path (no
@@ -444,6 +506,15 @@ Conventions:
   mapped inside the compiler; every backend must handle all of them
   (`Str`, numeric types, `Iter<T>`, ...). The `Mut` auto-qualifier is
   mapped per backend via `Mut inline:` define sections [type-with-mut].
+* [internal-fn] `internal fn` declares a compiler-intrinsic function:
+  the declaration carries the signature and deduction list the checker
+  uses (body-less, like `external fn`), but there are *no* define files
+  — each backend lowers calls to it directly, seeing the checker's
+  resolved argument type at every call site (type-directed lowering a
+  single generic define template cannot express). An internal fn a
+  backend does not implement, or an argument type it cannot lower, is a
+  codegen error [backend-never-wrong]. The only internal fn today is
+  `core.copy` [copy-fn].
 * [backend-external] `external` declarations (fns, types, handlers) carry
   only signatures; each backend that needs them provides `define`
   templates in a sibling `<module>.<backend>.sv` file. Coverage is

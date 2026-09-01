@@ -12,7 +12,7 @@
 //! code [backend-never-wrong]): tuples beyond Pair/Triple, multi-spread
 //! struct literals.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
@@ -2235,7 +2235,8 @@ impl<'p> Emitter<'p> {
             return format!("{handler}.{}({})", kt_ident(name), arg_code.join(", "));
         }
 
-        // 2. Checker-resolved fn target (type-based overloads win). External
+        // 2. Checker-resolved fn target (type-based overloads win).
+        // Internal fns lower intrinsically [internal-fn]; external
         // signatures route to their backend define template.
         let checker_resolved = self
             .checked
@@ -2243,6 +2244,9 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key));
         if let Some(f) = checker_resolved {
+            if f.backing == Some(BackingMod::Internal) {
+                return self.emit_internal_call(f, args);
+            }
             if f.body.is_none() {
                 if let Some(def) = self.define_for_decl(name, f) {
                     return self.emit_define_call(name, def, args);
@@ -2262,6 +2266,9 @@ impl<'p> Emitter<'p> {
 
         // 4. Known function by arity.
         if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
+            if f.backing == Some(BackingMod::Internal) {
+                return self.emit_internal_call(f, args);
+            }
             // [backend-external] An external signature that reached this
             // point has no define (step 3 would have matched one).
             if f.body.is_none() {
@@ -2307,6 +2314,188 @@ impl<'p> Emitter<'p> {
             .or_else(|| defs.iter().find(|d| shape_matches(d)))
             .or_else(|| defs.first())
             .copied()
+    }
+
+    /// A call to an `internal fn`, lowered directly by the compiler
+    /// [internal-fn]. The only internal fn today is `copy` [copy-fn],
+    /// lowered type-directedly [kt-copy]: identity for transitively
+    /// immutable types (duplicating a reference to immutable data is a
+    /// copy), a real copy where mutation is possible, and a codegen
+    /// error where no correct copy exists yet [backend-never-wrong].
+    fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+        if f.name.name != "copy" || args.len() != 1 {
+            self.error(format!(
+                "internal fn `{}` is not supported by the kotlin backend",
+                f.name.name
+            ));
+            return "TODO()".to_string();
+        }
+        let arg = args[0];
+        let ty = self
+            .checked
+            .expr_ty
+            .get(&(self.file_idx, arg.span()))
+            .cloned()
+            .unwrap_or(Ty::Unknown);
+        let code = self.emit_expr(arg);
+        // Identity: no Salvo operation can mutate any part of the value.
+        if self.ty_immutable(&ty, &mut Vec::new()) {
+            return code;
+        }
+        // Real copies for the mutable shapes Kotlin can copy correctly.
+        let has_mut = ty.quals().iter().any(|q| q.name == "Mut");
+        match ty.strip_quals() {
+            Ty::Named { name, args: targs } if has_mut && name == "List" => {
+                if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
+                    return format!("{code}.toMutableList()");
+                }
+            }
+            Ty::Named { name, args: targs } if has_mut => {
+                // A `Mut` struct whose fields are all immutable copies
+                // correctly with the data class's shallow `.copy()`.
+                if let Some(s) = self.symbols.structs.get(name.as_str()) {
+                    let subst: HashMap<String, Ty> = s
+                        .generics
+                        .iter()
+                        .map(|g| g.name.clone())
+                        .zip(targs.iter().cloned())
+                        .collect();
+                    let mut visiting = vec![name.clone()];
+                    let all_immutable = s.fields.iter().all(|field| {
+                        match Self::approx_ty(&field.ty, &subst) {
+                            Some(t) => self.ty_immutable(&t, &mut visiting),
+                            None => false,
+                        }
+                    });
+                    if all_immutable {
+                        return format!("{code}.copy()");
+                    }
+                }
+            }
+            Ty::Array(elem) => {
+                if self.ty_immutable(elem, &mut Vec::new()) {
+                    return format!("{code}.copyOf()");
+                }
+            }
+            _ => {}
+        }
+        self.error(format!(
+            "the kotlin backend cannot `copy` a value of type `{ty}` yet"
+        ));
+        "TODO()".to_string()
+    }
+
+    /// Whether no Salvo operation can mutate any part of a value of this
+    /// type — the condition under which identity is a correct `copy` on
+    /// the JVM [kt-copy]. Conservative: anything unknown is mutable.
+    /// `visiting` breaks struct cycles (a cycle through immutable
+    /// spines stays immutable).
+    fn ty_immutable(&self, ty: &Ty, visiting: &mut Vec<String>) -> bool {
+        match ty {
+            Ty::Qualified { quals, base } => {
+                !quals.iter().any(|q| q.name == "Mut")
+                    && self.ty_immutable(base, visiting)
+            }
+            Ty::Named { name, args } => match name.as_str() {
+                "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool"
+                | "Str" | "None" => true,
+                // A non-`Mut` list is read-only [type-with-mut].
+                "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
+                _ => {
+                    let Some(s) = self.symbols.structs.get(name.as_str()) else {
+                        return false;
+                    };
+                    if visiting.iter().any(|v| v == name) {
+                        return true;
+                    }
+                    // A struct value without the `Mut` qualifier cannot
+                    // have fields assigned [struct-mut]; its fields must
+                    // still be transitively immutable themselves.
+                    visiting.push(name.clone());
+                    let subst: HashMap<String, Ty> = s
+                        .generics
+                        .iter()
+                        .map(|g| g.name.clone())
+                        .zip(args.iter().cloned())
+                        .collect();
+                    let ok = s.fields.iter().all(|field| {
+                        match Self::approx_ty(&field.ty, &subst) {
+                            Some(t) => self.ty_immutable(&t, visiting),
+                            None => false,
+                        }
+                    });
+                    visiting.pop();
+                    ok
+                }
+            },
+            Ty::Union(arms) => arms.iter().all(|a| self.ty_immutable(a, visiting)),
+            Ty::Tuple(elems) => elems.iter().all(|e| self.ty_immutable(e, visiting)),
+            // Arrays are index-assignable without `Mut`.
+            Ty::Array(_) => false,
+            // Function values are opaque and immutable.
+            Ty::Fn { .. } => true,
+            Ty::Var(_) | Ty::Any | Ty::Nothing | Ty::Unknown => false,
+        }
+    }
+
+    /// Approximates a written field type as a checker `Ty` under a
+    /// generic substitution — just enough structure for the
+    /// immutability analysis [kt-copy].
+    fn approx_ty(t: &Type, subst: &HashMap<String, Ty>) -> Option<Ty> {
+        match t {
+            Type::Named { qualifiers, base } => {
+                if qualifiers.is_empty() && base.args.is_empty() {
+                    if let Some(ty) = subst.get(&base.name.name) {
+                        return Some(ty.clone());
+                    }
+                }
+                let args: Option<Vec<Ty>> =
+                    base.args.iter().map(|a| Self::approx_ty(a, subst)).collect();
+                let named = Ty::Named {
+                    name: base.name.name.clone(),
+                    args: args?,
+                };
+                let quals: Vec<salvo_core::Qual> = qualifiers
+                    .iter()
+                    .map(|q| salvo_core::Qual {
+                        name: q.name.name.clone(),
+                        args: Vec::new(),
+                    })
+                    .collect();
+                Some(named.qualify(quals))
+            }
+            Type::QualifiedGroup { qualifiers, base, .. } => {
+                let inner = Self::approx_ty(base, subst)?;
+                let quals: Vec<salvo_core::Qual> = qualifiers
+                    .iter()
+                    .map(|q| salvo_core::Qual {
+                        name: q.name.name.clone(),
+                        args: Vec::new(),
+                    })
+                    .collect();
+                Some(inner.qualify(quals))
+            }
+            Type::Union { arms, .. } => {
+                let arms: Option<Vec<Ty>> =
+                    arms.iter().map(|a| Self::approx_ty(a, subst)).collect();
+                Some(Ty::Union(arms?))
+            }
+            Type::Tuple { elems, .. } => {
+                let elems: Option<Vec<Ty>> =
+                    elems.iter().map(|e| Self::approx_ty(e, subst)).collect();
+                Some(Ty::Tuple(elems?))
+            }
+            Type::Array { elem, .. } => {
+                Some(Ty::Array(Box::new(Self::approx_ty(elem, subst)?)))
+            }
+            Type::Nullable { inner, .. } => {
+                Some(Ty::Union(vec![Self::approx_ty(inner, subst)?, Ty::none()]))
+            }
+            Type::Fn { .. } => Some(Ty::Fn {
+                params: Vec::new(),
+                ret: Box::new(Ty::Unknown),
+            }),
+        }
     }
 
     /// Inline expansion of a `define fn` template.

@@ -4,10 +4,14 @@ Status snapshot as of 2026-09-01: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
-deductions, uniform across types, branch- and loop-aware). This document
+deductions, uniform across types, branch- and loop-aware). Roadmap stage
+**S1 (shared fate, strict checker-only) is complete**: fate links with
+poison rules, the `internal fn copy` intrinsic with type-directed
+lowering on both backends, and `[struct-mut]` enforcement. This document
 is the handoff point for continuing development: it records what is
 built, the key design decisions, known limitations, and the plan for
-what's next — chiefly the roadmap toward full linear types.
+what's next — chiefly the roadmap toward full linear types (next up:
+S2/L2).
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -25,7 +29,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 142 tests; includes six kotlinc and six rustc
+cargo test                  # 154 tests; includes seven kotlinc and seven rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -226,6 +230,56 @@ that still shape the code, and where to look for the mechanics.
   so `describe(ok("x"))` resolves against `Ok Str | Err Str` (see
   Gotchas).
 
+### S1 — shared fate, strict checker-only (completed 2026-09-01)
+
+The first stage of the shared-fate roadmap (see the L1 section below for
+the decided model). What landed:
+
+- **`internal fn copy<T>(value: T) -> [value] T`** in `std/core/basic.sv`
+  [internal-fn] [copy-fn]: parser already accepted `internal fn`
+  (body-less like `external`); the declaration flows through
+  Symbols/resolve/checker unchanged — the `[value]` deduction is the
+  whole checker contract. Both emitters intercept
+  `backing == Internal` before define-template lookup and lower the
+  call from the checker's resolved argument type: Kotlin [kt-copy]
+  identity for transitively immutable types, `.toMutableList()` /
+  `.copy()` / `.copyOf()` for `Mut List` / `Mut` structs / arrays,
+  codegen error for nested mutability and unknown/generic types; Rust
+  [rs-copy] `.clone()` on the argument's place.
+- **Fate links in the checker** [fate-link]: `LocalVar` gained
+  `id`/`links`/`poison`; links are directed, flattened to roots at the
+  binding, whole-variable. Creators: `let`/assignment from a bare
+  identifier or projection chain, destructuring, `for` bindings,
+  `is`/`when` bindings. Snapshot/restore/merge and the loop re-check
+  carry the full `VarState`; links union across branch merges.
+- **Poison rules** [fate-poison]: a `Mut`-kept call argument, projection
+  assignment, or `++` on a root — and moves and whole-variable
+  reassignment of it — poison its derived variables (`Nothing` + a
+  recorded reason; the use-site error names the root, the event, and
+  the `copy` remedy). Derived variables are read-only
+  [fate-derived-readonly]: moving (consuming call, `return`, `break
+  value`, `yield`) or mutating one errors at the site.
+- **deduce.rs**: `let`/assignment of a bare parameter is no longer
+  inferred as a move — it links; sound because every escape of the
+  derived variable is a checker error until `copy` intervenes.
+- **[struct-mut] is now enforced** at field-assignment sites (it was
+  spec'd but unchecked, and became load-bearing: Kotlin's identity-copy
+  is only correct if non-`Mut` values really are immutable). Arrays
+  stay index-assignable without `Mut` (status quo; `copy` does a real
+  array copy). Fixed a LANGUAGE.md spec bug the enforcement exposed:
+  the `Mut` example mutated `person` instead of `mutable_person`.
+- **Rust emission**: fate-linked bindings clone — `let`/assignment
+  values and `for` iterables that are bare identifiers of owned
+  non-Copy locals emit `.clone()` instead of moving (the checker keeps
+  both sides readable). This also closed the old "`let a = b` moves
+  local `b`" rustc-rejection leftover. Kotlin emission unchanged
+  (aliasing is unobservable because mutation-after-link is rejected).
+- Deliberately not tracked yet (later stages): non-identifier call
+  arguments (a projection passed directly to a consuming call is
+  physically a clone today), struct/array/tuple literal stores, `use`
+  handler-constructor arguments, lambda captures, and S2's move-mode
+  relaxation.
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
@@ -291,29 +345,95 @@ implementation — everything else is analysis engineering under decisions
 already made (uniform-across-types consumption, `Nothing` as the marker,
 maybe-moved-is-unusable).
 
-### L1 — Aliasing bindings are moves
+### L1 — Shared fate: links, poison, and `copy` (user decisions 2026-09-01)
 
-`let m = n` and `x = n` (bare non-copy… no — *uniformly*, per the
-uniform-consumption decision) consume `n`: narrow it to `Nothing` exactly
-like a consuming call. This closes the biggest soundness hole (today the
-alias silently duplicates ownership; the Rust backend emits a real move
-and rustc rejects later uses loudly) and aligns local flow with what
-deduction inference already assumes (`let`-binding a parameter counts as
-a move of that parameter).
+Redesigned: replaces the original "aliasing bindings are moves" +
+"reads are copies" plan. Shared fate is a lifetime-free borrow
+discipline: a variable bound to the value or projection of another
+*links* to it, reads flow freely through links, and ownership-requiring
+operations (moves, `Mut` ops) consume the rest of the link group. The
+motivating example: `longest = person.name` inside a loop over a *kept*
+parameter `persons`, then `return longest` — invalid (moving a value
+derived from a borrow); remedy `return copy(longest)` — one copy at the
+escape instead of a clone per iteration.
 
-- **DECISION L1a — the copy escape hatch.** With `let m = n` consuming
-  `n`, users need an explicit way to duplicate: a std
-  `fn copy<T>(value: T) -> T` (define per backend: Kotlin identity /
-  `.copy()` for structs, Rust `.clone()`)? A different name (`clone`,
-  `dup`)? Or qualifier-driven (only `Mut`/owned things need copying)?
-  Recommendation: `copy(n)` in `core`, defined for all types, so the
-  consuming `let` has a one-word remedy in diagnostics ("use
-  `copy(n)`").
-- **DECISION L1b — do projections copy?** `let m = person.name` reads a
-  field. Both emitters *clone* field/index reads today, so semantically
-  this is a copy, not a partial move. Recommendation: keep reads-as-
-  copies (no consumption), and defer real partial moves to L5. This
-  should be stated as a spec rule either way.
+The decided model:
+
+- **L1a — `internal fn copy` (decided).** New `internal` item keyword
+  for compiler-intrinsic fns:
+  `internal fn copy<T>(value: T) -> [value] T` is declared in std (the
+  signature + `[value]` deduction are all the checker needs:
+  non-consuming, result independent), has *no define files*, and each
+  emitter lowers calls to it type-directedly — Kotlin: identity for
+  immutable data, real copies for `Mut`-capable types; Rust:
+  `.clone()` (scalar identity as a later refinement). Unsupported
+  types are codegen errors [backend-never-wrong]. Rationale: a define
+  template is type-blind text per signature and cannot dispatch on the
+  instantiated `T`; an intrinsic sees the checker's resolved argument
+  type at each call site.
+- **Shared fate (decided; supersedes L1b).** Links are *directed*
+  (derived → root), *transitive* (`longest` → `person` → `persons`),
+  and at *whole-variable granularity* (no place lattice). Link
+  creators: `let`/assignment from a bare identifier or a projection,
+  loop bindings, destructuring.
+  - Reads never consume and never poison, on any member, any time.
+  - Mutation events are already defined by the deduction system:
+    Mut-kept call args and projection assignments (effect-handler
+    capture deferred to L4).
+  - A `Mut` op or move on the *root* poisons every derived member
+    (narrows to `Nothing`, error at later *use*, revival by
+    reassignment — the existing possibly-consumed machinery). The
+    root stays usable after mutation. Poison is not retroactive:
+    derivatives created after a mutation are fine. This is NLL-like
+    precision without a liveness analysis (no later use → nothing
+    fires).
+  - **Bindings have modes**, decided by downstream flow:
+    *borrow-mode* (derived value only ever read; ancestors stay
+    usable) vs *move-mode* (derived value eventually moved/mutated;
+    the *binding itself* consumes the ancestors — Rust partial-move
+    semantics, emission-faithful, no hidden clones). Poison-at-move
+    was rejected: it cannot be emitted faithfully without a hidden
+    clone.
+  - Moving or mutating a value derived from a *kept* parameter is a
+    deduction-contract violation regardless of mode (you cannot move
+    out of a borrow); remedy `copy`.
+  - Uniform across all types (standing decision). On Kotlin the whole
+    discipline is a purely static protocol (no runtime component); it
+    rejects some JVM-fine programs by design, remedy `copy`.
+
+Stages (each independently shippable):
+
+- **S1 — strict, checker-only. ✅ Done 2026-09-01** (see the S1 section
+  in the decision log above). Links + poison rules with derived
+  members *read-only* (any move or `Mut` op on a derived member is an
+  error at that site; remedy `copy`). Emission unchanged
+  (clone-by-default), so nothing can physically break — the protocol
+  lands before the performance. Includes `internal fn copy`
+  end-to-end and diagnostics naming the link and the event.
+  - **S1a — the function boundary (decided 2026-09-01):** call
+    results never link to arguments — returned values are always
+    independent; a fn returning a projection of a kept param must
+    `copy` internally; links stay intraprocedural. Derived-return
+    annotations are reconsidered in a dedicated late milestone (L7).
+- **S2 — move-mode bindings.** The relaxation: moving/mutating a
+  derived member becomes legal when every ancestor is owned
+  in-function (a local or a *consumed* param) and unused after the
+  binding; the poison lands at the binding. Zero-clone consuming
+  pipelines become expressible (`longest_name` over an *omitted*
+  `persons` param: iterate by value, move the field out, return it —
+  no copies at all). Needs the binding-mode fixpoint interleaved with
+  the existing two-round check architecture. Strict-first is safe:
+  the relaxation only makes more programs legal.
+- **S3 — borrow emission (Rust).** Borrow-mode bindings emit real
+  borrows (locals holding `&T` — a new emission regime; today every
+  read is cloned), move-mode bindings emit partial moves; loops
+  iterate by reference for borrow-mode bindings. Kotlin emission
+  unchanged throughout. Checker legality must match what borrowck
+  accepts — audit before landing.
+  - **DECISION S3a — mixed joins.** A variable linked on one path and
+    independent on another (`if c { person.name } else { compute() }`)
+    is `&T` vs `T` in Rust: forbid, auto-`copy` the owned branch, or
+    `Cow`-style? Decide when S3 starts.
 
 ### L2 — Remaining consuming sites
 
@@ -370,14 +490,12 @@ destructuring consumes its source; moving a field out leaves the struct
 partially unusable. This is the largest analysis change (place lattice
 instead of per-variable states).
 
-- **DECISION L5a — allow partial moves at all?** Rust permits moving a
-  field out of an owned struct (struct becomes partially moved);
-  forbidding it (require destructuring or `copy`) keeps states simple
-  and matches the emitters' clone-by-default projections.
-  Recommendation: forbid projections-as-moves initially (L1b keeps them
-  copies); revisit only with a concrete use case, because "reads are
-  copies" may be the permanently right answer for a language without
-  references.
+- **L5a — answered by shared fate (2026-09-01):** partial moves exist
+  as *move-mode bindings* at whole-variable granularity (L1/S2); the
+  question left for L5 is only *field-disjoint precision* (using one
+  field while another is moved/borrowed), a refinement with no current
+  use case. Revisit only if whole-variable poison proves too coarse in
+  practice.
 
 ### L6 — Must-use: true linearity
 
@@ -415,9 +533,27 @@ provides the paths), and a blessed set of consuming operations.
   linear types are a *protocol* checker feature, identical on both
   backends, with no runtime component.
 
-Sequencing note: L1+L2 are small and high-value (they close real
-rustc-rejection gaps); L3 is hygiene; L4 needs the emitter audit first;
-L5 can be deferred indefinitely if L1b's "reads are copies" holds up;
+### L7 — Reconsider derived-return annotations
+
+Revisit S1a's "returned values are always independent" rule once
+shared fate (S1–S3) and linearity (L6) have real usage. The question:
+should deductions grow a derived-return dimension ("the result is
+derived from parameter X" — lifetime elision by another name), so
+zero-copy accessors (`first(persons)` returning a linked element)
+work across call boundaries? Adding it later is purely a relaxation
+(more programs expressible, nothing breaks). Evaluate against real
+std/user code: if the intra-function `copy` costs never show up in
+practice, independent returns may be the permanently right answer.
+
+- **DECISION L7a** — whether to add it at all, and the annotation
+  surface if so (e.g. `-> [persons] persons.T`-style vs a marker on
+  the return type); every std external returning a projection would
+  need auditing.
+
+Sequencing note: L1 lands in stages (S1 strict checker-only → S2
+move-mode bindings → S3 borrow emission); S1+L2 close real
+rustc-rejection gaps; L3 is hygiene; L4 needs the emitter audit first;
+L5 is largely subsumed by shared fate (field-disjoint precision only);
 L6 is the only phase introducing new language surface and should get a
 LANGUAGE.md section of its own before implementation. Per AGENTS.md,
 each phase lands with LANGUAGE_SPEC.md rules (extending
@@ -472,9 +608,6 @@ affected layer.
 - Rust: interpolating a still-optional value (a `T?` never narrowed) is a
   rustc error (`Option` has no `Display`); Kotlin prints `null`. Narrow
   or `!` first.
-- Rust: `let a = b` moves local `b`; a later Salvo use of `b` is legal in
-  the checker today but fails rustc (loud). Roadmap phase L1 is the
-  proper fix.
 - An aliased import of a *mangled* qualified overload maps to the
   unmangled name in the generated Kotlin alias import ([kt-imports];
   same class as the unchecked-context mangling gap).
@@ -482,21 +615,23 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 142)
+## Test inventory (all green: 154)
 
-- `salvo-core`: 21 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 22 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 9 deduction
+  skipped with the root exempt) + 10 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
-  written-list shape validation, stricter-than-body lists) + 2
+  written-list shape validation, stricter-than-body lists, and
+  `let`-bindings linking instead of moving — the parameter stays kept,
+  reads through the alias are free, `copy` severs [fate-link]) + 2
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 28 - 21 `analyze` integration tests running the built
+- `salvo-cli`: 34 - 27 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -513,6 +648,16 @@ affected layer.
   partial qualifier removal joining conservatively, and call-site
   qualifier removal for kept params incl. `[list:]` [deduce-consume],
   union-arm arguments resolving against union params [type-union],
+  the shared-fate matrix (derived variables read-only for
+  moves/mutations/returns with the `copy` remedy [fate-derived-readonly],
+  root mutation/move/reassignment poisoning derived variables with
+  use-site errors naming the event — and unobserved poison staying
+  silent [fate-poison], links flowing through projections, `for` and
+  `is` bindings transitively to the root, reassignment revival, links
+  unioning across branch merges [fate-link], `copy` producing
+  independent values that make the whole matrix pass [copy-fn]),
+  `[struct-mut]` field assignment requiring a `Mut`-qualified struct
+  value,
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -531,7 +676,7 @@ affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 50 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 53 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -558,10 +703,14 @@ affected layer.
   return, `is` on constructive qualifiers, `qualifies` signature,
   constructive values only from constructors, `break` outside a loop,
   missing defines for used external fns/types, uncovered core externals,
-  companion/generated-file collision); and six kotlinc compile+run tests
+  companion/generated-file collision); `copy` intrinsic lowering
+  assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
+  [kt-copy] [internal-fn]) and a negative test (`copy` of nested
+  mutability is a codegen error); and seven kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
-  with packages, generated imports, and a companion file).
-- `salvo-backend-rust`: 23 - golden snapshots of the same five demos
+  with packages, generated imports, and a companion file, and the S1
+  copy demo).
+- `salvo-backend-rust`: 25 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -574,9 +723,11 @@ affected layer.
   predicate-qualifier constructors emit plain fns [qual-ctor-predicate];
   negative tests (missing defines for external
   fns/types, uncovered core externals, generic effect members
-  [rs-effects]); and six rustc compile+run tests with exact stdout
-  assertions mirroring the kotlinc set (demo, unions, qualifiers,
-  effects, loops, multi-module).
+  [rs-effects]); `copy`-lowering assertions (`.clone()` on the
+  argument's place, and fate-linked `let`s cloning instead of moving
+  [rs-copy] [fate-link]); and seven rustc compile+run tests with exact
+  stdout assertions mirroring the kotlinc set (demo, unions, qualifiers,
+  effects, loops, multi-module, copy).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -584,6 +735,48 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (S1) `[struct-mut]` ("only `Mut Name` values may have fields
+  assigned") was in both specs but *unenforced* — and became
+  load-bearing: Kotlin's identity lowering of `copy` is only correct if
+  non-`Mut` values really are immutable. When a backend decision leans
+  on a checker rule, verify the rule is actually enforced, not just
+  written down. (Enforcing it also exposed a LANGUAGE.md example bug:
+  the `Mut` struct example mutated `person` instead of
+  `mutable_person`.)
+- (S1) Poison rides the existing consumed-state machinery: a poisoned
+  variable is just `narrowed = Nothing` plus a `Poison` reason on the
+  `LocalVar` — branch merging, revival-by-reassignment, `is`-restore
+  survival, and the loop re-check all carry it with no new lattice.
+  Keep new flow facts inside `VarState` (narrowed/links/poison) so
+  `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` stay the
+  single source of flow-state truth.
+- (S1) Variable *names* are not stable identities across sibling scopes
+  even with [var-no-shadow] (two sequential `for person in …` loops);
+  fate links use per-binding numeric ids (`Checker.next_var_id`), and a
+  link may outlive its root (the loop binding dies, the flattened link
+  to the collection survives) — flatten to all transitive roots at the
+  binding, not lazily.
+- (S1) `is`/`when`/`for` bindings alias their subject, so they must
+  inherit its fate links — the binding tuples are `(Ident, Ty,
+  Vec<FateLink>)` threaded through `CondInfo`/`IsInfo`/
+  `check_branch_block`. A new binding form must decide its provenance.
+- (S1) The checker now keeps *both* sides of `let a = b` readable, so
+  the Rust emitter had to stop moving bare-ident sources
+  (`emit_linked_value`: owned non-Copy locals clone in `let`/assignment
+  values and `for` iterables). Checker-permissiveness changes and
+  emission must move together, or the gap surfaces as rustc errors on
+  generated code.
+- (S1) `i++` and whole-variable reassignment are *rebinds* (revival:
+  sever the variable's own links, poison its previous derivatives), not
+  mutations — only projection assignment and `Mut`-kept call arguments
+  are mutation events. Getting this wrong makes ordinary loop counters
+  (`let i = start; while … { i++ }`) uncompilable.
+- (S1) Kotlin's `copy` immutability analysis must be *transitive* (a
+  non-`Mut` struct with a `Mut List` field is not immutable — identity
+  would alias the mutable part and diverge from Rust's deep clone), and
+  generic struct fields must be checked under the instantiation's
+  substitution (`approx_ty` bridges written field types to checker
+  `Ty`s just far enough for that).
 - `unify` (overload resolution) is *order-sensitive across its match
   arms*: the argument-qualifier-stripping arm
   (`(_, Ty::Qualified { .. })`) must come *after* the union-parameter

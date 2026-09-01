@@ -125,6 +125,12 @@ derives them mechanically:
   * call results, literals, and constructed values are already owned.
   * Assignment targets, `is` subjects, and borrow positions use the raw
     place (no clone).
+  * **Fate-linked bindings clone [fate-link]:** a `let`/assignment value
+    or `for` iterable that is a *bare identifier* of an owned non-Copy
+    local emits `x.clone()`, not a move — the checker keeps both the
+    source and the derived variable readable, so the source must remain
+    physically valid. (Clone-by-default is the S1 emission; replacing
+    borrow-mode links with real borrows is roadmap stage S3.)
 * **Local bindings.** Every `let` emits `let mut` (the crate-root
   `#![allow(unused_mut)]` silences the cosmetic lint): Salvo mutability
   (assignment, `++`, `Mut` methods, `&mut` argument positions) is
@@ -266,6 +272,17 @@ derives them mechanically:
   parameter declared `Mut` receives a mutable place (the raw argument) —
   method-style templates (`${list}.push(${elem})`) then borrow the place
   natively. `imports:` lines hoist per generated file.
+* [internal-fn] Internal fns bypass define templates: the emitter lowers
+  the call directly. Rust implements `copy` [copy-fn] as [rs-copy]; any
+  other internal fn is a codegen error.
+* [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
+  a bare identifier clones its binding place (whatever its binding
+  mode — every generated type derives or is `Clone`, and generic
+  parameters carry a `Clone` bound); a narrowing-unwrapped identifier
+  uses the unwrap rendering (already an owned clone); field/index
+  arguments use the owned rendering (already a clone); constructed
+  values (call results, literals) pass through — they are already
+  fresh, so `copy` is free on them.
 * [struct-defaults] Rust has no default arguments: struct literals
   inline the declared default expressions for omitted fields at every
   literal site.

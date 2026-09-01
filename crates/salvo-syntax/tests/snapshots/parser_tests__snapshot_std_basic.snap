@@ -222,5 +222,73 @@ Module {
                 span: 262..303,
             },
         ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "copy",
+                    span: 654..658,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 659..660,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 662..667,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 669..670,
+                                },
+                                args: [],
+                                span: 669..670,
+                            },
+                        },
+                        variadic: false,
+                        span: 662..670,
+                    },
+                ],
+                effects: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "value",
+                                span: 676..681,
+                            },
+                            qualifiers: [],
+                            explicit: false,
+                            span: 676..681,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 683..684,
+                            },
+                            args: [],
+                            span: 683..684,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 651..684,
+            },
+        ),
     ],
 }

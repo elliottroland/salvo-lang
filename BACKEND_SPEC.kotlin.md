@@ -195,6 +195,29 @@ Conventions:
 * [backend-define-inline] Define templates expand inline at call sites;
   `imports:` lines are hoisted per generated file
   ([backend-define-imports]).
+* [internal-fn] Internal fns bypass define templates: the emitter lowers
+  the call directly from the checker's resolved argument type. Kotlin
+  implements `copy` [copy-fn] as [kt-copy]; any other internal fn is a
+  codegen error.
+* [kt-copy] `copy(x)` lowers type-directedly:
+  * *identity* (emits just the argument) when the type is transitively
+    immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
+    elements, tuples/unions/fn values of immutable components, and
+    struct types (any `with Mut` declaration included) whose value is
+    not `Mut`-qualified and whose fields are transitively immutable
+    [struct-mut]. Duplicating a reference to immutable data *is* a
+    copy on the JVM.
+  * `Mut List<E>` with immutable `E` → `.toMutableList()`;
+  * a `Mut` struct whose fields are all transitively immutable →
+    `.copy()` (the data class's shallow copy is exact there);
+  * `T[]` with immutable `T` → `.copyOf()` (arrays are index-assignable
+    without `Mut`);
+  * anything else — nested mutability (`Mut List<Mut ...>`, a `Mut`
+    struct with a `Mut`-typed field), generic `T`, `Iter`, unknown
+    interop types — is a codegen error [backend-never-wrong].
+  * Generic struct fields are checked under the instantiation's
+    substitution; struct cycles are assumed immutable along the
+    visiting spine.
 
 ## Deliberate cuts ([backend-never-wrong])
 
@@ -203,4 +226,6 @@ Reported as codegen errors, never silent wrong code:
 * multi-spread struct literals;
 * early `return` inside expression-position lambdas;
 * tuples beyond `Pair`/`Triple`;
-* struct literal without an inferable type.
+* struct literal without an inferable type;
+* `copy` of a type with nested mutability or an unknown/generic type
+  [kt-copy].

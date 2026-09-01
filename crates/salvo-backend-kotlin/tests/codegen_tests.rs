@@ -1503,3 +1503,102 @@ fn main() [use] -> [] None {
         main.content
     );
 }
+
+// ===== S1: the `copy` intrinsic [internal-fn] [copy-fn] [kt-copy] =====
+
+/// Exercises every Kotlin `copy` lowering shape: identity for immutable
+/// data, `.toMutableList()` for `Mut List`, `.copy()` for a `Mut` struct
+/// with immutable fields, and `.copyOf()` for arrays — plus a fate-linked
+/// alias (`let zs = xs`) that must stay readable.
+const COPY_DEMO: &str = r#"
+struct Person with Mut {
+    name: Str,
+    age: Int
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let s = "hi"
+    let t = copy(s)
+    println(t)
+    let xs = mutable_list(1, 2, 3)
+    let ys = copy(xs)
+    ys.add(4)
+    println("${xs.size()} ${ys.size()}")
+    let p = Mut Person {name: "a", age: 1}
+    let q = copy(p)
+    q.name = "b"
+    println("${p.name} ${q.name}")
+    let arr = [1, 2]
+    let brr = copy(arr)
+    brr[0] = 9
+    println("${arr[0]} ${brr[0]}")
+    let zs = xs
+    println("${zs.size()}")
+}
+"#;
+
+// [internal-fn] [kt-copy] `copy` bypasses define templates and lowers
+// type-directedly from the checker's resolved argument type.
+#[test]
+fn copy_lowers_type_directedly() {
+    let program = build_program(&[("main.sv", COPY_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted");
+    // Identity for a transitively immutable type (Str).
+    assert!(main.content.contains("val t = s\n"), "generated:\n{}", main.content);
+    // A real copy for `Mut List<Int>`.
+    assert!(
+        main.content.contains("val ys = xs.toMutableList()"),
+        "generated:\n{}",
+        main.content
+    );
+    // The data-class shallow copy for a `Mut` struct with immutable fields.
+    assert!(main.content.contains("val q = p.copy()"), "generated:\n{}", main.content);
+    // Arrays are index-assignable without `Mut`, so they copy for real.
+    assert!(
+        main.content.contains("val brr = arr.copyOf()"),
+        "generated:\n{}",
+        main.content
+    );
+}
+
+// [kt-copy] [backend-never-wrong] Nested mutability has no correct
+// shallow copy on the JVM: codegen error, never a diverging copy.
+#[test]
+fn copy_of_nested_mutable_type_is_an_error() {
+    let program = build_program(&[(
+        "bad.sv",
+        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+         let xs = mutable_list(mutable_list(1))\n    let ys = copy(xs)\n    \
+         println(\"${ys.size()}\")\n}\n",
+        false,
+    )]);
+    let result = salvo_backend_kotlin::emit_program(&program);
+    let errors = result.err().expect("expected codegen errors");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("cannot `copy` a value of type `Mut List<Mut List<Int>>`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_copy() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", COPY_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "hi\n3 4\na b\n1 9\n3\n";
+    run_kotlin_files(&files, "copy", expected);
+}

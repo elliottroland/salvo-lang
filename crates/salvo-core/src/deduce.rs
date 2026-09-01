@@ -326,12 +326,22 @@ impl Walk<'_, '_> {
 
     fn stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            // Binding a bare parameter to something else transfers
-            // ownership out of the parameter.
-            Stmt::Let { value, .. } => self.moving_expr(value),
+            // Binding a bare parameter (or a projection of one) to a
+            // variable *links* the two — shared fate [fate-link] — it
+            // does not move the parameter. Sound because a derived
+            // variable is read-only [fate-derived-readonly]: every way
+            // its value could escape the function is a checker error
+            // until `copy` makes it independent.
+            Stmt::Let { value, .. } => {
+                if bare_ident(value).is_none() {
+                    self.expr(value);
+                }
+            }
             Stmt::Assign { target, value, .. } => {
                 self.expr(target);
-                self.moving_expr(value);
+                if bare_ident(value).is_none() {
+                    self.expr(value);
+                }
             }
             Stmt::Return { value: Some(v), .. }
             | Stmt::Break { value: Some(v), .. }

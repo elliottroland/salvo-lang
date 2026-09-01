@@ -1463,7 +1463,9 @@ impl<'p> Emitter<'p> {
             } => self.emit_let(pattern, ty.as_ref(), value, indent),
             Stmt::Assign { target, value, .. } => {
                 let t = self.emit_raw(target);
-                let v = self.emit_expr(value);
+                // A bare-identifier source is a fate link, not a move
+                // [fate-link].
+                let v = self.emit_linked_value(value);
                 format!("{pad}{t} = {v};\n")
             }
             Stmt::Return { value, .. } => match (ctx, value) {
@@ -1535,7 +1537,7 @@ impl<'p> Emitter<'p> {
                 let code = self.emit_struct_lit(Some(annot), fields, *span);
                 self.apply_coercion(*span, code)
             }
-            _ => self.emit_expr(value),
+            _ => self.emit_linked_value(value),
         };
         match pattern {
             Pattern::Ident(name) => {
@@ -1686,8 +1688,10 @@ impl<'p> Emitter<'p> {
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
                 let var = self.for_pattern_var(pattern);
-                // Owned iteration [rs-iter-vec]: borrowed lists clone.
-                let iter = self.emit_expr(iterable);
+                // Owned iteration [rs-iter-vec]: borrowed lists clone;
+                // an owned local also clones — iteration is a read and
+                // the loop binding only fate-links to it [fate-link].
+                let iter = self.emit_linked_value(iterable);
                 let mut out = String::new();
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
@@ -1905,6 +1909,24 @@ impl<'p> Emitter<'p> {
             Some(BindKind::SelfField) => format!("self.{}", rs_ident(name)),
             _ => rs_ident(name),
         }
+    }
+
+    /// The value of a `let`/assignment/`for` whose source is a bare
+    /// identifier: the binding fate-links to the source and the checker
+    /// keeps both usable (reads never consume [fate-link]), so an owned
+    /// non-Copy local must be *cloned*, not moved. S1 emission is
+    /// clone-by-default; borrow emission is roadmap stage S3.
+    fn emit_linked_value(&mut self, value: &Expr) -> String {
+        if let Expr::Ident(id) = value {
+            if self.ident_unwrap(id).is_none()
+                && matches!(self.bindings.get(id.name.as_str()), Some(BindKind::Owned))
+                && !self.ty_of(id.span).is_some_and(|t| Self::is_copy_ty(t))
+            {
+                let code = format!("{}.clone()", self.binding_place(&id.name));
+                return self.apply_coercion(value.span(), code);
+            }
+        }
+        self.emit_expr(value)
     }
 
     /// Owned rendering [rs-borrows]: reference-bound identifiers and
@@ -2995,13 +3017,17 @@ impl<'p> Emitter<'p> {
         }
 
         // 2. Checker-resolved fn target (type-based overloads win)
-        // [fn-overload]. External signatures route to their define.
+        // [fn-overload]. Internal fns lower intrinsically [internal-fn];
+        // external signatures route to their define.
         let checker_resolved = self
             .checked
             .call_fn
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key).map(|f| (*key, f)));
         if let Some((key, f)) = checker_resolved {
+            if f.backing == Some(BackingMod::Internal) {
+                return self.emit_internal_call(f, args);
+            }
             if f.body.is_none() {
                 if let Some(def) = self.define_for_decl(name, f) {
                     return self.emit_define_call(name, def, args);
@@ -3019,6 +3045,9 @@ impl<'p> Emitter<'p> {
 
         // 4. Known function by arity.
         if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
+            if f.backing == Some(BackingMod::Internal) {
+                return self.emit_internal_call(f, args);
+            }
             if f.body.is_none() {
                 self.error(format!("external fn `{name}` has no rust `define fn`"));
                 return "todo!()".to_string();
@@ -3106,6 +3135,35 @@ impl<'p> Emitter<'p> {
                     self.borrowed_mut_arg(arg)
                 }
             }
+        }
+    }
+
+    /// A call to an `internal fn`, lowered directly by the compiler
+    /// [internal-fn]. The only internal fn today is `copy` [copy-fn],
+    /// lowered to `.clone()` on the argument's place [rs-copy]: reads
+    /// never consume, and every generated type derives `Clone`.
+    /// Non-place arguments are already fresh owned values and pass
+    /// through.
+    fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+        if f.name.name != "copy" || args.len() != 1 {
+            self.error(format!(
+                "internal fn `{}` is not supported by the rust backend",
+                f.name.name
+            ));
+            return "todo!()".to_string();
+        }
+        let arg = args[0];
+        match arg {
+            Expr::Ident(id) => {
+                if let Some(unwrapped) = self.ident_unwrap(id) {
+                    // The narrowing unwrap is already an owned clone.
+                    return unwrapped;
+                }
+                format!("{}.clone()", self.binding_place(&id.name))
+            }
+            // Field/index reads already clone in owned position.
+            Expr::Field { .. } | Expr::Index { .. } => self.emit_owned(arg),
+            other => self.emit_expr(other),
         }
     }
 

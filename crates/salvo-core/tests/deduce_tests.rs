@@ -276,3 +276,45 @@ external fn strip_all<T>(list: A B List<T>) -> [list:] None
         (true, Vec::<String>::new())
     );
 }
+
+// [fate-link] [deduce-infer] Binding a bare parameter (or a projection
+// of one) with `let`/assignment fate-links the variable instead of
+// moving the parameter: the parameter stays kept, and reading through
+// the derived variable is fine. Escapes of the derived variable are
+// checker errors [fate-derived-readonly], and `copy` severs the link so
+// the body can return an independent value while keeping the parameter.
+#[test]
+fn let_bindings_link_instead_of_moving() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn links<T>(list: A List<T>) -> None {{
+    let alias = list
+}}
+
+fn reads<T>(list: A List<T>) -> Int {{
+    let alias = list
+    return list_size(alias)
+}}
+
+fn escapes<T>(list: List<T>) -> List<T> {{
+    let alias = list
+    return copy(alias)
+}}
+
+internal fn copy<T>(value: T) -> [value] T
+
+external fn list_size<T>(list: List<T>) -> Int
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert_eq!(
+        facts(&program, &checked, "links", "list"),
+        (true, vec!["A".to_string()])
+    );
+    assert_eq!(
+        facts(&program, &checked, "reads", "list"),
+        (true, vec!["A".to_string()])
+    );
+    assert_eq!(facts(&program, &checked, "escapes", "list").0, true);
+}

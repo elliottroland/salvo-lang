@@ -173,6 +173,7 @@ fn check_once<'p>(
             effect_env: Vec::new(),
             can_use: false,
             loop_stack: Vec::new(),
+            next_var_id: 0,
         };
         checker.check_module(ast);
     }
@@ -183,10 +184,70 @@ fn check_once<'p>(
 struct LocalVar {
     declared: Ty,
     narrowed: Ty,
+    /// Unique id of this binding (stable across scopes; names can recur
+    /// in sibling scopes) [fate-link].
+    id: u32,
+    /// Fate links [fate-link]: the variables this one was bound from (a
+    /// bare identifier or projection), flattened transitively. A linked
+    /// (derived) variable is read-only in S1 [fate-derived-readonly] and
+    /// is poisoned when a root is mutated or moved [fate-poison].
+    links: Vec<FateLink>,
+    /// Why this variable is unusable (set together with
+    /// `narrowed = Nothing` when a fate root is mutated/moved/reassigned)
+    /// [fate-poison].
+    poison: Option<Poison>,
 }
 
-/// Narrowed types of every local, per scope frame [deduce-consume].
-type NarrowSnapshot = Vec<HashMap<String, Ty>>;
+/// One fate link [fate-link]: the derived variable was bound from (a
+/// projection of) the root variable at `bind_span`.
+#[derive(Clone, Debug, PartialEq)]
+struct FateLink {
+    root_id: u32,
+    root_name: String,
+    bind_span: Span,
+}
+
+/// What happened to a fate root [fate-poison].
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum FateEvent {
+    Moved,
+    Mutated,
+    Reassigned,
+}
+
+impl FateEvent {
+    fn describe(self) -> &'static str {
+        match self {
+            FateEvent::Moved => "moved",
+            FateEvent::Mutated => "mutated",
+            FateEvent::Reassigned => "reassigned",
+        }
+    }
+}
+
+/// The reason a derived variable became unusable [fate-poison].
+#[derive(Clone, Debug, PartialEq)]
+struct Poison {
+    root_name: String,
+    event: FateEvent,
+    event_span: Span,
+}
+
+/// Flow state of one local: narrowed type plus fate links/poison
+/// [deduce-consume] [fate-link].
+#[derive(Clone, PartialEq)]
+struct VarState {
+    narrowed: Ty,
+    links: Vec<FateLink>,
+    poison: Option<Poison>,
+}
+
+/// Flow state of every local, per scope frame [deduce-consume].
+type NarrowSnapshot = Vec<HashMap<String, VarState>>;
+
+/// An `is`/`when`/`for` binding to declare in a branch scope: name, type,
+/// and the fate links inherited from the subject [fate-link].
+type Binding = (Ident, Ty, Vec<FateLink>);
 
 struct Checker<'p, 'r> {
     scope: &'r ModuleScope<'p>,
@@ -218,6 +279,8 @@ struct Checker<'p, 'r> {
     /// statements record their value contributions into the innermost
     /// entry [while-value]. Lambda bodies are a barrier.
     loop_stack: Vec<LoopCtx>,
+    /// Fresh-id counter for local bindings [fate-link].
+    next_var_id: u32,
 }
 
 /// Narrowing facts derived from a condition.
@@ -228,7 +291,7 @@ struct CondInfo {
     /// Narrowings that hold when the condition is false.
     else_narrows: Vec<(String, Ty)>,
     /// `is T name` bindings introduced in the true branch.
-    bindings: Vec<(Ident, Ty)>,
+    bindings: Vec<Binding>,
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
@@ -349,21 +412,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
             let ty = self.lower_type(&p.ty);
+            let id = self.next_var_id;
+            self.next_var_id += 1;
             top.insert(
                 p.name.name.clone(),
                 LocalVar {
                     declared: ty.clone(),
                     narrowed: ty,
+                    id,
+                    links: Vec::new(),
+                    poison: None,
                 },
             );
         }
         for field in state {
             let ty = self.lower_type(&field.ty);
+            let id = self.next_var_id;
+            self.next_var_id += 1;
             top.insert(
                 field.name.name.clone(),
                 LocalVar {
                     declared: ty.clone(),
                     narrowed: ty,
+                    id,
+                    links: Vec::new(),
+                    poison: None,
                 },
             );
         }
@@ -559,19 +632,133 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Declares a new local, enforcing the no-shadowing rule
     /// [var-no-shadow].
     fn declare(&mut self, name: &Ident, ty: Ty) {
+        self.declare_with_links(name, ty, Vec::new());
+    }
+
+    /// Declares a new local carrying fate links to the variables it was
+    /// bound from [fate-link].
+    fn declare_with_links(&mut self, name: &Ident, ty: Ty, links: Vec<FateLink>) {
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
                 format!("`{}` is already declared (shadowing is not allowed)", name.name),
             );
         }
+        let id = self.next_var_id;
+        self.next_var_id += 1;
         self.locals.last_mut().expect("scope stack").insert(
             name.name.clone(),
             LocalVar {
                 declared: ty.clone(),
                 narrowed: ty,
+                id,
+                links,
+                poison: None,
             },
         );
+    }
+
+    // ================= shared fate [fate-link] =================
+
+    /// The local variables an expression's value derives from: a bare
+    /// identifier or a projection chain (field/index/`!`) of one
+    /// [fate-link]. Anything else (calls — including `copy` [copy-fn] —
+    /// literals, constructed values, branch values) produces an
+    /// independent value.
+    fn provenance<'e>(expr: &'e Expr, out: &mut Vec<&'e Ident>) {
+        match expr {
+            Expr::Ident(id) => out.push(id),
+            Expr::Field { base, .. } => Self::provenance(base, out),
+            Expr::Index { base, .. } => Self::provenance(base, out),
+            Expr::NonNull { operand, .. } => Self::provenance(operand, out),
+            _ => {}
+        }
+    }
+
+    /// The fate links a binding from `value` carries: each source
+    /// variable plus its own links, flattened (transitive links point at
+    /// the ultimate roots) [fate-link], deduplicated by root id.
+    fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
+        let mut sources = Vec::new();
+        Self::provenance(value, &mut sources);
+        let mut links: Vec<FateLink> = Vec::new();
+        let push = |link: FateLink, links: &mut Vec<FateLink>| {
+            if !links.iter().any(|l| l.root_id == link.root_id) {
+                links.push(link);
+            }
+        };
+        for src in sources {
+            let Some(var) = self.lookup(&src.name) else { continue };
+            push(
+                FateLink {
+                    root_id: var.id,
+                    root_name: src.name.clone(),
+                    bind_span,
+                },
+                &mut links,
+            );
+            for l in var.links.clone() {
+                push(
+                    FateLink {
+                        root_id: l.root_id,
+                        root_name: l.root_name,
+                        bind_span,
+                    },
+                    &mut links,
+                );
+            }
+        }
+        links
+    }
+
+    /// Poisons every live variable fate-linked to `root_id` [fate-poison]:
+    /// the root was mutated, moved, or reassigned, so derived values may
+    /// no longer exist. They narrow to `Nothing` (error at a later use,
+    /// revival by reassignment — the standard possibly-consumed
+    /// machinery [deduce-consume]).
+    fn poison_derived(&mut self, root_id: u32, root_name: &str, event: FateEvent, span: Span) {
+        for frame in &mut self.locals {
+            for var in frame.values_mut() {
+                if var.id != root_id && var.links.iter().any(|l| l.root_id == root_id) {
+                    var.narrowed = Ty::Nothing;
+                    var.poison = Some(Poison {
+                        root_name: root_name.to_string(),
+                        event,
+                        event_span: span,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Errors on an ownership-requiring operation (move or `Mut` op) on a
+    /// fate-linked (derived) variable [fate-derived-readonly]: derived
+    /// values are read-only; `copy` makes an independent value.
+    fn error_derived(&mut self, span: Span, action: &str, name: &str, links: &[FateLink]) {
+        let root = &links[0].root_name;
+        self.error(
+            span,
+            format!(
+                "cannot {action} `{name}`: it was bound from `{root}` and shares \
+                 its fate, so it can only be read; use `copy` to make an \
+                 independent value (e.g. `copy({name})`, or bind it with \
+                 `copy(...)`)"
+            ),
+        );
+    }
+
+    /// Handles a whole-variable mutation event on `name` (a `Mut` call
+    /// argument, a projection assignment through it, or `++`): mutating a
+    /// derived variable is an error [fate-derived-readonly]; mutating a
+    /// root poisons its derived variables [fate-poison].
+    fn fate_mutation(&mut self, name: &str, span: Span) {
+        let Some(var) = self.lookup(name) else { return };
+        let (id, links) = (var.id, var.links.clone());
+        if !links.is_empty() {
+            self.error_derived(span, "mutate", name, &links);
+            return;
+        }
+        self.poison_derived(id, name, FateEvent::Mutated, span);
     }
 
     /// Runs `f` with the given narrowings applied, restoring afterwards.
@@ -615,16 +802,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Snapshot of every local's narrowed type, per scope frame — the
-    /// basis for branch-aware merging of consumption/qualifier-removal
-    /// narrowing [deduce-consume].
+    /// Snapshot of every local's flow state (narrowed type, fate links,
+    /// poison), per scope frame — the basis for branch-aware merging of
+    /// consumption/qualifier-removal narrowing [deduce-consume]
+    /// [fate-link].
     fn snapshot_narrows(&self) -> NarrowSnapshot {
         self.locals
             .iter()
             .map(|frame| {
                 frame
                     .iter()
-                    .map(|(name, var)| (name.clone(), var.narrowed.clone()))
+                    .map(|(name, var)| {
+                        (
+                            name.clone(),
+                            VarState {
+                                narrowed: var.narrowed.clone(),
+                                links: var.links.clone(),
+                                poison: var.poison.clone(),
+                            },
+                        )
+                    })
                     .collect()
             })
             .collect()
@@ -632,9 +829,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn restore_narrows(&mut self, snap: &NarrowSnapshot) {
         for (frame, saved) in self.locals.iter_mut().zip(snap) {
-            for (name, ty) in saved {
+            for (name, state) in saved {
                 if let Some(var) = frame.get_mut(name) {
-                    var.narrowed = ty.clone();
+                    var.narrowed = state.narrowed.clone();
+                    var.links = state.links.clone();
+                    var.poison = state.poison.clone();
                 }
             }
         }
@@ -652,7 +851,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         body: &'p Block,
         narrows: &[(String, Ty)],
-        bindings: Vec<(Ident, Ty)>,
+        bindings: Vec<Binding>,
     ) -> (Ty, Option<TailInfo>) {
         let entry = self.snapshot_narrows();
         let result =
@@ -681,46 +880,69 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// that all agree win; a value consumed (`Nothing`) on *any*
     /// fall-through path stays consumed (maybe-moved is unusable, as in
     /// Rust); otherwise disagreeing states conservatively keep only the
-    /// qualifiers common to all of them. An empty list (every branch
-    /// exits) leaves the pre-branch state untouched — the consumption
-    /// happened on paths that never reach the code after the construct.
+    /// qualifiers common to all of them. Fate links union across branches
+    /// (may-be-linked is linked [fate-link]); a poison reason from any
+    /// consumed branch is kept for diagnostics [fate-poison]. An empty
+    /// list (every branch exits) leaves the pre-branch state untouched —
+    /// the consumption happened on paths that never reach the code after
+    /// the construct.
     fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot]) {
         if fallthrough.is_empty() {
             return;
         }
         for (frame_idx, frame_snap) in fallthrough[0].iter().enumerate() {
             for name in frame_snap.keys() {
-                let states: Vec<&Ty> = fallthrough
+                let states: Vec<&VarState> = fallthrough
                     .iter()
                     .filter_map(|s| s.get(frame_idx).and_then(|f| f.get(name)))
                     .collect();
                 if states.len() != fallthrough.len() {
                     continue;
                 }
-                let joined = if states.iter().all(|t| **t == *states[0]) {
-                    states[0].clone()
-                } else if states.iter().any(|t| matches!(t, Ty::Nothing)) {
+                let narrowed_states: Vec<&Ty> = states.iter().map(|s| &s.narrowed).collect();
+                let joined = if narrowed_states.iter().all(|t| **t == *narrowed_states[0]) {
+                    narrowed_states[0].clone()
+                } else if narrowed_states.iter().any(|t| matches!(t, Ty::Nothing)) {
                     Ty::Nothing
                 } else {
                     // Keep only qualifiers every path preserves.
-                    let mut common: HashSet<String> =
-                        states[0].quals().iter().map(|q| q.name.clone()).collect();
-                    for t in &states[1..] {
+                    let mut common: HashSet<String> = narrowed_states[0]
+                        .quals()
+                        .iter()
+                        .map(|q| q.name.clone())
+                        .collect();
+                    for t in &narrowed_states[1..] {
                         let names: HashSet<String> =
                             t.quals().iter().map(|q| q.name.clone()).collect();
                         common.retain(|q| names.contains(q));
                     }
-                    let removed: HashSet<String> = states[0]
+                    let removed: HashSet<String> = narrowed_states[0]
                         .quals()
                         .iter()
                         .map(|q| q.name.clone())
                         .filter(|q| !common.contains(q))
                         .collect();
-                    states[0].clone().remove_quals(&removed)
+                    narrowed_states[0].clone().remove_quals(&removed)
+                };
+                // Fate links union across branches [fate-link].
+                let mut links: Vec<FateLink> = Vec::new();
+                for s in &states {
+                    for l in &s.links {
+                        if !links.iter().any(|e| e.root_id == l.root_id) {
+                            links.push(l.clone());
+                        }
+                    }
+                }
+                let poison = if matches!(joined, Ty::Nothing) {
+                    states.iter().find_map(|s| s.poison.clone())
+                } else {
+                    None
                 };
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
                 {
                     var.narrowed = joined;
+                    var.links = links;
+                    var.poison = poison;
                 }
             }
         }
@@ -1271,7 +1493,7 @@ struct IsInfo {
     matched: Ty,
     /// Logical type when the check fails (union subjects only).
     remaining: Option<Ty>,
-    binding: Option<(Ident, Ty)>,
+    binding: Option<Binding>,
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
@@ -1287,13 +1509,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_branch_block(
         &mut self,
         block: &'p Block,
-        bindings: Vec<(Ident, Ty)>,
+        bindings: Vec<Binding>,
     ) -> (Ty, Option<TailInfo>) {
         self.locals.push(HashMap::new());
         // [effect-scope] `use` registrations expire with the block.
         let effect_depth = self.effect_env.len();
-        for (ident, ty) in bindings {
-            self.declare(&ident, ty);
+        for (ident, ty, links) in bindings {
+            self.declare_with_links(&ident, ty, links);
         }
         let mut value = Ty::none();
         let mut tail = None;
@@ -1315,7 +1537,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn check_stmt(&mut self, stmt: &'p Stmt) -> Ty {
         match stmt {
-            Stmt::Let { pattern, ty, value, .. } => {
+            Stmt::Let { pattern, ty, value, span } => {
                 if let Some(t) = ty {
                     self.validate_type(t);
                 }
@@ -1337,10 +1559,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
                     value_ty.clone()
                 });
-                self.declare_pattern(pattern, declared);
+                // Binding from a bare identifier or projection links the
+                // new variable(s) to the source: they share fate
+                // [fate-link].
+                let links = self.links_for_value(value, *span);
+                self.declare_pattern(pattern, declared, links);
                 Ty::none()
             }
-            Stmt::Assign { target, value, .. } => {
+            Stmt::Assign { target, value, span } => {
                 let target_ty = match target {
                     Expr::Ident(id) => match self.lookup(&id.name) {
                         Some(var) => var.declared.clone(),
@@ -1352,7 +1578,47 @@ impl<'p, 'r> Checker<'p, 'r> {
                             Ty::Unknown
                         }
                     },
-                    other => self.check_expr(other, None),
+                    other => {
+                        let ty = self.check_expr(other, None);
+                        // [struct-mut] Only `Mut`-qualified struct values
+                        // may have fields assigned.
+                        if let Expr::Field { base, field, .. } = other {
+                            let base_ty = self
+                                .out
+                                .ty_of(self.file_idx, base.span())
+                                .cloned()
+                                .unwrap_or(Ty::Unknown);
+                            let is_struct = matches!(
+                                base_ty.strip_quals(),
+                                Ty::Named { name, .. }
+                                    if self.scope.structs.contains_key(name.as_str())
+                            );
+                            let has_mut =
+                                base_ty.quals().iter().any(|q| q.name == "Mut");
+                            if is_struct && !has_mut {
+                                self.error(
+                                    field.span,
+                                    format!(
+                                        "cannot assign to field `{}` of an immutable \
+                                         `{base_ty}` value: only `Mut`-qualified \
+                                         values may have fields assigned",
+                                        field.name
+                                    ),
+                                );
+                            }
+                        }
+                        // Assigning through a projection mutates the root
+                        // variable [fate-poison]; mutating a derived
+                        // variable is an error [fate-derived-readonly].
+                        let mut sources = Vec::new();
+                        Self::provenance(other, &mut sources);
+                        let names: Vec<String> =
+                            sources.iter().map(|s| s.name.clone()).collect();
+                        for name in names {
+                            self.fate_mutation(&name, *span);
+                        }
+                        ty
+                    }
                 };
                 let value_ty = self.check_expr(value, Some(&target_ty));
                 // [var-no-widen] assignments must fit the declared type.
@@ -1366,8 +1632,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 } else if let Expr::Ident(id) = target {
                     let value_ty = value_ty.clone();
+                    // Reassignment: the variable's old value is gone, so
+                    // variables derived from it are poisoned
+                    // [fate-poison]; the variable itself revives with
+                    // fresh links to the new value's sources [fate-link].
+                    let links = self.links_for_value(value, *span);
+                    let root = self
+                        .lookup(&id.name)
+                        .map(|var| (var.id, id.name.clone()));
+                    if let Some((root_id, root_name)) = root {
+                        self.poison_derived(
+                            root_id,
+                            &root_name,
+                            FateEvent::Reassigned,
+                            *span,
+                        );
+                    }
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = value_ty;
+                        var.links = links;
+                        var.poison = None;
                     }
                 }
                 Ty::none()
@@ -1383,6 +1667,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("expected return type `{expected}`, found `{vty}`"),
                             );
                         }
+                        // Returning a value moves it: a fate-linked
+                        // (derived) variable cannot be moved
+                        // [fate-derived-readonly].
+                        self.fate_move_of_derived(v, "return");
                     }
                     None => {
                         if !expected.is_none_ty()
@@ -1407,6 +1695,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match value {
                     Some(v) => {
                         let vty = self.check_expr(v, None);
+                        // `break value` moves the value out of the loop
+                        // [fate-derived-readonly].
+                        self.fate_move_of_derived(v, "break with");
                         let repr = self.repr_of(v, &vty);
                         if let Some(ctx) = self.loop_stack.last_mut() {
                             ctx.breaks.push(TailInfo {
@@ -1439,6 +1730,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => Ty::Unknown,
                 };
                 self.check_expr(value, Some(&elem));
+                // Yielding a value moves it into the produced iterator
+                // [fate-derived-readonly].
+                self.fate_move_of_derived(value, "yield");
                 Ty::none()
             }
             Stmt::Use { handler, span } => {
@@ -1456,16 +1750,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    fn declare_pattern(&mut self, pattern: &Pattern, ty: Ty) {
+    fn declare_pattern(&mut self, pattern: &Pattern, ty: Ty, links: Vec<FateLink>) {
         match pattern {
-            Pattern::Ident(id) => self.declare(id, ty),
+            Pattern::Ident(id) => self.declare_with_links(id, ty, links),
             Pattern::Tuple { elems, .. } => {
                 let elem_tys: Vec<Ty> = match &ty {
                     Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
                     _ => vec![Ty::Unknown; elems.len()],
                 };
                 for (p, t) in elems.iter().zip(elem_tys) {
-                    self.declare_pattern(p, t);
+                    self.declare_pattern(p, t, links.clone());
                 }
             }
             Pattern::Struct { fields, .. } => {
@@ -1477,9 +1771,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let fty = self
                         .declared_field_ty(&ty, &f.field.name)
                         .unwrap_or(Ty::Unknown);
-                    self.declare(&f.binding, fty);
+                    // Each destructured binding is a projection of the
+                    // source: it shares the source's fate [fate-link].
+                    self.declare_with_links(&f.binding, fty, links.clone());
                 }
             }
+        }
+    }
+
+    /// Errors when a move-position value is a fate-linked (derived)
+    /// variable [fate-derived-readonly]: `return x`, `yield x`, and
+    /// `break x` move the value, which a derived variable cannot do —
+    /// `copy` is the remedy.
+    fn fate_move_of_derived(&mut self, value: &Expr, action: &str) {
+        let Expr::Ident(id) = value else { return };
+        let Some(var) = self.lookup(&id.name) else { return };
+        if !var.links.is_empty() {
+            let links = var.links.clone();
+            let name = id.name.clone();
+            self.error_derived(id.span, action, &name, &links);
         }
     }
 
@@ -1529,18 +1839,37 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(var) = self.lookup(&id.name) {
                     let narrowed = var.narrowed.clone();
                     let declared = var.declared.clone();
+                    let poison = var.poison.clone();
                     // [deduce-consume] `Nothing` marks a consumed (moved)
                     // value: referring to it is an impossibility.
                     if matches!(narrowed, Ty::Nothing) {
-                        self.error(
-                            id.span,
-                            format!(
-                                "`{}` cannot be used here: it was consumed (moved) \
-                                 by an earlier call, so its type is `Nothing`; \
-                                 reassign it before use",
-                                id.name
+                        match poison {
+                            // [fate-poison] Two-site diagnostic: the value
+                            // shared fate with a root that was
+                            // mutated/moved/reassigned after the binding.
+                            Some(p) => self.error(
+                                id.span,
+                                format!(
+                                    "`{}` cannot be used here: it was bound from \
+                                     `{root}` and shares its fate, and `{root}` \
+                                     was {event} after the binding; bind it with \
+                                     `copy(...)` to keep an independent value, or \
+                                     reassign it before use",
+                                    id.name,
+                                    root = p.root_name,
+                                    event = p.event.describe(),
+                                ),
                             ),
-                        );
+                            None => self.error(
+                                id.span,
+                                format!(
+                                    "`{}` cannot be used here: it was consumed (moved) \
+                                     by an earlier call, so its type is `Nothing`; \
+                                     reassign it before use",
+                                    id.name
+                                ),
+                            ),
+                        }
                         return Ty::Unknown;
                     }
                     if narrowed != declared {
@@ -1684,7 +2013,42 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let t = self.check_expr(operand, None);
                 t.without_none()
             }
-            Expr::PostIncrement { operand, .. } => self.check_expr(operand, None),
+            Expr::PostIncrement { operand, span } => {
+                let ty = self.check_expr(operand, None);
+                // `i++` rebinds a whole variable (revival: severs its own
+                // links, poisons variables derived from it [fate-poison]);
+                // through a projection it mutates the root
+                // [fate-derived-readonly].
+                match operand.as_ref() {
+                    Expr::Ident(id) => {
+                        let root = self
+                            .lookup(&id.name)
+                            .map(|var| (var.id, id.name.clone()));
+                        if let Some((root_id, root_name)) = root {
+                            self.poison_derived(
+                                root_id,
+                                &root_name,
+                                FateEvent::Reassigned,
+                                *span,
+                            );
+                        }
+                        if let Some(var) = self.lookup_mut(&id.name) {
+                            var.links = Vec::new();
+                            var.poison = None;
+                        }
+                    }
+                    other => {
+                        let mut sources = Vec::new();
+                        Self::provenance(other, &mut sources);
+                        let names: Vec<String> =
+                            sources.iter().map(|s| s.name.clone()).collect();
+                        for name in names {
+                            self.fate_mutation(&name, *span);
+                        }
+                    }
+                }
+                ty
+            }
             Expr::If {
                 branches,
                 else_block,
@@ -1739,7 +2103,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty);
                 self.locals.push(HashMap::new());
-                self.declare_pattern(pattern, elem);
+                // The loop binding is a projection of the iterated
+                // collection: it shares the collection's fate [fate-link].
+                let links = self.links_for_value(iterable, iterable.span());
+                self.declare_pattern(pattern, elem, links);
                 self.loop_stack.push(LoopCtx::default());
                 let (body_ty, body_tail) = self.check_loop_body(body, &[], Vec::new());
                 let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
@@ -2049,8 +2416,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         out.else_narrows.push((name.clone(), rem.clone()));
                     }
                 }
-                if let Some((ident, ty)) = info.binding {
-                    out.bindings.push((ident, ty));
+                if let Some((ident, ty, links)) = info.binding {
+                    out.bindings.push((ident, ty, links));
                 }
                 out
             }
@@ -2063,8 +2430,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let l = self.analyze_cond(lhs);
                 let r = self.with_narrows(&l.then_narrows.clone(), |c| {
                     c.locals.push(HashMap::new());
-                    for (ident, ty) in &l.bindings {
-                        c.declare(ident, ty.clone());
+                    for (ident, ty, links) in &l.bindings {
+                        c.declare_with_links(ident, ty.clone(), links.clone());
                     }
                     let r = c.analyze_cond(rhs);
                     c.locals.pop();
@@ -2259,7 +2626,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 matched.clone()
             };
             self.out.expr_ty.insert(self.key(b.span), bty.clone());
-            (b.clone(), bty)
+            // The binding aliases the subject: they share fate
+            // [fate-link].
+            let links = self.links_for_value(subject, b.span);
+            (b.clone(), bty, links)
         });
 
         IsInfo {
@@ -2472,7 +2842,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out
                     .expr_ty
                     .insert(self.key(b.span), narrow_ty.clone());
-                bindings.push((b.clone(), narrow_ty.clone()));
+                // The `when` binding aliases the subject [fate-link].
+                let links = self.links_for_value(subject, b.span);
+                bindings.push((b.clone(), narrow_ty.clone(), links));
             }
             let narrows = vec![(subject_id.name.clone(), narrow_ty)];
             // Isolate this branch's consumption effects; only
@@ -3062,14 +3434,37 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 };
                 if !d.kept {
-                    // Moved.
+                    // Moved. A fate-linked (derived) variable cannot be
+                    // moved [fate-derived-readonly]; moving a root
+                    // poisons the variables derived from it
+                    // [fate-poison].
+                    let state = self
+                        .lookup(&id.name)
+                        .map(|var| (var.id, var.links.clone()));
+                    let Some((var_id, links)) = state else { continue };
+                    if !links.is_empty() {
+                        let name = id.name.clone();
+                        self.error_derived(id.span, "move", &name, &links);
+                        continue;
+                    }
+                    let name = id.name.clone();
+                    self.poison_derived(var_id, &name, FateEvent::Moved, span);
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = Ty::Nothing;
                     }
                     continue;
                 }
+                // Kept. A parameter declared `Mut` gives the callee
+                // mutation permission: mutating a derived variable is an
+                // error, mutating a root poisons its derived variables
+                // [fate-poison] [fate-derived-readonly].
+                let declared_q = crate::deduce::declared_quals(&param.ty);
+                if declared_q.iter().any(|q| q == "Mut") {
+                    let name = id.name.clone();
+                    self.fate_mutation(&name, span);
+                }
                 let kept: HashSet<&str> = d.quals.iter().map(String::as_str).collect();
-                let removed: HashSet<String> = crate::deduce::declared_quals(&param.ty)
+                let removed: HashSet<String> = declared_q
                     .into_iter()
                     .filter(|q| !kept.contains(q.as_str()))
                     .collect();

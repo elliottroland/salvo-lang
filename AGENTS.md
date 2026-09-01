@@ -110,6 +110,14 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 
 ## Non-negotiable invariants
 
+- **Language-design decisions belong to the user.** Any choice that shapes
+  the language surface or its semantics (new syntax, what an operation
+  means, std API shape, items marked **DECISION** in PROGRESS.md's
+  roadmap) must be *presented to the user* before implementation: state
+  the options, trade-offs, and a recommendation, then wait for the call.
+  Record the outcome in PROGRESS.md as a user decision (there is
+  precedent — see the decision log). Analysis engineering under decisions
+  already made does not need re-approval.
 - **Never emit silently wrong code.** Unsupported constructs must produce a
   codegen/checker *error*, not incorrect output ([backend-never-wrong];
   the remaining deliberate cuts are listed in PROGRESS.md's history).

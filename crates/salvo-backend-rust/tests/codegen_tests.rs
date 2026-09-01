@@ -910,3 +910,66 @@ fn main() [use] -> [] None {
         main.content
     );
 }
+
+// ===== S1: the `copy` intrinsic [internal-fn] [copy-fn] [rs-copy] =====
+
+/// The same shape as the Kotlin copy demo: identity/clone lowering per
+/// type, plus a fate-linked alias (`let zs = xs`) whose source must stay
+/// physically valid ([fate-link]: linked bindings clone, not move).
+const COPY_DEMO: &str = r#"
+struct Person with Mut {
+    name: Str,
+    age: Int
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let s = "hi"
+    let t = copy(s)
+    println(t)
+    let xs = mutable_list(1, 2, 3)
+    let ys = copy(xs)
+    ys.add(4)
+    println("${xs.size()} ${ys.size()}")
+    let p = Mut Person {name: "a", age: 1}
+    let q = copy(p)
+    q.name = "b"
+    println("${p.name} ${q.name}")
+    let arr = [1, 2]
+    let brr = copy(arr)
+    brr[0] = 9
+    println("${arr[0]} ${brr[0]}")
+    let zs = xs
+    println("${zs.size()}")
+}
+"#;
+
+// [internal-fn] [rs-copy] `copy` bypasses define templates and lowers to
+// `.clone()` on the argument's place; a fate-linked `let` from a bare
+// identifier clones instead of moving [fate-link].
+#[test]
+fn copy_lowers_to_clone_and_linked_lets_clone() {
+    let files = generate(&[("main.sv", COPY_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    // `copy` clones the place, whatever the type.
+    assert!(main.content.contains("let mut t = s.clone();"), "generated:\n{}", main.content);
+    assert!(main.content.contains("let mut ys = xs.clone();"), "generated:\n{}", main.content);
+    assert!(main.content.contains("let mut q = p.clone();"), "generated:\n{}", main.content);
+    assert!(main.content.contains("let mut brr = arr.clone();"), "generated:\n{}", main.content);
+    // The fate-linked alias also clones: both `zs` and `xs` stay usable.
+    assert!(main.content.contains("let mut zs = xs.clone();"), "generated:\n{}", main.content);
+}
+
+#[test]
+fn rustc_compiles_and_runs_copy() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", COPY_DEMO, false)]);
+    let expected = "hi\n3 4\na b\n1 9\n3\n";
+    run_rust_files(&files, "copy", expected);
+}

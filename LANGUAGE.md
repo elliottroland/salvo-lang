@@ -275,7 +275,7 @@ person.name = "Someone else" // Compile-time error
 
 // The `Mut` qualifier shows up in the type annotation when building the struct
 let mutable_person = Mut Person {...person}
-person.name = "Someone else" // No problem
+mutable_person.name = "Someone else" // No problem
 ```
 
 `Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `with Mut` syntax — for example, the standard library's list type is declared as:
@@ -754,9 +754,69 @@ Deductions must be statically computable, and so do not depend on the return typ
 
 ### Why returning a parameter is a move
 
-A parameter that is kept (listed in the deductions) compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is always *owned* by the caller. If a function returns one of its parameters, these two facts collide: returning a borrowed parameter would tie the return value's lifetime to the argument, and Salvo deliberately has no lifetimes to express that — the alternative, an implicit clone, is a hidden cost the compiler never inserts. So returning a parameter transfers ownership out through the return channel, and the value is deduced as _moved_: the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, binding it with `let`, `yield`-ing it, or passing it to a consuming call. Consequently, a written deduction list cannot promise a parameter back when the body returns it: `-> [x] T` with `return x` is a compile-time error.
+A parameter that is kept (listed in the deductions) compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is always *owned* by the caller. If a function returns one of its parameters, these two facts collide: returning a borrowed parameter would tie the return value's lifetime to the argument, and Salvo deliberately has no lifetimes to express that — the alternative, an implicit clone, is a hidden cost the compiler never inserts. So returning a parameter transfers ownership out through the return channel, and the value is deduced as _moved_: the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, `yield`-ing it, or passing it to a consuming call. Consequently, a written deduction list cannot promise a parameter back when the body returns it: `-> [x] T` with `return x` is a compile-time error.
 
 This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere. When the caller should keep access to a value, keep the parameter and return something derived from it instead (an element copy, an index, a new value).
+
+Binding a parameter with `let` is *not* on the move list: it creates a *shared fate* link instead, described next.
+
+### Shared fate and `copy`
+
+Salvo has no references, but variables can still overlap: `let m = n` and `let name = person.name` both make a new name for data that another variable already owns. Salvo tracks this as **shared fate**: when one variable is bound to the value or a projection of another — by `let`, assignment, destructuring, a `for`-loop binding, or an `is`/`when` binding — the new variable becomes *derived from* its source, transitively down to the ultimate root. Reading either variable is always fine; reads never consume anything. But operations that need *ownership* of the data are restricted:
+
+- A **derived** variable can only be read. Moving it (returning it, `yield`-ing it, `break`-ing with it, or passing it to a call that consumes it) or mutating it (passing it as a `Mut` argument, assigning through a projection of it) is a compile-time error.
+- Mutating, moving, or reassigning a **root** poisons every variable derived from it: the derived values may no longer exist, so using one afterwards is an error naming both the link and the event. Reassigning a poisoned variable revives it.
+
+The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links.
+
+```
+fn copy<T>(value: T) -> [value] T   // internal: each backend implements it
+```
+
+Here is the discipline at work, together with the deduction contract:
+
+```
+fn longest_name(persons: Person[]) -> [persons] Str {
+    let longest = ""
+    for person in persons {                       // `person` derived from `persons`
+        if longest.size() < person.name.size() {
+            longest = person.name                 // `longest` derived from `person` (and `persons`)
+        }
+    }
+    return longest        // ERROR: `longest` shares its fate with `persons`,
+                          // which this function only borrows ([persons])
+}
+```
+
+The fix is a single copy at the escape point — one copy for the whole function instead of one per iteration:
+
+```
+    return copy(longest)
+```
+
+And the poison rule in action:
+
+```
+let xs = mutable_list(1, 2, 3)
+let ys = xs          // ys derived from xs
+add(xs, 4)           // mutates the root...
+size(ys)             // ERROR: ys shared xs's fate and xs was mutated
+add(ys, 5)           // ERROR: a derived variable is read-only
+
+let zs = copy(xs)
+add(zs, 6)           // fine: zs is independent
+```
+
+Some consequences worth knowing:
+
+- **Values from calls are always independent.** `copy(x)`, `get(xs, 0)`, and every other function result carries no links — a function that wants to return a projection of a kept parameter must `copy` internally (as `longest_name` does).
+- **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives.
+- **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation (Kotlin shares references; Rust clones today and can borrow tomorrow) with no observable difference between them.
+- Whole-variable granularity: mutating a struct value poisons variables derived from *any* of its fields; field-precise tracking may come later.
+
+### Copy semantics per backend
+
+`copy` is an `internal fn` (see the Backends chapter): its declaration gives the checker everything it needs — the argument is kept with all its qualifiers, the result is independent — and each backend lowers calls to it against the argument's *actual type*. Where no Salvo operation could mutate the value anyway, a copy is free: Kotlin emits the argument unchanged (duplicating a reference to immutable data is a copy), and Rust clones. Where mutation is possible, the copy is real on every backend: `Mut List<Int>` becomes `xs.toMutableList()` in Kotlin and `xs.clone()` in Rust; a `Mut` struct with immutable fields becomes `p.copy()` / `p.clone()`. Where a backend cannot yet produce a correct copy (for example, nested mutability like `Mut List<Mut Person>` on the JVM, where a shallow copy would share the inner values), the compiler reports an error rather than emit code that behaves differently across backends.
 
 ## Qualifiers continued
 
@@ -904,6 +964,14 @@ internal type Str
 ```
 
 When building the compiler, _all_ `internal` declarations must be handled by _every_ backend module.
+
+Functions can be internal too. An `internal fn` is a compiler intrinsic: the declaration carries the signature and deductions the checker uses, but there are no templates — each backend lowers calls to it directly, seeing the resolved argument type at every call site. This is what makes type-directed lowering possible where a single generic template could not express it; the standard library's `copy` is the canonical example:
+
+```
+internal fn copy<T>(value: T) -> [value] T
+```
+
+A backend that does not implement an internal fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
 The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `with Mut` (`external type List<T> with Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
 

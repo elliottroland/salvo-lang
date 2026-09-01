@@ -644,3 +644,176 @@ fn union_arm_arguments_resolve_against_union_params() {
     assert!(out.status.success(), "stderr: {stderr}");
     assert!(stderr.contains("no errors"), "stderr: {stderr}");
 }
+
+// ===== Shared fate [fate-link] [fate-poison] [fate-derived-readonly] =====
+
+// [fate-derived-readonly] A fate-linked (derived) variable is read-only:
+// moving it (consuming call, `return`) or mutating it (`Mut` argument)
+// errors at the site with `copy` as the remedy. Reads stay legal.
+#[test]
+fn fate_derived_variables_are_read_only() {
+    let dir = src_dir("fate_readonly");
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume(v: List<Int>) -> [] None {\n}\n\n\
+         fn move_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    consume(ys)\n}\n\n\
+         fn mutate_derived() {\n    let xs = mutable_list(1, 2)\n    let ys = xs\n    add(ys, 3)\n}\n\n\
+         fn return_derived(v: Str) -> [v] Str {\n    let w = v\n    return w\n}\n\n\
+         fn read_derived(v: Str) -> [v] Int {\n    let w = v\n    return size(w)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("cannot move `ys`: it was bound from `xs` and shares its fate"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot mutate `ys`: it was bound from `xs`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot return `w`: it was bound from `v`"),
+        "stderr: {stderr}"
+    );
+    // Exactly the three violations: reading a derived variable is fine.
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("use `copy`"), "stderr: {stderr}");
+}
+
+// [fate-poison] Mutating, moving, or reassigning a root poisons every
+// variable derived from it: the later *use* errors, naming the link and
+// the event; a poison never observed never fires.
+#[test]
+fn fate_root_events_poison_derived_variables() {
+    let dir = src_dir("fate_poison");
+    fs::write(
+        dir.join("main.sv"),
+        "fn consume(v: List<Int>) -> [] None {\n}\n\n\
+         fn mutated() -> Int {\n    let xs = mutable_list(1)\n    let ys = xs\n    \
+         add(xs, 2)\n    return size(ys)\n}\n\n\
+         fn moved() -> Int {\n    let xs = list(1)\n    let ys = xs\n    \
+         consume(xs)\n    return size(ys)\n}\n\n\
+         fn reassigned() -> Int {\n    let xs = list(1)\n    let ys = xs\n    \
+         xs = list(2, 3)\n    return size(ys)\n}\n\n\
+         fn unused_poison_is_fine() {\n    let xs = mutable_list(1)\n    let ys = xs\n    \
+         add(xs, 2)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`ys` cannot be used here: it was bound from `xs` and shares its fate, \
+             and `xs` was mutated after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("`xs` was moved after the binding"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`xs` was reassigned after the binding"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+}
+
+// [fate-link] Links flow through projections (transitively to the root),
+// loop bindings, and `is` bindings; reassignment from a fresh value
+// severs them (revival).
+#[test]
+fn fate_links_flow_through_projections_loops_and_bindings() {
+    let dir = src_dir("fate_links");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str\n}\n\n\
+         fn longest_name(persons: Person[]) -> [persons] Str {\n    let longest = \"\"\n    \
+         for person in persons {\n        if size(longest) < size(person.name) {\n            \
+         longest = person.name\n        }\n    }\n    return longest\n}\n\n\
+         fn is_binding(v: Str | Int) -> [v] Str {\n    if v is Str s {\n        return s\n    }\n    \
+         return \"other\"\n}\n\n\
+         fn revived(p: Person) -> [p] Str {\n    let n = p.name\n    n = \"fresh\"\n    return n\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // The loop assignment links `longest` through `person` to `persons`.
+    assert!(
+        stderr.contains("cannot return `longest`: it was bound from `person`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("cannot return `s`: it was bound from `v`"), "stderr: {stderr}");
+    // `revived` is clean: reassignment severed the link.
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+}
+
+// [copy-fn] `copy` keeps its argument (with all qualifiers) and returns
+// an independent value: every fate error above has a one-word remedy,
+// and copies are unaffected by later root events.
+#[test]
+fn fate_copy_produces_independent_values() {
+    let dir = src_dir("fate_copy");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str\n}\n\n\
+         fn longest_name(persons: Person[]) -> [persons] Str {\n    let longest = \"\"\n    \
+         for person in persons {\n        if size(longest) < size(person.name) {\n            \
+         longest = person.name\n        }\n    }\n    return copy(longest)\n}\n\n\
+         fn independent() -> Int {\n    let xs = mutable_list(1)\n    let ys = copy(xs)\n    \
+         add(xs, 2)\n    add(ys, 3)\n    return size(ys) + size(xs)\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         println(longest_name([Person {name: \"a\"}]))\n    println(\"${independent()}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("no errors"), "stderr: {stderr}");
+}
+
+// [fate-link] Links union across branch merges: a variable linked on any
+// fall-through path is linked after the join.
+#[test]
+fn fate_links_merge_across_branches() {
+    let dir = src_dir("fate_branch");
+    fs::write(
+        dir.join("main.sv"),
+        "fn pick(a: List<Int>, cond: Bool) -> [a] List<Int> {\n    \
+         let out = list(0)\n    \
+         if cond {\n        out = a\n    }\n    \
+         return out\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("cannot return `out`: it was bound from `a`"),
+        "stderr: {stderr}"
+    );
+}
+
+// [struct-mut] Only `Mut`-qualified struct values may have fields
+// assigned; the checker enforces it at the assignment site.
+#[test]
+fn struct_field_assignment_requires_mut() {
+    let dir = src_dir("struct_mut");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person with Mut {\n    name: Str\n}\n\n\
+         fn bad() {\n    let p = Person {name: \"a\"}\n    p.name = \"b\"\n}\n\n\
+         fn good() -> Str {\n    let p = Mut Person {name: \"a\"}\n    p.name = \"b\"\n    \
+         return copy(p.name)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("cannot assign to field `name` of an immutable `Person` value"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
+}
