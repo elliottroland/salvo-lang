@@ -13,14 +13,31 @@ Conventions:
 
 ## Output layout
 
-* [kt-package] All modules emit into the single Kotlin package `salvo`, as
-  `<module/path>.kt` (name collisions across modules are possible;
-  per-module packages + generated imports are M7).
-  * `unions.kt` is generated whenever any wrapper size is used
-    ([kt-union-wrappers]); a std module is emitted only if it produces
-    code (currently just `core/console.kt`).
+* [kt-package] Each module emits into its own Kotlin package
+  `salvo.<module.path>` (`core.console` → `package salvo.core.console`),
+  as `<module/path>.kt`. Cross-module name collisions are gone; the
+  generated `unions.kt` lives in the root package `salvo`.
+  * [mod-used-only] Only reachable modules that produce code are emitted;
+    `unions.kt` is generated when any *emitted* file uses a wrapper size.
+* [kt-imports] Files get generated Kotlin imports: a wildcard
+  `import salvo.<module>.*` per foreign *emitted* module whose names the
+  file uses (own module, template `imports:` lines, and
+  `import salvo.*` for union wrappers round it out). An aliased Salvo
+  import of a Kotlin-visible item (fn with body, struct, effect, handler)
+  emits `import salvo.<module>.<name> as <alias>`, and call sites keep
+  the alias; inlined externals, type aliases, and qualifiers need no
+  alias import.
+  * An aliased import of a *mangled* qualified overload
+    ([kt-qual-mangling]) would map to the unmangled name — known gap in
+    the same class as unchecked-context mangling.
 * [kt-entry] `fn main() [use]` emits as `fun main()` with *no* effect
-  parameters; the entry point is `salvo.MainKt`.
+  parameters; the entry point is `salvo.<module>.MainKt` (`main.sv` →
+  `salvo.main.MainKt`; the CLI prints it after compiling).
+* [backend-companion] Companion `.kt` files next to a module's sources
+  are copied verbatim into the output when the module is reachable. A
+  companion must not collide with a generated file — its module should
+  declare only `external` items (the LANGUAGE.md `complicated.kt`
+  pattern), so it produces no code of its own.
 
 ## Type mappings
 
@@ -35,8 +52,12 @@ Conventions:
   `x!` → `!!`.
 * [type-tuple] Tuples of size 2/3 map to `Pair`/`Triple`; larger tuples
   are a codegen error ([backend-never-wrong]).
-* [type-array] `T[]` emits as `Array<T>`; `IntArray`/`DoubleArray`
-  specializations are future work (M7).
+* [type-array] `T[]` emits as `Array<T>` — always, including `Int[]` /
+  `Double[]`. Decision (M7): no `IntArray`/`DoubleArray` specialization.
+  Kotlin's specialized arrays are *unrelated types* to `Array<T>`, which
+  would fracture generics, varargs/spread, and interop pass-through;
+  boxing cost is accepted until profiling says otherwise (revisit with
+  the Rust backend, where `T[]` maps to native arrays anyway).
 * [kt-iter-iterable] `Iter<T>` maps to `Iterable<T>` (what Kotlin
   `for`-loops accept).
 * [type-alias] Aliases expand structurally in the emitter too
@@ -51,8 +72,7 @@ Conventions:
   `++`-incremented anywhere in the fn (mutation pre-scan);
   `Mut List<T>` emits `MutableList<T>`; `Mut` struct fields emit `var`.
 * [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
-  `let` lowers through a `__destructured` temp (uniquing two such `let`s
-  in one block is a known M7 leftover).
+  `let` lowers through a per-fn-unique `__destructuredN` temp.
 * [is-binding] `is T name` bindings emit `val name = subj as T` at the top
   of the matched branch (relies on subject purity); `while x is T name`
   re-declares the binding per iteration at the top of the loop body.
@@ -144,6 +164,9 @@ Conventions:
   `use` emits `val <name>: <EffectType> = Handler(...)`; effect member
   calls dispatch through the resolved handler expression
   (`random_int.next_random()`).
+  * Generated effect-parameter and `use` variable names avoid the fn's
+    parameters and locals (pre-scan of declared names; collisions get a
+    numeric suffix: `console2`).
   * Handler resolution prefers the checker's effect tables
     (`use_effects`/`effect_calls`/`call_effects`) rendered through
     `kotlin_ty` — which must agree with `emit_type` on the same source

@@ -49,6 +49,10 @@ pub struct ModuleScope<'p> {
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
     /// Effect-member fn name -> (owning effect, member decl).
     pub effect_members: HashMap<&'p str, (&'p EffectDecl, &'p FnDecl)>,
+    /// Visible name -> modules that declare it (under this name; aliased
+    /// imports record the alias). Drives module reachability
+    /// [mod-used-only] and generated backend imports.
+    pub name_origins: HashMap<&'p str, Vec<&'p ModulePath>>,
 }
 
 impl<'p> ModuleScope<'p> {
@@ -133,12 +137,12 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // core.* is implicitly visible everywhere.
         for m in &core_modules {
             if let Some(items) = by_module.get(*m) {
-                add_items(&mut scope, items, None);
+                add_items(&mut scope, items, m, None);
             }
         }
         // The file's own module (overrides core on collision).
-        if let Some(items) = by_module.get(&file.module) {
-            add_items(&mut scope, items, None);
+        if let Some((own, items)) = by_module.get_key_value(&file.module) {
+            add_items(&mut scope, items, own, None);
         }
         // Explicit imports.
         for item in &ast.items {
@@ -152,55 +156,78 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 }
 
 /// Adds a module's items to a scope, optionally under a single-name filter
-/// with an alias (for imports).
+/// with an alias (for imports). Every inserted name records `module` as an
+/// origin (under its visible name) for reachability [mod-used-only].
 fn add_items<'p>(
     scope: &mut ModuleScope<'p>,
     items: &ModuleItems<'p>,
+    module: &'p ModulePath,
     filter: Option<(&str, &'p str)>,
 ) {
     let want = |name: &str| filter.is_none_or(|(n, _)| n == name);
     let visible_as = |name: &'p str| filter.map_or(name, |(_, alias)| alias);
+    let origin = |name: &'p str, scope: &mut ModuleScope<'p>| {
+        let origins = scope.name_origins.entry(name).or_default();
+        if !origins.contains(&module) {
+            origins.push(module);
+        }
+    };
     for (key, f) in &items.fns {
         if want(&f.name.name) {
+            let name = visible_as(&f.name.name);
             scope
                 .fns
-                .entry(visible_as(&f.name.name))
+                .entry(name)
                 .or_default()
                 .push(FnEntry { key: *key, decl: f });
+            origin(name, scope);
         }
     }
     for s in &items.structs {
         if want(&s.name.name) {
-            scope.structs.insert(visible_as(&s.name.name), s);
+            let name = visible_as(&s.name.name);
+            scope.structs.insert(name, s);
+            origin(name, scope);
         }
     }
     for e in &items.effects {
         if want(&e.name.name) {
-            scope.effects.insert(visible_as(&e.name.name), e);
+            let name = visible_as(&e.name.name);
+            scope.effects.insert(name, e);
+            origin(name, scope);
         }
         // Effect members become callable wherever the effect is visible.
         for f in &e.fns {
             scope.effect_members.insert(&f.name.name, (e, f));
+            origin(&f.name.name, scope);
         }
     }
     for h in &items.handlers {
         if want(&h.name.name) {
-            scope.handlers.insert(visible_as(&h.name.name), h);
+            let name = visible_as(&h.name.name);
+            scope.handlers.insert(name, h);
+            origin(name, scope);
         }
     }
     for q in &items.qualifiers {
         if want(&q.name.name) {
-            scope.qualifiers.insert(visible_as(&q.name.name), q);
+            let name = visible_as(&q.name.name);
+            scope.qualifiers.insert(name, q);
+            origin(name, scope);
         }
     }
     for t in &items.type_aliases {
         if want(&t.name.name) {
-            scope.type_aliases.insert(visible_as(&t.name.name), t);
+            let name = visible_as(&t.name.name);
+            scope.type_aliases.insert(name, t);
+            origin(name, scope);
         }
     }
     for t in &items.opaque_types {
         if want(&t.name.name) {
-            scope.opaque_types.insert(visible_as(&t.name.name), t);
+            let name = visible_as(&t.name.name);
+            scope.opaque_types.insert(name, t);
+            origin(name, scope);
         }
     }
 }
@@ -256,8 +283,9 @@ fn resolve_import<'p>(
                 .as_ref()
                 .map(|a| a.name.as_str())
                 .unwrap_or(item_name);
-            let items = &by_module[*matches[0]];
-            add_items(scope, items, Some((item_name, alias)));
+            let module = *matches[0];
+            let items = &by_module[module];
+            add_items(scope, items, module, Some((item_name, alias)));
         }
         _ => {
             let mut names: Vec<String> = matches.iter().map(|m| m.to_string()).collect();

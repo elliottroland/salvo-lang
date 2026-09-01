@@ -20,6 +20,7 @@ fn check_src(src: &str) -> (Program, Checked) {
     let program = Program {
         files: sources.files,
         modules,
+        companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

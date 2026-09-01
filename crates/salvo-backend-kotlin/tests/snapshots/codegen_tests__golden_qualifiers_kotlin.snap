@@ -3,7 +3,7 @@ source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
 expression: combined
 ---
 // ===== core/console.kt =====
-package salvo
+package salvo.core.console
 
 interface Console {
     fun print(message: String)
@@ -21,7 +21,10 @@ fun println(console: Console, message: String) {
 }
 
 // ===== main.kt =====
-package salvo
+package salvo.main
+
+import salvo.*
+import salvo.core.console.*
 
 data class Person(
     val name: String,

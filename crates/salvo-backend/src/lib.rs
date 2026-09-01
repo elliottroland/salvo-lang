@@ -43,6 +43,11 @@ pub trait Backend {
     /// match define files (`module.<name>.sv`).
     fn name(&self) -> &'static str;
 
+    /// The extension of the backend's native source files (`kt` for
+    /// Kotlin): what this backend emits, what companion files use
+    /// [backend-companion], and what `clean`ing stale output targets.
+    fn file_extension(&self) -> &'static str;
+
     /// Emits target source code for the program into `target_dir`.
     /// Returns the list of files written (relative to `target_dir`).
     fn emit(

@@ -67,7 +67,7 @@ external fn list_size<T>(list: List<T>) -> Int
 fn build_program(extra: &[(&str, &str, bool)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kotlin", true);
+    let errors = sources.add_dir(&std_dir, "kotlin", "kt", true);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
     for (name, content, is_define) in extra {
         let rel = Path::new(name);
@@ -89,6 +89,7 @@ fn build_program(extra: &[(&str, &str, bool)]) -> Program {
     Program {
         files: sources.files,
         modules,
+        companions: sources.companions,
     }
 }
 
@@ -853,7 +854,7 @@ fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expe
     let run = Command::new("kotlin")
         .arg("-cp")
         .arg(&out_dir)
-        .arg("salvo.MainKt")
+        .arg("salvo.main.MainKt")
         .output()
         .expect("failed to run kotlin");
     assert!(
@@ -1034,4 +1035,277 @@ fn kotlinc_compiles_and_runs_loops() {
     let files = generate_loops_demo();
     let expected = "last: 40\nnever: -1\nfound: 4\nempty range\ncapped: 2\nok: 2\n";
     run_kotlin_files(&files, "loops", expected);
+}
+
+// ===== M7: reachability, packages/imports, define coverage, companions =====
+
+/// A multi-module program: `main` uses `geometry` (imported) but not
+/// `unused`; `geometry` has a Kotlin companion file.
+fn build_multi_module() -> Program {
+    let main = r#"
+import geometry.area
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println("area: ${area(3, 4)}")
+}
+"#;
+    let geometry = r#"
+fn area(w: Int, h: Int) -> Int {
+    return w * h
+}
+"#;
+    let unused = r#"
+fn never_called() -> Int {
+    return 42
+}
+"#;
+    let mut program = build_program(&[
+        ("main.sv", main, false),
+        ("geometry.sv", geometry, false),
+        ("unused.sv", unused, false),
+    ]);
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("geometry_helpers.kt"),
+        module: salvo_core::ModulePath(vec!["geometry".into()]),
+        content: "package salvo.geometry\n\nfun helper(): Int = 1\n".to_string(),
+    });
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("unused_helpers.kt"),
+        module: salvo_core::ModulePath(vec!["unused".into()]),
+        content: "package salvo.unused\n".to_string(),
+    });
+    program
+}
+
+// [mod-used-only] [backend-companion]
+#[test]
+fn only_used_modules_are_transpiled() {
+    let program = build_multi_module();
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let paths: Vec<String> = files
+        .iter()
+        .map(|f| f.rel_path.to_string_lossy().into_owned())
+        .collect();
+    // `main` and its dependency are emitted; the unused user module and
+    // unused std modules are not.
+    assert!(paths.contains(&"main.kt".to_string()), "{paths:?}");
+    assert!(paths.contains(&"geometry.kt".to_string()), "{paths:?}");
+    assert!(!paths.contains(&"unused.kt".to_string()), "{paths:?}");
+    // The reachable module's companion is copied; the unreachable one not.
+    assert!(paths.contains(&"geometry_helpers.kt".to_string()), "{paths:?}");
+    assert!(!paths.contains(&"unused_helpers.kt".to_string()), "{paths:?}");
+}
+
+// [kt-package] [kt-imports]
+#[test]
+fn modules_get_packages_and_generated_imports() {
+    let program = build_multi_module();
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    assert!(main.content.starts_with("package salvo.main\n"));
+    assert!(main.content.contains("import salvo.core.console.*"));
+    assert!(main.content.contains("import salvo.geometry.*"));
+    let geometry = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "geometry.kt")
+        .unwrap();
+    assert!(geometry.content.starts_with("package salvo.geometry\n"));
+    // `geometry` references nothing foreign: no generated imports.
+    assert!(!geometry.content.contains("import salvo."));
+}
+
+// [kt-imports] Aliased Salvo imports become Kotlin alias imports, and the
+// call site keeps the alias.
+#[test]
+fn aliased_imports_emit_kotlin_alias_imports() {
+    let main = r#"
+import geometry.area as rect_area
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println("area: ${rect_area(3, 4)}")
+}
+"#;
+    let geometry = "fn area(w: Int, h: Int) -> Int {\n    return w * h\n}\n";
+    let program = build_program(&[("main.sv", main, false), ("geometry.sv", geometry, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    assert!(main
+        .content
+        .contains("import salvo.geometry.area as rect_area"));
+    assert!(main.content.contains("rect_area(3, 4)"));
+}
+
+// [backend-external] A used external fn with no define for the backend is
+// a compile-time error.
+#[test]
+fn missing_define_for_external_fn_is_an_error() {
+    let src = r#"
+external fn mystery(x: Int) -> Int
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println("${mystery(1)}")
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("external fn `mystery` has no kotlin `define fn`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [backend-external] A referenced external type with no define is an
+// error, not a silent pass-through.
+#[test]
+fn missing_define_for_external_type_is_an_error() {
+    let src = r#"
+external type Mystery
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let x: Mystery? = None
+    println("${x is None}")
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("external type `Mystery` has no kotlin `define type`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [backend-external] Everything external in `core.*` must be covered by
+// the backend's define files, used or not.
+#[test]
+fn core_externals_must_be_fully_covered() {
+    let fake_core = "external fn uncovered_core_fn(x: Int) -> Int\n";
+    let program = build_program(&[
+        ("core/fake.sv", fake_core, false),
+        (
+            "main.sv",
+            "fn main() [use] -> [] None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
+            false,
+        ),
+    ]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected coverage errors");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("external fn `uncovered_core_fn` in core has no kotlin `define fn`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [kt-effect-params] Effect parameters avoid user parameter names.
+#[test]
+fn effect_params_avoid_user_names() {
+    let src = r#"
+fn shadowed(console: Str) [Console] -> [] None {
+    println("param: ${console}")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    shadowed("value")
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    // The generated effect parameter picks a fresh name.
+    assert!(
+        main.content.contains("fun shadowed(console2: Console, console: String)"),
+        "unexpected: {}",
+        main.content
+    );
+    assert!(main.content.contains("println(console2, \"param: $console\")"));
+}
+
+// [let-destructure] Two struct destructures in one block get unique temps.
+#[test]
+fn struct_destructure_temps_are_unique() {
+    let src = r#"
+struct Point {
+    x: Int,
+    y: Int
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let {x} = Point {x: 1, y: 2}
+    let {y} = Point {x: 3, y: 4}
+    println("${x} ${y}")
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    assert!(main.content.contains("val __destructured1 ="));
+    assert!(main.content.contains("val __destructured2 ="));
+}
+
+/// Full verification of the multi-module program under kotlinc: packages,
+/// generated imports, companion file, and reachability all have to hold
+/// together for this to compile and run.
+#[test]
+fn kotlinc_compiles_and_runs_multi_module() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_multi_module();
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap();
+    run_kotlin_files(&files, "multimod", "area: 12\n");
+}
+
+// [backend-companion] A companion must not collide with a generated file.
+#[test]
+fn companion_collision_with_generated_file_is_an_error() {
+    let mut program = build_program(&[(
+        "main.sv",
+        "fn main() [use] -> [] None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
+        false,
+    )]);
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("main.kt"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: "package salvo.main\n".to_string(),
+    });
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected collision error");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("companion file `main.kt` collides")),
+        "unexpected errors: {errors:?}"
+    );
 }

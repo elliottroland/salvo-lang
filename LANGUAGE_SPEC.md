@@ -344,8 +344,14 @@ Conventions:
     (`import core.Str` finds `core.string`). Non-fn name collisions
     across visible modules currently last-win silently (known leftover).
 * [mod-used-only] Only modules used by the program are transpiled.
-  * Not yet enforced; currently "a module is emitted iff it produces
-    code" (M7 adds reachability from `main`).
+  * Roots are the user modules declaring `fn main` (all user modules for
+    a library compile without one). Reachability follows *name usage*:
+    every identifier/type name a file mentions is looked up in its
+    resolved scope (`ModuleScope::name_origins`), and each declaring
+    module becomes reachable (`reach.rs`). Deliberately conservative:
+    shadowed and overloaded names pull in every declaring module.
+  * A module's backend define files travel with it; a reachable module is
+    emitted only if it produces code.
 
 ## Backends
 
@@ -354,11 +360,21 @@ Conventions:
   (`Str`, numeric types, `Iter<T>`, `Mut` on `List`, ...).
 * [backend-external] `external` declarations (fns, types, handlers) carry
   only signatures; each backend that needs them provides `define`
-  templates in a sibling `<module>.<backend>.sv` file. Only reachable
-  externals need defines (checked at compile time — currently only
-  surfacing on call-site resolution failure, M7).
+  templates in a sibling `<module>.<backend>.sv` file. Coverage is
+  checked at compile time: everything external in `core.*` must have a
+  define (core is implicitly imported); outside core, a missing define
+  is an error at every reference (call to an external fn, use of an
+  external type, emission of an external handler) — never a silent
+  pass-through.
   * `SourceSet::classify` filters define files per selected backend at
     load time.
+* [backend-companion] A backend-native source file next to a module's
+  sources (`complicated.kt` beside `complicated.sv`, using the backend's
+  native extension) is a *companion*: it is copied verbatim into the
+  output whenever its module is reachable, letting `define` templates
+  delegate to hand-written native code. A companion module should
+  declare only `external` items; a companion that collides with a
+  generated file is an error.
 * [backend-define-inline] `define fn` bodies hold an `inline:`
   \`\` template \`\` interpolated at each call site: `${param}` splices the
   argument's code, `${...variadic}` splices remaining arguments.

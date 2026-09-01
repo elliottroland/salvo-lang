@@ -12,12 +12,15 @@ use salvo_syntax::ast::{
     QualifierDecl, StructDecl, TypeDecl,
 };
 
-use crate::source::{SourceFile, SourceKind};
+use crate::source::{CompanionFile, SourceFile, SourceKind};
 
 /// A parsed compilation: one AST per source file, in `SourceSet` order.
 pub struct Program {
     pub files: Vec<SourceFile>,
     pub modules: Vec<Module>,
+    /// Backend-native companion files, copied into the output when their
+    /// module is reachable [backend-companion].
+    pub companions: Vec<CompanionFile>,
 }
 
 /// A single parsed unit (file + AST).

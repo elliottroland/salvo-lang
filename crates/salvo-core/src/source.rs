@@ -43,11 +43,25 @@ pub struct SourceFile {
     pub is_std: bool,
 }
 
+/// A backend-native source file living next to a Salvo module
+/// (`complicated.kt` beside `complicated.sv`): copied verbatim into the
+/// output when its module is needed [backend-companion].
+#[derive(Clone, Debug)]
+pub struct CompanionFile {
+    /// Path relative to the source root (also the output path).
+    pub rel_path: PathBuf,
+    /// The module the companion belongs to (same directory + stem).
+    pub module: ModulePath,
+    pub content: String,
+}
+
 /// The full set of sources for a compilation: user sources plus the
 /// (backend-filtered) standard library.
 #[derive(Debug, Default)]
 pub struct SourceSet {
     pub files: Vec<SourceFile>,
+    /// Backend-native companion files ([backend-companion]).
+    pub companions: Vec<CompanionFile>,
 }
 
 impl SourceSet {
@@ -95,9 +109,48 @@ impl SourceSet {
         });
     }
 
+    /// Classifies a backend-native companion file (`complicated.kt` for
+    /// native extension `kt`): the module is the directory path plus the
+    /// file stem [backend-companion].
+    pub fn classify_companion(rel_path: &Path, native_ext: &str) -> Option<ModulePath> {
+        let file_name = rel_path.file_name()?.to_str()?;
+        let stem = file_name.strip_suffix(&format!(".{native_ext}"))?;
+        let mut components: Vec<String> = rel_path
+            .parent()
+            .map(|p| {
+                p.components()
+                    .filter_map(|c| c.as_os_str().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        components.push(stem.to_string());
+        Some(ModulePath(components))
+    }
+
+    pub fn add_companion(
+        &mut self,
+        rel_path: impl Into<PathBuf>,
+        module: ModulePath,
+        content: String,
+    ) {
+        self.companions.push(CompanionFile {
+            rel_path: rel_path.into(),
+            module,
+            content,
+        });
+    }
+
     /// Walks `root` recursively, adding every `.sv` file that matches the
-    /// backend. Returns the paths that failed to read.
-    pub fn add_dir(&mut self, root: &Path, backend: &str, is_std: bool) -> Vec<(PathBuf, String)> {
+    /// backend, plus every companion file with the backend's native
+    /// extension ([backend-companion], e.g. `.kt` for Kotlin). Returns
+    /// the paths that failed to read.
+    pub fn add_dir(
+        &mut self,
+        root: &Path,
+        backend: &str,
+        native_ext: &str,
+        is_std: bool,
+    ) -> Vec<(PathBuf, String)> {
         let mut errors = Vec::new();
         let mut stack = vec![root.to_path_buf()];
         let mut paths = Vec::new();
@@ -113,7 +166,10 @@ impl SourceSet {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "sv") {
+                } else if path
+                    .extension()
+                    .is_some_and(|e| e == "sv" || e == native_ext)
+                {
                     paths.push(path);
                 }
             }
@@ -121,6 +177,16 @@ impl SourceSet {
         paths.sort();
         for path in paths {
             let rel = path.strip_prefix(root).unwrap_or(&path);
+            if path.extension().is_some_and(|e| e == native_ext) {
+                let Some(module) = Self::classify_companion(rel, native_ext) else {
+                    continue;
+                };
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => self.add_companion(rel.to_path_buf(), module, content),
+                    Err(err) => errors.push((path, err.to_string())),
+                }
+                continue;
+            }
             let Some((module, kind)) = Self::classify(rel, backend) else {
                 continue;
             };

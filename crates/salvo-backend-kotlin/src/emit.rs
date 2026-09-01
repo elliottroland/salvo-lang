@@ -16,7 +16,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use salvo_core::check::{Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
-use salvo_core::{Program, SourceKind, Symbols};
+use salvo_core::{ModulePath, Program, SourceKind, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
 
@@ -26,8 +26,9 @@ pub struct EmittedFile {
     pub content: String,
 }
 
-/// Emits Kotlin for every module that produces code. Returns the files or
-/// the accumulated codegen/type errors.
+/// Emits Kotlin for every *reachable* module that produces code
+/// [mod-used-only]. Returns the files or the accumulated codegen/type
+/// errors.
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     let symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
@@ -35,17 +36,44 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     if !checked.errors.is_empty() {
         return Err(checked.errors);
     }
+    // [mod-used-only] Only modules the program uses are transpiled.
+    let reachable = salvo_core::reachable_modules(program, &resolution);
+    // The modules that will exist as Kotlin files: targets for generated
+    // imports [kt-package].
+    let emitted_modules: HashSet<&ModulePath> = program
+        .units()
+        .filter(|u| {
+            u.file.kind == SourceKind::Language
+                && reachable.contains(&u.file.module)
+                && module_produces_code(u.ast)
+        })
+        .map(|u| &u.file.module)
+        .collect();
+
+    // [backend-external] Everything external in `core.*` must be covered
+    // by the backend's define files (core is implicitly imported).
+    let mut errors = check_core_define_coverage(program, &symbols);
+
     let mut files = Vec::new();
-    let mut errors = Vec::new();
-    let mut union_sizes: BTreeSet<usize> = checked.union_sizes.clone();
+    let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.kind != SourceKind::Language {
+        if unit.file.kind != SourceKind::Language
+            || !reachable.contains(&unit.file.module)
+            || !module_produces_code(unit.ast)
+        {
             continue;
         }
-        if !module_produces_code(unit.ast) {
-            continue;
-        }
+        // Generated Kotlin imports: a wildcard per foreign emitted module
+        // this file references, plus alias imports for aliased Salvo
+        // imports of Kotlin-visible items [kt-imports].
+        let generated = generated_imports(
+            unit.ast,
+            &unit.file.module,
+            &resolution.scopes[file_idx],
+            &emitted_modules,
+        );
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        emitter.generated_imports = generated;
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -62,11 +90,147 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
             content: generate_unions_file(&union_sizes),
         });
     }
+    // [backend-companion] Backend-native companion files are copied
+    // verbatim whenever their module is needed. A companion must not
+    // collide with a generated file (its module should be externals-only).
+    for comp in &program.companions {
+        if !reachable.contains(&comp.module) {
+            continue;
+        }
+        if files.iter().any(|f| f.rel_path == comp.rel_path) {
+            errors.push(format!(
+                "companion file `{}` collides with the generated file of module \
+                 `{}` (companion modules should only declare `external` items)",
+                comp.rel_path.display(),
+                comp.module
+            ));
+            continue;
+        }
+        files.push(EmittedFile {
+            rel_path: comp.rel_path.clone(),
+            content: comp.content.clone(),
+        });
+    }
     if errors.is_empty() {
         Ok(files)
     } else {
         Err(errors)
     }
+}
+
+/// The Kotlin package of a Salvo module [kt-package]: `salvo.` plus the
+/// module path (`core.console` -> `salvo.core.console`). The generated
+/// `unions.kt` lives in the root package `salvo`.
+fn kotlin_package(module: &ModulePath) -> String {
+    let mut out = String::from("salvo");
+    for part in &module.0 {
+        out.push('.');
+        out.push_str(&kt_ident(part));
+    }
+    out
+}
+
+/// The generated Kotlin imports of one file [kt-imports]: a wildcard
+/// import per foreign emitted module whose names the file uses, plus a
+/// Kotlin alias import for every aliased Salvo import of an item that
+/// exists as a Kotlin symbol (inlined externals have none).
+fn generated_imports(
+    ast: &Module,
+    own: &ModulePath,
+    scope: &salvo_core::ModuleScope<'_>,
+    emitted_modules: &HashSet<&ModulePath>,
+) -> BTreeSet<String> {
+    let mut imports = BTreeSet::new();
+    for name in salvo_core::reach::used_names(ast) {
+        for module in scope.name_origins.get(name).into_iter().flatten() {
+            if *module != own && emitted_modules.contains(*module) {
+                imports.insert(format!("import {}.*", kotlin_package(module)));
+            }
+        }
+    }
+    for item in &ast.items {
+        let Item::Import(imp) = item else { continue };
+        let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
+            continue;
+        };
+        // Only items with a Kotlin symbol can be alias-imported: fns with
+        // bodies, structs, effects, handlers. Inlined externals, type
+        // aliases, and qualifiers resolve without one.
+        let alias_name = alias.name.as_str();
+        let has_symbol = scope
+            .fns
+            .get(alias_name)
+            .is_some_and(|entries| entries.iter().any(|e| e.decl.body.is_some()))
+            || scope.structs.contains_key(alias_name)
+            || scope.effects.contains_key(alias_name)
+            || scope.handlers.contains_key(alias_name);
+        if !has_symbol {
+            continue;
+        }
+        let Some(module) = scope
+            .name_origins
+            .get(alias_name)
+            .and_then(|ms| ms.first())
+        else {
+            continue;
+        };
+        if emitted_modules.contains(*module) {
+            imports.insert(format!(
+                "import {}.{} as {}",
+                kotlin_package(module),
+                kt_ident(&item_name.name),
+                kt_ident(alias_name)
+            ));
+        }
+    }
+    imports
+}
+
+/// [backend-external] Every `external` item in the implicitly imported
+/// `core.*` modules must have a define for this backend. Outside core,
+/// missing defines are reported where the item is actually referenced.
+fn check_core_define_coverage(program: &Program, symbols: &Symbols<'_>) -> Vec<String> {
+    let mut errors = Vec::new();
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::Language
+            || unit.file.module.0.first().map(String::as_str) != Some("core")
+        {
+            continue;
+        }
+        for item in &unit.ast.items {
+            match item {
+                Item::Fn(f) if f.backing == Some(BackingMod::External) => {
+                    let covered = symbols.define_fns.get(f.name.name.as_str()).is_some_and(
+                        |defs| defs.iter().any(|d| d.sig.params.len() == f.params.len()),
+                    );
+                    if !covered {
+                        errors.push(format!(
+                            "{}: external fn `{}` in core has no kotlin `define fn`",
+                            unit.file.name, f.name.name
+                        ));
+                    }
+                }
+                Item::Type(t) if t.backing == Some(BackingMod::External) => {
+                    if !symbols.define_types.contains_key(t.name.name.as_str()) {
+                        errors.push(format!(
+                            "{}: external type `{}` in core has no kotlin `define type`",
+                            unit.file.name, t.name.name
+                        ));
+                    }
+                }
+                Item::Handler(h) if h.backing == Some(BackingMod::External) => {
+                    if !symbols.define_handlers.contains_key(h.name.name.as_str()) {
+                        errors.push(format!(
+                            "{}: external handler `{}` in core has no kotlin `define handler`",
+                            unit.file.name, h.name.name
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    errors
 }
 
 /// Generates the sealed union wrapper hierarchy for every needed size
@@ -143,6 +307,15 @@ struct Emitter<'p> {
     loop_results: Vec<Option<String>>,
     /// Counter for unique `__loopN` lowering locals.
     loop_id: usize,
+    /// Counter for unique `__destructuredN` temps [let-destructure].
+    destructure_id: usize,
+    /// Names already bound in the current function (parameters, locals,
+    /// bindings): effect parameters and `use` variables pick names that
+    /// avoid them [kt-effect-params].
+    taken_names: HashSet<String>,
+    /// Generated Kotlin imports for this file [kt-imports] (wildcards for
+    /// referenced foreign modules, aliases for aliased imports).
+    generated_imports: BTreeSet<String>,
 }
 
 impl<'p> Emitter<'p> {
@@ -167,6 +340,9 @@ impl<'p> Emitter<'p> {
             generics: HashSet::new(),
             loop_results: Vec::new(),
             loop_id: 0,
+            destructure_id: 0,
+            taken_names: HashSet::new(),
+            generated_imports: BTreeSet::new(),
         }
     }
 
@@ -216,10 +392,19 @@ impl<'p> Emitter<'p> {
                 _ => {}
             }
         }
-        let mut out = String::from("package salvo\n");
-        if !self.imports.is_empty() {
+        // [kt-package] Each module gets its own Kotlin package.
+        let pkg = kotlin_package(&self.program.files[self.file_idx].module);
+        let mut out = format!("package {pkg}\n");
+        // [kt-imports] Generated module imports, template `imports:`
+        // lines, and the sealed union wrappers when this file uses any.
+        let mut imports = self.generated_imports.clone();
+        imports.extend(self.imports.iter().cloned());
+        if !self.union_sizes.is_empty() {
+            imports.insert("import salvo.*".to_string());
+        }
+        if !imports.is_empty() {
             out.push('\n');
-            for import in &self.imports {
+            for import in &imports {
                 out.push_str(import);
                 out.push('\n');
             }
@@ -412,6 +597,13 @@ impl<'p> Emitter<'p> {
         let saved_env = std::mem::take(&mut self.effect_env);
         let saved_mutated = std::mem::take(&mut self.mutated);
         collect_mutated(body, &mut self.mutated);
+        // Effect parameters and `use` variables must not collide with the
+        // fn's own parameters or locals [kt-effect-params].
+        let saved_taken = std::mem::take(&mut self.taken_names);
+        for p in &f.params {
+            self.taken_names.insert(p.name.name.clone());
+        }
+        collect_declared(body, &mut self.taken_names);
 
         let is_main = top_level && f.name.name == "main";
         let generics = self.emit_generic_params(&f.generics);
@@ -421,7 +613,7 @@ impl<'p> Emitter<'p> {
             for eff in f.effects.iter().flatten() {
                 if let EffectRef::Effect(r) = eff {
                     let ty = self.emit_type_ref(r);
-                    let param = effect_param_name(&ty);
+                    let param = self.unique_name(effect_param_name(&ty));
                     self.effect_env.push((ty.clone(), param.clone()));
                     params.push(format!("{param}: {ty}"));
                 }
@@ -487,6 +679,7 @@ impl<'p> Emitter<'p> {
         self.generics = saved_generics;
         self.effect_env = saved_env;
         self.mutated = saved_mutated;
+        self.taken_names = saved_taken;
         out
     }
 
@@ -694,6 +887,13 @@ impl<'p> Emitter<'p> {
             if let Some(inline) = &def.body.inline {
                 return self.expand_type_template(inline, &def.generics, arg_strs);
             }
+        }
+        // [backend-external] A declared external type with no define for
+        // this backend must not silently pass through.
+        if self.symbols.external_types.contains_key(name) {
+            self.error(format!(
+                "external type `{name}` has no kotlin `define type`"
+            ));
         }
         // Structs, generics, effects, and unknown names pass through.
         format!("{name}{args}")
@@ -972,7 +1172,11 @@ impl<'p> Emitter<'p> {
                 format!("{pad}val ({}) = {value_code}\n", names.join(", "))
             }
             Pattern::Struct { fields, .. } => {
-                let mut out = format!("{pad}val __destructured = {value_code}\n");
+                // Unique per fn: two struct-destructuring `let`s in one
+                // block must not collide [let-destructure].
+                self.destructure_id += 1;
+                let temp = format!("__destructured{}", self.destructure_id);
+                let mut out = format!("{pad}val {temp} = {value_code}\n");
                 for f in fields {
                     let kw = if self.mutated.contains(&f.binding.name) {
                         "var"
@@ -980,7 +1184,7 @@ impl<'p> Emitter<'p> {
                         "val"
                     };
                     out.push_str(&format!(
-                        "{pad}{kw} {} = __destructured.{}\n",
+                        "{pad}{kw} {} = {temp}.{}\n",
                         kt_ident(&f.binding.name),
                         kt_ident(&f.field.name)
                     ));
@@ -1026,7 +1230,7 @@ impl<'p> Emitter<'p> {
             }
             _ => self.emit_type(&decl.of),
         };
-        let var = effect_param_name(&effect_ty);
+        let var = self.unique_name(effect_param_name(&effect_ty));
         self.effect_env.push((effect_ty.clone(), var.clone()));
         format!("{pad}val {var}: {effect_ty} = {handler_code}\n")
     }
@@ -1670,6 +1874,18 @@ impl<'p> Emitter<'p> {
         format!("__loop{}", self.loop_id)
     }
 
+    /// Reserves a name that does not collide with the current fn's
+    /// parameters or locals [kt-effect-params]: `base`, then `base2`, ...
+    fn unique_name(&mut self, base: String) -> String {
+        let mut name = base.clone();
+        let mut i = 1;
+        while !self.taken_names.insert(name.clone()) {
+            i += 1;
+            name = format!("{base}{i}");
+        }
+        name
+    }
+
     /// The Kotlin `for (<var> in ...)` binding for a Salvo loop pattern.
     fn for_pattern_var(&mut self, pattern: &Pattern) -> String {
         match pattern {
@@ -2003,6 +2219,14 @@ impl<'p> Emitter<'p> {
 
         // 4. Known function by arity.
         if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
+            // [backend-external] An external signature that reached this
+            // point has no define (step 3 would have matched one).
+            if f.body.is_none() {
+                self.error(format!(
+                    "external fn `{name}` has no kotlin `define fn`"
+                ));
+                return "TODO()".to_string();
+            }
             return self.emit_fn_call(name, f, type_args, args, span);
         }
 
@@ -2070,7 +2294,6 @@ impl<'p> Emitter<'p> {
         args: &[&Expr],
         span: Span,
     ) -> String {
-        let _ = name;
         let mut all: Vec<String> = Vec::new();
         match self.checked.call_effects.get(&(self.file_idx, span)).cloned() {
             Some(effs) if effs.iter().all(ty_is_concrete) => {
@@ -2092,7 +2315,13 @@ impl<'p> Emitter<'p> {
             all.push(self.emit_expr(a));
         }
         let generics = self.emit_type_args(type_args);
-        let kt_name = self.kotlin_fn_name(f);
+        // A call through an import alias keeps the alias: the generated
+        // Kotlin alias import maps it to the declaration [kt-imports].
+        let kt_name = if name != f.name.name {
+            kt_ident(name)
+        } else {
+            self.kotlin_fn_name(f)
+        };
         format!("{kt_name}{generics}({})", all.join(", "))
     }
 
@@ -2547,6 +2776,165 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             LambdaBody::Expr(e) => collect_mutated_expr(e, out),
             LambdaBody::Block(b) => collect_mutated(b, out),
         },
+        _ => {}
+    }
+}
+
+/// Collects every name a block binds (`let` patterns, `is` bindings,
+/// `when` bindings, `for` patterns, lambda parameters), recursively.
+/// Used to keep generated effect-parameter and `use` variable names from
+/// colliding with user locals [kt-effect-params].
+fn collect_declared(block: &Block, out: &mut HashSet<String>) {
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Let { pattern, value, .. } => {
+                collect_pattern_names(pattern, out);
+                collect_declared_expr(value, out);
+            }
+            Stmt::Assign { target, value, .. } => {
+                collect_declared_expr(target, out);
+                collect_declared_expr(value, out);
+            }
+            Stmt::Return { value: Some(v), .. }
+            | Stmt::Break { value: Some(v), .. }
+            | Stmt::Yield { value: v, .. } => collect_declared_expr(v, out),
+            Stmt::Use { handler, .. } => collect_declared_expr(handler, out),
+            Stmt::Expr(e) => collect_declared_expr(e, out),
+            _ => {}
+        }
+    }
+}
+
+fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
+    match pattern {
+        Pattern::Ident(id) => {
+            out.insert(id.name.clone());
+        }
+        Pattern::Tuple { elems, .. } => {
+            for p in elems {
+                collect_pattern_names(p, out);
+            }
+        }
+        Pattern::Struct { fields, .. } => {
+            for f in fields {
+                out.insert(f.binding.name.clone());
+            }
+        }
+    }
+}
+
+fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
+    match expr {
+        Expr::Is {
+            subject, binding, ..
+        } => {
+            if let Some(b) = binding {
+                out.insert(b.name.clone());
+            }
+            collect_declared_expr(subject, out);
+        }
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
+            for (c, b) in branches {
+                collect_declared_expr(c, out);
+                collect_declared(b, out);
+            }
+            if let Some(b) = else_block {
+                collect_declared(b, out);
+            }
+        }
+        Expr::When {
+            subject, branches, ..
+        } => {
+            collect_declared_expr(subject, out);
+            for b in branches {
+                if let Some(binding) = &b.binding {
+                    out.insert(binding.name.clone());
+                }
+                collect_declared(&b.body, out);
+            }
+        }
+        Expr::While {
+            cond,
+            body,
+            else_block,
+            ..
+        } => {
+            collect_declared_expr(cond, out);
+            collect_declared(body, out);
+            if let Some(b) = else_block {
+                collect_declared(b, out);
+            }
+        }
+        Expr::For {
+            pattern,
+            iterable,
+            body,
+            else_block,
+            ..
+        } => {
+            collect_pattern_names(pattern, out);
+            collect_declared_expr(iterable, out);
+            collect_declared(body, out);
+            if let Some(b) = else_block {
+                collect_declared(b, out);
+            }
+        }
+        Expr::Lambda { params, body, .. } => {
+            for p in params {
+                out.insert(p.name.name.clone());
+            }
+            match body {
+                LambdaBody::Expr(e) => collect_declared_expr(e, out),
+                LambdaBody::Block(b) => collect_declared(b, out),
+            }
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_declared_expr(callee, out);
+            for a in args {
+                collect_declared_expr(a, out);
+            }
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_declared_expr(lhs, out);
+            collect_declared_expr(rhs, out);
+        }
+        Expr::Unary { operand, .. }
+        | Expr::NonNull { operand, .. }
+        | Expr::PostIncrement { operand, .. }
+        | Expr::Spread { operand, .. } => collect_declared_expr(operand, out),
+        Expr::Field { base, .. } => collect_declared_expr(base, out),
+        Expr::Index { base, index, .. } => {
+            collect_declared_expr(base, out);
+            collect_declared_expr(index, out);
+        }
+        Expr::Str { parts, .. } => {
+            for p in parts {
+                if let StrExprPart::Interp(e) = p {
+                    collect_declared_expr(e, out);
+                }
+            }
+        }
+        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            for e in elems {
+                collect_declared_expr(e, out);
+            }
+        }
+        Expr::ArrayInit { size, init, .. } => {
+            collect_declared_expr(size, out);
+            collect_declared_expr(init, out);
+        }
+        Expr::StructLit { fields, .. } => {
+            for f in fields {
+                match &f.kind {
+                    StructLitFieldKind::Named { value, .. } => collect_declared_expr(value, out),
+                    StructLitFieldKind::Spread(e) => collect_declared_expr(e, out),
+                }
+            }
+        }
         _ => {}
     }
 }

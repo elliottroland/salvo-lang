@@ -32,7 +32,7 @@ cargo test         # run the test suite
 cargo run -- compile --backend kotlin --src ./my_project --target ./out
 
 # Compile and run the output (requires kotlinc on PATH):
-kotlinc out/*.kt out/core/*.kt -d classes && kotlin -cp classes salvo.MainKt
+kotlinc out/*.kt out/core/*.kt -d classes && kotlin -cp classes salvo.main.MainKt
 ```
 
 ## A taste of Salvo

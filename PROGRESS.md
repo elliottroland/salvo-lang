@@ -1,6 +1,6 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01 (after M6). This document is
+Status snapshot as of 2026-09-01 (after M7). This document is
 the handoff point for continuing development: it records what is built, the
 key design decisions, known limitations, and a detailed plan for the
 remaining milestones.
@@ -19,16 +19,17 @@ when adding or changing features.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 68 tests; includes five kotlinc compile+run tests
+cargo test                  # 78 tests; includes six kotlinc compile+run tests
                             # (skipped gracefully if kotlinc is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
 # End-to-end:
-cargo run -- compile --backend kotlin --src ./some_dir --target ./out
-cargo run -- compile --backend kotlin --src ./some_dir --target ./out --emit-ast  # debug AST dump
+cargo run -- compile --src ./some_dir --target ./out        # --backend defaults to kotlin
+cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
+cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
 
-# Verify generated Kotlin manually:
-kotlinc out/main.kt out/unions.kt out/core/console.kt -d classes && kotlin -cp classes salvo.MainKt
+# Verify generated Kotlin manually (the CLI prints the entry point):
+kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
 ```
 
 ## Workspace layout
@@ -104,7 +105,7 @@ Supported and emitted:
 | dot-notation `x.f(y)` | normalized to `f(x, y)` when `f` resolves to fn/define/effect member, else kept as method call (Kotlin interop) |
 | `let` | `val`, or `var` when the name is assigned or `++`-incremented anywhere in the fn (mutation pre-scan) |
 | variadics `...xs: T[]` / spread arg `...xs` | `vararg xs: T` / `*xs` |
-| `main() [use]` | `fun main()` (package `salvo`, entry `salvo.MainKt`) |
+| `main() [use]` | `fun main()` (entry `salvo.<module>.MainKt` since M7) |
 
 Deliberate cuts still reported as codegen **errors** (never silent bad code):
 loop-as-value, `break <value>`, multi-spread struct literals, early `return`
@@ -372,6 +373,69 @@ stdout asserted. Deduction semantics covered by 8 new salvo-core tests
 inference, call-graph fixpoint transitivity, lenient interop, validation
 errors).
 
+### M7 — Polish + LANGUAGE.md compliance
+
+**Only used modules [mod-used-only].** New `salvo-core/reach.rs`: roots
+are the user modules declaring `fn main` (all user modules when none —
+library compile); reachability follows *name usage* — every identifier
+and type name a file mentions is looked up in its resolved scope and
+each declaring module becomes reachable. `ModuleScope` gained
+`name_origins: name -> declaring modules` (populated in `add_items`,
+aliases recorded under the alias). Deliberately conservative (shadowed/
+overloaded names pull in every declaring module) — never drops a module
+emitted code could reference. Unreachable modules are not emitted;
+`unions.kt` is now generated from the *emitters'* tracked sizes only.
+
+**Per-module packages + generated imports [kt-package] [kt-imports].**
+Each module emits into `salvo.<module.path>` (was: single `package
+salvo`), killing cross-module collisions; `unions.kt` stays in root
+`salvo`. Files get generated imports: a wildcard `import salvo.<mod>.*`
+per foreign *emitted* module whose names they use (computed from the
+same `used_names` + `name_origins` machinery), `import salvo.*` when the
+file uses union wrappers, plus template `imports:` as before. Aliased
+Salvo imports of Kotlin-visible items (fn with body, struct, effect,
+handler) emit `import salvo.<mod>.<name> as <alias>` and call sites keep
+the alias (`emit_fn_call` uses the source name when it differs from the
+decl); inlined externals/type aliases/qualifiers get no alias import.
+Entry point is now `salvo.<module>.MainKt` (CLI prints it).
+
+**Define coverage [backend-external].** Compile-time checks: (a) upfront
+— every external fn/type/handler in `core.*` must have a define for the
+backend (core is implicitly imported); (b) at reference sites — calls to
+external fns without a define error in both the checker-resolved and
+arity-fallback paths, references to external types without a `define
+type` error instead of passing through, and external handlers without a
+`define handler` already errored at emission.
+
+**Companion files [backend-companion].** `SourceSet`/`Program` carry
+`CompanionFile`s (backend-native extension, e.g. `.kt`, discovered by
+`add_dir`; module = directory + stem). The backend copies them verbatim
+when their module is reachable; a companion colliding with a generated
+file is an error (companion modules should be externals-only, per the
+LANGUAGE.md `complicated.kt` pattern). `Backend` trait gained
+`file_extension()`.
+
+**Emitter fixes.** Effect parameters and `use` variables avoid user
+names ([kt-effect-params]: pre-scan of params + declared locals via
+`collect_declared`; collisions get `console2`-style suffixes).
+`__destructuredN` temps are unique per fn ([let-destructure]). Array
+specialization decision recorded under [type-array]: `T[]` stays
+`Array<T>` — `IntArray`/`DoubleArray` are unrelated types in Kotlin and
+would fracture generics/varargs/interop; revisit only with profiling
+data.
+
+**CLI.** `--backend` defaults to `kotlin`; stale `*.<ext>` files in the
+target that this compile didn't write are deleted (only
+backend-extension files are touched); `--emit-ast` now prints user
+modules only, `--emit-ast=<module>` one module (std included); the entry
+point class is printed after compiling.
+
+Verified end-to-end (`kotlinc_compiles_and_runs_multi_module` + a manual
+CLI run of the LANGUAGE.md companion scenario): multi-module program with
+per-module packages, generated wildcard + alias imports, unused user
+module dropped, companion `.kt` copied and called through its define
+template, stale target file removed — kotlinc-compiled with exact stdout.
+
 ### Current architectural facts worth knowing
 
 - **Resolution/checking pipeline**: `emit_program` runs
@@ -387,11 +451,13 @@ errors).
 - Wrapper-union arm identity is positional over the **declared** type's
   non-`None` arms; narrowing never re-wraps a variable in place (uses are
   unwrapped/re-wrapped at expression sites instead).
-- Modules are emitted to `<module/path>.kt`, all in the single Kotlin
-  package `salvo` (collisions possible). `unions.kt` is emitted whenever
-  any wrapper size is used.
-- A std module is emitted only if it produces code — currently just
-  `core/console.kt`. "Only used modules" per LANGUAGE.md is not yet enforced.
+- Modules are emitted to `<module/path>.kt`. `unions.kt` is emitted whenever
+  any wrapper size is used by an *emitted* file.
+- Only reachable modules that produce code are emitted [mod-used-only]
+  (`reach.rs`: name-usage edges over `ModuleScope::name_origins`); each
+  module gets its own Kotlin package `salvo.<module.path>` with generated
+  imports [kt-package] [kt-imports]; companions copy verbatim
+  [backend-companion].
 - Deductions (`-> [list: Mut] T`) are inferred/validated by the
   `deduce.rs` post-pass and stored in `Checked::deductions`; the Kotlin
   backend ignores them (they are the Rust backend's ownership contract).
@@ -402,7 +468,7 @@ errors).
 
 ## Remaining milestones
 
-### M3–M6 leftovers (small, do alongside M7)
+### M3–M7 leftovers (small, do alongside M8)
 
 - Struct-field subjects of union type in `is`/`when` (only ident subjects
   get union-test lowering; `T?` fields work via Kotlin smart casts).
@@ -438,22 +504,12 @@ errors).
   branch/loop tails as a move (documented leniency in [deduce-infer]).
 - Bare `return` inside a value-position loop (or any value block) in an
   iterator body is not re-targeted to `return@iterator`.
-
-### M7 — Polish + LANGUAGE.md compliance
-
-- "Only used modules are transpiled": reachability from `main` (or all user
-  fns) over the resolved call graph.
-- Per-module Kotlin packages + generated imports (replace the single
-  `package salvo`).
-- Define coverage check at compile time: every reachable `external` item
-  must have a define for the selected backend (currently only surfaces when
-  a call site fails to resolve).
-- Companion-file copying (`complicated.kt` support from LANGUAGE.md).
-- `T[]` may want `IntArray`/`DoubleArray` specializations.
-- Effect-param name collision handling; `__destructured` temp uniquing (two
-  struct-destructuring `let`s in one block currently collide).
-- CLI: `--backend` default?, `clean` of stale target files, better
-  `--emit-ast` filtering.
+- An aliased import of a *mangled* qualified overload maps to the
+  unmangled name in the generated Kotlin alias import ([kt-imports];
+  same class as the unchecked-context mangling gap).
+- Module reachability is name-based and conservative: a local variable
+  shadowing a std fn name still pulls that std module in (harmless
+  extra output, never a missing module).
 
 ### M8 — Rust backend
 
@@ -463,7 +519,7 @@ Prerequisites are in place since M6 (checker tables + deductions in
 deductions decide `&`/`&mut`/move; `define` files `*.rust.sv` (std needs
 them written); `Mut` → `mut`/`&mut`.
 
-## Test inventory (all green: 68)
+## Test inventory (all green: 78)
 
 - `salvo-core`: 16 — 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 8 deduction
@@ -473,9 +529,12 @@ them written); `Mut` → `mut`/`&mut`.
   written-list shape validation, stricter-than-body lists).
 - `salvo-syntax`: 17 — std + LANGUAGE.md-corpus parse-clean assertions with insta
   AST snapshots (`tests/corpus/*.sv`), error-reporting tests.
-- `salvo-backend-kotlin`: 35 — golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 45 — golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
+  M7 assertions (only-used-modules + companion copying, per-module
+  packages + generated imports, alias imports, effect-param collision
+  avoidance, unique destructure temps);
   wrapper/wrap/`is`-lowering assertions (`unions_emit_sealed_wrappers`),
   predicate/mangling/field-cast assertions
   (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
@@ -489,8 +548,11 @@ them written); `Mut` → `mut`/`&mut`.
   qualifier, incompatible qualifiers, `of`-type mismatch, constructor
   same-file rule, predicate-constructor rejection, non-simple constructor
   return, `is` on constructive qualifiers, `qualifies` signature,
-  constructive values only from constructors, `break` outside a loop); and
-  five kotlinc compile+run tests with exact stdout assertions.
+  constructive values only from constructors, `break` outside a loop,
+  missing defines for used external fns/types, uncovered core externals,
+  companion/generated-file collision); and six kotlinc compile+run tests
+  with exact stdout assertions (including the M7 multi-module program
+  with packages, generated imports, and a companion file).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -592,3 +654,25 @@ snapshot diffs.
   quals) and only remove facts — starting pessimistic would not converge
   to the least-strict sound answer and recursive fns would infer
   everything as moved.
+- Kotlin wildcard imports of *nonexistent* packages are compile errors:
+  generated `import salvo.<mod>.*` lines must be filtered to modules that
+  are actually emitted (reachable *and* produce code) — hence
+  `emitted_modules` is computed before any file is emitted.
+- A companion file with the same stem as a code-producing module would
+  silently overwrite the generated `.kt` at write time (both map to the
+  same path); `emit_program` errors on the collision instead. The
+  LANGUAGE.md pattern keeps companion modules externals-only.
+- Aliased Salvo imports need Kotlin alias imports only for items that
+  exist as Kotlin symbols; alias-importing an *inlined* external (define
+  template) would reference a nonexistent symbol and fail kotlinc.
+  `emit_fn_call` must emit the source (alias) name when it differs from
+  the declaration name, or the alias import is dead and the call
+  ambiguous.
+- `unions.kt` is now driven by the emitters' tracked sizes only (the
+  checker's `union_sizes` may include wraps in unreachable modules);
+  every emission path that renders a wrapper inserts its size
+  (`emit_ty`, `emit_union_type`, `apply_coercion`, union tests) — keep
+  that invariant when adding forms.
+- The `--emit-ast` flag takes an optional `=MODULE` value
+  (`num_args 0..=1` + `require_equals` in clap); a bare flag must not
+  swallow the next positional argument.

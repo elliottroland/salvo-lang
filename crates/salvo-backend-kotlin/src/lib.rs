@@ -16,6 +16,10 @@ impl Backend for KotlinBackend {
         "kotlin"
     }
 
+    fn file_extension(&self) -> &'static str {
+        "kt"
+    }
+
     fn emit(&self, program: &Program, target_dir: &Path) -> Result<Vec<PathBuf>, BackendError> {
         let files = emit::emit_program(program).map_err(BackendError::Codegen)?;
         let mut written = Vec::with_capacity(files.len());

@@ -30,8 +30,8 @@ struct Cli {
 enum Command {
     /// Compile Salvo sources to a target language.
     Compile {
-        /// Target backend (e.g. `kotlin`).
-        #[arg(long)]
+        /// Target backend (defaults to `kotlin`).
+        #[arg(long, default_value = "kotlin")]
         backend: String,
         /// Directory containing `.sv` source files.
         #[arg(long)]
@@ -39,10 +39,11 @@ enum Command {
         /// Output directory for generated sources.
         #[arg(long)]
         target: PathBuf,
-        /// Debug: print the parsed AST of every module and stop before
-        /// code generation.
-        #[arg(long)]
-        emit_ast: bool,
+        /// Debug: print the parsed AST and stop before code generation.
+        /// Bare `--emit-ast` prints the user modules; `--emit-ast=MODULE`
+        /// prints one module (std included), e.g. `--emit-ast=core.list`.
+        #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "")]
+        emit_ast: Option<String>,
     },
 }
 
@@ -54,11 +55,16 @@ fn main() -> ExitCode {
             src,
             target,
             emit_ast,
-        } => compile(&backend, &src, &target, emit_ast),
+        } => compile(&backend, &src, &target, emit_ast.as_deref()),
     }
 }
 
-fn compile(backend_name: &str, src: &PathBuf, target: &PathBuf, emit_ast: bool) -> ExitCode {
+fn compile(
+    backend_name: &str,
+    src: &PathBuf,
+    target: &PathBuf,
+    emit_ast: Option<&str>,
+) -> ExitCode {
     let mut registry = BackendRegistry::new();
     registry.register(Box::new(KotlinBackend));
 
@@ -80,7 +86,7 @@ fn compile(backend_name: &str, src: &PathBuf, target: &PathBuf, emit_ast: bool) 
         eprintln!("error: source directory `{}` does not exist", src.display());
         return ExitCode::FAILURE;
     }
-    let io_errors = sources.add_dir(src, backend.name(), false);
+    let io_errors = sources.add_dir(src, backend.name(), backend.file_extension(), false);
     for (path, err) in &io_errors {
         eprintln!("error: failed to read `{}`: {err}", path.display());
     }
@@ -109,14 +115,30 @@ fn compile(backend_name: &str, src: &PathBuf, target: &PathBuf, emit_ast: bool) 
         return ExitCode::FAILURE;
     }
 
-    if emit_ast {
+    if let Some(filter) = emit_ast {
+        let mut printed = 0usize;
         for (file, module) in sources.files.iter().zip(&modules) {
+            // Bare `--emit-ast` prints the user modules; a value selects
+            // one module by path (std included).
+            let selected = if filter.is_empty() {
+                !file.is_std
+            } else {
+                file.module.to_string() == filter
+            };
+            if !selected {
+                continue;
+            }
             let kind = match file.kind {
                 SourceKind::Language => "module",
                 SourceKind::BackendDefine => "backend defines",
             };
             println!("// ===== {} ({kind} `{}`) =====", file.name, file.module);
             println!("{module:#?}");
+            printed += 1;
+        }
+        if printed == 0 {
+            eprintln!("error: no module matches `{filter}`");
+            return ExitCode::FAILURE;
         }
         return ExitCode::SUCCESS;
     }
@@ -128,20 +150,44 @@ fn compile(backend_name: &str, src: &PathBuf, target: &PathBuf, emit_ast: bool) 
         sources.files.len() - user_modules
     );
 
+    // The JVM entry-point class, if the program has a `main`.
+    let entry = sources
+        .files
+        .iter()
+        .zip(&modules)
+        .find(|(file, module)| {
+            !file.is_std
+                && module.items.iter().any(|item| {
+                    matches!(item, salvo_syntax::ast::Item::Fn(f)
+                        if f.name.name == "main" && f.body.is_some())
+                })
+        })
+        .map(|(file, _)| format!("salvo.{}.MainKt", file.module));
+
     let program = Program {
         files: sources.files,
         modules,
+        companions: sources.companions,
     };
     match backend.emit(&program, target) {
         Ok(written) => {
             for path in &written {
                 eprintln!("wrote {}", target.join(path).display());
             }
+            // Clean stale output: generated files from previous runs that
+            // this compile no longer produces.
+            let removed = clean_stale(target, backend.file_extension(), &written);
+            for path in &removed {
+                eprintln!("removed stale {}", path.display());
+            }
             eprintln!(
                 "compiled {} module(s) to `{}`",
                 written.len(),
                 target.display()
             );
+            if let Some(entry) = entry {
+                eprintln!("entry point: {entry}");
+            }
             ExitCode::SUCCESS
         }
         Err(BackendError::Unsupported(msg)) => {
@@ -153,6 +199,31 @@ fn compile(backend_name: &str, src: &PathBuf, target: &PathBuf, emit_ast: bool) 
             ExitCode::FAILURE
         }
     }
+}
+
+/// Deletes files with the backend's extension under `target` that were not
+/// written by this compile (stale output from previous runs). Only
+/// backend-extension files are touched; other files are left alone.
+fn clean_stale(target: &PathBuf, ext: &str, written: &[PathBuf]) -> Vec<PathBuf> {
+    use std::collections::HashSet;
+    let written: HashSet<PathBuf> = written.iter().map(|p| target.join(p)).collect();
+    let mut removed = Vec::new();
+    let mut stack = vec![target.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == ext)
+                && !written.contains(&path)
+                && std::fs::remove_file(&path).is_ok()
+            {
+                removed.push(path);
+            }
+        }
+    }
+    removed
 }
 
 /// Loads the embedded standard library, keeping only language files and the
