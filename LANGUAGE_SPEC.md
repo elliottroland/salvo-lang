@@ -451,16 +451,20 @@ Conventions:
   use-free poison never fires — NLL-like precision without a liveness
   analysis.
   * Mutation events are defined by the existing machinery: a call
-    keeping a parameter whose declared type carries `Mut`, an assignment
-    through a projection, and `++`. Whole-variable reassignment (`x =
-    ...`, `x++`) is revival for `x` itself but poisons `x`'s previous
+    keeping a parameter whose declared type carries `Mut` — for bare
+    identifier arguments *and* for projection arguments, which mutate
+    their provenance roots (`add(h.tags, 2)` poisons variables derived
+    from `h`; backend-parity fix 2026-09-02) — an assignment through a
+    projection, and `++`. Whole-variable reassignment (`x = ...`,
+    `x++`) is revival for `x` itself but poisons `x`'s previous
     derivatives (the old value is gone).
   * The discipline is uniform across all types and purely static: on
     Kotlin nothing physically prevents the rejected programs — it is the
     same protocol on both backends, and it is what makes clone-vs-alias
     emission differences unobservable (any program that could tell the
     difference is rejected).
-  * Not yet tracked (later stages): non-identifier call arguments,
+  * Not yet tracked (later stages): non-identifier call arguments in
+    *moved* positions (kept-`Mut` positions are tracked, see above),
     struct/array/tuple literal stores, `use` handler-constructor
     arguments, and lambda captures.
 * [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —

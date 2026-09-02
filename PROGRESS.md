@@ -275,10 +275,11 @@ the decided model). What landed:
   local `b`" rustc-rejection leftover. Kotlin emission unchanged
   (aliasing is unobservable because mutation-after-link is rejected).
 - Deliberately not tracked yet (later stages): non-identifier call
-  arguments (a projection passed directly to a consuming call is
-  physically a clone today), struct/array/tuple literal stores, `use`
-  handler-constructor arguments, lambda captures, and S2's move-mode
-  relaxation.
+  arguments in *moved* positions (physically a clone today;
+  kept-`Mut` positions *are* tracked since the 2026-09-02 parity fix —
+  they mutate their provenance roots), struct/array/tuple literal
+  stores, `use` handler-constructor arguments, lambda captures, and
+  S2's move-mode relaxation.
 
 ### Current architectural facts worth knowing
 
@@ -344,6 +345,45 @@ Items marked **DECISION** need a language-design call before or during
 implementation — everything else is analysis engineering under decisions
 already made (uniform-across-types consumption, `Nothing` as the marker,
 maybe-moved-is-unusable).
+
+### Backend-parity principle (user decision 2026-09-01)
+
+The operational semantics must be the *same* on both backends; divergent
+representations are acceptable only where the difference is
+unobservable. This principle governs every move/copy/borrow decision in
+the stages below:
+
+- **Immutable data**: clone vs shared reference is purely a performance
+  question — free to address later, in any direction, at any time.
+- **Mutable data**: a clone where Kotlin shares a reference is a
+  *semantics* change, never just a cost. Parity must come from one of
+  exactly two strategies:
+  1. **Restriction** — the checker rejects every program that could
+     observe the difference. This is what deductions and shared fate do
+     today: S1's clone-emission is sound *because*
+     mutate-after-link and mutate-through-derived are compile errors.
+  2. **Faithful emission** — the Rust backend works harder, including
+     emitting code shaped *differently from the source* when a
+     mechanical equivalence justifies it. Recorded technique, **read
+     redirection**: after `let name = person.name`, a later read of
+     `person.name` with no intervening mutation is guaranteed equal to
+     `name`, so Rust may emit the binding as a real (partial) move and
+     redirect subsequent reads of the moved path to the surviving
+     variable — no clone, no borrow, no lifetime; the fate-link table
+     already knows the equivalence. The same idea generalizes to any
+     place the checker can prove holds the same data as a live local.
+  Silent clones of mutable data are *not* a valid parity strategy.
+- **Parity bug closed (verified 2026-09-01, fixed 2026-09-02):** a
+  *projection* passed directly to a kept `Mut` parameter is a mutation
+  of its provenance roots — before the fix, `let t = h.tags;
+  add(h.tags, 2); size(t)` compiled clean and printed 2 on Kotlin
+  (alias) but 1 on Rust (clone). The call-site contract loop now runs
+  `fate_mutation` on the provenance roots of non-identifier arguments
+  in kept-`Mut` positions (mirroring projection assignment), so the
+  derived variable is poisoned and the program is rejected; `copy` at
+  the binding is the remedy. Audit the remaining untracked events
+  (literal stores, `use` ctor args, interpolation, *moved*-position
+  projection args) against this principle when L2 lands them.
 
 ### L1 — Shared fate: links, poison, and `copy` (user decisions 2026-09-01)
 
@@ -424,12 +464,23 @@ Stages (each independently shippable):
   no copies at all). Needs the binding-mode fixpoint interleaved with
   the existing two-round check architecture. Strict-first is safe:
   the relaxation only makes more programs legal.
+  - Refinement (recorded, optional): *read redirection* (see the
+    backend-parity principle) can soften poison-at-binding — a read of
+    exactly the moved path (`person.name` after a move-mode
+    `let name = person.name`, before any mutation) is provably equal
+    to the surviving variable, so the checker may allow it and the
+    Rust emitter substitutes `name`. Keeps more source shapes legal
+    without clones.
 - **S3 — borrow emission (Rust).** Borrow-mode bindings emit real
   borrows (locals holding `&T` — a new emission regime; today every
   read is cloned), move-mode bindings emit partial moves; loops
   iterate by reference for borrow-mode bindings. Kotlin emission
   unchanged throughout. Checker legality must match what borrowck
-  accepts — audit before landing.
+  accepts — audit before landing. Where a borrow is awkward (mixed
+  joins below), read redirection is an alternative tool before
+  reaching for clones — and per the backend-parity principle, a clone
+  is only acceptable there if the data is immutable or the difference
+  is otherwise unobservable.
   - **DECISION S3a — mixed joins.** A variable linked on one path and
     independent on another (`if c { person.name } else { compute() }`)
     is `&T` vs `T` in Rust: forbid, auto-`copy` the owned branch, or
@@ -440,12 +491,20 @@ Stages (each independently shippable):
 Feed the other escape routes into the same narrowing: storing a bare
 identifier in a struct/array/tuple literal, `yield n`, `break n`,
 `return n` (terminal, but matters inside branches), spread `...n`, and
-`use Handler(n)` constructor arguments. Mirrors the move list in
-[deduce-infer]; mostly mechanical. The `yield` case interacts with the
-loop back-edge re-check (a yield in a loop body consumes every
-iteration — the two-pass analysis already models it once the event is
-tracked).
+`use Handler(n)` constructor arguments. (S1 already errors on `return`/
+`break`/`yield` of a fate-*derived* variable; L2 adds the root-consuming
+events.) Mirrors the move list in [deduce-infer]; mostly mechanical. The
+`yield` case interacts with the loop back-edge re-check (a yield in a
+loop body consumes every iteration — the two-pass analysis already
+models it once the event is tracked).
 
+- **Priority item — done 2026-09-02**: the verified parity bug (see the
+  backend-parity principle above) is fixed — non-identifier arguments
+  in kept-`Mut` positions run `fate_mutation` on their provenance
+  roots. The remaining L2 events should be audited against the parity
+  principle as they land, not just for strictness (in particular,
+  *moved*-position projection arguments and literal stores are still
+  physically clones in Rust while Kotlin stores an alias).
 - **DECISION L2a — interpolation.** Is `"${n}"` a read or a move? Both
   emitters render interpolated values owned-by-clone, so it is
   physically a copy. Recommendation: reads never consume; spec it.
@@ -615,7 +674,7 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 154)
+## Test inventory (all green: 155)
 
 - `salvo-core`: 22 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -631,7 +690,7 @@ affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 34 - 27 `analyze` integration tests running the built
+- `salvo-cli`: 35 - 28 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -655,7 +714,10 @@ affected layer.
   silent [fate-poison], links flowing through projections, `for` and
   `is` bindings transitively to the root, reassignment revival, links
   unioning across branch merges [fate-link], `copy` producing
-  independent values that make the whole matrix pass [copy-fn]),
+  independent values that make the whole matrix pass [copy-fn],
+  and the backend-parity fix: a projection argument in a kept-`Mut`
+  position mutating its provenance roots, poisoning derived variables
+  and rejecting mutation through derived ones),
   `[struct-mut]` field assignment requiring a `Mut`-qualified struct
   value,
   `--backend` opting
@@ -777,6 +839,13 @@ snapshot diffs.
   generic struct fields must be checked under the instantiation's
   substitution (`approx_ty` bridges written field types to checker
   `Ty`s just far enough for that).
+- (S1) Leniency gaps in the fate analysis are not always mere
+  strictness gaps — some are *backend-parity* holes. Untracked
+  mutation events let a Kotlin alias observe a change a Rust clone
+  does not (`let t = h.tags; add(h.tags, 2); size(t)` prints 2 vs 1).
+  When auditing an unhandled event, always ask "could the two backends
+  disagree?", not just "should this be an error?" — the parity
+  principle in the roadmap is the checklist.
 - `unify` (overload resolution) is *order-sensitive across its match
   arms*: the argument-qualifier-stripping arm
   (`(_, Ty::Qualified { .. })`) must come *after* the union-parameter

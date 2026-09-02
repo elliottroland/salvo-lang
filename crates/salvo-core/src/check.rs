@@ -3427,10 +3427,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(contract) = contract {
             let fixed_count = decl.params.iter().filter(|p| !p.variadic).count();
             for (i, arg) in args.iter().enumerate().take(fixed_count) {
-                let Expr::Ident(id) = arg else { continue };
                 let param = &decl.params[i];
                 let Some(d) = contract.iter().find(|d| d.param == param.name.name)
                 else {
+                    continue;
+                };
+                let Expr::Ident(id) = arg else {
+                    // A non-identifier argument in a *kept `Mut`* position
+                    // lets the callee mutate through the projection: that
+                    // is a mutation of the argument's provenance roots
+                    // [fate-poison] — otherwise a Kotlin alias would
+                    // observe the mutation while Rust's clone does not
+                    // (backend-parity principle).
+                    if d.kept
+                        && crate::deduce::declared_quals(&param.ty)
+                            .iter()
+                            .any(|q| q == "Mut")
+                    {
+                        let mut sources = Vec::new();
+                        Self::provenance(arg, &mut sources);
+                        let names: Vec<String> =
+                            sources.iter().map(|s| s.name.clone()).collect();
+                        for name in names {
+                            self.fate_mutation(&name, span);
+                        }
+                    }
                     continue;
                 };
                 if !d.kept {
