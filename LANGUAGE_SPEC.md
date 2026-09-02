@@ -50,6 +50,17 @@ Conventions:
     never consumes `n` [deduce-consume]. Both backends render the
     interpolated value as an owned copy purely for formatting — no
     reference is retained — so reads-never-consume is parity-sound.
+* [interp-no-none] Interpolating a possibly-`None` value is an error
+  (user decision 2026-09-02): narrow it (`is` / `when`, taking the
+  binding for a non-variable place) or assert it with `!`. Interpolating
+  `None` itself is an error too — it has no text form. Motivation is
+  parity: Kotlin would print `null` while Rust rejects the `Option`
+  (`Display` is not implemented), so leniency made the backends disagree
+  observably. `Unknown`/`Nothing` operands stay lenient
+  [type-unknown-lenient].
+  * Struct fields do not flow-narrow [is-narrowing], so
+    `if p.surname is Str { "${p.surname}" }` is rejected; the
+    `is Str surname` binding form is the idiom (LANGUAGE.md uses it).
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let`.
   * Backends may support only small sizes; unsupported sizes are codegen
@@ -69,7 +80,11 @@ Conventions:
 * [type-array] `T[]` is an array; literals `[1, 2, 3]`; generator form
   `Int[5] { i: Int -> 0 }`; `arr[i]` is 0-indexed; size via `size()`.
   * The generator form is an `ArrayInit` AST node (speculative parse).
-  * std currently defines `size` for `Str` and `List<T>`, not arrays.
+  * std's `core.array` mirrors `core.list`'s function surface minus
+    construction (literals are the constructor) and mutation (arrays are
+    fixed-size): `size`, `get`, `first`, `iter` (user decision
+    2026-09-02). `for` iterates arrays natively — `iter_elem_ty` handles
+    `Ty::Array` before the implicit-`iter` lookup.
 * [type-any-nothing] `Any` is the top type; `Nothing` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
 * [type-alias] `type Name<G> = ...` declares a type alias; aliases can be
@@ -221,6 +236,18 @@ Conventions:
 * [expr-everything] Every control-flow construct is an expression; a
   branch's value/type is its last expression, and the construct's type is
   the union of branch types.
+* [op-no-none] Arithmetic (`+ - * / %`) and comparison (`< > <= >=`,
+  `== !=`) reject a possibly-`None` operand, and `None` itself, as an
+  error (user decision 2026-09-02): nullability is tested with `is None`,
+  so an optional reaching an operator is a missing narrowing. Remedy:
+  narrow (`is` / `when`) or assert with `!`.
+  * Same parity motivation as [interp-no-none]: Kotlin compares against
+    `null` happily while Rust rejects the `Option`.
+  * `Unknown`/`Nothing` operands stay lenient [type-unknown-lenient].
+  * Arithmetic result typing is otherwise unchanged (the left operand's
+    type, qualifiers stripped); operand typing *beyond* `None` — numeric
+    towers, promotion, `Bool` for `&&`/`||` — is still open, so `&&`/`||`
+    are deliberately not covered by this rule.
 * [if-bool] `if`/`elif` conditions must be boolean expressions; there is
   no truthiness. `is` checks evaluate to `Bool`.
   * The parser disables struct-literal speculation in condition position
@@ -230,8 +257,10 @@ Conventions:
 * [is-narrowing] `is` checks flow-narrow identifier subjects: matched type
   in the then-branch, remaining arms in the else-branch; `elif` chains
   accumulate exclusions; `&&`/`||`/`!` propagate facts.
-  * Only *identifier* subjects narrow (struct-field union subjects are a
-    known leftover).
+  * Only *identifier* subjects flow-narrow. Union-test lowering and
+    `is`-bindings work for any subject place (struct fields included) —
+    the tested branch reads the field through the binding or the
+    recorded unwrap, not through narrowing.
   * Narrowing resets to the declared type for any variable assigned
     inside a branch ([narrow-assign-reset]).
 * [is-binding] `is Type name` binds the narrowed value to a fresh
@@ -284,8 +313,17 @@ Conventions:
   qualifiers: `full_name(Person)` vs `full_name(Surname Person)`).
   * The checker scores viable candidates (exact type match > subtype;
     qualified params more specific) and records the winner per call site
-    (`call_fn`). Emitters fall back to arity-based resolution in
-    unchecked contexts.
+    (`call_fn`). In unchecked contexts (no recorded winner — e.g.
+    define-only names) emitters narrow same-arity candidates by the
+    checked argument types' base names; an ambiguous dispatch is a
+    codegen error ("annotate the argument types"), never a guess
+    [backend-never-wrong].
+  * Generic bindings in `unify` widen: when arguments bind the same `T`
+    to related types, the more general one wins regardless of order
+    (`pick(1, maybe_int)` binds `T = Int?`). No occurs check,
+    deliberately: `Ty::Var` identity is name-scoped per side, so a
+    callee's `T` never appears inside argument types (a caller's
+    same-named `T` is a different variable).
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
   known fn/define/effect member; otherwise it stays a backend method call
   ([type-unknown-lenient] interop).
@@ -307,6 +345,14 @@ Conventions:
 
 * [effect-decl] `effect E<G> { fn member(...) -> T }` declares an effect:
   a set of functions available to code that depends on `E`.
+* [effect-member-generics] Effect member fns may declare their *own*
+  generics (`fn pick<T>(a: T, b: T) -> T`); they bind per call from the
+  argument types (progressively — later params and the return type see
+  earlier bindings). Explicit type args at the call site keep their
+  [effect-disambiguation] meaning (they pin the effect *instance*, not
+  member generics). Kotlin renders them on the interface member
+  (`fun <T> pick(...)`); the Rust backend rejects them (loudly): `dyn`
+  traits cannot have generic methods [rs-effects].
 * [effect-member-no-effects] Effect member fns (and handler member fns)
   cannot declare their own effect dependencies (compile error "…yet"):
   dispatch call sites go through the handler instance and cannot thread
@@ -340,6 +386,13 @@ Conventions:
   (`let i: Int = next_random()`). Still >1 → "ambiguous effect call"
   error; 0 → "no handler" error.
   * The resolved instance is recorded per call site (`effect_calls`).
+  * Emitter effect environments are keyed by the *checker's* effect types
+    (`fn_effects` for declared lists, `use_effects` for registrations,
+    `effect_calls`/`call_effects` for lookups); the backend type
+    rendering is a secondary key, used only where no checker type exists
+    (unchecked contexts) and for the same-base-name fallback that matches
+    a generic callee effect (`Random<T>`) against a concrete instance in
+    scope.
 * [effect-scope] `use` registrations are block-scoped: they expire at the
   end of the enclosing block.
   * Checker `effect_env` and emitter environments truncate at block
@@ -799,8 +852,17 @@ Conventions:
 * [mod-import] `import path.Name` / `import path.Name as Alias`; aliasing
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
-    (`import core.Str` finds `core.string`). Non-fn name collisions
-    across visible modules currently last-win silently (known leftover).
+    (`import core.Str` finds `core.string`).
+* [mod-collision] Non-fn name collisions are errors, not last-win —
+  same-name fns form overload sets and are exempt. Reported: a same-kind
+  same-name duplicate within one module; the same name declared in two
+  implicitly visible `core.*` modules; an import colliding with an
+  own-module declaration or another import (`as` renames resolve it).
+  Deliberate shadowing stays silent: own-module declarations and
+  explicit imports override implicit `core.*` visibility.
+  * Kinds are per-namespace (struct/effect/handler/qualifier/type
+    alias/opaque type): same-name declarations of different kinds do
+    not collide.
 * [mod-used-only] Only modules used by the program are transpiled.
   * Roots are the user modules declaring `fn main` (all user modules for
     a library compile without one). Reachability follows *name usage*:
@@ -949,6 +1011,17 @@ Conventions:
     [fate-link].
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
+* [lsp-definition] `textDocument/definition` jumps from a name to its
+  declaration's *identifier*. Fn names resolve through
+  `Checked::fn_refs` (overload-precise, so a call site lands on the
+  overload the checker picked); every other name — struct, effect,
+  handler, qualifier, type alias, opaque type, effect member — through
+  `Checked::def_refs`, fed by `ModuleScope::def_sites` (visible name ->
+  declaring file + identifier span, alias-aware).
+  * The smallest name span containing the cursor wins; a type-alias use
+    jumps to the alias declaration, not through to its target.
+  * Declarations in the embedded std have no on-disk URI and yield no
+    location.
   * Positions convert between byte offsets (Salvo spans) and UTF-16
     line/character pairs (the LSP default encoding).
 * [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate

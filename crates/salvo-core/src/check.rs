@@ -24,7 +24,7 @@ use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
-use crate::resolve::{FnKey, ModuleScope, Resolution};
+use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
 use crate::source::SourceKind;
 use crate::types::{is_subtype, Qual, Ty, FnParamContract};
 
@@ -95,6 +95,11 @@ pub struct Checked {
     /// a call to a fn that declares effect dependencies (keyed by the call
     /// span, in the callee's declaration order).
     pub call_effects: HashMap<Key, Vec<Ty>>,
+    /// The lowered declared effect list of each fn [effect-fn-deps], in
+    /// declaration order (duplicates and unresolved entries dropped) —
+    /// the primary source for the emitters' effect-parameter
+    /// environments, keyed by checker types rather than type renderings.
+    pub fn_effects: HashMap<FnKey, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
@@ -108,6 +113,11 @@ pub struct Checked {
     /// mapped to the declaration it resolves to. Drives the LSP's
     /// signature hover.
     pub fn_refs: HashMap<Key, FnKey>,
+    /// Non-fn name references [lsp-definition]: the span of a type,
+    /// struct, effect, handler, qualifier, type-alias, or effect-member
+    /// name mapped to where its declaration's identifier is written.
+    /// Drives go-to-definition for everything `fn_refs` does not cover.
+    pub def_refs: HashMap<Key, DefSite>,
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
@@ -706,6 +716,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
         let (fn_effects, can_use) = self.check_effect_list(f);
+        if let Some(key) = self.own_fn {
+            self.out.fn_effects.insert(key, fn_effects.clone());
+        }
         let Some(body) = &f.body else {
             self.generics = saved_generics;
             return;
@@ -897,6 +910,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let param_tys: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
         let of_ty = self.lower_type(&decl.of);
         self.generics = saved;
+        // [lsp-definition] the handler name points at its declaration.
+        self.record_def_ref(id.span, &id.name);
 
         let has_variadic = decl.params.iter().any(|p| p.variadic);
         if !has_variadic && args.len() != decl.params.len() {
@@ -954,6 +969,41 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn lookup(&self, name: &str) -> Option<&LocalVar> {
         self.locals.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// Records a non-fn name use as pointing at its declaration's
+    /// identifier [lsp-definition]. Silent when the name resolves to
+    /// nothing visible (locals, generics, backend interop).
+    fn record_def_ref(&mut self, span: Span, name: &str) {
+        if let Some(site) = self.scope.def_sites.get(name).copied() {
+            self.out.def_refs.insert(self.key(span), site);
+        }
+    }
+
+    /// [op-no-none] Rejects a possibly-`None` operand of an arithmetic or
+    /// comparison operator (user decision 2026-09-02). Nullability is
+    /// tested with `is None`, so an optional reaching an operator is
+    /// always a missing narrowing — and the backends disagree about it
+    /// (Kotlin compares/prints `null`, Rust rejects the `Option`), which
+    /// makes leniency a parity hole. `Unknown`/`Nothing` stay lenient.
+    fn reject_optional_operand(&mut self, op: BinaryOp, operand: &Expr, ty: &Ty) {
+        if ty.is_unknown() || matches!(ty, Ty::Nothing) {
+            return;
+        }
+        let stripped = ty.strip_quals();
+        if !(stripped.has_none_arm() || stripped.is_none_ty()) {
+            return;
+        }
+        let symbol = op_symbol(op);
+        let message = if stripped.is_none_ty() {
+            format!("`None` is not a valid operand of `{symbol}`")
+        } else {
+            format!(
+                "operand of `{symbol}` may be `None` (its type is `{ty}`): narrow \
+                 it first (`is` / `when`) or assert it with `!`"
+            )
+        };
+        self.error(operand.span(), message);
     }
 
     fn lookup_mut(&mut self, name: &str) -> Option<&mut LocalVar> {
@@ -2298,13 +2348,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Vec<Qual> {
         qualifiers
             .iter()
-            .map(|q| Qual {
-                name: q.name.name.clone(),
-                args: q
-                    .args
-                    .iter()
-                    .map(|a| self.lower_type_subst(a, subst, depth))
-                    .collect(),
+            .map(|q| {
+                // [lsp-definition] qualifier name -> its declaration.
+                self.record_def_ref(q.name.span, &q.name.name);
+                Qual {
+                    name: q.name.name.clone(),
+                    args: q
+                        .args
+                        .iter()
+                        .map(|a| self.lower_type_subst(a, subst, depth))
+                        .collect(),
+                }
             })
             .collect()
     }
@@ -2326,6 +2380,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Var(name.to_string());
             }
         }
+        // The written name points at its declaration [lsp-definition] —
+        // recorded before alias expansion, so an alias use jumps to the
+        // alias itself rather than its target.
+        let name_span = base.name.span;
+        self.record_def_ref(name_span, name);
         let args: Vec<Ty> = base
             .args
             .iter()
@@ -3361,7 +3420,28 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Str { parts, .. } => {
                 for part in parts {
                     if let StrExprPart::Interp(e) = part {
-                        self.check_expr(e, None);
+                        let ty = self.check_expr(e, None);
+                        // [interp-no-none] Interpolating a possibly-absent
+                        // value is an error (user decision 2026-09-02):
+                        // Kotlin would print `null` while Rust rejects the
+                        // `Option` — an observable backend divergence.
+                        if !ty.is_unknown() && !matches!(ty, Ty::Nothing) {
+                            let stripped = ty.strip_quals();
+                            if stripped.has_none_arm() || stripped.is_none_ty() {
+                                let message = if stripped.is_none_ty() {
+                                    "cannot interpolate `None` into a string: it \
+                                     has no text form"
+                                        .to_string()
+                                } else {
+                                    format!(
+                                        "cannot interpolate a value that may be \
+                                         `None` (its type is `{ty}`): narrow it \
+                                         first (`is` / `when`) or assert it with `!`"
+                                    )
+                                };
+                                self.error(e.span(), message);
+                            }
+                        }
                     }
                 }
                 Ty::named("Str")
@@ -3622,7 +3702,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match op {
                     Add | Sub | Mul | Div | Rem => {
                         let l = self.check_expr(lhs, None);
-                        self.check_expr(rhs, None);
+                        let r = self.check_expr(rhs, None);
+                        // [op-no-none] Arithmetic never operates on a
+                        // possibly-absent value.
+                        self.reject_optional_operand(*op, lhs, &l);
+                        self.reject_optional_operand(*op, rhs, &r);
                         if l.is_unknown() {
                             Ty::Unknown
                         } else {
@@ -3636,8 +3720,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Ty::named("Bool")
                     }
                     _ => {
-                        self.check_expr(lhs, None);
-                        self.check_expr(rhs, None);
+                        let l = self.check_expr(lhs, None);
+                        let r = self.check_expr(rhs, None);
+                        // [op-no-none] Comparison (ordering and equality)
+                        // likewise: nullability is tested with `is None`.
+                        self.reject_optional_operand(*op, lhs, &l);
+                        self.reject_optional_operand(*op, rhs, &r);
                         Ty::named("Bool")
                     }
                 }
@@ -3952,7 +4040,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .as_ref()
                 .and_then(|c| c.get(i))
                 .is_some_and(|e| e.kept);
-            eprintln!("DBG lambda param {} kept={} contract={:?}", p.name.name, kept, exp_contract.is_some());
             if kept {
                 if let Some(var) = self.lookup_mut(&p.name.name) {
                     var.lambda_kept = true;
@@ -4902,12 +4989,36 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
     }
     match (param, arg) {
         (Ty::Var(g), _) => {
-            if let Some(bound) = subst.get(g) {
-                let bound = bound.clone();
-                is_subtype(arg, &bound) || is_subtype(&bound, arg)
-            } else {
-                subst.insert(g.clone(), arg.clone());
-                true
+            match subst.get(g) {
+                Some(bound) => {
+                    let bound = bound.clone();
+                    if is_subtype(arg, &bound) {
+                        true
+                    } else if is_subtype(&bound, arg) {
+                        // A later argument revealed the more general type:
+                        // widen the binding (`pick(1, maybe_int)` binds
+                        // `T = Int?`, not first-seen `Int`). Keeping the
+                        // narrow binding would make the checker believe a
+                        // possibly-`None` result is plain `T`.
+                        subst.insert(g.clone(), arg.clone());
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => {
+                    // No occurs check, deliberately: `Ty::Var` identity is
+                    // name-scoped *per side* — the callee's `T` and a
+                    // caller's `T` inside `arg` are different variables
+                    // (`fn wrap<T>(x: List<T>)` forwarding to
+                    // `inner<T>(x: T)` binds callee-`T` := `List<caller-T>`,
+                    // which a name-based occurs check would wrongly
+                    // reject). Argument types never contain the callee's
+                    // own vars, and `substitute_vars` replaces without
+                    // recursing into bindings, so expansion terminates.
+                    subst.insert(g.clone(), arg.clone());
+                    true
+                }
             }
         }
         (
@@ -5165,6 +5276,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // provides it (validating availability and disambiguating generic
         // effects).
         if let Some(&(effect, member)) = self.scope.effect_members.get(name) {
+            // [lsp-definition] members have no `FnKey`; the def-site table
+            // carries their declaration span.
+            self.record_def_ref(name_span, name);
             return self.check_effect_call(effect, member, type_args, args, expected, span);
         }
 
@@ -5664,8 +5778,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Ty {
         // The member's signature, lowered with the effect's generics as
-        // `Var`s.
+        // `Var`s — and the member's *own* generics too
+        // [effect-member-generics]: they bind per call from the argument
+        // types (explicit type args keep their [effect-disambiguation]
+        // meaning: they pin the effect instance, not member generics).
         let saved = self.enter_generics(&effect.generics);
+        self.enter_generics(&member.generics);
         let member_params: Vec<Ty> = member
             .params
             .iter()
@@ -5677,8 +5795,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
         self.generics = saved;
-        let generic_set: HashSet<String> =
-            effect.generics.iter().map(|g| g.name.clone()).collect();
+        let generic_set: HashSet<String> = effect
+            .generics
+            .iter()
+            .chain(&member.generics)
+            .map(|g| g.name.clone())
+            .collect();
         let subst_for = |instance: &Ty| -> HashMap<String, Ty> {
             match instance {
                 Ty::Named { args, .. } => effect
@@ -5801,11 +5923,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
 
-        let subst = resolved.as_ref().map(&subst_for).unwrap_or_default();
+        let mut subst = resolved.as_ref().map(&subst_for).unwrap_or_default();
         match typed_args {
             Some(arg_tys) => {
-                // Args already typed: record coercions against the
-                // resolved param types.
+                // Args already typed: bind the member's own generics from
+                // them [effect-member-generics], then record coercions
+                // against the fully substituted param types.
+                for (p, a) in member_params.iter().zip(&arg_tys) {
+                    unify(p, a, &mut subst);
+                }
                 for (i, p) in member_params.iter().enumerate().take(arg_tys.len()) {
                     let sp = substitute_vars(p, &subst, &generic_set);
                     let logical = arg_tys[i].clone();
@@ -5818,7 +5944,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     match member_params.get(i) {
                         Some(p) => {
                             let sp = substitute_vars(p, &subst, &generic_set);
-                            self.check_expr(a, Some(&sp));
+                            let ty = self.check_expr(a, Some(&sp));
+                            // Progressively bind the member's own generics
+                            // [effect-member-generics]: later params and
+                            // the return type see earlier bindings.
+                            unify(p, &ty, &mut subst);
                         }
                         None => {
                             self.check_expr(a, None);
@@ -5840,6 +5970,26 @@ impl<'p, 'r> Checker<'p, 'r> {
 /// hits a `return`, `break`, or `continue` — so its state never reaches
 /// the code *after* a branching construct [deduce-consume]. Same shape as
 /// [fn-must-return]'s walker, with loop exits counted too.
+/// The source symbol of a binary operator, for diagnostics [op-no-none].
+fn op_symbol(op: BinaryOp) -> &'static str {
+    use BinaryOp::*;
+    match op {
+        Add => "+",
+        Sub => "-",
+        Mul => "*",
+        Div => "/",
+        Rem => "%",
+        Eq => "==",
+        NotEq => "!=",
+        Lt => "<",
+        Gt => ">",
+        LtEq => "<=",
+        GtEq => ">=",
+        And => "&&",
+        Or => "||",
+    }
+}
+
 fn block_always_exits(block: &Block) -> bool {
     block.stmts.iter().any(|stmt| match stmt {
         Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,

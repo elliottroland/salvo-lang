@@ -15,6 +15,6 @@ pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;
 pub use program::{Program, Symbols};
 pub use reach::reachable_modules;
-pub use resolve::{resolve, FnKey, ModuleScope, Resolution};
+pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{CompanionFile, ModulePath, SourceFile, SourceKind, SourceSet};
 pub use types::{is_subtype, Qual, Ty};

@@ -21,6 +21,7 @@ use salvo_syntax::ast::{
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::source::ModulePath;
+use salvo_syntax::Span;
 
 /// Identifies a top-level `fn` declaration: (file index, item index).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -34,6 +35,17 @@ pub struct FnKey {
 pub struct FnEntry<'p> {
     pub key: FnKey,
     pub decl: &'p FnDecl,
+}
+
+/// Where a declaration's *name* is written [lsp-definition]: the file it
+/// lives in and the span of its identifier. Recorded for every visible
+/// non-fn declaration (fns are identified precisely by [`FnKey`] through
+/// the checker's `fn_refs` table) so tooling can jump to definitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DefSite {
+    /// Index into `Program::files`.
+    pub file: usize,
+    pub span: Span,
 }
 
 /// The names visible to one source file.
@@ -53,6 +65,10 @@ pub struct ModuleScope<'p> {
     /// imports record the alias). Drives module reachability
     /// [mod-used-only] and generated backend imports.
     pub name_origins: HashMap<&'p str, Vec<&'p ModulePath>>,
+    /// Visible name -> where its declaration's identifier is written
+    /// [lsp-definition]. Non-fn declarations and effect members; fns are
+    /// resolved through the checker's `fn_refs` (overload-precise).
+    pub def_sites: HashMap<&'p str, DefSite>,
 }
 
 impl<'p> ModuleScope<'p> {
@@ -98,28 +114,92 @@ impl Resolution<'_> {
     }
 }
 
-/// One module's own declarations, prior to visibility merging.
+/// One module's own declarations, prior to visibility merging. Non-fn
+/// items carry their declaring file index so collision diagnostics
+/// [mod-collision] can point at the right file.
 #[derive(Default)]
 struct ModuleItems<'p> {
     fns: Vec<(FnKey, &'p FnDecl)>,
-    structs: Vec<&'p StructDecl>,
-    effects: Vec<&'p EffectDecl>,
-    handlers: Vec<&'p HandlerDecl>,
-    qualifiers: Vec<&'p QualifierDecl>,
-    type_aliases: Vec<&'p TypeDecl>,
-    opaque_types: Vec<&'p TypeDecl>,
+    structs: Vec<(usize, &'p StructDecl)>,
+    effects: Vec<(usize, &'p EffectDecl)>,
+    handlers: Vec<(usize, &'p HandlerDecl)>,
+    qualifiers: Vec<(usize, &'p QualifierDecl)>,
+    type_aliases: Vec<(usize, &'p TypeDecl)>,
+    opaque_types: Vec<(usize, &'p TypeDecl)>,
 }
 
 impl<'p> ModuleItems<'p> {
     fn has_name(&self, name: &str) -> bool {
         self.fns.iter().any(|(_, f)| f.name.name == name)
-            || self.structs.iter().any(|s| s.name.name == name)
-            || self.effects.iter().any(|e| e.name.name == name)
-            || self.handlers.iter().any(|h| h.name.name == name)
-            || self.qualifiers.iter().any(|q| q.name.name == name)
-            || self.type_aliases.iter().any(|t| t.name.name == name)
-            || self.opaque_types.iter().any(|t| t.name.name == name)
+            || self.structs.iter().any(|(_, s)| s.name.name == name)
+            || self.effects.iter().any(|(_, e)| e.name.name == name)
+            || self.handlers.iter().any(|(_, h)| h.name.name == name)
+            || self.qualifiers.iter().any(|(_, q)| q.name.name == name)
+            || self.type_aliases.iter().any(|(_, t)| t.name.name == name)
+            || self.opaque_types.iter().any(|(_, t)| t.name.name == name)
     }
+
+    /// `(kind, name, file, span)` of every non-fn item, for collision
+    /// detection [mod-collision]. Fns are exempt: same-name fns form
+    /// overload sets.
+    fn non_fn_names(&self) -> Vec<(NameKind, &'p str, usize, Span)> {
+        let mut out = Vec::new();
+        for (f, s) in &self.structs {
+            out.push((NameKind::Struct, s.name.name.as_str(), *f, s.name.span));
+        }
+        for (f, e) in &self.effects {
+            out.push((NameKind::Effect, e.name.name.as_str(), *f, e.name.span));
+        }
+        for (f, h) in &self.handlers {
+            out.push((NameKind::Handler, h.name.name.as_str(), *f, h.name.span));
+        }
+        for (f, q) in &self.qualifiers {
+            out.push((NameKind::Qualifier, q.name.name.as_str(), *f, q.name.span));
+        }
+        for (f, t) in &self.type_aliases {
+            out.push((NameKind::TypeAlias, t.name.name.as_str(), *f, t.name.span));
+        }
+        for (f, t) in &self.opaque_types {
+            out.push((NameKind::OpaqueType, t.name.name.as_str(), *f, t.name.span));
+        }
+        out
+    }
+}
+
+/// The namespace of a non-fn declaration, for collision detection
+/// [mod-collision]: same-kind same-name declarations collide; different
+/// kinds live in different lookup tables.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum NameKind {
+    Struct,
+    Effect,
+    Handler,
+    Qualifier,
+    TypeAlias,
+    OpaqueType,
+}
+
+impl NameKind {
+    fn describe(self) -> &'static str {
+        match self {
+            NameKind::Struct => "struct",
+            NameKind::Effect => "effect",
+            NameKind::Handler => "handler",
+            NameKind::Qualifier => "qualifier",
+            NameKind::TypeAlias => "type alias",
+            NameKind::OpaqueType => "type",
+        }
+    }
+}
+
+/// Visibility precedence of a scope entry [mod-collision]: own-module
+/// declarations override implicit `core.*` visibility, and explicit
+/// imports override `core.*`; everything else is a collision.
+#[derive(Clone, Copy, PartialEq)]
+enum Level {
+    Core,
+    Own,
+    Import,
 }
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
@@ -138,25 +218,28 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     },
                     f,
                 )),
-                Item::Struct(s) => items.structs.push(s),
-                Item::Effect(e) => items.effects.push(e),
-                Item::Handler(h) => items.handlers.push(h),
-                Item::Qualifier(q) => items.qualifiers.push(q),
+                Item::Struct(s) => items.structs.push((file_idx, s)),
+                Item::Effect(e) => items.effects.push((file_idx, e)),
+                Item::Handler(h) => items.handlers.push((file_idx, h)),
+                Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
                 Item::Type(t) => match (t.backing, &t.alias) {
-                    (None, Some(_)) => items.type_aliases.push(t),
+                    (None, Some(_)) => items.type_aliases.push((file_idx, t)),
                     (Some(BackingMod::Internal) | Some(BackingMod::External), _)
-                    | (None, None) => items.opaque_types.push(t),
+                    | (None, None) => items.opaque_types.push((file_idx, t)),
                 },
                 _ => {}
             }
         }
     }
 
-    let core_modules: Vec<&ModulePath> = by_module
+    let mut core_modules: Vec<&ModulePath> = by_module
         .keys()
         .filter(|m| m.0.first().is_some_and(|p| p == "core"))
         .copied()
         .collect();
+    // Sorted for determinism: scope-entry and overload-candidate order
+    // must not depend on hash-map iteration [mod-collision].
+    core_modules.sort_by_key(|m| m.to_string());
 
     // Whole-program declaration index for import suggestions
     // [diag-import-suggest]. Effect members map to their owning effect:
@@ -169,48 +252,104 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         for (_, f) in &items.fns {
             record(&f.name.name, &f.name.name);
         }
-        for s in &items.structs {
+        for (_, s) in &items.structs {
             record(&s.name.name, &s.name.name);
         }
-        for e in &items.effects {
+        for (_, e) in &items.effects {
             record(&e.name.name, &e.name.name);
             for f in &e.fns {
                 record(&f.name.name, &e.name.name);
             }
         }
-        for h in &items.handlers {
+        for (_, h) in &items.handlers {
             record(&h.name.name, &h.name.name);
         }
-        for q in &items.qualifiers {
+        for (_, q) in &items.qualifiers {
             record(&q.name.name, &q.name.name);
         }
-        for t in &items.type_aliases {
+        for (_, t) in &items.type_aliases {
             record(&t.name.name, &t.name.name);
         }
-        for t in &items.opaque_types {
+        for (_, t) in &items.opaque_types {
             record(&t.name.name, &t.name.name);
+        }
+    }
+
+    let mut errors = Vec::new();
+
+    // [mod-collision] Declaration-level collisions are reported once,
+    // globally: a same-kind same-name duplicate within one module, and a
+    // same-kind same-name collision between two implicitly visible
+    // `core.*` modules (which would otherwise resolve by hash-map
+    // ordering). Fns are exempt — same-name fns form overload sets.
+    {
+        let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
+        sorted_modules.sort_by_key(|m| m.to_string());
+        let mut core_seen: HashMap<(NameKind, &str), (&ModulePath, usize, Span)> =
+            HashMap::new();
+        for module in sorted_modules {
+            let items = &by_module[*module];
+            let mut module_seen: HashMap<(NameKind, &str), Span> = HashMap::new();
+            let is_core = module.0.first().is_some_and(|p| p == "core");
+            for (kind, name, file, span) in items.non_fn_names() {
+                if let Some(_first) = module_seen.get(&(kind, name)) {
+                    errors.push(FileDiagnostic::error(
+                        file,
+                        span,
+                        format!(
+                            "duplicate {} `{name}` in module `{module}`",
+                            kind.describe()
+                        ),
+                    ));
+                    continue;
+                }
+                module_seen.insert((kind, name), span);
+                if is_core {
+                    if let Some((other, _, _)) = core_seen.get(&(kind, name)) {
+                        errors.push(FileDiagnostic::error(
+                            file,
+                            span,
+                            format!(
+                                "{} `{name}` is declared in multiple implicitly \
+                                 visible core modules: `{other}` and `{module}`",
+                                kind.describe()
+                            ),
+                        ));
+                    } else {
+                        core_seen.insert((kind, name), (module, file, span));
+                    }
+                }
+            }
         }
     }
 
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
-    let mut errors = Vec::new();
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut scope = ModuleScope::default();
+        // Provenance of every non-fn scope entry [mod-collision]:
+        // (level, module) per (kind, visible name), driving the
+        // override-vs-collision decision below.
+        let mut provenance: HashMap<(NameKind, &str), (Level, &ModulePath)> = HashMap::new();
+        let mut ctx = AddCtx {
+            file_idx,
+            provenance: &mut provenance,
+            errors: &mut errors,
+        };
         // core.* is implicitly visible everywhere.
         for m in &core_modules {
             if let Some(items) = by_module.get(*m) {
-                add_items(&mut scope, items, m, None);
+                add_items(&mut scope, items, m, None, Level::Core, None, &mut ctx);
             }
         }
         // The file's own module (overrides core on collision).
         if let Some((own, items)) = by_module.get_key_value(&file.module) {
-            add_items(&mut scope, items, own, None);
+            add_items(&mut scope, items, own, None, Level::Own, None, &mut ctx);
         }
         // Explicit imports.
         for item in &ast.items {
             let Item::Import(import) = item else { continue };
-            resolve_import(&mut scope, &by_module, import, file_idx, &mut errors);
+            resolve_import(&mut scope, &by_module, import, file_idx, &mut ctx);
         }
         scopes.push(scope);
     }
@@ -222,6 +361,73 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     }
 }
 
+/// Per-file state threaded through scope building [mod-collision].
+struct AddCtx<'e, 'p> {
+    file_idx: usize,
+    provenance: &'e mut HashMap<(NameKind, &'p str), (Level, &'p ModulePath)>,
+    errors: &'e mut Vec<FileDiagnostic>,
+}
+
+impl<'e, 'p> AddCtx<'e, 'p> {
+    /// Decides whether a non-fn entry may land in the scope
+    /// [mod-collision]. Own-module declarations and explicit imports
+    /// override implicit `core.*` visibility; an import colliding with an
+    /// own-module declaration or another import is an error (declaration
+    /// -level collisions were already reported globally).
+    fn admit(
+        &mut self,
+        kind: NameKind,
+        name: &'p str,
+        module: &'p ModulePath,
+        level: Level,
+        import_span: Option<Span>,
+    ) -> bool {
+        match self.provenance.get(&(kind, name)) {
+            None => {
+                self.provenance.insert((kind, name), (level, module));
+                true
+            }
+            Some((_, existing)) if **existing == *module => {
+                // Same module re-added (a core module that is also the
+                // own module, or a redundant import): harmless.
+                self.provenance.insert((kind, name), (level, module));
+                true
+            }
+            Some((Level::Core, _)) if level != Level::Core => {
+                // Own declarations and imports deliberately shadow
+                // implicit core visibility.
+                self.provenance.insert((kind, name), (level, module));
+                true
+            }
+            Some((Level::Core, _)) => {
+                // Core-core collisions were reported globally; keep the
+                // first (deterministic: modules are added in sorted
+                // order... core order is the collection order here, but
+                // the global check already made this an error).
+                false
+            }
+            Some((existing_level, existing_module)) => {
+                let existing_module = *existing_module;
+                let what = match existing_level {
+                    Level::Own => "a declaration in this module".to_string(),
+                    _ => format!("the import from `{existing_module}`"),
+                };
+                let span = import_span.unwrap_or_default();
+                self.errors.push(FileDiagnostic::error(
+                    self.file_idx,
+                    span,
+                    format!(
+                        "{} `{name}` (imported from `{module}`) conflicts with {what}; \
+                         rename it with `as`",
+                        kind.describe(),
+                    ),
+                ));
+                false
+            }
+        }
+    }
+}
+
 /// Adds a module's items to a scope, optionally under a single-name filter
 /// with an alias (for imports). Every inserted name records `module` as an
 /// origin (under its visible name) for reachability [mod-used-only].
@@ -230,6 +436,9 @@ fn add_items<'p>(
     items: &ModuleItems<'p>,
     module: &'p ModulePath,
     filter: Option<(&str, &'p str)>,
+    level: Level,
+    import_span: Option<Span>,
+    ctx: &mut AddCtx<'_, 'p>,
 ) {
     let want = |name: &str| filter.is_none_or(|(n, _)| n == name);
     let visible_as = |name: &'p str| filter.map_or(name, |(_, alias)| alias);
@@ -238,6 +447,10 @@ fn add_items<'p>(
         if !origins.contains(&module) {
             origins.push(module);
         }
+    };
+    // Where the declaration's identifier is written [lsp-definition].
+    let def_site = |name: &'p str, file: usize, span: Span, scope: &mut ModuleScope<'p>| {
+        scope.def_sites.insert(name, DefSite { file, span });
     };
     for (key, f) in &items.fns {
         if want(&f.name.name) {
@@ -250,51 +463,70 @@ fn add_items<'p>(
             origin(name, scope);
         }
     }
-    for s in &items.structs {
+    for (file, s) in &items.structs {
         if want(&s.name.name) {
             let name = visible_as(&s.name.name);
-            scope.structs.insert(name, s);
-            origin(name, scope);
+            if ctx.admit(NameKind::Struct, name, module, level, import_span) {
+                scope.structs.insert(name, s);
+                origin(name, scope);
+                def_site(name, *file, s.name.span, scope);
+            }
         }
     }
-    for e in &items.effects {
+    for (file, e) in &items.effects {
         if want(&e.name.name) {
             let name = visible_as(&e.name.name);
-            scope.effects.insert(name, e);
-            origin(name, scope);
+            if ctx.admit(NameKind::Effect, name, module, level, import_span) {
+                scope.effects.insert(name, e);
+                origin(name, scope);
+                def_site(name, *file, e.name.span, scope);
+            }
         }
         // Effect members become callable wherever the effect is visible.
         for f in &e.fns {
             scope.effect_members.insert(&f.name.name, (e, f));
             origin(&f.name.name, scope);
+            def_site(&f.name.name, *file, f.name.span, scope);
         }
     }
-    for h in &items.handlers {
+    for (file, h) in &items.handlers {
         if want(&h.name.name) {
             let name = visible_as(&h.name.name);
-            scope.handlers.insert(name, h);
-            origin(name, scope);
+            if ctx.admit(NameKind::Handler, name, module, level, import_span) {
+                scope.handlers.insert(name, h);
+                origin(name, scope);
+                def_site(name, *file, h.name.span, scope);
+            }
         }
     }
-    for q in &items.qualifiers {
+    for (file, q) in &items.qualifiers {
         if want(&q.name.name) {
             let name = visible_as(&q.name.name);
-            scope.qualifiers.insert(name, q);
-            origin(name, scope);
+            if ctx.admit(NameKind::Qualifier, name, module, level, import_span) {
+                scope.qualifiers.insert(name, q);
+                origin(name, scope);
+                def_site(name, *file, q.name.span, scope);
+            }
         }
     }
-    for t in &items.type_aliases {
+    for (file, t) in &items.type_aliases {
         if want(&t.name.name) {
             let name = visible_as(&t.name.name);
-            scope.type_aliases.insert(name, t);
-            origin(name, scope);
+            if ctx.admit(NameKind::TypeAlias, name, module, level, import_span) {
+                scope.type_aliases.insert(name, t);
+                origin(name, scope);
+                def_site(name, *file, t.name.span, scope);
+            }
         }
     }
-    for t in &items.opaque_types {
+    for (file, t) in &items.opaque_types {
         if want(&t.name.name) {
             let name = visible_as(&t.name.name);
-            scope.opaque_types.insert(name, t);
-            origin(name, scope);
+            if ctx.admit(NameKind::OpaqueType, name, module, level, import_span) {
+                scope.opaque_types.insert(name, t);
+                origin(name, scope);
+                def_site(name, *file, t.name.span, scope);
+            }
         }
     }
 }
@@ -304,10 +536,10 @@ fn resolve_import<'p>(
     by_module: &HashMap<&'p ModulePath, ModuleItems<'p>>,
     import: &'p ImportDecl,
     file_idx: usize,
-    errors: &mut Vec<FileDiagnostic>,
+    ctx: &mut AddCtx<'_, 'p>,
 ) {
     if import.path.len() < 2 {
-        errors.push(FileDiagnostic::error(
+        ctx.errors.push(FileDiagnostic::error(
             file_idx,
             import.span,
             "import path must be `module.item`",
@@ -343,7 +575,7 @@ fn resolve_import<'p>(
                 .collect();
             suggestions.sort();
             suggestions.dedup();
-            errors.push(
+            ctx.errors.push(
                 FileDiagnostic::error(
                     file_idx,
                     import.span,
@@ -363,12 +595,20 @@ fn resolve_import<'p>(
                 .unwrap_or(item_name);
             let module = *matches[0];
             let items = &by_module[module];
-            add_items(scope, items, module, Some((item_name, alias)));
+            add_items(
+                scope,
+                items,
+                module,
+                Some((item_name, alias)),
+                Level::Import,
+                Some(import.span),
+                ctx,
+            );
         }
         _ => {
             let mut names: Vec<String> = matches.iter().map(|m| m.to_string()).collect();
             names.sort();
-            errors.push(FileDiagnostic::error(
+            ctx.errors.push(FileDiagnostic::error(
                 file_idx,
                 import.span,
                 format!(

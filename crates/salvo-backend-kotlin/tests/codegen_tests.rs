@@ -1009,7 +1009,7 @@ fn main() [use] -> [] None {
         }
         k
     }
-    println("capped: ${capped}")
+    println("capped: ${capped!}")
 
     // Loop values join into unions and re-wrap to the declared type.
     let n = 0
@@ -1214,6 +1214,80 @@ fn main() [use] -> [] None {
         .content
         .contains("import salvo.geometry.area as rect_area"));
     assert!(main.content.contains("rect_area(3, 4)"));
+}
+
+// [kt-imports] [kt-qual-mangling] An aliased import of a fn with a
+// mangled qualified overload emits one alias import per overload symbol,
+// and aliased call sites keep the mangling suffix.
+const MANGLED_ALIAS_MAIN: &str = r#"
+import lib.shout as holler
+import lib.loud
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(holler("hi"))
+    let l = loud("hey")
+    println(holler(l))
+}
+"#;
+
+const MANGLED_ALIAS_LIB: &str = r#"
+qualifier Loud of Str
+
+fn loud(s: Str) -> Str as Loud {
+    return s
+}
+
+fn shout(s: Str) -> Str {
+    return s
+}
+
+fn shout(s: Loud Str) -> Str {
+    return "${s}!"
+}
+"#;
+
+#[test]
+fn aliased_import_of_mangled_overload_keeps_suffix() {
+    let program = build_program(&[
+        ("main.sv", MANGLED_ALIAS_MAIN, false),
+        ("lib.sv", MANGLED_ALIAS_LIB, false),
+    ]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .unwrap();
+    for needle in [
+        "import salvo.lib.shout as holler",
+        "import salvo.lib.shout__Loud as holler__Loud",
+        "holler(\"hi\")",
+        "holler__Loud(l)",
+    ] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_mangled_alias() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[
+        ("main.sv", MANGLED_ALIAS_MAIN, false),
+        ("lib.sv", MANGLED_ALIAS_LIB, false),
+    ]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "mangled-alias", "hi\nhey!\n");
 }
 
 // [backend-external] A used external fn with no define for the backend is
@@ -1949,4 +2023,637 @@ fn kotlinc_compiles_and_runs_fn_contracts() {
     });
     let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
     run_kotlin_files(&files, "l7d-contracts", expected);
+}
+
+// ===== precedence-aware binary rendering =====
+
+/// Parser grouping must survive re-rendering: without precedence-aware
+/// parenthesization `(a - b) * c` would emit flat as `a - b * c` and
+/// silently re-associate.
+const PRECEDENCE_DEMO: &str = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let a = 10
+    let b = 3
+    let c = 2
+    let grouped = (a - b) * c
+    let nested = a - (b - c)
+    let neg = -(a + b)
+    let logical = (a < b || b > c) && a > c
+    println("${grouped} ${nested} ${neg} ${logical}")
+}
+"#;
+
+#[test]
+fn binary_rendering_preserves_grouping() {
+    let program = build_program(&[("main.sv", PRECEDENCE_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .expect("main.kt emitted");
+    for needle in ["(a - b) * c", "a - (b - c)", "-(a + b)", "(a < b || b > c) && a > c"] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_precedence() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", PRECEDENCE_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "precedence", "14 9 -13 true\n");
+}
+
+// ===== bare `return` in value-position blocks of iterator bodies =====
+// [fn-iterator] [kt-iter-iterable]
+
+/// A bare `return` inside a value-position loop in an iterator body must
+/// re-target to `return@iterator` like any other iterator-body return —
+/// the context survives the `run {}` value lowering (inline, so the
+/// non-local return stays legal Kotlin) but not lambda boundaries.
+/// (`yield` itself cannot appear inside the `run {}` lowering — Kotlin's
+/// restricted suspension scope forbids it; separate known leftover.)
+const ITER_RETURN_DEMO: &str = r#"
+fn nums(limit: Int) -> Iter<Int> {
+    let i = 0
+    yield 0
+    let last = while i++ < limit {
+        if i == 3 {
+            return
+        }
+        i
+    }
+    yield 99
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    for n in nums(5) {
+        println("a${n}")
+    }
+    for n in nums(2) {
+        println("b${n}")
+    }
+}
+"#;
+
+#[test]
+fn iterator_bare_return_in_value_loop_retargets() {
+    let program = build_program(&[("main.sv", ITER_RETURN_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .expect("main.kt emitted");
+    assert!(
+        main.content.contains("return@iterator"),
+        "expected retargeted return in:\n{}",
+        main.content
+    );
+    // No bare `return` may remain inside the iterator builder.
+    let iter_body = main.content
+        .split("iterator {")
+        .nth(1)
+        .expect("iterator builder emitted");
+    let bare_returns = iter_body
+        .lines()
+        .filter(|l| l.trim() == "return")
+        .count();
+    assert_eq!(bare_returns, 0, "bare return left in iterator body:\n{iter_body}");
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_iterator_return() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", ITER_RETURN_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "iter-return", "a0\nb0\nb99\n");
+}
+
+// ===== `is` on union-typed struct-field subjects =====
+// [is-narrowing] [is-binding] Field subjects get the same union-test
+// lowering as identifier subjects (only flow-narrowing is ident-only);
+// `when` still requires a variable subject [when-union-subject].
+
+const FIELD_IS_DEMO: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+struct Holder {
+    result: Ok Int | Err Str
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = Holder {result: ok(1)}
+    if h.result is Ok Int r {
+        println("ok ${r}")
+    }
+    if h.result is Ok {
+        println("plain ${h.result}")
+    }
+    let h2 = Holder {result: err("bad")}
+    if h2.result is Err Str e {
+        println("err ${e}")
+    }
+}
+"#;
+
+#[test]
+fn field_subject_is_lowers_to_union_test() {
+    let program = build_program(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("h.result is U2_1<*, *>"),
+        "expected union test on the field in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_field_is() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
+}
+
+// [when-union-subject] `when` still requires a plain variable subject.
+#[test]
+fn when_field_subject_is_rejected() {
+    let src = r#"
+qualifier Ok<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+struct Holder {
+    result: Ok Int | Str
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = Holder {result: ok(1)}
+    when h.result {
+        is Ok {
+            println("ok")
+        }
+        is Str {
+            println("str")
+        }
+    }
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("`when` requires a plain variable as its subject")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// ===== union coercion inside arrays/tuples/lambda returns =====
+// [union-wrap] Elements of array/tuple literals and lambda tail returns
+// receive expected types, so union wrapping is recorded and emitted.
+
+const NESTED_COERCION_DEMO: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+type Result = Ok Int | Err Str
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn describe(r: Result) -> Str {
+    if r is Ok {
+        return "ok ${r}"
+    }
+    return "err ${r}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let arr: Result[] = [ok(1), err("a")]
+    for x in arr {
+        println(describe(x))
+    }
+    let tup: (Str, Result) = ("t", ok(2))
+    let (label, r) = tup
+    println(describe(r))
+    let make: (flag: Bool) -> Result = (flag: Bool) -> {
+        return if flag { ok(3) } else { err("b") }
+    }
+    println(describe(make(true)))
+    println(describe(make(false)))
+}
+"#;
+
+#[test]
+fn union_coercion_in_array_tuple_lambda() {
+    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    for needle in [
+        "arrayOf(U2_1<Int, String>(ok(1)), U2_2<Int, String>(err(\"a\")))",
+        "Pair(\"t\", U2_1<Int, String>(ok(2)))",
+        "U2_1<Int, String>(ok(3))",
+    ] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_nested_coercion() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
+}
+
+// ===== unchecked overload dispatch =====
+// [backend-never-wrong] [fn-overload] Same-name `define fn` templates
+// with no external declarations reach the emitter without a checker
+// -resolved key: dispatch narrows by the checked argument types, and
+// truly ambiguous calls error instead of guessing.
+
+const UNCHECKED_DEFINES: &str = r#"
+define fn twice(s: Str) -> Str {
+    inline: ``
+    (${s} + ${s})
+    ``
+}
+
+define fn twice(i: Int) -> Int {
+    inline: ``
+    (${i} * 2)
+    ``
+}
+"#;
+
+#[test]
+fn unchecked_define_dispatch_uses_arg_types() {
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(twice("hi"))
+    println("${twice(3)}")
+}
+"#;
+    let program = build_program(&[
+        ("main.sv", main, false),
+        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+    ]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains(r#"("hi" + "hi")"#),
+        "Str define not chosen in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("(3 * 2)"),
+        "Int define not chosen in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn ambiguous_unchecked_define_call_is_an_error() {
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let x = mystery()
+    println("${twice(x)}")
+}
+"#;
+    let program = build_program(&[
+        ("main.sv", main, false),
+        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+    ]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected codegen errors");
+    assert!(
+        errors.iter().any(|e| e.contains("ambiguous here")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_unchecked_defines() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(twice("hi"))
+    println("${twice(3)}")
+}
+"#;
+    let program = build_program(&[
+        ("main.sv", main, false),
+        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+    ]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "unchecked-defines", "hihi\n6\n");
+}
+
+// ===== effect member fns with their own generics =====
+// [effect-member-generics] Member generics render on the interface
+// member and bind per call from argument types.
+
+const MEMBER_GENERICS_DEMO: &str = r#"
+effect Stash {
+    fn pick<T>(a: T, b: T) -> T
+}
+
+handler FirstStash of Stash {
+    fn pick<T>(a: T, b: T) -> T {
+        return a
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use FirstStash
+    let x = pick(7, 2)
+    let s = pick("l", "r")
+    println("${x} ${s}")
+}
+"#;
+
+#[test]
+fn effect_member_generics_render_on_the_interface() {
+    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("fun<T> pick(a: T, b: T): T"),
+        "member generics missing from the interface in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_member_generics() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "member-generics", "7 l\n");
+}
+
+// [effect-member-generics] The member's own generics bind per call: the
+// checker knows `pick(1, 2)` is `Int`, not an unbound `T`.
+#[test]
+fn effect_member_generics_bind_per_call() {
+    let src = r#"
+effect Stash {
+    fn pick<T>(a: T, b: T) -> T
+}
+
+handler FirstStash of Stash {
+    fn pick<T>(a: T, b: T) -> T {
+        return a
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use FirstStash
+    let bad: Str = pick(1, 2)
+    println(bad)
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("expected `Str`, found `Int`")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// ===== effect environment keyed by checker types =====
+// [effect-disambiguation] [kt-effect-params] The emitter's effect
+// environment is keyed by the checker's lowered effect types
+// (`Checked::fn_effects` / `use_effects` / `call_effects`), not by type
+// renderings: an effect written through a type alias resolves to the same
+// instance a `use` registered under the canonical type.
+
+const ALIASED_EFFECT_DEMO: &str = r#"
+type Count = Int
+
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler CyclicRandom<T>(values: List<T>) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        let value = get(values, i % values.size())!
+        i = i + 1
+        return value
+    }
+}
+
+fn roll() [Random<Count>] -> Count {
+    return next_random()
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use CyclicRandom(list(7, 8))
+    println("${roll()} ${roll()}")
+}
+"#;
+
+#[test]
+fn aliased_effect_types_resolve_to_the_same_handler() {
+    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
+    // parameter and its call site must agree with it.
+    assert!(
+        main.content.contains("val random_int: Random<Int> = CyclicRandom(listOf(7, 8))"),
+        "unexpected use lowering in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("roll(random_int)"),
+        "handler not threaded through the aliased effect in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_aliased_effects() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "aliased-effects", "7 8\n");
+}
+
+// ===== std array functions =====
+// [type-array] Arrays get the `core.list` function surface minus
+// construction and mutation: `size`, `get`, `first`, `iter` (user
+// decision 2026-09-02 — the LANGUAGE.md `CyclicRandom` example calls
+// `values.size()` on a `T[]`).
+
+const ARRAY_STD_DEMO: &str = r#"
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        i = (i + 1) % values.size()
+        return values[i]
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use CyclicRandom([1, 2, 3, 4])
+    let nums: Int[] = [3, 4, 5]
+    println("size ${nums.size()} get ${nums.get(2)!} first ${nums.first()!}")
+    for n in nums.iter() {
+        println("iter ${n}")
+    }
+    println("random ${next_random()} ${next_random()}")
+}
+"#;
+
+#[test]
+fn array_std_functions_lower() {
+    let program = build_program(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    for needle in [
+        "nums.size",
+        "nums.getOrNull(2)",
+        "nums.firstOrNull()",
+        "nums.asIterable()",
+        "values.size",
+    ] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_array_std() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(
+        &files,
+        "array-std",
+        "size 3 get 5 first 3\niter 3\niter 4\niter 5\nrandom 2 3\n",
+    );
 }

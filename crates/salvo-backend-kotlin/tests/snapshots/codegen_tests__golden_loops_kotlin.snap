@@ -110,7 +110,7 @@ __loop5 = k
 }
 __loop5
 }
-    println(console, "capped: $capped")
+    println(console, "capped: ${capped!!}")
     var n = 0
     val verdict: Union2<Int, String> = run {
 var __loop6: Union2<String, Int>? = null

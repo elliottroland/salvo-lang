@@ -1484,3 +1484,389 @@ fn rustc_compiles_and_runs_fn_contracts() {
     let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
     run_rust_files(&files, "l7d-contracts", expected);
 }
+
+// ===== `is` on union-typed struct-field subjects =====
+// [is-narrowing] [is-binding] Field subjects get the same union-test
+// lowering as identifier subjects; both backends must agree with the
+// checker's is_tests lowering.
+
+const FIELD_IS_DEMO: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+struct Holder {
+    result: Ok Int | Err Str
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = Holder {result: ok(1)}
+    if h.result is Ok Int r {
+        println("ok ${r}")
+    }
+    if h.result is Ok {
+        println("plain ${h.result}")
+    }
+    let h2 = Holder {result: err("bad")}
+    if h2.result is Err Str e {
+        println("err ${e}")
+    }
+}
+"#;
+
+#[test]
+fn field_subject_is_lowers_to_union_test() {
+    let files = generate(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("matches!(h.result, Union2::U1(_))"),
+        "expected union test on the field in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_field_is() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FIELD_IS_DEMO, false)]);
+    run_rust_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
+}
+
+// ===== union coercion inside arrays/tuples/lambda returns =====
+// [union-wrap] Elements of array/tuple literals and lambda tail returns
+// receive expected types, so union wrapping is recorded and emitted.
+// Also covers: a fn-type `let` annotation is dropped in Rust
+// (`impl Trait` is invalid on bindings [fn-contract]).
+
+const NESTED_COERCION_DEMO: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+type Result = Ok Int | Err Str
+
+fn ok<T>(value: T) -> T as Ok {
+    return value
+}
+
+fn err<T>(value: T) -> T as Err {
+    return value
+}
+
+fn describe(r: Result) -> Str {
+    if r is Ok {
+        return "ok ${r}"
+    }
+    return "err ${r}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let arr: Result[] = [ok(1), err("a")]
+    for x in arr {
+        println(describe(x))
+    }
+    let tup: (Str, Result) = ("t", ok(2))
+    let (label, r) = tup
+    println(describe(r))
+    let make: (flag: Bool) -> Result = (flag: Bool) -> {
+        return if flag { ok(3) } else { err("b") }
+    }
+    println(describe(make(true)))
+    println(describe(make(false)))
+}
+"#;
+
+#[test]
+fn union_coercion_in_array_tuple_lambda() {
+    let files = generate(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("let mut make = "),
+        "fn-type let annotation must be dropped in:\n{}",
+        main.content
+    );
+    for needle in [
+        "Union2::<i32, String>::U1(ok(1))",
+        "Union2::<i32, String>::U2(err(\"a\".to_string()))",
+        "Union2::<i32, String>::U1(ok(2))",
+    ] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_nested_coercion() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    run_rust_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
+}
+
+// ===== unchecked overload dispatch =====
+// [backend-never-wrong] [fn-overload] Same-name `define fn` templates
+// with no external declarations reach the emitter without a checker
+// -resolved key: dispatch narrows by the checked argument types, and
+// truly ambiguous calls error instead of guessing.
+
+const UNCHECKED_DEFINES_RS: &str = r#"
+define fn twice(s: Str) -> Str {
+    inline: ``
+    format!("{}{}", ${s}, ${s})
+    ``
+}
+
+define fn twice(i: Int) -> Int {
+    inline: ``
+    (${i} * 2)
+    ``
+}
+"#;
+
+#[test]
+fn unchecked_define_dispatch_uses_arg_types() {
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(twice("hi"))
+    println("${twice(3)}")
+}
+"#;
+    let files = generate(&[
+        ("main.sv", main, false),
+        ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
+    ]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("format!(\"{}{}\""),
+        "Str define not chosen in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("(3 * 2)"),
+        "Int define not chosen in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn ambiguous_unchecked_define_call_is_an_error() {
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let x = mystery()
+    println("${twice(x)}")
+}
+"#;
+    let errors = {
+        let program = build_program(&[
+            ("main.sv", main, false),
+            ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
+        ]);
+        salvo_backend_rust::emit_program(&program)
+            .err()
+            .expect("expected codegen errors")
+    };
+    assert!(
+        errors.iter().any(|e| e.contains("ambiguous here")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_unchecked_defines() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let main = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(twice("hi"))
+    println("${twice(3)}")
+}
+"#;
+    let files = generate(&[
+        ("main.sv", main, false),
+        ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
+    ]);
+    run_rust_files(&files, "unchecked-defines", "hihi\n6\n");
+}
+
+// ===== effect member fns with their own generics =====
+// [effect-member-generics] [rs-effects] `dyn` traits cannot have generic
+// methods: the rust backend rejects them loudly instead of emitting
+// invalid code.
+#[test]
+fn effect_member_generics_are_rejected_loudly() {
+    let src = r#"
+effect Stash {
+    fn pick<T>(a: T, b: T) -> T
+}
+
+handler FirstStash of Stash {
+    fn pick<T>(a: T, b: T) -> T {
+        return a
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use FirstStash
+    println("${pick(7, 2)}")
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("cannot dispatch dynamically")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// ===== effect environment keyed by checker types =====
+// [effect-disambiguation] [rs-effects] The emitter's effect environment is
+// keyed by the checker's lowered effect types (`Checked::fn_effects` /
+// `use_effects` / `call_effects`), not by type renderings: an effect
+// written through a type alias resolves to the same instance a `use`
+// registered under the canonical type.
+
+const ALIASED_EFFECT_DEMO: &str = r#"
+type Count = Int
+
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler CyclicRandom<T>(values: List<T>) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        let value = get(values, i % values.size())!
+        i = i + 1
+        return value
+    }
+}
+
+fn roll() [Random<Count>] -> Count {
+    return next_random()
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use CyclicRandom(list(7, 8))
+    println("${roll()} ${roll()}")
+}
+"#;
+
+#[test]
+fn aliased_effect_types_resolve_to_the_same_handler() {
+    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("roll(&mut random_i32)"),
+        "handler not threaded through the aliased effect in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_aliased_effects() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    run_rust_files(&files, "aliased-effects", "7 8\n");
+}
+
+// ===== std array functions =====
+// [type-array] Arrays get the `core.list` function surface minus
+// construction and mutation: `size`, `get`, `first`, `iter` (user
+// decision 2026-09-02). `T[]` and `List<T>` share the `Vec<T>`
+// rendering, so the defines mirror each other.
+
+const ARRAY_STD_DEMO: &str = r#"
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        i = (i + 1) % values.size()
+        return values[i]
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use CyclicRandom([1, 2, 3, 4])
+    let nums: Int[] = [3, 4, 5]
+    println("size ${nums.size()} get ${nums.get(2)!} first ${nums.first()!}")
+    for n in nums.iter() {
+        println("iter ${n}")
+    }
+    println("random ${next_random()} ${next_random()}")
+}
+"#;
+
+#[test]
+fn array_std_functions_lower() {
+    let files = generate(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    for needle in ["nums.len() as i32", "nums.get((2) as usize)", "nums.first()"] {
+        assert!(
+            main.content.contains(needle),
+            "expected `{needle}` in:\n{}",
+            main.content
+        );
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_array_std() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    run_rust_files(
+        &files,
+        "array-std",
+        "size 3 get 5 first 3\niter 3\niter 4\niter 5\nrandom 2 3\n",
+    );
+}

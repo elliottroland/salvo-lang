@@ -134,17 +134,25 @@ impl<'p> Symbols<'p> {
         let overloads = self.fns.get(name)?;
         overloads
             .iter()
-            .find(|f| {
-                let required = f.params.iter().filter(|p| !p.variadic).count();
-                let variadic = f.params.iter().any(|p| p.variadic);
-                if variadic {
-                    arg_count >= required
-                } else {
-                    arg_count == required
-                }
-            })
+            .find(|f| arity_matches(&f.params, arg_count))
             .or_else(|| overloads.first())
             .copied()
+    }
+
+    /// All `fn` overloads whose arity accepts `arg_count` arguments —
+    /// emitters use this in unchecked contexts to detect ambiguous
+    /// dispatch [backend-never-wrong].
+    pub fn fns_matching_arity(&self, name: &str, arg_count: usize) -> Vec<&'p FnDecl> {
+        self.fns
+            .get(name)
+            .map(|overloads| {
+                overloads
+                    .iter()
+                    .filter(|f| arity_matches(&f.params, arg_count))
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Finds the best `define fn` template for a call with `arg_count`
@@ -153,16 +161,36 @@ impl<'p> Symbols<'p> {
         let overloads = self.define_fns.get(name)?;
         overloads
             .iter()
-            .find(|d| {
-                let required = d.sig.params.iter().filter(|p| !p.variadic).count();
-                let variadic = d.sig.params.iter().any(|p| p.variadic);
-                if variadic {
-                    arg_count >= required
-                } else {
-                    arg_count == required
-                }
-            })
+            .find(|d| arity_matches(&d.sig.params, arg_count))
             .or_else(|| overloads.first())
             .copied()
+    }
+
+    /// All `define fn` templates whose arity accepts `arg_count`
+    /// arguments — emitters use this in unchecked contexts to detect
+    /// ambiguous dispatch [backend-never-wrong].
+    pub fn defines_matching_arity(&self, name: &str, arg_count: usize) -> Vec<&'p DefineFn> {
+        self.define_fns
+            .get(name)
+            .map(|overloads| {
+                overloads
+                    .iter()
+                    .filter(|d| arity_matches(&d.sig.params, arg_count))
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Whether a parameter list accepts `arg_count` arguments (variadics
+/// accept any remaining arity).
+fn arity_matches(params: &[salvo_syntax::ast::Param], arg_count: usize) -> bool {
+    let required = params.iter().filter(|p| !p.variadic).count();
+    let variadic = params.iter().any(|p| p.variadic);
+    if variadic {
+        arg_count >= required
+    } else {
+        arg_count == required
     }
 }

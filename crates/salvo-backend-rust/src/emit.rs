@@ -461,6 +461,9 @@ enum ParamMode {
 /// `&mut dyn` argument differ for locals [rs-effects].
 #[derive(Clone)]
 struct EffectEntry {
+    /// The checker's effect type when known — the primary lookup key,
+    /// immune to rendering drift [effect-disambiguation].
+    ty: Option<Ty>,
     /// Canonical rendered effect type, e.g. `Random<i32>`.
     key: String,
     /// Variable name (a `use` local or an effect parameter).
@@ -954,19 +957,46 @@ impl<'p> Emitter<'p> {
             params.push("&mut self".to_string());
         }
         // Effect dependencies become leading `&mut dyn` parameters
-        // [rs-effects].
+        // [rs-effects], sourced from the checker's lowered effect list
+        // when available (checker-`Ty` keys; the AST rendering is the
+        // unchecked fallback).
         if !is_main {
-            for eff in f.effects.iter().flatten() {
-                if let EffectRef::Effect(r) = eff {
-                    let ty = self.emit_type_ref(r);
-                    let param = self.unique_name(effect_param_name(&ty));
-                    self.effect_env.push(EffectEntry {
-                        key: ty.clone(),
-                        var: param.clone(),
-                        is_local: false,
-                    });
-                    self.bindings.insert(param.clone(), BindKind::RefMut);
-                    params.push(format!("{param}: &mut dyn {ty}"));
+            let checked_effects: Option<Vec<Ty>> = self
+                .checked
+                .fn_refs
+                .get(&(self.file_idx, f.name.span))
+                .and_then(|key| self.checked.fn_effects.get(key))
+                .cloned();
+            match checked_effects {
+                Some(tys) => {
+                    for ty in tys {
+                        let rendered = self.rust_ty(&ty);
+                        let param = self.unique_name(effect_param_name(&rendered));
+                        self.effect_env.push(EffectEntry {
+                            ty: Some(ty),
+                            key: rendered.clone(),
+                            var: param.clone(),
+                            is_local: false,
+                        });
+                        self.bindings.insert(param.clone(), BindKind::RefMut);
+                        params.push(format!("{param}: &mut dyn {rendered}"));
+                    }
+                }
+                None => {
+                    for eff in f.effects.iter().flatten() {
+                        if let EffectRef::Effect(r) = eff {
+                            let ty = self.emit_type_ref(r);
+                            let param = self.unique_name(effect_param_name(&ty));
+                            self.effect_env.push(EffectEntry {
+                                ty: None,
+                                key: ty.clone(),
+                                var: param.clone(),
+                                is_local: false,
+                            });
+                            self.bindings.insert(param.clone(), BindKind::RefMut);
+                            params.push(format!("{param}: &mut dyn {ty}"));
+                        }
+                    }
                 }
             }
         }
@@ -1708,8 +1738,8 @@ impl<'p> Emitter<'p> {
                 if let Some(borrow) = self.borrow_value(value) {
                     self.bindings.insert(name.name.clone(), BindKind::Ref);
                     let annot = match ty {
-                        Some(t) => format!(": &{}", self.emit_type(t)),
-                        None => String::new(),
+                        Some(t) if !is_fn_type(t) => format!(": &{}", self.emit_type(t)),
+                        _ => String::new(),
                     };
                     return format!(
                         "{pad}let mut {}{annot} = {borrow};\n",
@@ -1736,9 +1766,13 @@ impl<'p> Emitter<'p> {
         match pattern {
             Pattern::Ident(name) => {
                 self.bindings.insert(name.name.clone(), BindKind::Owned);
+                // A fn-type annotation cannot be spelled on a Rust
+                // binding (`impl Trait` is invalid there [fn-contract]);
+                // the closure's inferred type is already exact, so the
+                // annotation is dropped.
                 let annot = match ty {
-                    Some(t) => format!(": {}", self.emit_type(t)),
-                    None => String::new(),
+                    Some(t) if !is_fn_type(t) => format!(": {}", self.emit_type(t)),
+                    _ => String::new(),
                 };
                 // Every local is `let mut` [rs-borrows] (Salvo mutability
                 // is not locally decidable; `unused_mut` is allowed).
@@ -1806,17 +1840,19 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        let effect_ty = match self.checked.use_effects.get(&(self.file_idx, span)) {
+        let (checked_ty, effect_ty) = match self.checked.use_effects.get(&(self.file_idx, span)) {
             Some(ty) if ty_is_concrete(ty) => {
                 let ty = ty.clone();
-                self.rust_ty(&ty)
+                let rendered = self.rust_ty(&ty);
+                (Some(ty), rendered)
             }
-            _ => self.emit_type(&decl.of),
+            _ => (None, self.emit_type(&decl.of)),
         };
         // Ctor args are owned (a `use` argument is a move [deduce-infer]).
         let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         let var = self.unique_name(effect_param_name(&effect_ty));
         self.effect_env.push(EffectEntry {
+            ty: checked_ty,
             key: effect_ty,
             var: var.clone(),
             is_local: true,
@@ -3466,8 +3502,7 @@ impl<'p> Emitter<'p> {
             let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
-                    let key = self.rust_ty(&ty);
-                    self.member_dispatch_by_key(&key)
+                    self.member_dispatch_by_ty(&ty)
                 }
                 _ => self.member_dispatch_fallback(effect, type_args),
             };
@@ -3509,13 +3544,41 @@ impl<'p> Emitter<'p> {
             return self.emit_fn_call(name, f, Some(key), args, span);
         }
 
-        // 3. `define fn` template by arity (unchecked contexts).
-        if let Some(def) = self.symbols.resolve_define_fn(name, args.len()) {
-            return self.emit_define_call(name, def, args);
+        // 3. `define fn` template (unchecked contexts): arity narrowed by
+        // the checked argument types; ambiguous dispatch is a codegen
+        // error, never a guess [backend-never-wrong] [fn-overload].
+        let define_cands = self.symbols.defines_matching_arity(name, args.len());
+        if !define_cands.is_empty() {
+            return match disambiguate_unchecked(
+                self,
+                &define_cands,
+                |d| d.sig.params.as_slice(),
+                args,
+            ) {
+                Some(def) => self.emit_define_call(name, def, args),
+                None => {
+                    self.error(format!(
+                        "call to `{name}` is ambiguous here: multiple same-arity \
+                         `define fn` templates match and the checker did not \
+                         resolve the overload; annotate the argument types"
+                    ));
+                    "todo!()".to_string()
+                }
+            };
         }
 
-        // 4. Known function by arity.
-        if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
+        // 4. Known function (unchecked contexts): same ambiguity rule.
+        let fn_cands = self.symbols.fns_matching_arity(name, args.len());
+        if !fn_cands.is_empty() {
+            let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
+            else {
+                self.error(format!(
+                    "call to `{name}` is ambiguous here: multiple same-arity \
+                     overloads match and the checker did not resolve the \
+                     overload; annotate the argument types"
+                ));
+                return "todo!()".to_string();
+            };
             if f.backing == Some(BackingMod::Internal) {
                 return self.emit_internal_call(f, args);
             }
@@ -3767,8 +3830,7 @@ impl<'p> Emitter<'p> {
         {
             Some(effs) if effs.iter().all(ty_is_concrete) => {
                 for ty in &effs {
-                    let key = self.rust_ty(ty);
-                    all.push(self.thread_effect_by_key(&key));
+                    all.push(self.thread_effect_by_ty(ty));
                 }
             }
             _ => {
@@ -3795,6 +3857,39 @@ impl<'p> Emitter<'p> {
     /// The expression a member call dispatches through for an effect
     /// instance (local handler variables and `&mut dyn` parameters both
     /// auto-reborrow on method calls) [rs-effects].
+    fn member_dispatch_by_ty(&mut self, ty: &Ty) -> String {
+        match self.effect_entry_by_ty(ty) {
+            Some(entry) => entry.var,
+            None => {
+                self.error(format!(
+                    "no handler for effect `{ty}` in scope (declare it in the \
+                     function's effect list or `use` a handler)"
+                ));
+                "todo!()".to_string()
+            }
+        }
+    }
+
+    /// Threading variant of [`Self::member_dispatch_by_ty`].
+    fn thread_effect_by_ty(&mut self, ty: &Ty) -> String {
+        match self.effect_entry_by_ty(ty) {
+            Some(entry) => {
+                if entry.is_local {
+                    format!("&mut {}", entry.var)
+                } else {
+                    entry.var
+                }
+            }
+            None => {
+                self.error(format!(
+                    "no handler for effect `{ty}` in scope (declare it in the \
+                     function's effect list or `use` a handler)"
+                ));
+                "todo!()".to_string()
+            }
+        }
+    }
+
     fn member_dispatch_by_key(&mut self, effect_ty: &str) -> String {
         match self.effect_entry(effect_ty) {
             Some(entry) => entry.var,
@@ -3847,6 +3942,21 @@ impl<'p> Emitter<'p> {
         } else {
             None
         }
+    }
+
+    /// Lookup by the *checker's* effect type — the primary,
+    /// rendering-drift-immune path; falls back to the rendered key for
+    /// entries that only exist as AST renderings.
+    fn effect_entry_by_ty(&mut self, ty: &Ty) -> Option<EffectEntry> {
+        if let Some(entry) = self
+            .effect_env
+            .iter()
+            .find(|e| e.ty.as_ref() == Some(ty))
+        {
+            return Some(entry.clone());
+        }
+        let rendered = self.rust_ty(ty);
+        self.effect_entry(&rendered)
     }
 
     /// Fallback dispatch for unchecked effect-member calls: unique
@@ -3969,6 +4079,17 @@ fn cond_code(code: String) -> String {
     }
 }
 
+/// Whether an AST type is a fn type (possibly under qualifiers like
+/// `Once`): such types render as `impl Fn…`, which Rust only allows in
+/// parameter/return position — never on a `let` binding [fn-contract].
+fn is_fn_type(ty: &Type) -> bool {
+    match ty {
+        Type::Fn { .. } => true,
+        Type::QualifiedGroup { base, .. } => is_fn_type(base),
+        _ => false,
+    }
+}
+
 /// Operator precedence for parenthesization (higher binds tighter).
 fn bin_prec(op: BinaryOp) -> u8 {
     match op {
@@ -4045,6 +4166,60 @@ fn type_base_name(ty: &Type) -> Option<&str> {
         Type::QualifiedGroup { base, .. } => type_base_name(base),
         Type::Array { .. } => Some("[]"),
         _ => None,
+    }
+}
+
+/// The base type name of a *checker* type, aligned with
+/// [`type_base_name`]'s conventions so the two are comparable.
+fn ty_base_name(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::Named { name, .. } => Some(name),
+        Ty::Qualified { base, .. } => ty_base_name(base),
+        Ty::Array(_) => Some("[]"),
+        Ty::Union(_) => {
+            // `T?` compares as its value arm (AST `Nullable` does too).
+            let arms = ty.value_arms();
+            if arms.len() == 1 {
+                ty_base_name(arms[0])
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Narrows same-arity unchecked-call candidates by comparing the checked
+/// argument types' base names against the declared parameter types.
+/// `None` unless exactly one candidate survives — ambiguous dispatch must
+/// error, never guess [backend-never-wrong].
+fn disambiguate_unchecked<'p, T: Copy>(
+    em: &Emitter<'p>,
+    candidates: &[T],
+    params: impl Fn(T) -> &'p [Param],
+    args: &[&Expr],
+) -> Option<T> {
+    if candidates.len() == 1 {
+        return Some(candidates[0]);
+    }
+    let survivors: Vec<T> = candidates
+        .iter()
+        .copied()
+        .filter(|c| {
+            params(*c).iter().zip(args).all(|(p, a)| {
+                let Some(pb) = type_base_name(&p.ty) else { return true };
+                let Some(at) = em.ty_of(a.span()) else { return true };
+                match ty_base_name(at) {
+                    Some(ab) => pb == ab,
+                    None => true,
+                }
+            })
+        })
+        .collect();
+    if survivors.len() == 1 {
+        Some(survivors[0])
+    } else {
+        None
     }
 }
 

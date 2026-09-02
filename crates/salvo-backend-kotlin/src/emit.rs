@@ -72,13 +72,13 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
         // Generated Kotlin imports: a wildcard per foreign emitted module
         // this file references, plus alias imports for aliased Salvo
         // imports of Kotlin-visible items [kt-imports].
-        let generated = generated_imports(
+        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        let generated = emitter.generate_imports(
             unit.ast,
             &unit.file.module,
             &resolution.scopes[file_idx],
             &emitted_modules,
         );
-        let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         emitter.generated_imports = generated;
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
@@ -134,62 +134,6 @@ fn kotlin_package(module: &ModulePath) -> String {
         out.push_str(&kt_ident(part));
     }
     out
-}
-
-/// The generated Kotlin imports of one file [kt-imports]: a wildcard
-/// import per foreign emitted module whose names the file uses, plus a
-/// Kotlin alias import for every aliased Salvo import of an item that
-/// exists as a Kotlin symbol (inlined externals have none).
-fn generated_imports(
-    ast: &Module,
-    own: &ModulePath,
-    scope: &salvo_core::ModuleScope<'_>,
-    emitted_modules: &HashSet<&ModulePath>,
-) -> BTreeSet<String> {
-    let mut imports = BTreeSet::new();
-    for name in salvo_core::reach::used_names(ast) {
-        for module in scope.name_origins.get(name).into_iter().flatten() {
-            if *module != own && emitted_modules.contains(*module) {
-                imports.insert(format!("import {}.*", kotlin_package(module)));
-            }
-        }
-    }
-    for item in &ast.items {
-        let Item::Import(imp) = item else { continue };
-        let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
-            continue;
-        };
-        // Only items with a Kotlin symbol can be alias-imported: fns with
-        // bodies, structs, effects, handlers. Inlined externals, type
-        // aliases, and qualifiers resolve without one.
-        let alias_name = alias.name.as_str();
-        let has_symbol = scope
-            .fns
-            .get(alias_name)
-            .is_some_and(|entries| entries.iter().any(|e| e.decl.body.is_some()))
-            || scope.structs.contains_key(alias_name)
-            || scope.effects.contains_key(alias_name)
-            || scope.handlers.contains_key(alias_name);
-        if !has_symbol {
-            continue;
-        }
-        let Some(module) = scope
-            .name_origins
-            .get(alias_name)
-            .and_then(|ms| ms.first())
-        else {
-            continue;
-        };
-        if emitted_modules.contains(*module) {
-            imports.insert(format!(
-                "import {}.{} as {}",
-                kotlin_package(module),
-                kt_ident(&item_name.name),
-                kt_ident(alias_name)
-            ));
-        }
-    }
-    imports
 }
 
 /// [backend-external] Every `external` item in the implicitly imported
@@ -299,9 +243,10 @@ struct Emitter<'p> {
     errors: Vec<String>,
     /// Wrapper union sizes this emitter has rendered.
     union_sizes: BTreeSet<usize>,
-    /// Effect environment: canonical effect type (e.g. `Random<Int>`) ->
-    /// Kotlin expression providing the handler.
-    effect_env: Vec<(String, String)>,
+    /// Effect environment: handlers in scope, keyed primarily by the
+    /// *checker* effect type (`ty`), with the Kotlin rendering kept for
+    /// AST-side fallbacks and diagnostics [effect-disambiguation].
+    effect_env: Vec<EffectEntry>,
     /// Names that are reassigned (or `++`-incremented) in the current
     /// function; these become `var`.
     mutated: HashSet<String>,
@@ -319,9 +264,24 @@ struct Emitter<'p> {
     /// bindings): effect parameters and `use` variables pick names that
     /// avoid them [kt-effect-params].
     taken_names: HashSet<String>,
+    /// Statement context: inside an `iterator {}` builder, bare `return`
+    /// re-targets to `return@iterator` [fn-iterator] — carried as state
+    /// so value-position lowerings (value blocks, loop lowering, `when`
+    /// expressions) inherit it; lambda bodies reset it (a lambda's
+    /// `return` never targets the enclosing iterator).
+    stmt_ctx: StmtCtx,
     /// Generated Kotlin imports for this file [kt-imports] (wildcards for
     /// referenced foreign modules, aliases for aliased imports).
     generated_imports: BTreeSet<String>,
+}
+
+/// One handler in scope: the checker effect type when known (the primary
+/// lookup key — immune to rendering drift), the Kotlin rendering of the
+/// effect type, and the expression providing the handler.
+struct EffectEntry {
+    ty: Option<Ty>,
+    rendered: String,
+    expr: String,
 }
 
 impl<'p> Emitter<'p> {
@@ -348,6 +308,7 @@ impl<'p> Emitter<'p> {
             loop_id: 0,
             destructure_id: 0,
             taken_names: HashSet::new(),
+            stmt_ctx: StmtCtx::Normal,
             generated_imports: BTreeSet::new(),
         }
     }
@@ -451,9 +412,17 @@ impl<'p> Emitter<'p> {
         let generics = self.emit_generic_params(&e.generics);
         let mut out = format!("\ninterface {}{generics} {{\n", e.name.name);
         for f in &e.fns {
+            // A member's own generics render on the member
+            // [effect-member-generics].
+            let member_saved = self.enter_generics(&f.generics);
+            let member_generics = self.emit_generic_params(&f.generics);
             let params = self.emit_param_list(&f.params);
             let ret = self.emit_return_type(f.return_type.as_ref());
-            out.push_str(&format!("    fun {}({params}){ret}\n", kt_ident(&f.name.name)));
+            out.push_str(&format!(
+                "    fun{member_generics} {}({params}){ret}\n",
+                kt_ident(&f.name.name)
+            ));
+            self.generics = member_saved;
         }
         out.push_str("}\n");
         self.generics = saved;
@@ -624,15 +593,44 @@ impl<'p> Emitter<'p> {
 
         let is_main = top_level && f.name.name == "main";
         let generics = self.emit_generic_params(&f.generics);
-        // Effect dependencies become leading parameters [kt-effect-params].
+        // Effect dependencies become leading parameters [kt-effect-params],
+        // sourced from the checker's lowered effect list when available
+        // (checker-`Ty` keys; the AST rendering is the unchecked
+        // fallback).
         let mut params: Vec<String> = Vec::new();
         if !is_main {
-            for eff in f.effects.iter().flatten() {
-                if let EffectRef::Effect(r) = eff {
-                    let ty = self.emit_type_ref(r);
-                    let param = self.unique_name(effect_param_name(&ty));
-                    self.effect_env.push((ty.clone(), param.clone()));
-                    params.push(format!("{param}: {ty}"));
+            let checked_effects: Option<Vec<Ty>> = self
+                .checked
+                .fn_refs
+                .get(&(self.file_idx, f.name.span))
+                .and_then(|key| self.checked.fn_effects.get(key))
+                .cloned();
+            match checked_effects {
+                Some(tys) => {
+                    for ty in tys {
+                        let rendered = self.kotlin_ty(&ty);
+                        let param = self.unique_name(effect_param_name(&rendered));
+                        self.effect_env.push(EffectEntry {
+                            ty: Some(ty),
+                            rendered: rendered.clone(),
+                            expr: param.clone(),
+                        });
+                        params.push(format!("{param}: {rendered}"));
+                    }
+                }
+                None => {
+                    for eff in f.effects.iter().flatten() {
+                        if let EffectRef::Effect(r) = eff {
+                            let rendered = self.emit_type_ref(r);
+                            let param = self.unique_name(effect_param_name(&rendered));
+                            self.effect_env.push(EffectEntry {
+                                ty: None,
+                                rendered: rendered.clone(),
+                                expr: param.clone(),
+                            });
+                            params.push(format!("{param}: {rendered}"));
+                        }
+                    }
                 }
             }
         }
@@ -686,10 +684,16 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!(
                 "{pad}    return Iterable<{elem}> {{\n{pad}        iterator {{\n"
             ));
-            out.push_str(&self.emit_block_stmts(body, indent + 3, StmtCtx::IteratorBody));
+            let saved_ctx = self.stmt_ctx;
+            self.stmt_ctx = StmtCtx::IteratorBody;
+            out.push_str(&self.emit_block_stmts(body, indent + 3));
+            self.stmt_ctx = saved_ctx;
             out.push_str(&format!("{pad}        }}\n{pad}    }}\n"));
         } else {
-            out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
+            let saved_ctx = self.stmt_ctx;
+            self.stmt_ctx = StmtCtx::Normal;
+            out.push_str(&self.emit_block_stmts(body, indent + 1));
+            self.stmt_ctx = saved_ctx;
         }
         out.push_str(&format!("{pad}}}\n"));
 
@@ -698,6 +702,81 @@ impl<'p> Emitter<'p> {
         self.mutated = saved_mutated;
         self.taken_names = saved_taken;
         out
+    }
+
+    /// The generated Kotlin imports of one file [kt-imports]: a wildcard
+    /// import per foreign emitted module whose names the file uses, plus
+    /// Kotlin alias imports for every aliased Salvo import of an item
+    /// that exists as a Kotlin symbol (inlined externals have none).
+    /// Aliased fns get one alias import per overload *symbol*: a mangled
+    /// qualified overload [kt-qual-mangling] is its own Kotlin name, and
+    /// its alias carries the same `__Qual` suffix so aliased call sites
+    /// can address it.
+    fn generate_imports(
+        &mut self,
+        ast: &Module,
+        own: &ModulePath,
+        scope: &salvo_core::ModuleScope<'_>,
+        emitted_modules: &HashSet<&ModulePath>,
+    ) -> BTreeSet<String> {
+        let mut imports = BTreeSet::new();
+        for name in salvo_core::reach::used_names(ast) {
+            for module in scope.name_origins.get(name).into_iter().flatten() {
+                if *module != own && emitted_modules.contains(*module) {
+                    imports.insert(format!("import {}.*", kotlin_package(module)));
+                }
+            }
+        }
+        for item in &ast.items {
+            let Item::Import(imp) = item else { continue };
+            let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
+                continue;
+            };
+            // Only items with a Kotlin symbol can be alias-imported: fns
+            // with bodies, structs, effects, handlers. Inlined externals,
+            // type aliases, and qualifiers resolve without one.
+            let alias_name = alias.name.as_str();
+            let bodied_fns: Vec<&FnDecl> = scope
+                .fns
+                .get(alias_name)
+                .into_iter()
+                .flatten()
+                .filter(|e| e.decl.body.is_some())
+                .map(|e| e.decl)
+                .collect();
+            let has_symbol = !bodied_fns.is_empty()
+                || scope.structs.contains_key(alias_name)
+                || scope.effects.contains_key(alias_name)
+                || scope.handlers.contains_key(alias_name);
+            if !has_symbol {
+                continue;
+            }
+            let Some(module) = scope
+                .name_origins
+                .get(alias_name)
+                .and_then(|ms| ms.first())
+            else {
+                continue;
+            };
+            if !emitted_modules.contains(*module) {
+                continue;
+            }
+            let pkg = kotlin_package(module);
+            if bodied_fns.is_empty() {
+                imports.insert(format!(
+                    "import {pkg}.{} as {}",
+                    kt_ident(&item_name.name),
+                    kt_ident(alias_name)
+                ));
+                continue;
+            }
+            for decl in bodied_fns {
+                let kotlin_name = self.kotlin_fn_name(decl);
+                let aliased = aliased_symbol(&kotlin_name, &decl.name.name, alias_name);
+                imports.insert(format!("import {pkg}.{kotlin_name} as {aliased}"));
+            }
+        }
+        imports
     }
 
     /// The Kotlin name for a top-level fn. Qualifiers are erased from
@@ -1092,17 +1171,17 @@ impl<'p> Emitter<'p> {
 
     // ================= statements =================
 
-    fn emit_block_stmts(&mut self, block: &Block, indent: usize, ctx: StmtCtx) -> String {
+    fn emit_block_stmts(&mut self, block: &Block, indent: usize) -> String {
         let mut out = String::new();
         let env_depth = self.effect_env.len();
         for stmt in &block.stmts {
-            out.push_str(&self.emit_stmt(stmt, indent, ctx));
+            out.push_str(&self.emit_stmt(stmt, indent));
         }
         self.effect_env.truncate(env_depth);
         out
     }
 
-    fn emit_stmt(&mut self, stmt: &Stmt, indent: usize, ctx: StmtCtx) -> String {
+    fn emit_stmt(&mut self, stmt: &Stmt, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         match stmt {
             Stmt::Let {
@@ -1116,7 +1195,7 @@ impl<'p> Emitter<'p> {
                 let v = self.emit_expr(value);
                 format!("{pad}{t} = {v}\n")
             }
-            Stmt::Return { value, .. } => match (ctx, value) {
+            Stmt::Return { value, .. } => match (self.stmt_ctx, value) {
                 (StmtCtx::IteratorBody, None) => format!("{pad}return@iterator\n"),
                 (StmtCtx::IteratorBody, Some(_)) => {
                     self.error("`return` with a value is not allowed in an iterator function");
@@ -1137,7 +1216,7 @@ impl<'p> Emitter<'p> {
                         if self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) {
                             // A `None`-typed value has no Kotlin payload:
                             // evaluate for effects, record `null`.
-                            let stmt = self.emit_expr_stmt(v, indent, ctx);
+                            let stmt = self.emit_expr_stmt(v, indent);
                             format!("{stmt}{pad}{result} = null\n{pad}break\n")
                         } else {
                             let code = self.emit_expr(v);
@@ -1147,7 +1226,7 @@ impl<'p> Emitter<'p> {
                     // The loop's value is discarded (statement position):
                     // evaluate the operand for side effects only.
                     (Some(v), None) => {
-                        let stmt = self.emit_expr_stmt(v, indent, ctx);
+                        let stmt = self.emit_expr_stmt(v, indent);
                         format!("{stmt}{pad}break\n")
                     }
                     (None, _) => format!("{pad}break\n"),
@@ -1159,7 +1238,7 @@ impl<'p> Emitter<'p> {
                 format!("{pad}yield({v})\n")
             }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
-            Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent, ctx),
+            Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent),
         }
     }
 
@@ -1262,26 +1341,31 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        let effect_ty = match self.checked.use_effects.get(&(self.file_idx, span)) {
+        let (effect_ty, rendered) = match self.checked.use_effects.get(&(self.file_idx, span)) {
             Some(ty) if ty_is_concrete(ty) => {
                 let ty = ty.clone();
-                self.kotlin_ty(&ty)
+                let rendered = self.kotlin_ty(&ty);
+                (Some(ty), rendered)
             }
-            _ => self.emit_type(&decl.of),
+            _ => (None, self.emit_type(&decl.of)),
         };
-        let var = self.unique_name(effect_param_name(&effect_ty));
-        self.effect_env.push((effect_ty.clone(), var.clone()));
-        format!("{pad}val {var}: {effect_ty} = {handler_code}\n")
+        let var = self.unique_name(effect_param_name(&rendered));
+        self.effect_env.push(EffectEntry {
+            ty: effect_ty,
+            rendered: rendered.clone(),
+            expr: var.clone(),
+        });
+        format!("{pad}val {var}: {rendered} = {handler_code}\n")
     }
 
-    fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize, ctx: StmtCtx) -> String {
+    fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         match expr {
             Expr::If {
                 branches,
                 else_block,
                 ..
-            } => self.emit_if(branches, else_block.as_ref(), indent, ctx),
+            } => self.emit_if(branches, else_block.as_ref(), indent),
             Expr::While {
                 cond,
                 body,
@@ -1307,12 +1391,12 @@ impl<'p> Emitter<'p> {
                 // `while x is T name` re-binds per iteration.
                 out.push_str(&self.emit_is_bindings(cond, indent + 1));
                 self.loop_results.push(None);
-                out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                out.push_str(&self.emit_block_stmts(body, indent + 1));
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
                     out.push_str(&format!("{pad}if (!{ran}) {{\n"));
-                    out.push_str(&self.emit_block_stmts(b, indent + 1, ctx));
+                    out.push_str(&self.emit_block_stmts(b, indent + 1));
                     out.push_str(&format!("{pad}}}\n"));
                 }
                 out
@@ -1339,12 +1423,12 @@ impl<'p> Emitter<'p> {
                     out.push_str(&format!("{inner_pad}{ran} = true\n"));
                 }
                 self.loop_results.push(None);
-                out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                out.push_str(&self.emit_block_stmts(body, indent + 1));
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
                     out.push_str(&format!("{pad}if (!{ran}) {{\n"));
-                    out.push_str(&self.emit_block_stmts(b, indent + 1, ctx));
+                    out.push_str(&self.emit_block_stmts(b, indent + 1));
                     out.push_str(&format!("{pad}}}\n"));
                 }
                 out
@@ -1352,7 +1436,7 @@ impl<'p> Emitter<'p> {
             Expr::When {
                 subject, branches, ..
             } => {
-                let code = self.emit_when(subject, branches, indent, ctx, false);
+                let code = self.emit_when(subject, branches, indent, false);
                 format!("{pad}{code}\n")
             }
             _ => {
@@ -1369,7 +1453,6 @@ impl<'p> Emitter<'p> {
         branches: &[(Expr, Block)],
         else_block: Option<&Block>,
         indent: usize,
-        ctx: StmtCtx,
     ) -> String {
         let pad = "    ".repeat(indent);
         let mut out = String::new();
@@ -1382,12 +1465,12 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} ({c}) {{\n"));
             out.push_str(&self.emit_is_bindings(cond, indent + 1));
-            out.push_str(&self.emit_block_stmts(block, indent + 1, ctx));
+            out.push_str(&self.emit_block_stmts(block, indent + 1));
             out.push_str(&format!("{pad}}} "));
         }
         if let Some(block) = else_block {
             out.push_str("else {\n");
-            out.push_str(&self.emit_block_stmts(block, indent + 1, ctx));
+            out.push_str(&self.emit_block_stmts(block, indent + 1));
             out.push_str(&format!("{pad}}}\n"));
         } else {
             // Trim the trailing space from the last `}`.
@@ -1405,7 +1488,6 @@ impl<'p> Emitter<'p> {
         subject: &Expr,
         branches: &[WhenBranch],
         indent: usize,
-        ctx: StmtCtx,
         value_pos: bool,
     ) -> String {
         let pad = "    ".repeat(indent);
@@ -1469,7 +1551,7 @@ impl<'p> Emitter<'p> {
             if value_pos {
                 out.push_str(&self.emit_value_block(&branch.body));
             } else {
-                out.push_str(&self.emit_block_stmts(&branch.body, indent + 2, ctx));
+                out.push_str(&self.emit_block_stmts(&branch.body, indent + 2));
             }
             out.push_str(&format!("{pad}    }}\n"));
         }
@@ -1705,6 +1787,34 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// A binary/unary operand, parenthesized when its precedence is lower
+    /// than the parent operator's (Salvo's parser preserved the grouping;
+    /// flat re-rendering must not change it). `is`, lambdas, and
+    /// `if`/`when` expressions always parenthesize in operand position
+    /// (Kotlin would otherwise swallow the trailing operator chain).
+    fn emit_operand(&mut self, expr: &Expr, parent_prec: u8) -> String {
+        let code = self.emit_expr(expr);
+        match expr {
+            Expr::Binary { op, .. } if bin_prec(*op) <= parent_prec => format!("({code})"),
+            Expr::Is { .. } | Expr::Lambda { .. } | Expr::If { .. } | Expr::When { .. } => {
+                format!("({code})")
+            }
+            _ => code,
+        }
+    }
+
+    /// Left operands of the same precedence stay flat (left-assoc).
+    fn emit_operand_left(&mut self, expr: &Expr, parent_prec: u8) -> String {
+        let code = self.emit_expr(expr);
+        match expr {
+            Expr::Binary { op, .. } if bin_prec(*op) < parent_prec => format!("({code})"),
+            Expr::Is { .. } | Expr::Lambda { .. } | Expr::If { .. } | Expr::When { .. } => {
+                format!("({code})")
+            }
+            _ => code,
+        }
+    }
+
     fn emit_expr_raw(&mut self, expr: &Expr) -> String {
         match expr {
             // Literal suffixes map 1:1 onto Kotlin's [lit-numeric]:
@@ -1785,15 +1895,16 @@ impl<'p> Emitter<'p> {
                 self.emit_struct_lit(ty.as_ref(), fields, *span)
             }
             Expr::Unary { op, operand, .. } => {
-                let inner = self.emit_expr(operand);
+                let inner = self.emit_operand(operand, 7);
                 match op {
                     UnaryOp::Neg => format!("-{inner}"),
                     UnaryOp::Not => format!("!{inner}"),
                 }
             }
             Expr::Binary { op, lhs, rhs, .. } => {
-                let l = self.emit_expr(lhs);
-                let r = self.emit_expr(rhs);
+                let prec = bin_prec(*op);
+                let l = self.emit_operand_left(lhs, prec);
+                let r = self.emit_operand(rhs, prec);
                 format!("{l} {} {r}", binary_op(*op))
             }
             Expr::Is {
@@ -1828,7 +1939,7 @@ impl<'p> Emitter<'p> {
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
                 subject, branches, ..
-            } => self.emit_when(subject, branches, 0, StmtCtx::Normal, true),
+            } => self.emit_when(subject, branches, 0, true),
             Expr::Error { .. } => "TODO()".to_string(),
         }
     }
@@ -1914,7 +2025,7 @@ impl<'p> Emitter<'p> {
                     continue;
                 }
             }
-            out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
+            out.push_str(&self.emit_stmt(stmt, 0));
         }
         self.effect_env.truncate(env_depth);
         out
@@ -2064,7 +2175,7 @@ impl<'p> Emitter<'p> {
                     continue;
                 }
             }
-            out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
+            out.push_str(&self.emit_stmt(stmt, 0));
         }
         self.effect_env.truncate(env_depth);
         out
@@ -2075,9 +2186,9 @@ impl<'p> Emitter<'p> {
     /// `None`-typed tails have no Kotlin payload (statement, then `null`).
     fn emit_tail_assign(&mut self, e: &Expr, result: &str) -> String {
         match self.ty_of(e.span()) {
-            Some(Ty::Nothing) => self.emit_expr_stmt(e, 0, StmtCtx::Normal),
+            Some(Ty::Nothing) => self.emit_expr_stmt(e, 0),
             Some(t) if t.is_none_ty() => {
-                let stmt = self.emit_expr_stmt(e, 0, StmtCtx::Normal);
+                let stmt = self.emit_expr_stmt(e, 0);
                 format!("{stmt}{result} = null\n")
             }
             _ => {
@@ -2104,7 +2215,11 @@ impl<'p> Emitter<'p> {
             }
             LambdaBody::Block(block) => {
                 // Kotlin lambdas return their last expression; a trailing
-                // `return X` becomes the value.
+                // `return X` becomes the value. The lambda body is a
+                // `return` barrier: bare returns never target an
+                // enclosing `iterator {}` builder.
+                let saved_ctx = self.stmt_ctx;
+                self.stmt_ctx = StmtCtx::Normal;
                 let mut out = format!("{{ {} ->\n", param_list.join(", "));
                 let n = block.stmts.len();
                 for (i, stmt) in block.stmts.iter().enumerate() {
@@ -2122,9 +2237,10 @@ impl<'p> Emitter<'p> {
                         );
                         continue;
                     }
-                    out.push_str(&self.emit_stmt(stmt, 1, StmtCtx::Normal));
+                    out.push_str(&self.emit_stmt(stmt, 1));
                 }
                 out.push('}');
+                self.stmt_ctx = saved_ctx;
                 out
             }
         }
@@ -2235,8 +2351,7 @@ impl<'p> Emitter<'p> {
             let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
-                    let key = self.kotlin_ty(&ty);
-                    self.lookup_effect_handler_by_type(&key)
+                    self.lookup_effect_handler_by_ty(&ty)
                 }
                 _ => self.lookup_effect_handler(effect, type_args),
             };
@@ -2268,13 +2383,41 @@ impl<'p> Emitter<'p> {
             return self.emit_fn_call(name, f, type_args, args, span);
         }
 
-        // 3. `define fn` template by arity (unchecked contexts).
-        if let Some(def) = self.symbols.resolve_define_fn(name, args.len()) {
-            return self.emit_define_call(name, def, args);
+        // 3. `define fn` template (unchecked contexts): arity narrowed by
+        // the checked argument types; ambiguous dispatch is a codegen
+        // error, never a guess [backend-never-wrong] [fn-overload].
+        let define_cands = self.symbols.defines_matching_arity(name, args.len());
+        if !define_cands.is_empty() {
+            return match disambiguate_unchecked(
+                self,
+                &define_cands,
+                |d| d.sig.params.as_slice(),
+                args,
+            ) {
+                Some(def) => self.emit_define_call(name, def, args),
+                None => {
+                    self.error(format!(
+                        "call to `{name}` is ambiguous here: multiple same-arity \
+                         `define fn` templates match and the checker did not \
+                         resolve the overload; annotate the argument types"
+                    ));
+                    "TODO()".to_string()
+                }
+            };
         }
 
-        // 4. Known function by arity.
-        if let Some(f) = self.symbols.resolve_fn(name, args.len()) {
+        // 4. Known function (unchecked contexts): same ambiguity rule.
+        let fn_cands = self.symbols.fns_matching_arity(name, args.len());
+        if !fn_cands.is_empty() {
+            let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
+            else {
+                self.error(format!(
+                    "call to `{name}` is ambiguous here: multiple same-arity \
+                     overloads match and the checker did not resolve the \
+                     overload; annotate the argument types"
+                ));
+                return "TODO()".to_string();
+            };
             if f.backing == Some(BackingMod::Internal) {
                 return self.emit_internal_call(f, args);
             }
@@ -2546,8 +2689,7 @@ impl<'p> Emitter<'p> {
         match self.checked.call_effects.get(&(self.file_idx, span)).cloned() {
             Some(effs) if effs.iter().all(ty_is_concrete) => {
                 for ty in &effs {
-                    let key = self.kotlin_ty(ty);
-                    all.push(self.lookup_effect_handler_by_type(&key));
+                    all.push(self.lookup_effect_handler_by_ty(ty));
                 }
             }
             _ => {
@@ -2565,10 +2707,13 @@ impl<'p> Emitter<'p> {
         let generics = self.emit_type_args(type_args);
         // A call through an import alias keeps the alias: the generated
         // Kotlin alias import maps it to the declaration [kt-imports].
+        // A mangled qualified overload keeps the same `__Qual` suffix on
+        // the alias [kt-qual-mangling].
+        let kotlin_name = self.kotlin_fn_name(f);
         let kt_name = if name != f.name.name {
-            kt_ident(name)
+            aliased_symbol(&kotlin_name, &f.name.name, name)
         } else {
-            self.kotlin_fn_name(f)
+            kotlin_name
         };
         format!("{kt_name}{generics}({})", all.join(", "))
     }
@@ -2579,14 +2724,14 @@ impl<'p> Emitter<'p> {
             let full = format!("{effect}{}", self.emit_type_args(type_args));
             return self.lookup_effect_handler_by_type(&full);
         }
-        let matches: Vec<(String, String)> = self
+        let matches: Vec<String> = self
             .effect_env
             .iter()
-            .filter(|(ty, _)| ty == effect || ty.starts_with(&format!("{effect}<")))
-            .cloned()
+            .filter(|e| rendered_base(&e.rendered) == effect)
+            .map(|e| e.expr.clone())
             .collect();
         match matches.len() {
-            1 => matches[0].1.clone(),
+            1 => matches[0].clone(),
             0 => {
                 self.error(format!(
                     "no handler for effect `{effect}` in scope (declare it in the \
@@ -2599,25 +2744,40 @@ impl<'p> Emitter<'p> {
                     "ambiguous effect call: multiple `{effect}` handlers in scope; \
                      specify the type, e.g. `next_random<Int>()`"
                 ));
-                matches[0].1.clone()
+                matches[0].clone()
             }
         }
     }
 
+    /// Resolves a handler by the checker's effect type — the primary,
+    /// rendering-drift-immune path. Falls back to the rendered form for
+    /// entries that only exist as AST renderings.
+    fn lookup_effect_handler_by_ty(&mut self, ty: &Ty) -> String {
+        if let Some(e) = self
+            .effect_env
+            .iter()
+            .find(|e| e.ty.as_ref() == Some(ty))
+        {
+            return e.expr.clone();
+        }
+        let rendered = self.kotlin_ty(ty);
+        self.lookup_effect_handler_by_type(&rendered)
+    }
+
     fn lookup_effect_handler_by_type(&mut self, effect_ty: &str) -> String {
-        if let Some((_, expr)) = self.effect_env.iter().find(|(ty, _)| ty == effect_ty) {
-            return expr.clone();
+        if let Some(e) = self.effect_env.iter().find(|e| e.rendered == effect_ty) {
+            return e.expr.clone();
         }
         // Fall back to a unique same-base-name match (generic callee effects
         // like `Random<T>` against a concrete `Random<Int>` in scope).
-        let base = effect_ty.split('<').next().unwrap_or(effect_ty);
-        let matches: Vec<&(String, String)> = self
+        let base = rendered_base(effect_ty);
+        let matches: Vec<&EffectEntry> = self
             .effect_env
             .iter()
-            .filter(|(ty, _)| ty.split('<').next().unwrap_or(ty) == base)
+            .filter(|e| rendered_base(&e.rendered) == base)
             .collect();
         if matches.len() == 1 {
-            return matches[0].1.clone();
+            return matches[0].expr.clone();
         }
         self.error(format!(
             "no handler for effect `{effect_ty}` in scope (declare it in the \
@@ -2744,6 +2904,60 @@ fn type_base_name(ty: &Type) -> Option<&str> {
     }
 }
 
+/// The base type name of a *checker* type, aligned with
+/// [`type_base_name`]'s conventions so the two are comparable.
+fn ty_base_name(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::Named { name, .. } => Some(name),
+        Ty::Qualified { base, .. } => ty_base_name(base),
+        Ty::Array(_) => Some("[]"),
+        Ty::Union(_) => {
+            // `T?` compares as its value arm (AST `Nullable` does too).
+            let arms = ty.value_arms();
+            if arms.len() == 1 {
+                ty_base_name(arms[0])
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Narrows same-arity unchecked-call candidates by comparing the checked
+/// argument types' base names against the declared parameter types.
+/// `None` unless exactly one candidate survives — ambiguous dispatch must
+/// error, never guess [backend-never-wrong].
+fn disambiguate_unchecked<'p, T: Copy>(
+    em: &Emitter<'p>,
+    candidates: &[T],
+    params: impl Fn(T) -> &'p [Param],
+    args: &[&Expr],
+) -> Option<T> {
+    if candidates.len() == 1 {
+        return Some(candidates[0]);
+    }
+    let survivors: Vec<T> = candidates
+        .iter()
+        .copied()
+        .filter(|c| {
+            params(*c).iter().zip(args).all(|(p, a)| {
+                let Some(pb) = type_base_name(&p.ty) else { return true };
+                let Some(at) = em.ty_of(a.span()) else { return true };
+                match ty_base_name(at) {
+                    Some(ab) => pb == ab,
+                    None => true,
+                }
+            })
+        })
+        .collect();
+    if survivors.len() == 1 {
+        Some(survivors[0])
+    } else {
+        None
+    }
+}
+
 fn ty_is_concrete(ty: &Ty) -> bool {
     match ty {
         Ty::Unknown => false,
@@ -2777,6 +2991,37 @@ fn effect_param_name(effect_ty: &str) -> String {
         }
     }
     out
+}
+
+/// Kotlin operator precedence for parenthesization (higher binds
+/// tighter). Unlike Rust, Kotlin gives comparison a tighter level than
+/// equality — the two must not share a slot or `(a == b) < c` would
+/// re-render flat and silently re-associate.
+fn bin_prec(op: BinaryOp) -> u8 {
+    match op {
+        BinaryOp::Or => 1,
+        BinaryOp::And => 2,
+        BinaryOp::Eq | BinaryOp::NotEq => 3,
+        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => 4,
+        BinaryOp::Add | BinaryOp::Sub => 5,
+        BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => 6,
+    }
+}
+
+/// The base name of a rendered effect type (`Random<Int>` -> `Random`).
+fn rendered_base(rendered: &str) -> &str {
+    rendered.split('<').next().unwrap_or(rendered)
+}
+
+/// The alias-side Kotlin name for an aliased fn import: a mangled
+/// qualified overload (`name__Qual` [kt-qual-mangling]) keeps the same
+/// suffix on the alias, so the generated alias import and aliased call
+/// sites agree on the symbol.
+fn aliased_symbol(kotlin_name: &str, decl_name: &str, alias: &str) -> String {
+    match kotlin_name.strip_prefix(&format!("{decl_name}__")) {
+        Some(suffix) => format!("{alias}__{suffix}"),
+        None => kt_ident(alias),
+    }
 }
 
 fn binary_op(op: BinaryOp) -> &'static str {

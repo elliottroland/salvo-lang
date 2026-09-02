@@ -7,8 +7,9 @@
 //! whole workspace is re-checked.
 //!
 //! Supported: publish-diagnostics on open/change/close/save (with
-//! clearing), and hover showing the checker's type for the smallest
-//! expression under the cursor (`Checked::expr_ty` [diag-structured]).
+//! clearing), hover showing the checker's type for the smallest
+//! expression under the cursor (`Checked::expr_ty` [diag-structured]),
+//! and go-to-definition [lsp-definition].
 //! Positions are converted between byte offsets (Salvo spans) and UTF-16
 //! line/character pairs (the LSP default encoding).
 
@@ -22,18 +23,21 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
     Notification as _, PublishDiagnostics,
 };
-use lsp_types::request::{CodeActionRequest, HoverRequest, Request as _};
+use lsp_types::request::{
+    CodeActionRequest, GotoDefinition, HoverRequest, Request as _,
+};
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
     CodeActionProviderCapability, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, LanguageString, MarkedString, Position, PublishDiagnosticsParams,
-    Range, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-    Url, WorkspaceEdit,
+    DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, LanguageString,
+    Location, MarkedString, OneOf, Position, PublishDiagnosticsParams, Range,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WorkspaceEdit,
 };
 
-use salvo_core::{Checked, FileDiagnostic, FnKey, ParamDeduction, Program, Ty};
+use salvo_core::{Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, Ty};
 use salvo_syntax::ast::Item;
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
@@ -62,6 +66,8 @@ fn serve(filter: String, native_ext: String) -> Result<(), Box<dyn Error + Sync 
             TextDocumentSyncKind::FULL,
         )),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        // Go-to-definition [lsp-definition].
+        definition_provider: Some(OneOf::Left(true)),
         // Quickfixes adding suggested imports [diag-import-suggest].
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         ..Default::default()
@@ -136,6 +142,11 @@ impl Server<'_> {
             HoverRequest::METHOD => {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 let result = self.hover(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            GotoDefinition::METHOD => {
+                let params: GotoDefinitionParams = serde_json::from_value(req.params)?;
+                let result = self.goto_definition(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
             CodeActionRequest::METHOD => {
@@ -376,6 +387,68 @@ impl Server<'_> {
         })
     }
 
+    /// Go-to-definition [lsp-definition]: a fn name resolves through
+    /// `Checked::fn_refs` (overload-precise) to its declaration's name
+    /// span; every other name (struct, effect, handler, qualifier, type
+    /// alias, effect member) through `Checked::def_refs`. Definitions in
+    /// the embedded std have no on-disk URI and yield `None`.
+    fn goto_definition(&self, params: &GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
+        let doc = &params.text_document_position_params;
+        let path = file_path(&doc.text_document.uri)?;
+        let analysis = self.analyze()?;
+        let checked = analysis.checked.as_ref()?;
+
+        let file_idx = analysis
+            .program
+            .files
+            .iter()
+            .position(|f| !f.is_std && self.root.join(&f.name) == path)?;
+        let content = &analysis.program.files[file_idx].content;
+        let offset = position_to_offset(content, doc.position);
+
+        // The smallest name span containing the cursor wins, whichever
+        // table it comes from.
+        let mut best: Option<(Span, DefSite)> = None;
+        let consider = |span: Span, site: DefSite, best: &mut Option<(Span, DefSite)>| {
+            if span.start <= offset
+                && offset < span.end
+                && best.is_none_or(|(b, _)| span.len() < b.len())
+            {
+                *best = Some((span, site));
+            }
+        };
+        for ((file, span), key) in &checked.fn_refs {
+            if *file != file_idx {
+                continue;
+            }
+            if let Some(site) = fn_def_site(&analysis.program, *key) {
+                consider(*span, site, &mut best);
+            }
+        }
+        for ((file, span), site) in &checked.def_refs {
+            if *file != file_idx {
+                continue;
+            }
+            consider(*span, *site, &mut best);
+        }
+
+        let (_, site) = best?;
+        let target = analysis.program.files.get(site.file)?;
+        if target.is_std {
+            // The embedded std is not on disk; nothing to navigate to.
+            return None;
+        }
+        let target_path = self.root.join(&target.name);
+        let uri = match self.doc_uris.get(&target_path) {
+            Some(uri) => uri.clone(),
+            None => Url::from_file_path(&target_path).ok()?,
+        };
+        Some(GotoDefinitionResponse::Scalar(Location {
+            uri,
+            range: span_to_range(&target.content, site.span),
+        }))
+    }
+
     /// Quickfix code actions for the import suggestions carried on
     /// diagnostics [diag-import-suggest]: one "Add `import …`" action per
     /// suggested path, inserting the import line after the file's last
@@ -441,6 +514,19 @@ fn import_insert_position(content: &str) -> Position {
         }
     }
     Position::new(line, 0)
+}
+
+/// The definition site of a fn declaration [lsp-definition]: the file it
+/// lives in and the span of its *name*.
+fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
+    let module = program.modules.get(key.file)?;
+    let Item::Fn(decl) = module.items.get(key.item)? else {
+        return None;
+    };
+    Some(DefSite {
+        file: key.file,
+        span: decl.name.span,
+    })
 }
 
 /// Renders the full source-like signature of a fn declaration, with the

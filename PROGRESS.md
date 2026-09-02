@@ -23,6 +23,30 @@ parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse.
 
+**General-leftover sweep (2026-09-02, this session).** Eleven of the
+non-ownership leftovers were worked through; four turned out to be
+*stale* (the capability was already there, just untested — now pinned
+with tests), the rest were implemented. Landed: precedence-aware binary
+rendering in the Kotlin emitter; iterator-body `return` retargeting
+through value-position lowerings (`StmtCtx` is now emitter state, with
+lambda bodies as the barrier); aliased imports of mangled qualified
+overloads; the new `[mod-collision]` rule (non-fn name collisions are
+errors, not last-win); binding widening in `unify` (with the deliberate
+no-occurs-check rationale recorded); type-directed dispatch for
+unchecked call sites, ambiguity now a codegen error; the new
+`[effect-member-generics]` rule (member generics bind per call; Kotlin
+renders them on the interface, Rust rejects them loudly); effect
+environments keyed by checker `Ty` on both backends (new
+`Checked::fn_effects`); and the new `[lsp-definition]` rule
+(go-to-definition via `ModuleScope::def_sites` + `Checked::def_refs`).
+Two real bugs fell out of the probes: a stray `eprintln!` debug print in
+the checker, and the Rust emitter rendering fn-type `let` annotations as
+`impl FnMut(...)` (invalid Rust). Four items were escalated as
+**DECISION**s for the user; three came back decided and are now
+implemented (std array functions; optionals rejected at operators and in
+interpolation), leaving `when` on non-identifier subjects and the wider
+operator-typing rules open.
+
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
 style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
@@ -39,7 +63,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 190 tests; includes fourteen kotlinc and fourteen rustc
+cargo test                  # 236 tests; includes twenty-three kotlinc and nineteen rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -165,6 +189,35 @@ that still shape the code, and where to look for the mechanics.
   with `#[path]` mounts [rs-crate].
 
 ### Post-M8 — tooling and flow analysis (decision log)
+
+- **Optionals never reach operators or interpolation (user decisions
+  2026-09-02)** — `[op-no-none]`, `[interp-no-none]`. Both were parity
+  holes, not just strictness gaps: Kotlin compares against `null` and
+  prints `null`, Rust rejects the `Option` (`Display` unimplemented, type
+  mismatch on comparison). The checker now errors on a possibly-`None`
+  operand of `+ - * / %` and `< > <= >= == !=`, and on interpolating a
+  possibly-`None` value; `None` itself is rejected in both positions.
+  Remedy is narrowing (`is` / `when`, taking the binding for a
+  non-variable place) or `!`. Deliberately *not* covered: `&&`/`||`,
+  because operand typing beyond `None` (numeric towers, promotion, `Bool`
+  requirements) is a separate open decision, and value-position `&&` goes
+  through a different path than `analyze_cond`. Two pieces of evidence
+  that the leniency was costing us: the loops demo's Kotlin and Rust
+  sources had silently diverged (`${capped}` vs `${capped!}`) because
+  only Rust complained, and three LANGUAGE.md nullability examples
+  interpolated `${person.surname}` after `person.surname is Str`,
+  relying on field narrowing Salvo does not do — all now use the
+  spec's own `is Str surname` binding idiom.
+- **Arrays get a std function surface (user decision 2026-09-02)** —
+  `[type-array]`. Arrays already had literals, indexing, and native
+  `for` iteration on both backends; only functions were missing, which
+  is why LANGUAGE.md's `CyclicRandom` example (`values.size()` on a
+  `T[]`) did not compile. New `core.array` module mirrors `core.list`
+  minus construction (literals are the constructor) and mutation
+  (fixed size): `size`, `get`, `first`, `iter`, with the same
+  `<T with Linear>` opt-in pattern (measuring/iterating a linear array
+  is fine; taking an element out is not). The example now compiles and
+  runs verbatim on both backends.
 
 - **Structured diagnostics [diag-structured] + `salvo analyze`
   [cli-analyze]**: errors are `FileDiagnostic` (file index, span,
@@ -961,6 +1014,11 @@ instead of per-variable states).
   field while another is moved/borrowed), a refinement with no current
   use case. Revisit only if whole-variable poison proves too coarse in
   practice.
+- **Not L5: field smart-casting.** Place-based *type narrowing* (reads
+  of `h.field` narrowed by `h.field is T`) is a separate feature from
+  place-based ownership, tracked under "Remaining leftovers" with its own
+  scope sketch. It became user-facing on 2026-09-02 when the
+  optional-strictness rules landed.
 
 ### L6 — Must-use: true linearity. ✅ Done 2026-09-02
 
@@ -1103,59 +1161,66 @@ spec rule; consolidated here for findability):
   customer needs it. L5 field-disjoint precision likewise only if
   whole-variable granularity pinches.
 
-- `salvo lsp` go-to-definition: `Resolution`/`Symbols` know the declaring
-  items but no def-site *spans* are recorded; add ident spans to the
-  declaration tables and a `textDocument/definition` handler. Also worth
-  considering: incremental analysis if workspaces outgrow
+- `salvo lsp`: go-to-definition landed [lsp-definition]. Still open:
+  incremental analysis if workspaces outgrow
   re-check-everything-per-keystroke, and a `positionEncoding` negotiation
-  for UTF-8-native clients. Signature hover covers fn decls only —
-  effect members and define fns have no `FnKey`.
-- Struct-field subjects of union type in `is`/`when` (only ident subjects
-  get union-test lowering; `T?` fields work via Kotlin smart casts).
+  for UTF-8-native clients. Signature *hover* still covers fn decls only
+  — effect members and define fns have no `FnKey` (go-to-definition does
+  reach effect members, via `def_refs`).
 - Struct destructuring ignores predicate-qualifier field overrides
   (deliberate: bindings get the declared type; direct accesses get the
   override + cast).
-- `Ty::Var` bounds/occurs checks in `unify` are loose (first-binding wins);
-  fine for the std surface, revisit with real generic libraries.
-- Non-fn name collisions across visible modules silently last-win in
-  `resolve.rs` (only imports get ambiguity errors).
-- Coercion of union values inside arrays/tuples/lambda returns is not
-  recorded (only direct boundary positions).
-- Overload mangling only fires for checker-resolved call sites; unchecked
-  (arity-fallback) calls to a mangled overload would emit the base name.
-  Same class of gap: `Symbols::resolve_define_fn` (arity fallback) can pick
-  the wrong same-name define (`size`) in unchecked contexts.
 - Constructing a *nested* qualified union group in one expression
   (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
   intermediate `let`; single-level coercion only (errors, never mis-emits).
-- Retire the emitter's string-keyed effect environment in favor of
-  checker-`Ty` keys (see the fallback note under architectural facts).
-- The LANGUAGE.md `CyclicRandom` example calls `values.size()` on a `T[]`;
-  std only defines `size` for `Str` and `List<T>` — either add an array
-  `size` or move the example to `List<T>`.
-- Effect member fns with their *own* generics are lowered but never
-  substituted per-call (only the effect's generics are).
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
-- Bare `return` inside a value-position loop (or any value block) in an
-  iterator body is not re-targeted to `return@iterator`.
-- The Kotlin emitter renders binary expressions flat, without
-  re-parenthesizing by precedence: `(a - b) * c` would emit as
-  `a - b * c` (latent, unexercised by std/demos; the Rust emitter got
-  precedence-aware rendering in M8 - port it back).
-- Rust: interpolating a still-optional value (a `T?` never narrowed) is a
-  rustc error (`Option` has no `Display`); Kotlin prints `null`. Narrow
-  or `!` first.
-- An aliased import of a *mangled* qualified overload maps to the
-  unmangled name in the generated Kotlin alias import ([kt-imports];
-  same class as the unchecked-context mangling gap).
+- **Field smart-casting (place-based type narrowing)** — struct-field
+  subjects do not flow-narrow: after `h.field is Str`, *reads of
+  `h.field`* still have the declared type, so they cannot be
+  interpolated or used as operands ([interp-no-none] [op-no-none]) and
+  the `is Str name` binding form is the only idiom. Union-test lowering
+  and `is`-bindings already work for any place, so this is purely the
+  narrowing side. Distinct from L5, which is place-based *ownership*
+  (partial moves) — the two only share the "track places, not
+  variables" idea.
+  * Priority note: this was invisible before 2026-09-02 (Kotlin's own
+    smart casts covered it and Rust was the only complainer). The
+    optional-strictness rules made it user-facing — it forced three
+    LANGUAGE.md examples to the binding form.
+  * Scope sketch: narrowing state is keyed by variable *name*
+    (`narrows: Vec<(String, Ty)>`, `LocalVar.narrowed`,
+    `snapshot_narrows`/`restore_narrows`); field narrowing needs a place
+    key with invalidation on assignment to any prefix, mutation through
+    a `Mut`-keeping call on any prefix, and root reassignment — the same
+    event set the fate analysis already watches (`fate_mutation`,
+    [fate-poison]), so there is machinery to ride on. Emitters need the
+    narrowed *reads* unwrapped (they already lower the tests): Kotlin
+    smart-casts `T?` but needs `.value as T` for wrapper unions, Rust
+    needs the `.uN()` accessor. Both sides must agree, as ever.
+- `yield` inside a *value-position* loop of an iterator body is a kotlinc
+  error ("restricted suspending functions…"): the `run {}` value lowering
+  is not an inline suspension scope. Loud, never silently wrong; the fix
+  is a lowering that keeps the loop inside the `iterator {}` builder.
 - Module reachability is name-based and conservative: a local variable
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
+- **DECISION (open, for the user):**
+  - `when` requires a plain variable subject [when-union-subject] while
+    `is` accepts any place. Extending it is liftable: field access is
+    pure, so re-reading the place per arm is stable and exhaustiveness is
+    computed from the declared type; the restriction is an artifact of
+    narrowing being keyed by variable *name*. Mutation inside an arm
+    would stale the narrowing, but that hazard already exists for
+    `if … is` on fields.
+  - Binary operators are typed only for `None` [op-no-none]: everything
+    else is unchecked (`Str * Bool` passes, result typing is just the
+    left operand's type). Decide the operator typing rules — legal
+    operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 190)
+## Test inventory (all green: 236)
 
-- `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 37 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
@@ -1174,8 +1239,18 @@ spec rule; consolidated here for findability):
   derived-move error [deduce-fixpoint]) + 2
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
-  multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 47 - 40 `analyze` integration tests running the built
+  multi-file programs index the declaring file [diag-structured]) + 5
+  name-collision tests ([mod-collision]: conflicting imports, an import
+  shadowing an own-module declaration, `as` resolving the conflict, a
+  duplicate declaration within one module, and same-name fns staying
+  overloads) + 3 generic-binding tests ([fn-overload]: bindings widen to
+  the more general type in either argument order; unrelated bindings
+  still reject) + 4 optional-strictness tests ([op-no-none]
+  [interp-no-none]: possibly-`None` operands rejected for arithmetic,
+  ordering, and equality — and `None` itself — while narrowed/asserted
+  operands pass; interpolating an optional or a struct field rejected,
+  the `is T name` binding and `!` forms accepted).
+- `salvo-cli`: 48 - 40 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1255,7 +1330,7 @@ spec rule; consolidated here for findability):
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
-  supplementary-plane round-trips, clamping) + 2 LSP integration tests
+  supplementary-plane round-trips, clamping) + 3 LSP integration tests
   (`tests/lsp_tests.rs` [cli-lsp]: speaks framed JSON-RPC to the binary —
   initialize, didOpen of an unsaved broken buffer -> publishDiagnostics
   with UTF-16 range, didChange fix -> clearing publish, hover -> checked
@@ -1264,7 +1339,10 @@ spec rule; consolidated here for findability):
   hover -> bare `ReadOnly T` type line with root/binding-site detail
   below [fate-link],
   shutdown/exit -> clean process exit; codeAction import quickfix
-  round-trip [diag-import-suggest]) + 3 grammar tests
+  round-trip [diag-import-suggest]; go-to-definition for a call-site
+  callee, a cross-file struct, an effect member, a handler in `use`, and
+  an effect in `of`, plus a no-name position yielding nothing
+  [lsp-definition]) + 3 grammar tests
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
@@ -1272,7 +1350,7 @@ spec rule; consolidated here for findability):
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 60 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 81 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1302,7 +1380,21 @@ spec rule; consolidated here for findability):
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and fourteen kotlinc compile+run tests
+  mutability is a codegen error);
+  general-sweep assertions (precedence-preserving binary rendering,
+  iterator-body `return` retargeting through a value-position loop,
+  alias imports of mangled qualified overloads keeping the `__Qual`
+  suffix [kt-imports] [kt-qual-mangling], field-subject `is` lowering
+  [is-narrowing] with `when` still rejecting field subjects
+  [when-union-subject], union coercion inside array/tuple literals and
+  lambda tail returns, type-directed dispatch for unchecked define
+  overloads plus the ambiguity error [backend-never-wrong], effect
+  member generics rendered on the interface and bound per call
+  [effect-member-generics], and an aliased effect type resolving to the
+  handler registered under the canonical type
+  [effect-disambiguation], and the std array functions with the
+  LANGUAGE.md `CyclicRandom` handler [type-array]);
+  and twenty-three kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
@@ -1310,7 +1402,7 @@ spec rule; consolidated here for findability):
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 38 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 50 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1332,7 +1424,15 @@ spec rule; consolidated here for findability):
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
   alias of an owned local, read-only pipeline clone-free); `discard`
-  lowering assertions (`drop(...)` [linear-discard]); and fourteen rustc
+  lowering assertions (`drop(...)` [linear-discard]);
+  general-sweep assertions (field-subject `is` lowering
+  [is-narrowing], union coercion inside array/tuple literals and lambda
+  tail returns with fn-type `let` annotations dropped [fn-contract],
+  type-directed dispatch for unchecked define overloads plus the
+  ambiguity error [backend-never-wrong], and an aliased effect type
+  resolving to the handler registered under the canonical type
+  [effect-disambiguation], and the std array functions with the
+  LANGUAGE.md `CyclicRandom` handler [type-array]); and nineteen rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
@@ -1351,6 +1451,61 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- (sweep) Four "known leftovers" were already fixed by earlier work and
+  only *looked* open because nothing tested them (field-subject `is`
+  lowering, union coercion inside arrays/tuples/lambda returns, and both
+  halves of the unchecked-mangling item). Probe before implementing: the
+  cheapest step in closing a leftover is a program that demonstrates it.
+  Two of those probes instead found *new* bugs (a stray `eprintln!`
+  debug print left in `check.rs`, and Rust rendering fn-type `let`
+  annotations as `impl FnMut(...)` — invalid Rust).
+- (sweep) Emitter *state* beats threaded parameters for context that must
+  survive nested lowerings: `StmtCtx` was passed down through
+  `emit_stmt`/`emit_block_stmts`, so every value-position path
+  (`emit_value_block`, loop lowering, `when` expressions) silently reset
+  it to `Normal` and iterator-body `return`s stopped retargeting. As a
+  field with explicit save/restore at the two real boundaries (fn bodies,
+  lambda bodies) the default becomes "inherit", which is what the
+  language means.
+- (sweep) Kotlin and Rust do *not* share an operator precedence table:
+  Kotlin gives comparison a tighter level than equality, Rust puts them
+  on one non-associative level. A ported precedence table must be
+  re-derived per backend, or `(a == b) < c` re-renders flat and
+  re-associates.
+- (sweep) Emitter dispatch in unchecked contexts must be *arity plus
+  types*: `resolve_define_fn`'s arity-only fallback silently picked the
+  first same-arity template. The fix pattern is
+  `<candidates> → filter by checked argument base names → exactly one or
+  error` ([backend-never-wrong]); `ty_base_name` (checker types) and
+  `type_base_name` (AST types) must agree on conventions (`T?` compares
+  as its value arm, arrays as `[]`).
+- (sweep) `HashMap` iteration order leaked into user-visible behavior:
+  implicit `core.*` modules were added to each scope in hash order, which
+  ordered overload candidates. Anything that feeds resolution or
+  diagnostics must iterate deterministically (`core_modules` is sorted
+  now).
+- (sweep) Generic bindings in `unify` must *widen*: first-binding-wins
+  made `pick(1, maybe_int)` bind `T = Int` and hide the optional. There
+  is deliberately no occurs check — `Ty::Var` identity is name-scoped per
+  side, so a callee's `T` legitimately binds to `List<caller-T>`; a
+  name-based occurs check would reject generic forwarding.
+- (sweep) Handler state fields are declared bare (`i: Int = 0`) — there
+  is no `state` keyword, despite the prose in some notes.
+- (arrays) The CLI embeds std with `include_dir` at *build* time: adding a
+  file under `std/` does not invalidate the crate, so the new module is
+  silently invisible to `cargo run -- compile` (the tell is the file count
+  in "parsed N file(s)"). Touch a `salvo-cli` source file to force the
+  rebuild. The backend test crates read `std/` from disk and see new
+  files immediately, which makes the discrepancy easy to misread.
+- (optionals) A new strictness rule is also a *documentation* audit: the
+  interpolation ban immediately flagged three LANGUAGE.md examples that
+  read `${person.surname}` after `person.surname is Str` — the spec was
+  quietly assuming Kotlin-style field smart-casts. Fix the examples to
+  the binding form (`is Str surname`), which the spec already used
+  elsewhere. Also worth reading twice: when two backend demo *sources*
+  differ (here `${capped}` vs `${capped!}`), that divergence is usually
+  evidence of a missing checker rule, not a backend quirk.
 
 - (L7d) Expected types only reach lambda arguments when the arg-typing
   pass supplies them: named calls typed all arguments with `None`

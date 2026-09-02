@@ -136,9 +136,11 @@ let surname: Str? = person.surname
 We say that `surname` is _nullable_, because this syntax resembles the nullability in Kotlin. The nullability of a field can be checked using the same approach as in Kotlin:
 
 ```
-// Because `Str?` is just `Str | None` we can use normal union type checking
-if (person.surname is Str) {
-    println("Surname is ${person.surname}") // String interpolation like in Kotlin
+// Because `Str?` is just `Str | None` we can use normal union type checking.
+// The check binds the narrowed value: only *variables* narrow in place, so
+// a field check introduces a binding to use inside the block.
+if (person.surname is Str surname) {
+    println("Surname is ${surname}") // String interpolation like in Kotlin
 }
 ```
 
@@ -368,8 +370,8 @@ As in Ruby, `if` blocks are expressions which evaluate to values. Each branch of
 
 ```
 // Type of `full_name` is `Str | Str` which simplifies to `Str`
-let full_name = if person.surname is Str {
-    "${person.name} ${person.surname}"
+let full_name = if person.surname is Str surname {
+    "${person.name} ${surname}"
 } else {
     person.name
 }
@@ -379,8 +381,8 @@ The type of an unspecified `else` branch is `None`:
 
 ```
 // Type of `full_name` is `Str | None` or `Str?`
-let full_name = if person.surname is Str {
-    "${person.name} ${person.surname}"
+let full_name = if person.surname is Str surname {
+    "${person.name} ${surname}"
 }
 ```
 

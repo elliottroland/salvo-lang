@@ -113,6 +113,11 @@ fn start(root: &PathBuf) -> Lsp {
         response["result"]["capabilities"]["hoverProvider"] == json!(true),
         "unexpected capabilities: {response}"
     );
+    // [lsp-definition]
+    assert!(
+        response["result"]["capabilities"]["definitionProvider"] == json!(true),
+        "unexpected capabilities: {response}"
+    );
     send(
         &mut stdin,
         json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
@@ -373,4 +378,152 @@ fn code_actions_offer_import_quickfix() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     let status = lsp.child.wait().expect("failed to wait for salvo lsp");
     assert!(status.success(), "exit status: {status}");
+}
+
+// [lsp-definition] `textDocument/definition` resolves fn names through
+// `fn_refs` (overload-precise) and every other declaration name — structs,
+// qualifiers, handlers, effect members, type aliases — through `def_refs`,
+// across files.
+#[test]
+fn goto_definition_resolves_names() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_definition");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // A second file provides a struct the main document imports.
+    std::fs::write(
+        root.join("shapes.sv"),
+        "struct Point {\n    x: Int,\n    y: Int\n}\n",
+    )
+    .unwrap();
+
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let shapes_uri = format!("file://{}", root.join("shapes.sv").display());
+    // Lines (0-based):
+    // 0 import shapes.Point
+    // 1
+    // 2 effect Beeper {
+    // 3     fn beep() -> Int
+    // 4 }
+    // 5
+    // 6 handler Loud of Beeper {
+    // 7     fn beep() -> Int {
+    // 8         return 7
+    // 9     }
+    // 10 }
+    // 11
+    // 12 fn double(n: Int) -> Int {
+    // 13     return n + n
+    // 14 }
+    // 15
+    // 16 fn main() [use] {
+    // 17     use Loud
+    // 18     let p = Point {x: 1, y: 2}
+    // 19     let d = double(beep())
+    // 20 }
+    let text = "import shapes.Point\n\
+                \n\
+                effect Beeper {\n\
+                \x20   fn beep() -> Int\n\
+                }\n\
+                \n\
+                handler Loud of Beeper {\n\
+                \x20   fn beep() -> Int {\n\
+                \x20       return 7\n\
+                \x20   }\n\
+                }\n\
+                \n\
+                fn double(n: Int) -> Int {\n\
+                \x20   return n + n\n\
+                }\n\
+                \n\
+                fn main() [use] {\n\
+                \x20   use Loud\n\
+                \x20   let p = Point {x: 1, y: 2}\n\
+                \x20   let d = double(beep())\n\
+                }\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": text
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "unexpected diagnostics: {params}"
+    );
+
+    // A call-site callee jumps to the fn declaration's name.
+    let loc = definition(&mut lsp, 10, &uri, 19, 12);
+    assert_eq!(loc["uri"].as_str(), Some(uri.as_str()), "loc: {loc}");
+    assert_eq!(loc["range"]["start"], json!({"line": 12, "character": 3}));
+
+    // A struct name jumps into the *other* file.
+    let loc = definition(&mut lsp, 11, &uri, 18, 12);
+    assert_eq!(loc["uri"].as_str(), Some(shapes_uri.as_str()), "loc: {loc}");
+    assert_eq!(loc["range"]["start"], json!({"line": 0, "character": 7}));
+
+    // An effect member call jumps to the member's declaration in the
+    // `effect` block (members have no `FnKey`).
+    let loc = definition(&mut lsp, 12, &uri, 19, 20);
+    assert_eq!(loc["uri"].as_str(), Some(uri.as_str()), "loc: {loc}");
+    assert_eq!(loc["range"]["start"], json!({"line": 3, "character": 7}));
+
+    // A handler name in `use` jumps to the handler declaration.
+    let loc = definition(&mut lsp, 13, &uri, 17, 8);
+    assert_eq!(loc["uri"].as_str(), Some(uri.as_str()), "loc: {loc}");
+    assert_eq!(loc["range"]["start"], json!({"line": 6, "character": 8}));
+
+    // The effect name in the handler's `of` clause.
+    let loc = definition(&mut lsp, 14, &uri, 6, 16);
+    assert_eq!(loc["range"]["start"], json!({"line": 2, "character": 7}));
+
+    // A position with no name under it yields no location.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 15, "method": "textDocument/definition",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 1, "character": 0}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 15);
+    assert!(
+        response["result"].is_null(),
+        "expected no definition: {response}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    let status = lsp.child.wait().expect("failed to wait for salvo lsp");
+    assert!(status.success(), "exit status: {status}");
+}
+
+/// Requests a definition and returns the single resulting `Location`.
+fn definition(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32) -> Value {
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/definition",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": character}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, id);
+    let result = response["result"].clone();
+    assert!(!result.is_null(), "no definition returned: {response}");
+    result
 }
