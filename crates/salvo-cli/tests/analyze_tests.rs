@@ -1185,11 +1185,11 @@ fn l4_lambda_captures() {
         ),
         "stderr: {stderr}"
     );
-    // A lambda can never consume a capture.
+    // A capture-consuming lambda is legal since L7b but `Once`-typed
+    // [once-fn]: passing it where a plain fn is expected fails at the
+    // boundary.
     assert!(
-        stderr.contains(
-            "a lambda cannot consume `xs`: it is captured from the enclosing scope"
-        ),
+        stderr.contains("no matching overload for `run(Once () -> "),
         "stderr: {stderr}"
     );
     // A written-kept parameter cannot be captured-and-mutated.
@@ -1390,4 +1390,66 @@ fn l7a_generic_linear_opt_in() {
     // plus the two follow-on leaks in `variadic_refused` (the refused
     // `h` is never discharged, and `xs` — a linear composite — leaks).
     assert!(stderr.contains("6 errors"), "stderr: {stderr}");
+}
+
+// [once-fn] L7b: `Once` on fn types means callable at most once,
+// enforced by consumption — a second call, a call in a loop, and a
+// call after passing the value on all error; a maybe-call is fine
+// ("at most once"). Subtyping is inverted (plain fns fit `Once`
+// positions, never the reverse), a capture-consuming lambda is legal
+// but `Once`-typed, and `Once` applies only to fn types.
+#[test]
+fn l7b_once_fns() {
+    let dir = src_dir("l7b_once");
+    fs::write(
+        dir.join("main.sv"),
+        "fn run_once(f: Once () -> None) {\n    f()\n}\n\n\
+         fn run_twice_bad(f: Once () -> None) {\n    f()\n    f()\n}\n\n\
+         fn run_in_loop_bad(f: Once () -> None) {\n    for i in list(1, 2) {\n        f()\n    }\n}\n\n\
+         fn run_maybe(f: Once () -> None, flag: Bool) {\n    if flag {\n        f()\n    }\n}\n\n\
+         fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
+         fn consume_list(v: List<Int>) -> [] None {\n}\n\n\
+         fn once_where_plain_bad() {\n    let xs = list(1, 2)\n    \
+         let g = () -> { consume_list(xs) }\n    run_plain(g)\n}\n\n\
+         fn once_where_once_ok() {\n    let xs = list(1, 2)\n    \
+         let g = () -> { consume_list(xs) }\n    run_once(g)\n}\n\n\
+         fn plain_where_once_ok() {\n    let n = 5\n    \
+         let g = () -> { let m = n + 1 }\n    run_once(g)\n}\n\n\
+         fn escape_rule(f: Once () -> None) {\n    run_once(f)\n    f()\n}\n\n\
+         fn not_a_fn(x: Once Int) {\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Second call and loop back-edge call: consumed by the first call.
+    assert_eq!(
+        stderr
+            .matches(
+                "`f` cannot be used here: it was consumed (moved) by a call \
+                 (a `Once` function is callable at most once)"
+            )
+            .count(),
+        2,
+        "stderr: {stderr}"
+    );
+    // A `Once` lambda cannot go where a plain fn is expected.
+    assert!(
+        stderr.contains("no matching overload for `run_plain(Once () -> "),
+        "stderr: {stderr}"
+    );
+    // Passing a `Once` value on consumes it (escape rule).
+    assert!(
+        stderr.contains(
+            "`f` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+    // `Once` applies only to fn types.
+    assert!(
+        stderr.contains("`Once` applies only to function types, not `Int`"),
+        "stderr: {stderr}"
+    );
+    // run_maybe, once_where_once_ok, plain_where_once_ok are clean.
+    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }

@@ -327,6 +327,10 @@ derives them mechanically:
 * [struct-defaults] Rust has no default arguments: struct literals
   inline the declared default expressions for omitted fields at every
   literal site.
+* [once-fn] `Once` fn parameters emit `impl FnOnce(…)`; consuming
+  closures are `FnOnce` by rustc's own capture inference, so lambda
+  emission is unchanged. Calling the parameter is a plain call (the
+  by-value `call_once` is implicit).
 * [linear-discard] `discard(x)` lowers to `drop(x)` on the moved value
   [internal-fn]; linearity itself is purely static [linear-static] — no
   `#[must_use]`, no `Drop` impls are generated.

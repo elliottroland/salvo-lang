@@ -847,6 +847,8 @@ let g = () -> { add(xs, 1) }   // mutates xs: g takes ownership at creation
 size(xs)             // ERROR: xs was consumed by the lambda; copy first
 ```
 
+A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` is a qualifier for function types (`fn run(f: Once () -> None)`), and calling a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary function value can be used where a `Once` one is expected (you may always promise to call something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
+
 One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
 
 Some consequences worth knowing:

@@ -221,6 +221,9 @@ Conventions:
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+* [once-fn] `Once` erases: the parameter emits the ordinary Kotlin
+  function type, and the at-most-once protocol is enforced by the
+  checker alone.
 * [linear-discard] `discard(x)` lowers to `(x).let {}` — evaluate and
   ignore [internal-fn]; linearity is purely static [linear-static], with
   no runtime component on the JVM.

@@ -591,17 +591,48 @@ Conventions:
     written-kept parameter cannot be captured-and-mutated (error,
     remedy capture `copy(x)`); an inferable parameter is *claimed* as
     moved [deduce-infer].
-  * A lambda can never *consume* a capture (a call that moves it, a
-    store, spread, `return`/`break`/`yield`): the lambda may run any
-    number of times, and every run after the first would use a moved
-    value. Error at the consuming site; remedy `copy` inside the
-    lambda.
+  * A lambda that *consumes* a capture (a call that moves it, a store,
+    spread, `return`/`break`/`yield`) is `Once`-typed [once-fn]: the
+    capture is consumed at creation and the closure is callable at most
+    once. Consuming a *linear* capture remains an error
+    [linear-lambda].
   * Effects do not yet cross the lambda boundary as a contract: fn
     types parse an effect list (`(S) [E] -> T`) but the checker drops
     it, and lambda bodies check under the enclosing fn's effect
     environment (lexical). Fn-type contracts (deductions, effects, and
     a call-multiplicity qualifier enabling consuming captures) are the
     L7 parameterized-qualifier work.
+* [once-fn] `Once` is the language-level call-multiplicity qualifier
+  (decision L7b, 2026-09-02): valid only on *function types*
+  (`f: Once () -> None`), it means the value is callable **at most
+  once**. Enforcement is consumption [deduce-consume]: calling a `Once`
+  value consumes it, so a second call, a call on the loop back edge,
+  and a call after the value escapes are the ordinary consumed-use
+  errors; a call on only some branches leaves it maybe-consumed
+  (conservative), and zero calls is fine.
+  * **Inverted subtyping — flagged for future review** (user decision
+    2026-09-02): `Once` *restricts* instead of refining, so plain
+    `(A) -> B` <: `Once (A) -> B` (any fn may be treated as
+    once-callable) and `Once` may **never** be dropped — the exact
+    opposite of every other qualifier's direction. Special-cased in
+    `is_subtype` and `unify`.
+  * A lambda that *consumes* a capture is legal (superseding the
+    always-error rule in [fate-lambda]) and is `Once`-typed by
+    construction: the capture is consumed at creation and the closure
+    fits only `Once` positions. Consuming a *linear* capture is still
+    an error (the closure would inherit an exactly-once obligation —
+    future work).
+  * Escape rule (conservative, relaxable with fn-type contracts):
+    passing a `Once` value as an argument consumes it regardless of the
+    callee's contract — fn-value ownership is otherwise untracked.
+  * No inference in v1: a callee must *write* `Once` to accept
+    consuming lambdas (a body that calls its fn param once does not
+    auto-promote); inference may come later (written validates,
+    unwritten infers — the deduction precedent).
+  * Backends: Rust emits `Once` fn parameters as `impl FnOnce(…)`
+    (rustc's capture inference already makes consuming closures
+    `FnOnce`); Kotlin emits the ordinary function type — the
+    multiplicity is protocol-only on the JVM.
 * [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
   duplicates a value: the argument is kept untouched with all its
   qualifiers (`[value]`), and the result is a fresh value with no fate

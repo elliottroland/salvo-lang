@@ -857,7 +857,7 @@ impl<'p> Emitter<'p> {
         if self.is_copy_ast_type(&param.ty) {
             return ParamMode::Owned;
         }
-        if matches!(param.ty, Type::Fn { .. }) {
+        if matches!(param.ty, Type::Fn { .. }) || is_fn_group(&param.ty) {
             return ParamMode::Owned; // closures pass by value
         }
         let kept = key
@@ -878,7 +878,11 @@ impl<'p> Emitter<'p> {
     /// The default kept rule for fns outside the deduction tables
     /// (qualifier/effect/handler members) [rs-borrows].
     fn default_param_mode(&mut self, ty: &Type, variadic: bool) -> ParamMode {
-        if variadic || self.is_copy_ast_type(ty) || matches!(ty, Type::Fn { .. }) {
+        if variadic
+            || self.is_copy_ast_type(ty)
+            || matches!(ty, Type::Fn { .. })
+            || is_fn_group(ty)
+        {
             return ParamMode::Owned;
         }
         if type_has_mut(ty) {
@@ -1198,7 +1202,28 @@ impl<'p> Emitter<'p> {
                 let parts: Vec<String> = elems.iter().map(|e| self.emit_type(e)).collect();
                 format!("({})", parts.join(", "))
             }
-            Type::QualifiedGroup { base, .. } => self.emit_type(base),
+            Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                // [once-fn] A `Once` fn type emits `impl FnOnce`: the
+                // checker guarantees at most one call, and rustc's
+                // capture inference makes consuming closures `FnOnce`
+                // on its own.
+                if qualifiers.iter().any(|q| q.name.name == "Once") {
+                    if let Type::Fn { params, ret, .. } = base.as_ref() {
+                        let ps: Vec<String> =
+                            params.iter().map(|p| self.emit_type(p)).collect();
+                        let ret = match ret.as_ref() {
+                            Type::Named { base, .. } if base.name.name == "None" => {
+                                String::new()
+                            }
+                            other => format!(" -> {}", self.emit_type(other)),
+                        };
+                        return format!("impl FnOnce({}){ret}", ps.join(", "));
+                    }
+                }
+                self.emit_type(base)
+            }
         }
     }
 
@@ -3650,6 +3675,14 @@ fn binary_op(op: BinaryOp) -> &'static str {
 
 /// The base type name of an AST type (pairs define templates with
 /// overloaded external declarations).
+/// A qualified group over a fn type (`Once (A) -> B`) [once-fn].
+fn is_fn_group(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::QualifiedGroup { base, .. } if matches!(base.as_ref(), Type::Fn { .. })
+    )
+}
+
 fn type_base_name(ty: &Type) -> Option<&str> {
     match ty {
         Type::Named { base, .. } => Some(base.name.name.as_str()),

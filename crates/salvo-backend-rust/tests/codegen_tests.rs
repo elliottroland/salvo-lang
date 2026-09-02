@@ -1266,3 +1266,55 @@ fn rustc_compiles_and_runs_linear_generics() {
     let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
     run_rust_files(&files, "l7a-linear-generics", expected);
 }
+
+// ===== L7b: Once fn types [once-fn] =====
+
+/// A `Once` parameter accepts both a capture-consuming lambda (which is
+/// `Once`-typed by construction) and a plain lambda (inverted
+/// subtyping); the checker guarantees at most one call.
+const ONCE_DEMO: &str = r#"
+fn run_once(f: Once () -> None) {
+    f()
+}
+
+fn consume_list(v: List<Int>) [Console] -> [] None {
+    println("consumed ${size(v)} items")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let xs = list(1, 2, 3)
+    let g = () -> { consume_list(xs) }
+    run_once(g)
+    let n = 7
+    let plain = () -> { println("plain ${n}") }
+    run_once(plain)
+    println("done")
+}
+"#;
+
+// [once-fn] `Once` fn parameters emit `impl FnOnce`.
+#[test]
+fn once_fn_params_emit_fnonce() {
+    let files = generate(&[("main.sv", ONCE_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains("pub fn run_once(f: impl FnOnce())"),
+        "generated:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_once_fns() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ONCE_DEMO, false)]);
+    let expected = "consumed 3 items\nplain 7\ndone\n";
+    run_rust_files(&files, "l7b-once", expected);
+}

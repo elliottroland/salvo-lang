@@ -481,6 +481,9 @@ struct CaptureInfo {
     /// The body mutates the capture: the closure takes ownership at
     /// creation [fate-lambda].
     mutated: bool,
+    /// The body *consumes* the capture: legal, but the lambda becomes
+    /// `Once` — callable at most once [once-fn].
+    moved: bool,
 }
 
 /// Narrowing facts derived from a condition.
@@ -1214,6 +1217,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var_id,
                     mutable,
                     mutated: false,
+                    moved: false,
                 });
             }
         }
@@ -1231,27 +1235,55 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Guards consumption of a variable inside a lambda body
-    /// [fate-lambda]: a lambda may run any number of times, so it cannot
-    /// consume a value it captures from the enclosing scope — each run
-    /// after the first would use a moved value. Reports the error and
-    /// returns `true` when the consumption must be skipped.
+    /// Handles consumption of a variable inside a lambda body
+    /// [fate-lambda] [once-fn]: consuming a capture makes the lambda
+    /// `Once` — callable at most once — so the consumption is legal and
+    /// proceeds (the value is owned by the closure from creation on).
+    /// Exception: a *linear* capture may not be swallowed (the closure
+    /// would inherit an exactly-once obligation, a future feature) —
+    /// that reports an error and returns `true` so the consumption is
+    /// skipped.
     fn capture_move_violation(&mut self, frame: usize, name: &str, span: Span) -> bool {
         let captured = self
             .lambda_ctx
             .iter()
             .any(|ctx| frame < ctx.boundary);
-        if captured {
-            self.error(
-                span,
-                format!(
-                    "a lambda cannot consume `{name}`: it is captured from the \
-                     enclosing scope and the lambda may run any number of times; \
-                     use `copy({name})` inside the lambda"
-                ),
-            );
+        if !captured {
+            return false;
         }
-        captured
+        let is_linear = self.lookup(name).is_some_and(|v| {
+            let mut visited = HashSet::new();
+            self.ty_transitively_linear(&v.declared, &mut visited)
+        });
+        if is_linear {
+            if self.inferred.is_some() {
+                self.error(
+                    span,
+                    format!(
+                        "a lambda cannot consume `{name}`: it holds a linear \
+                         value, and the closure would inherit an obligation to \
+                         be called exactly once (not supported yet); pass the \
+                         value explicitly instead"
+                    ),
+                );
+            }
+            return true;
+        }
+        // Mark every enclosing lambda `Once` (an outer lambda re-creating
+        // an inner consuming closure would re-consume per run).
+        let var_id = self.lookup(name).map(|v| v.id);
+        if let Some(var_id) = var_id {
+            for ctx in &mut self.lambda_ctx {
+                if frame < ctx.boundary {
+                    if let Some(c) =
+                        ctx.captures.iter_mut().find(|c| c.var_id == var_id)
+                    {
+                        c.moved = true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// [fate-move-mode] A projection in a *moved* position — a consuming
@@ -2044,6 +2076,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                          declared on the type itself (`with Linear`) and applies \
                          to every value of it",
                     );
+                    continue;
+                }
+                // [once-fn] `Once` is the language-level call-multiplicity
+                // qualifier: valid only on function types.
+                if q.name.name == "Once" {
+                    if !matches!(base, Ty::Fn { .. }) {
+                        self.error(
+                            q.span,
+                            format!(
+                                "`Once` applies only to function types, not `{base}`"
+                            ),
+                        );
+                    }
                     continue;
                 }
                 let Some(decl) = decl else { continue };
@@ -3449,7 +3494,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         expected: Option<&Ty>,
     ) -> Ty {
-        let (exp_params, exp_ret) = match expected {
+        let (exp_params, exp_ret) = match expected.map(|t| t.strip_quals()) {
             Some(Ty::Fn { params, ret }) => (Some(params.clone()), Some((**ret).clone())),
             _ => (None, None),
         };
@@ -3496,10 +3541,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_linear_frame_drop();
         self.locals.pop();
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
+        let consumes_captures = ctx.captures.iter().any(|c| c.moved);
         self.finish_lambda_captures(ctx, span);
-        Ty::Fn {
+        let fn_ty = Ty::Fn {
             params: param_tys,
             ret: Box::new(ret),
+        };
+        // [once-fn] A lambda that consumes a capture is callable at most
+        // once: its type gains `Once`, so it only fits `Once` fn
+        // positions and calling it consumes it.
+        if consumes_captures {
+            fn_ty.qualify(vec![Qual {
+                name: "Once".to_string(),
+                args: Vec::new(),
+            }])
+        } else {
+            fn_ty
         }
     }
 
@@ -3525,7 +3582,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for cap in &ctx.captures {
             exported.push(LambdaCapture {
                 name: cap.name.clone(),
-                consumed: cap.mutated,
+                consumed: cap.mutated || cap.moved,
             });
             if cap.mutated {
                 // [linear-lambda] A mutated capture would move the
@@ -4412,7 +4469,11 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             _,
         ) => {
             let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
-            pq.iter().all(|q| arg_quals.contains(&q.name.as_str()))
+            // [once-fn] A `Once` requirement is satisfied by any fn
+            // (inverted subtyping: plain fns may be treated as
+            // once-callable).
+            pq.iter()
+                .all(|q| q.name == "Once" || arg_quals.contains(&q.name.as_str()))
                 && unify(pb, arg.strip_quals(), subst)
         }
         // A union parameter tries each arm against the *intact* argument —
@@ -4425,8 +4486,11 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))),
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
-        // `Qual T` can be passed where `T` is expected.
-        (_, Ty::Qualified { base, .. }) => unify(param, base, subst),
+        // `Qual T` can be passed where `T` is expected — except `Once`,
+        // which may never be dropped [once-fn].
+        (_, Ty::Qualified { quals, base }) => {
+            !quals.iter().any(|q| q.name == "Once") && unify(param, base, subst)
+        }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
             pn == an
                 && pa.len() == aa.len()
@@ -4548,9 +4612,49 @@ impl<'p, 'r> Checker<'p, 'r> {
             // A local holding a callable (lambda parameter etc.).
             if let Some(var) = self.lookup(&id.name) {
                 let vty = var.narrowed.clone();
-                if let Ty::Fn { params, ret } = vty {
+                // A consumed callable (e.g. a `Once` fn already called
+                // [once-fn]) reports the standard consumed-use error.
+                if matches!(vty, Ty::Nothing) {
+                    self.check_expr(callee, None);
+                    for a in args {
+                        self.check_expr(a, None);
+                    }
+                    return Ty::Unknown;
+                }
+                let once = vty.quals().iter().any(|q| q.name == "Once");
+                if let Ty::Fn { params, ret } = vty.strip_quals().clone() {
                     for (i, a) in args.iter().enumerate() {
                         self.check_expr(a, params.get(i));
+                    }
+                    // [once-fn] Calling a `Once` fn consumes it: the
+                    // existing consumption machinery then enforces the
+                    // multiplicity (second call, loop back edge, branch
+                    // merges) for free.
+                    if once {
+                        let state = self
+                            .lookup(&id.name)
+                            .map(|var| (var.id, var.links.clone()));
+                        if let Some((var_id, links)) = state {
+                            if !links.is_empty() {
+                                let name = id.name.clone();
+                                self.error_derived(id.span, "call", &name, &links);
+                            } else {
+                                let name = id.name.clone();
+                                self.poison_derived(
+                                    var_id,
+                                    &name,
+                                    FateEvent::Moved,
+                                    span,
+                                );
+                                if let Some(var) = self.lookup_mut(&id.name) {
+                                    var.narrowed = Ty::Nothing;
+                                    var.consumed_by = Some(
+                                        "a call (a `Once` function is callable \
+                                         at most once)",
+                                    );
+                                }
+                            }
+                        }
                     }
                     return *ret;
                 }
@@ -4565,9 +4669,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
 
-        // Computed callee.
+        // Computed callee (a `Once`-typed temporary is called at most
+        // once by construction [once-fn]).
         let cty = self.check_expr(callee, None);
-        if let Ty::Fn { params, ret } = cty {
+        if let Ty::Fn { params, ret } = cty.strip_quals().clone() {
             for (i, a) in args.iter().enumerate() {
                 self.check_expr(a, params.get(i));
             }
@@ -4895,7 +5000,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 };
-                if !d.kept {
+                // [once-fn] A `Once` fn value escapes when passed as an
+                // argument: fn-value ownership is otherwise untracked,
+                // so the pass consumes it regardless of the callee's
+                // contract (conservative; relaxable with fn-type
+                // contracts).
+                let arg_once = self
+                    .lookup(&id.name)
+                    .map(|v| v.narrowed.quals().iter().any(|q| q.name == "Once"))
+                    .unwrap_or(false);
+                if !d.kept || arg_once {
                     // Moved. A fate-linked (derived) variable cannot be
                     // moved [fate-derived-readonly]; moving a root
                     // poisons the variables derived from it

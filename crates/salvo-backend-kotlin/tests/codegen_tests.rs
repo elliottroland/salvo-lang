@@ -1803,3 +1803,43 @@ fn kotlinc_compiles_and_runs_linear_generics() {
     let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
     run_kotlin_files(&files, "l7a-linear-generics", expected);
 }
+
+// ===== L7b: Once fn types [once-fn] =====
+
+/// A `Once` parameter accepts both a capture-consuming lambda (which is
+/// `Once`-typed by construction) and a plain lambda (inverted
+/// subtyping); the checker guarantees at most one call.
+const ONCE_DEMO: &str = r#"
+fn run_once(f: Once () -> None) {
+    f()
+}
+
+fn consume_list(v: List<Int>) [Console] -> [] None {
+    println("consumed ${size(v)} items")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let xs = list(1, 2, 3)
+    let g = () -> { consume_list(xs) }
+    run_once(g)
+    let n = 7
+    let plain = () -> { println("plain ${n}") }
+    run_once(plain)
+    println("done")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_once_fns() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", ONCE_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "consumed 3 items\nplain 7\ndone\n";
+    run_kotlin_files(&files, "l7b-once", expected);
+}

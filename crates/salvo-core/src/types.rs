@@ -208,9 +208,28 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         (
             Ty::Qualified { quals: qa, base: ba },
             Ty::Qualified { quals: qb, base: bb },
-        ) => is_subtype(ba, bb) && qb.iter().all(|q| qa.contains(q)),
-        // `Qual T <: T`.
-        (Ty::Qualified { base, .. }, _) => is_subtype(base, b),
+        ) => {
+            is_subtype(ba, bb)
+                && qb
+                    .iter()
+                    .all(|q| q.name == "Once" || qa.contains(q))
+        }
+        // [once-fn] INVERTED subtyping, flagged for future review
+        // (user decision 2026-09-02): `Once` *restricts* (callable at
+        // most once) instead of refining, so a plain fn may be used
+        // where a `Once` fn is expected — the opposite direction of
+        // every other qualifier.
+        (Ty::Fn { .. }, Ty::Qualified { quals, base })
+            if quals.iter().any(|q| q.name == "Once")
+                && matches!(**base, Ty::Fn { .. }) =>
+        {
+            is_subtype(a, base)
+        }
+        // `Qual T <: T` — except `Once`, which may never be dropped
+        // (a once-callable fn is not a many-callable fn) [once-fn].
+        (Ty::Qualified { quals, base }, _) => {
+            !quals.iter().any(|q| q.name == "Once") && is_subtype(base, b)
+        }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb
                 && aa.len() == ab.len()

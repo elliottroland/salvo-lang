@@ -14,10 +14,11 @@ explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
 limitations, and the plan for what's next — the remaining L7 sub-phases
-(the generic linear opt-in `<T with Linear>` landed as L7a; still open:
-`Once` multiplicity, derived returns, fn-type contracts, internal
-qualifier unification); L5 field precision only if whole-variable
-granularity proves too coarse.
+(the generic linear opt-in `<T with Linear>` landed as L7a and the
+`Once` fn qualifier as L7b; still open: derived returns
+`ReadOnly(from: param)`, fn-type contracts, internal qualifier
+unification); L5 field precision only if whole-variable granularity
+proves too coarse.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -35,7 +36,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 178 tests; includes eleven kotlinc and eleven rustc
+cargo test                  # 182 tests; includes twelve kotlinc and twelve rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -547,6 +548,42 @@ deferred. What landed (rule [linear-generics] rewritten):
   empty, `add` individually, `size`, `discard`) compiles and prints
   identically on both backends.
 
+### L7b — `Once` fn types (completed 2026-09-02)
+
+The call-multiplicity qualifier, landed as a *fn-type qualifier* rather
+than the originally-sketched deduction-list surface (user decision
+2026-09-02 — calling once is consuming, which contradicts a deduction
+entry's kept-ness; the type-qualifier form rides the existing
+machinery). Rule [once-fn]:
+
+- **Enforcement is consumption**: calling a `Once` value consumes it —
+  double calls, loop back-edge calls, and call-after-escape are the
+  ordinary consumed-use errors; maybe-calls are conservative; zero
+  calls fine. One fix en route: the Ident-callable path in `check_call`
+  bypassed the standard consumed-read error (it never `check_expr`s the
+  callee ident), so calling an already-consumed callable reported
+  nothing — it now routes through the standard error.
+- **Inverted subtyping, flagged for future review** (user request):
+  plain fn <: `Once` fn, and `Once` may never be dropped — the
+  opposite direction of every other qualifier, special-cased in
+  `is_subtype` and `unify` with loud comments.
+- **Consuming-capture lambdas legalized**: [fate-lambda]'s always-error
+  became "legal but `Once`-typed" — the capture is consumed at
+  creation, the closure fits only `Once` positions (boundary error
+  otherwise), and every *enclosing* lambda is marked too (an outer
+  closure re-creating an inner consuming one re-consumes per run).
+  Linear captures still refuse (exactly-once closures are future
+  work). The escape rule consumes a `Once` value passed as any
+  argument (fn-value ownership is otherwise untracked).
+- **Emission nearly free**: Rust emits `impl FnOnce(…)` for `Once`
+  params (`QualifiedGroup` over `Fn` in `emit_type` + the
+  fn-param-Owned mode extended to qualified groups); lambda emission
+  unchanged (rustc's capture inference produces `FnOnce` closures
+  itself). Kotlin erases `Once` entirely. Verified end to end with
+  identical stdout.
+- No inference in v1 (written `Once` only); the parser needed nothing —
+  `Once () -> None` already parsed as a qualified group over a fn type.
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -919,15 +956,14 @@ practice, independent returns may be the permanently right answer.
   declined; body-inference recorded as a possible later complement,
   mirroring the deduction precedent: written validates, unwritten
   infers).
-- Additional option for the same milestone (user suggestion
-  2026-09-02): a **call-multiplicity compiler qualifier** on fn-typed
-  parameters, surfaced in deduction lists — e.g. a fn whose deductions
-  mark a lambda parameter `Once` guarantees it calls the lambda at most
-  once. That would let a lambda *consume* its captures when passed to
-  such a fn (today always an error [fate-lambda], because multiplicity
-  is untracked) — the Rust backend would emit `FnOnce`. Fits the same
-  distinct-class rules (compiler-inserted, inferred from the callee's
-  body, never affecting overloads).
+- **L7b delivered 2026-09-02**: the `Once` call-multiplicity qualifier
+  (see the decision-log section) — landed on *fn types* rather than in
+  deduction lists (the surface originally sketched here; user approved
+  the change): `fn run(f: Once () -> None)`, enforcement by
+  consumption, inverted subtyping (flagged for review),
+  consuming-capture lambdas legal and `Once`-typed, Rust `impl FnOnce`.
+  Inference (a callee auto-promoting a once-called fn param) remains
+  open for the fn-type-contracts sub-phase.
 
 Sequencing note: L1 lands in stages (S1 strict checker-only → S2
 move-mode bindings → S3 borrow emission); S1+L2 closed real
@@ -992,7 +1028,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 178)
+## Test inventory (all green: 182)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1014,7 +1050,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 44 - 37 `analyze` integration tests running the built
+- `salvo-cli`: 45 - 38 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1078,6 +1114,10 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   rejected, variadic positions refusing linear values with their
   follow-on leaks, and the opted-std `List<FileHandle>` workflow
   clean),
+  the L7b `Once` matrix ([once-fn]: double call and loop back-edge
+  call consumed, `Once` lambdas rejected at plain-fn boundaries,
+  escape-then-call rejected, `Once` on non-fn types rejected, with
+  maybe-call and both subtyping directions' positives clean),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -1098,7 +1138,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 57 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 58 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1128,14 +1168,14 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and eleven kotlinc compile+run tests
+  mutability is a codegen error); and twelve kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
-  resource demo, and the L7a linear-generics workflow demo — emission
-  aliases throughout, stdout identical to the Rust runs
-  [fate-move-mode] [fate-link] [linear-static]).
-- `salvo-backend-rust`: 32 - golden snapshots of the same five demos
+  resource demo, and the L7a/L7b linear-generics and `Once` demos —
+  emission aliases throughout, stdout identical to the Rust runs
+  [fate-move-mode] [fate-link] [linear-static] [once-fn]).
+- `salvo-backend-rust`: 34 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1157,11 +1197,13 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
   alias of an owned local, read-only pipeline clone-free); `discard`
-  lowering assertions (`drop(...)` [linear-discard]); and eleven rustc
+  lowering assertions (`drop(...)` [linear-discard]); and twelve rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
-  resource demo, and the L7a linear-generics workflow demo).
+  resource demo, the L7a linear-generics workflow demo, and the L7b
+  `Once` demo — with `once_fn_params_emit_fnonce` asserting the
+  `impl FnOnce` rendering [once-fn]).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1169,6 +1211,18 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L7b) The Ident-callable path in `check_call` never `check_expr`s the
+  callee identifier, so consumed-value reads did not error there —
+  calling an already-consumed callable was silently accepted until the
+  path got an explicit `Ty::Nothing` branch. When adding a consumption
+  rule, audit every place an identifier is *used* without going
+  through the standard read path.
+- (L7b) `Once` is the first qualifier with *inverted* subtyping (a
+  restriction, not a refinement): plain fn <: `Once` fn and `Once` may
+  never drop. Both `is_subtype` and `unify` carry special cases —
+  flagged for review; if a second restricting qualifier ever appears,
+  generalize direction into the qualifier model instead of a third
+  special case.
 - (L7a) Opting a variadic constructor into linearity is a trap:
   variadic positions are untracked by the flow analysis, so a linear
   argument would be physically moved while statically still owed —
