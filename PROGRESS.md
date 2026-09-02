@@ -4,18 +4,19 @@ Status snapshot as of 2026-09-02: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
-deductions, uniform across types, branch- and loop-aware). The whole
-shared-fate arc is complete — **S1 (strict links + poison), L2
-(remaining consuming sites), S2 (move-mode bindings → real moves), L3
-(same-call ordering + capped check/infer fixpoint), L4 (lambda captures
-under shared fate), and S3 (borrow emission)**: move-mode bindings emit
-real moves, borrow-mode bindings and loops emit real borrows (`&T`
-locals, by-reference iteration), and read-only pipelines over kept
-parameters are clone-free end to end. This document is the handoff
-point for continuing development: it records what is built, the key
-design decisions, known limitations, and the plan for what's next —
-the remaining linear-types phases (L5 field precision if ever needed,
-L6 must-use linearity, L7 parameterized compiler qualifiers).
+deductions, uniform across types, branch- and loop-aware). The
+shared-fate arc (S1, L2, S2, L3, L4, S3) **and L6 must-use linearity**
+are complete: move-mode bindings emit real moves, borrow-mode bindings
+and loops emit real borrows, read-only pipelines over kept parameters
+are clone-free — and `with Linear` types carry a use obligation
+(forgetting to close/commit is a compile error, `discard` is the
+explicit escape hatch, enforcement is purely static and identical on
+both backends). This document is the handoff point for continuing
+development: it records what is built, the key design decisions, known
+limitations, and the plan for what's next — chiefly L7 (parameterized
+compiler qualifiers: derived returns, fn-type contracts, `Once`
+multiplicity, `where T: Linear`-style generic opt-in); L5 field
+precision only if whole-variable granularity proves too coarse.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -33,7 +34,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 170 tests; includes nine kotlinc and nine rustc
+cargo test                  # 175 tests; includes ten kotlinc and ten rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -467,6 +468,51 @@ borrows [rs-borrow-locals]. What landed:
   clones in the Rust output (`count_long`: borrowed param, borrowed
   loop, borrowed field binding).
 
+### L6 — must-use linearity (completed 2026-09-02)
+
+All five decisions (L6a–e) approved by the user as recommended; rules
+[linear-with] [linear-obligation] [linear-discard] [linear-composite]
+[linear-generics] [linear-lambda] [linear-static]. What landed:
+
+- **`with Linear`** on type declarations (the with-clause already
+  parsed arbitrary auto-qualifiers; `has_auto_linear` mirrors
+  `has_auto_mut`); `Linear` in a use-site type is an error — linearity
+  is declared, not applied. `ty_transitively_linear` /
+  `ast_type_linear` mirror the `Mut` transitive analysis (composites
+  are contagious).
+- **Obligation checks ride the existing flow machinery**:
+  `owes_linear` (declared-linear + live + no links + owned-param rule
+  via `own_contract`), scanned at frame pops (`check_linear_frame_drop`
+  in `check_branch_block`/`check_fn`/`check_lambda`), at
+  `return` (all frames) and `break`/`continue` (frames above the
+  loop's `entry_depth`, new `LoopCtx` field) via `check_linear_exit`,
+  at linear-typed expression statements, and at assignment over a live
+  linear value. The all-paths rule lives in `merge_fallthrough` (which
+  gained a `span` parameter): consumed on some fall-through paths but
+  not all = error — the exact dual of maybe-moved. Reported variables
+  are marked consumed (one error per obligation). Gated to round two+
+  (`inferred.is_some()`), like the other contract-dependent checks.
+- **`internal fn discard<T>(value: T) -> [] None`** in std; the `[]`
+  deduction makes the discharge just another move. Rust lowers to
+  `drop(value)`, Kotlin to `(value).let {}` [internal-fn]. Both
+  verified end to end with identical stdout on the open/use/close
+  resource demo.
+- **Generic ban** in `resolve_named_call` on the resolved substitution:
+  linear instantiation of an unconstrained `T` errors; `copy` refuses
+  with its own message; `discard` (internal, by name) is blessed.
+  Known leftover: effect members with their own generics are not
+  covered by the ban.
+- **Lambda guard**: capture-and-mutate of a linear value errors in
+  `finish_lambda_captures` (the closure would swallow the obligation);
+  read captures are aliases and fine.
+- `LocalVar` gained `decl_span`, so obligation diagnostics point at the
+  variable's declaration.
+- Practical consequence (documented): a Salvo-bodied consumer
+  (`fn close_file(h: FileHandle) -> []`) must itself end the chain with
+  `discard(h)` — real resource release lives in external fns, which
+  have no body to check. `List<FileHandle>` is expressible but not
+  constructible until a generic opt-in exists (L7).
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -759,41 +805,25 @@ instead of per-variable states).
   use case. Revisit only if whole-variable poison proves too coarse in
   practice.
 
-### L6 — Must-use: true linearity
+### L6 — Must-use: true linearity. ✅ Done 2026-09-02
 
-Everything through L5 is affine ("at most once"). The linear half ("at
-least once") makes dropping a value an error — the payoff for resource
-types (file handles, transactions, sockets): forgetting to close/commit
-becomes a compile error. Needs: an opt-in marker on types, an
-obligation check at scope exit on every path (the branch-merge machinery
-provides the paths), and a blessed set of consuming operations.
+(See the L6 section in the decision log above; rules [linear-*].) All
+five decisions approved by the user as recommended on 2026-09-02:
 
-- **DECISION L6a — the marker.** How does a type opt in? `with Linear`
-  auto-qualifier (parallel to `with Mut`, backend-neutral, fits the
-  existing `type … with` syntax) vs a `Linear` qualifier applied at use
-  sites vs a distinct declaration keyword. Recommendation: `with
-  Linear` on the type declaration.
-- **DECISION L6b — what consumes.** Any move (passing to a consuming
-  call, returning, storing)? Or only designated consumers (fns marked
-  somehow, e.g. by taking the parameter unlisted in deductions — which
-  is exactly "moves it")? Recommendation: consumption = any move; the
-  deduction system already defines it.
-- **DECISION L6c — escape hatches and failure paths.** Is there a
-  `discard(x)` in std for deliberately dropping a linear value? What
-  happens on early-`return` paths (obligation still checked — the
-  merge machinery handles it) and on future panic/abort semantics
-  (out of scope until Salvo has them)?
-- **DECISION L6d — linearity in composite types.** Is a
-  `List<FileHandle>` linear? A union with one linear arm? An optional?
-  Simplest sound rule: a composite containing a linear component is
-  itself linear. Generics: forbid instantiating an unconstrained `T`
-  with a linear type initially (a `where T: Linear`-style opt-in can
-  come later).
-- **DECISION L6e — Kotlin backend stance.** Linearity is enforced
-  purely statically; on the JVM nothing physically prevents reuse, and
-  there are no destructors either way. Recommendation: document that
-  linear types are a *protocol* checker feature, identical on both
-  backends, with no runtime component.
+- **L6a**: `with Linear` on the type declaration; `Linear` is not
+  writable at use sites (every value of the type is linear, always).
+- **L6b**: consumption = any move, as the deduction system defines it;
+  moves transfer the obligation (compositional across calls, returns,
+  stores, and move-mode bindings).
+- **L6c**: `internal fn discard<T>(value: T) -> [] None` is the
+  explicit escape hatch; early-exit paths are checked by the existing
+  path machinery; panic/abort semantics out of scope until they exist.
+- **L6d**: composites containing linear components are linear
+  (transitive); unconstrained generics refuse linear instantiation
+  (`copy` refused with a dedicated message, `discard` blessed);
+  `where T: Linear`-style opt-in deferred to the L7 qualifier work.
+- **L6e**: purely static protocol, identical on both backends, no
+  runtime component.
 
 ### L7 — Reconsider derived-return annotations
 
@@ -863,11 +893,9 @@ Sequencing note: L1 lands in stages (S1 strict checker-only → S2
 move-mode bindings → S3 borrow emission); S1+L2 closed real
 rustc-rejection gaps; L3 and L4 are done (2026-09-02);
 L5 is largely subsumed by shared fate (field-disjoint precision only);
-L6 is the only phase introducing new language surface and should get a
-LANGUAGE.md section of its own before implementation. Per AGENTS.md,
-each phase lands with LANGUAGE_SPEC.md rules (extending
-[deduce-consume], new [linear-*] labels for L6) and tests at every
-affected layer.
+L6 landed 2026-09-02 with its own LANGUAGE.md section and the
+[linear-*] rule family. Per AGENTS.md, each phase lands with
+LANGUAGE_SPEC.md rules and tests at every affected layer.
 
 ## Remaining leftovers (small; no milestone claims them)
 
@@ -924,7 +952,7 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 170)
+## Test inventory (all green: 175)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -946,7 +974,7 @@ affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 41 - 34 `analyze` integration tests running the built
+- `salvo-cli`: 43 - 36 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1000,6 +1028,11 @@ affected layer.
   captures consumed at creation with claims reaching callers,
   written-kept parameter capture-mutation rejected, capture consumption
   always rejected, `copy` remedies clean),
+  the L6 linearity matrix ([linear-obligation]: scope-exit leak,
+  consumed-on-some-paths-only, dropped expression result, overwrite of
+  a live value, return-while-owing, `copy` refused, lambda swallow
+  rejected — with pass/discard/return/kept-borrow/alias/composite all
+  clean — and the generic instantiation ban [linear-generics]),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -1020,7 +1053,7 @@ affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 55 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 56 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1050,13 +1083,13 @@ affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and nine kotlinc compile+run tests
+  mutability is a codegen error); and ten kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
-  copy demo, and the S2/S3 move-mode and borrow demos — emission
-  unchanged, stdout identical to the Rust runs [fate-move-mode]
-  [fate-link]).
-- `salvo-backend-rust`: 29 - golden snapshots of the same five demos
+  copy demo, the S2/S3 move-mode and borrow demos, and the L6 linear
+  resource demo — emission aliases throughout, stdout identical to the
+  Rust runs [fate-move-mode] [fate-link] [linear-static]).
+- `salvo-backend-rust`: 31 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1077,10 +1110,12 @@ affected layer.
   `let` moving, pipeline clone-free); borrow emission assertions
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
-  alias of an owned local, read-only pipeline clone-free); and nine
-  rustc compile+run tests with exact stdout assertions mirroring the
-  kotlinc set (demo, unions, qualifiers, effects, loops, multi-module,
-  copy, the S2 zero-clone move-mode demo, and the S3 borrow demo).
+  alias of an owned local, read-only pipeline clone-free); `discard`
+  lowering assertions (`drop(...)` [linear-discard]); and ten rustc
+  compile+run tests with exact stdout assertions mirroring the kotlinc
+  set (demo, unions, qualifiers, effects, loops, multi-module, copy,
+  the S2 zero-clone move-mode demo, the S3 borrow demo, and the L6
+  linear resource demo).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1088,6 +1123,16 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L6) A Salvo-bodied consuming fn must end the obligation chain
+  itself: `fn close(h: FileHandle) -> [] None {}` leaks `h` by its own
+  rules — the body owns the moved-in value and must `discard` it (real
+  release lives in external fns with no body to check). Tests and
+  examples that stub consumers with empty bodies will all fail the
+  frame-drop check; stub with `discard`.
+- (L6) The obligation checks mark reported variables as consumed so
+  each obligation errors exactly once (a `return`-site error would
+  otherwise repeat at the frame pop). Any new exit-shaped check should
+  follow the same report-then-consume pattern.
 - (S3) Decide the borrow path *before* emitting the value: `emit_let`
   computed `value_code` eagerly, and the discarded emission would have
   recorded coercions/union sizes for code that never lands. Emission

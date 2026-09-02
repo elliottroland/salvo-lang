@@ -1166,3 +1166,59 @@ fn rustc_compiles_and_runs_borrows() {
     let expected = "1\n5\n";
     run_rust_files(&files, "s3-borrows", expected);
 }
+
+// ===== L6: linear types [linear-obligation] =====
+
+/// The resource pattern linearity exists for: open, use, close — with
+/// `discard` as the deliberate drop [linear-discard]. The checker
+/// guarantees no path leaks the handle; the demo verifies the lowering
+/// (Rust: `discard` lowers to `drop`).
+const LINEAR_DEMO: &str = r#"
+struct FileHandle with Linear {
+    fd: Int
+}
+
+fn open_file(path: Str) [Console] -> [] FileHandle {
+    println("open ${path}")
+    return FileHandle {fd: size(path)}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = open_file("data.txt")
+    let n = h.fd
+    println("fd=${n}")
+    close_file(h)
+    let temp = open_file("scratch")
+    discard(temp)
+    println("done")
+}
+"#;
+
+// [linear-discard] `discard` lowers to `drop(...)` on the moved value.
+#[test]
+fn discard_lowers_to_drop() {
+    let files = generate(&[("main.sv", LINEAR_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(main.content.contains("drop(h)"), "generated:\n{}", main.content);
+    assert!(main.content.contains("drop(temp)"), "generated:\n{}", main.content);
+}
+
+#[test]
+fn rustc_compiles_and_runs_linear() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LINEAR_DEMO, false)]);
+    let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
+    run_rust_files(&files, "l6-linear", expected);
+}

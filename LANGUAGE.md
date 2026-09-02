@@ -860,6 +860,60 @@ Some consequences worth knowing:
 
 `copy` is an `internal fn` (see the Backends chapter): its declaration gives the checker everything it needs — the argument is kept with all its qualifiers, the result is independent — and each backend lowers calls to it against the argument's *actual type*. Where no Salvo operation could mutate the value anyway, a copy is free: Kotlin emits the argument unchanged (duplicating a reference to immutable data is a copy), and Rust clones. Where mutation is possible, the copy is real on every backend: `Mut List<Int>` becomes `xs.toMutableList()` in Kotlin and `xs.clone()` in Rust; a `Mut` struct with immutable fields becomes `p.copy()` / `p.clone()`. Where a backend cannot yet produce a correct copy (for example, nested mutability like `Mut List<Mut Person>` on the JVM, where a shallow copy would share the inner values), the compiler reports an error rather than emit code that behaves differently across backends.
 
+### Linear types: values that must be used
+
+Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type can opt into **linearity** at its declaration:
+
+```
+struct FileHandle with Linear {
+    fd: Int
+}
+```
+
+Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, storing it in a struct/array/tuple, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own.
+
+Dropping the obligation is a compile-time error, wherever it would happen:
+
+```
+fn leak() {
+    let h = open("data.txt")
+}                               // ERROR: `h` still owns a linear value at scope exit
+
+fn maybe_leak(flag: Bool) {
+    let h = open("data.txt")
+    if flag {
+        close(h)
+    }
+}                               // ERROR: `h` is consumed on some paths only
+
+fn drop_result() {
+    open("data.txt")            // ERROR: a linear value is dropped immediately
+}
+
+fn overwrite() {
+    let h = open("a.txt")
+    h = open("b.txt")           // ERROR: overwriting drops the first handle
+    close(h)
+}
+```
+
+The deliberate escape hatch is one word: `discard(x)` in the standard library consumes a linear value and drops it on purpose — the code says out loud that the resource dies here.
+
+```
+fn deliberate() {
+    let h = open("data.txt")
+    discard(h)                  // fine: an explicit drop
+}
+```
+
+Rules that keep the obligation sound:
+
+- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `with Linear` type is linear, always. (A qualifier you could forget to write would defeat the point.)
+- **Composites are contagious**: a struct with a linear field, a tuple/array/union with a linear component, is itself linear — storing a handle in a box moves the obligation into the box, and the box must now be passed on.
+- **Generics refuse linear values for now**: an unconstrained `T` cannot be instantiated with a linear type — in particular `copy` refuses them (duplicating an obligation is meaningless); `discard` is the one blessed generic. A `where T: Linear`-style opt-in can come later.
+- **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
+- **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
+
 ## Qualifiers continued
 
 Now that we know how functions work, we can return to the topic of qualifiers and discuss how they are defined.

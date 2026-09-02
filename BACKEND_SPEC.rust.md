@@ -327,6 +327,9 @@ derives them mechanically:
 * [struct-defaults] Rust has no default arguments: struct literals
   inline the declared default expressions for omitted fields at every
   literal site.
+* [linear-discard] `discard(x)` lowers to `drop(x)` on the moved value
+  [internal-fn]; linearity itself is purely static [linear-static] — no
+  `#[must_use]`, no `Drop` impls are generated.
 * [struct-spread] `P {...p, f: v}` emits
   `P { f: v, ..(p-owned) }` (functional update; the base is rendered
   owned, cloning when needed). The deep clone diverges from Kotlin's

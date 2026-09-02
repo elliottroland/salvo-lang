@@ -611,6 +611,60 @@ Conventions:
     one can, and a codegen error where no correct copy exists yet
     [backend-never-wrong].
 
+## Linear types
+
+* [linear-with] A type opts into linearity at its declaration with
+  `with Linear` (structs and `internal`/`external` types; decision L6a,
+  2026-09-02). Every value of the type is linear — `Linear` cannot be
+  written in a use-site type (error): a per-value qualifier that could
+  be forgotten would defeat the protection. Tooling may present
+  linearity as a compiler-facing property.
+* [linear-obligation] A linear value carries a *use obligation*: on
+  every path it must be moved onward before it goes out of scope
+  (decision L6b: consumption = any move, exactly as the deduction
+  system defines it — consuming call, `return`, `break`/`yield` value,
+  literal store, spread, `use` constructor argument, move-mode
+  binding). Moves *transfer* the obligation: a callee that receives the
+  value by move discharges it in turn; a kept parameter leaves the
+  obligation with the caller; derived (fate-linked) variables are
+  aliases and owe nothing. Violations are errors at:
+  * scope exit — a frame pops while a variable still owns a live
+    linear value (including moved-in fn parameters and lambda
+    parameters);
+  * `return` (any live obligation anywhere) and `break`/`continue`
+    (obligations in frames inside the loop);
+  * expression statements whose value is linear (dropped on the spot);
+  * assignment over a variable still owning a live linear value;
+  * branch merges where the value is consumed on some fall-through
+    paths but not all — the dual of the affine maybe-moved rule.
+  * Enforced from the second checking round onward (parameter
+    ownership needs contracts [deduce-fixpoint]); reported variables
+    are marked consumed so each obligation errors once.
+* [linear-discard] `core.discard` —
+  `internal fn discard<T>(value: T) -> [] None` — deliberately drops a
+  value, consuming it: the escape hatch (decision L6c). Lowered per
+  backend [internal-fn]: Rust `drop(value)`; Kotlin evaluates and
+  ignores (`(value).let {}`). Failure/panic paths are out of scope
+  until Salvo has such semantics.
+* [linear-composite] A composite containing a linear component is
+  itself linear (decision L6d): struct fields (followed recursively
+  through declarations), type arguments, array/tuple/union components.
+  Storing a linear value moves the obligation into the container.
+* [linear-generics] An unconstrained generic parameter cannot be
+  instantiated with a linear type (decision L6d): generic code does not
+  honor the obligation. `discard` is the one blessed generic; `copy`
+  refuses with a dedicated message (duplicating an obligation is
+  meaningless). A `where T: Linear`-style opt-in may come later (with
+  the L7 qualifier work). Effect members with their own generics are
+  not yet covered (known leftover).
+* [linear-lambda] A lambda may read-capture a linear value (an alias,
+  no obligation) but not capture-and-mutate one [fate-lambda]: the
+  closure would swallow the obligation.
+* [linear-static] Linearity is enforced purely statically and
+  identically on both backends (decision L6e): no runtime component, no
+  destructors — `discard` is the only way a value legally dies without
+  being passed on.
+
 ## Modules, imports, files
 
 * [mod-file] `.sv` files are modules; the module path is the file path (no

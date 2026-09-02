@@ -2323,6 +2323,12 @@ impl<'p> Emitter<'p> {
     /// copy), a real copy where mutation is possible, and a codegen
     /// error where no correct copy exists yet [backend-never-wrong].
     fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+        // [linear-discard] `discard(x)` evaluates the value and drops
+        // it: `.let {}` yields `Unit` (Salvo `None`).
+        if f.name.name == "discard" && args.len() == 1 {
+            let code = self.emit_expr(args[0]);
+            return format!("({code}).let {{}}");
+        }
         if f.name.name != "copy" || args.len() != 1 {
             self.error(format!(
                 "internal fn `{}` is not supported by the kotlin backend",

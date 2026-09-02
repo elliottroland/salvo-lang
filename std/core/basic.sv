@@ -19,3 +19,9 @@ type Number = Int | Long | Double | Float
 // each backend directly (Kotlin: identity for transitively immutable
 // types, a real copy for Mut-capable ones; Rust: `.clone()`).
 internal fn copy<T>(value: T) -> [value] T
+
+// [internal-fn] [linear-discard] Deliberately drops a value, consuming
+// it: the escape hatch for linear types — the one generic fn blessed to
+// accept them. Implemented by each backend directly (Kotlin: evaluate
+// and ignore; Rust: `drop`).
+internal fn discard<T>(value: T) -> [] None

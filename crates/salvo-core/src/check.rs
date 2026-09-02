@@ -328,6 +328,9 @@ struct LocalVar {
     /// becomes move-mode (it iterates by value) and this span keys the
     /// emitter's `binding_modes` entry [fate-move-mode].
     for_origin: Option<Span>,
+    /// Where the variable was declared (for linear-obligation
+    /// diagnostics [linear-obligation]).
+    decl_span: Span,
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -633,6 +636,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     consumed_by: None,
                     is_param: true,
                     for_origin: None,
+                    decl_span: p.name.span,
                 },
             );
         }
@@ -651,11 +655,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     consumed_by: None,
                     is_param: true,
                     for_origin: None,
+                    decl_span: field.name.span,
                 },
             );
         }
         self.locals.push(top);
         self.check_block_value(body);
+        // [linear-obligation] A moved-in linear parameter must be
+        // discharged by the body.
+        self.check_linear_frame_drop();
         self.locals.pop();
         // [fn-must-return] A fn with a non-`None` return type must return
         // on every path. Yield-based iterator fns are exempt: their body
@@ -891,6 +899,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 consumed_by: None,
                 is_param,
                 for_origin,
+                decl_span: name.span,
             },
         );
     }
@@ -1333,6 +1342,166 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// Whether a type is *linear* — declared `with Linear`, or a
+    /// composite containing a linear component at any depth (type
+    /// argument, array/tuple/union component, or struct field, followed
+    /// recursively) [linear-with] [linear-composite].
+    fn ty_transitively_linear(&self, ty: &Ty, visited: &mut HashSet<String>) -> bool {
+        match ty.strip_quals() {
+            Ty::Named { name, args } => {
+                if self.has_auto_linear(name) {
+                    return true;
+                }
+                if args.iter().any(|a| self.ty_transitively_linear(a, visited)) {
+                    return true;
+                }
+                let Some(decl) = self.scope.structs.get(name.as_str()) else {
+                    return false;
+                };
+                if !visited.insert(name.clone()) {
+                    return false;
+                }
+                decl.fields
+                    .iter()
+                    .any(|f| self.ast_type_linear(&f.ty, visited))
+            }
+            Ty::Array(elem) => self.ty_transitively_linear(elem, visited),
+            Ty::Tuple(elems) => {
+                elems.iter().any(|e| self.ty_transitively_linear(e, visited))
+            }
+            Ty::Union(arms) => {
+                arms.iter().any(|a| self.ty_transitively_linear(a, visited))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a declaration opted into linearity with `with Linear`
+    /// [linear-with].
+    fn has_auto_linear(&self, name: &str) -> bool {
+        let has = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Linear");
+        self.scope
+            .structs
+            .get(name)
+            .is_some_and(|s| has(&s.auto_qualifiers))
+            || self
+                .scope
+                .opaque_types
+                .get(name)
+                .is_some_and(|t| has(&t.auto_qualifiers))
+    }
+
+    /// `ty_transitively_linear` over written (AST) types
+    /// [linear-composite].
+    fn ast_type_linear(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
+        match ty {
+            ast::Type::Named { base, .. } => {
+                if self.has_auto_linear(&base.name.name) {
+                    return true;
+                }
+                if base.args.iter().any(|a| self.ast_type_linear(a, visited)) {
+                    return true;
+                }
+                let Some(decl) = self.scope.structs.get(base.name.name.as_str()) else {
+                    return false;
+                };
+                if !visited.insert(base.name.name.clone()) {
+                    return false;
+                }
+                decl.fields
+                    .iter()
+                    .any(|f| self.ast_type_linear(&f.ty, visited))
+            }
+            ast::Type::QualifiedGroup { base, .. } => self.ast_type_linear(base, visited),
+            ast::Type::Union { arms, .. } => {
+                arms.iter().any(|a| self.ast_type_linear(a, visited))
+            }
+            ast::Type::Tuple { elems, .. } => {
+                elems.iter().any(|e| self.ast_type_linear(e, visited))
+            }
+            ast::Type::Array { elem, .. } => self.ast_type_linear(elem, visited),
+            ast::Type::Nullable { inner, .. } => self.ast_type_linear(inner, visited),
+            ast::Type::Fn { .. } => false,
+        }
+    }
+
+    /// Whether a variable currently *owns* a live linear obligation
+    /// [linear-obligation]: its declared type is linear, it holds a live
+    /// value (not consumed), it is not an alias (derived variables carry
+    /// no obligation), and — for parameters — the fn's effective
+    /// contract moves it (a kept parameter leaves the obligation with
+    /// the caller). Only checked once inferred contracts exist (round
+    /// two onwards).
+    fn owes_linear(&self, name: &str, var: &LocalVar) -> bool {
+        if self.inferred.is_none() {
+            return false;
+        }
+        if !var.links.is_empty() || matches!(var.narrowed, Ty::Nothing) {
+            return false;
+        }
+        if var.is_param && !self.param_owned(name) {
+            return false;
+        }
+        let mut visited = HashSet::new();
+        self.ty_transitively_linear(&var.declared, &mut visited)
+    }
+
+    /// Reports every live linear obligation in the top scope frame —
+    /// called just before the frame pops [linear-obligation]. The
+    /// reported variables are marked consumed so enclosing checks do not
+    /// re-report them.
+    fn check_linear_frame_drop(&mut self) {
+        let Some(frame) = self.locals.last() else { return };
+        let owed: Vec<(String, Span)> = frame
+            .iter()
+            .filter(|(name, var)| self.owes_linear(name, var))
+            .map(|(name, var)| (name.clone(), var.decl_span))
+            .collect();
+        for (name, decl_span) in owed {
+            self.error(
+                decl_span,
+                format!(
+                    "`{name}` still owns a linear value when it goes out of \
+                     scope; move it onward (pass, return, or store it) or \
+                     `discard({name})`"
+                ),
+            );
+            if let Some(var) = self.lookup_mut(&name) {
+                var.narrowed = Ty::Nothing;
+            }
+        }
+    }
+
+    /// Reports live linear obligations in every frame at (or above)
+    /// `from_frame` — used at `return` (all frames) and `break`/
+    /// `continue` (frames inside the loop) [linear-obligation]. Reported
+    /// variables are marked consumed.
+    fn check_linear_exit(&mut self, from_frame: usize, span: Span, what: &str) {
+        let owed: Vec<String> = self
+            .locals
+            .iter()
+            .skip(from_frame)
+            .flat_map(|frame| {
+                frame
+                    .iter()
+                    .filter(|(name, var)| self.owes_linear(name, var))
+                    .map(|(name, _)| name.clone())
+            })
+            .collect();
+        for name in owed {
+            self.error(
+                span,
+                format!(
+                    "cannot {what} while `{name}` still owns a linear value; \
+                     move it onward or `discard({name})` first"
+                ),
+            );
+            if let Some(var) = self.lookup_mut(&name) {
+                var.narrowed = Ty::Nothing;
+            }
+        }
+    }
+
     /// `ty_transitively_mut` over written (AST) types — struct fields
     /// are declared syntactically [fate-move-mode].
     fn ast_type_mut(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
@@ -1516,10 +1685,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// list (every branch exits) leaves the pre-branch state untouched —
     /// the consumption happened on paths that never reach the code after
     /// the construct.
-    fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot]) {
+    fn merge_fallthrough(&mut self, fallthrough: &[NarrowSnapshot], span: Span) {
         if fallthrough.is_empty() {
             return;
         }
+        let mut linear_conflicts: Vec<String> = Vec::new();
         for (frame_idx, frame_snap) in fallthrough[0].iter().enumerate() {
             for name in frame_snap.keys() {
                 let states: Vec<&VarState> = fallthrough
@@ -1530,6 +1700,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 let narrowed_states: Vec<&Ty> = states.iter().map(|s| &s.narrowed).collect();
+                // [linear-obligation] The linear rule is the dual of
+                // maybe-moved: an owned linear value consumed on *some*
+                // fall-through paths but not all is dropped on the
+                // remaining ones.
+                {
+                    let consumed = narrowed_states
+                        .iter()
+                        .filter(|t| matches!(t, Ty::Nothing))
+                        .count();
+                    if consumed > 0 && consumed < narrowed_states.len() {
+                        let owes = self
+                            .locals
+                            .get(frame_idx)
+                            .and_then(|f| f.get(name))
+                            .is_some_and(|var| {
+                                // Live-ness differs per path; check the
+                                // rest of the ownership conditions.
+                                self.inferred.is_some()
+                                    && var.links.is_empty()
+                                    && (!var.is_param || self.param_owned(name))
+                                    && {
+                                        let mut visited = HashSet::new();
+                                        self.ty_transitively_linear(
+                                            &var.declared,
+                                            &mut visited,
+                                        )
+                                    }
+                            });
+                        if owes {
+                            linear_conflicts.push(name.clone());
+                        }
+                    }
+                }
                 let joined = if narrowed_states.iter().all(|t| **t == *narrowed_states[0]) {
                     narrowed_states[0].clone()
                 } else if narrowed_states.iter().any(|t| matches!(t, Ty::Nothing)) {
@@ -1579,6 +1782,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.consumed_by = consumed_by;
                 }
             }
+        }
+        linear_conflicts.sort();
+        linear_conflicts.dedup();
+        for name in linear_conflicts {
+            self.error(
+                span,
+                format!(
+                    "`{name}` owns a linear value that is consumed on some \
+                     paths but not others; consume it on every path, or \
+                     `discard({name})` on the paths that keep it"
+                ),
+            );
         }
     }
 
@@ -1784,6 +1999,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     }
+                    continue;
+                }
+                // [linear-with] Linearity is declared, not applied: every
+                // value of a `with Linear` type is linear, so writing
+                // `Linear` at a use site is meaningless (and forgetting
+                // it must not silently drop the protection).
+                if q.name.name == "Linear" {
+                    self.error(
+                        q.span,
+                        "`Linear` cannot be written in a type: linearity is \
+                         declared on the type itself (`with Linear`) and applies \
+                         to every value of it",
+                    );
                     continue;
                 }
                 let Some(decl) = decl else { continue };
@@ -2184,6 +2412,10 @@ struct TailInfo {
 /// [while-value].
 #[derive(Default)]
 struct LoopCtx {
+    /// `locals.len()` when the loop was entered: frames at or above this
+    /// index die when a `break`/`continue` leaves the iteration
+    /// [linear-obligation].
+    entry_depth: usize,
     /// `break value` contributions (span of the value expression).
     breaks: Vec<TailInfo>,
     /// A bare `break` or a `continue` occurred: an iteration may end
@@ -2247,6 +2479,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             };
         }
+        // [linear-obligation] Nothing linear may die with the scope.
+        self.check_linear_frame_drop();
         self.locals.pop();
         self.effect_env.truncate(effect_depth);
         (value, tail)
@@ -2349,6 +2583,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 } else if let Expr::Ident(id) = target {
                     let value_ty = value_ty.clone();
+                    // [linear-obligation] Overwriting a variable that
+                    // still owns a linear value drops it.
+                    let owes = self
+                        .lookup(&id.name)
+                        .is_some_and(|var| self.owes_linear(&id.name, var));
+                    if owes {
+                        self.error(
+                            *span,
+                            format!(
+                                "assigning to `{}` drops the linear value it \
+                                 still owns; move it onward or `discard({})` \
+                                 first",
+                                id.name, id.name
+                            ),
+                        );
+                    }
                     // Reassignment: the variable's old value is gone, so
                     // variables derived from it are poisoned
                     // [fate-poison]; the variable itself revives with
@@ -2395,6 +2645,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // but visible to unreachable code and to
                         // derived-variable poison [fate-poison]).
                         self.fate_move(v, "return", "a `return`", *span);
+                        // [linear-obligation] Nothing linear may be
+                        // alive anywhere when the fn exits.
+                        self.check_linear_exit(0, *span, "return");
                     }
                     None => {
                         if !expected.is_none_ty()
@@ -2406,6 +2659,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("bare `return` in a function returning `{expected}`"),
                             );
                         }
+                        // [linear-obligation]
+                        self.check_linear_exit(0, *span, "return");
                     }
                 }
                 Ty::Nothing
@@ -2440,6 +2695,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
+                // [linear-obligation] Frames inside the loop die at a
+                // `break`: nothing linear may still be owed in them.
+                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
+                    self.check_linear_exit(depth, *span, "break");
+                }
                 // The loop's exit is reachable from every `break`: record
                 // this path's flow state so the after-loop merge sees
                 // values consumed on break paths [deduce-consume] (an
@@ -2456,6 +2716,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match self.loop_stack.last_mut() {
                     Some(ctx) => ctx.may_skip_value = true,
                     None => self.error(*span, "`continue` outside of a loop"),
+                }
+                // [linear-obligation] Frames inside the loop iteration
+                // die at a `continue`.
+                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
+                    self.check_linear_exit(depth, *span, "continue");
                 }
                 Ty::Nothing
             }
@@ -2487,7 +2752,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_use(handler, *span);
                 Ty::none()
             }
-            Stmt::Expr(e) => self.check_expr(e, None),
+            Stmt::Expr(e) => {
+                let ty = self.check_expr(e, None);
+                // [linear-obligation] A linear value in statement
+                // position is dropped on the spot.
+                if self.inferred.is_some() {
+                    let mut visited = HashSet::new();
+                    if self.ty_transitively_linear(&ty, &mut visited) {
+                        self.error(
+                            e.span(),
+                            "this expression produces a linear value that is \
+                             dropped immediately; bind it, move it onward, or \
+                             pass it to `discard`",
+                        );
+                    }
+                }
+                ty
+            }
         }
     }
 
@@ -2912,7 +3193,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 else_block,
                 ..
-            } => self.check_if(branches, else_block.as_ref()),
+            } => self.check_if(branches, else_block.as_ref(), expr.span()),
             Expr::When {
                 subject,
                 branches,
@@ -2928,7 +3209,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // body's tail (last iteration), a `break value`, or the
                 // `else` tail when the loop never ran.
                 let info = self.analyze_cond(cond);
-                self.loop_stack.push(LoopCtx::default());
+                self.loop_stack.push(LoopCtx {
+                    entry_depth: self.locals.len(),
+                    ..LoopCtx::default()
+                });
                 let (body_ty, body_tail) = self.check_loop_body(
                     body,
                     &info.then_narrows.clone(),
@@ -2943,7 +3227,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !break_states.is_empty() {
                     let mut states = vec![self.snapshot_narrows()];
                     states.extend(break_states);
-                    self.merge_fallthrough(&states);
+                    self.merge_fallthrough(&states, expr.span());
                 }
                 // `else` runs only when the loop never ran, i.e. the
                 // condition failed on first evaluation: else-narrows apply.
@@ -2979,7 +3263,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(iterable, iterable.span());
                 let bindings =
                     self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
-                self.loop_stack.push(LoopCtx::default());
+                self.loop_stack.push(LoopCtx {
+                    entry_depth: self.locals.len(),
+                    ..LoopCtx::default()
+                });
                 let (body_ty, body_tail) = self.check_loop_body(body, &[], bindings);
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // Merge break-path states into the after-loop state (the
@@ -2989,7 +3276,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !break_states.is_empty() {
                     let mut states = vec![self.snapshot_narrows()];
                     states.extend(break_states);
-                    self.merge_fallthrough(&states);
+                    self.merge_fallthrough(&states, expr.span());
                 }
                 let (else_ty, else_tail) = match else_block {
                     Some(b) => {
@@ -3172,6 +3459,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.loop_stack = saved_loops;
         self.ret_ty = saved_ret;
+        // [linear-obligation] Lambda parameters are owned by the body:
+        // a linear one must be discharged before the body ends.
+        self.check_linear_frame_drop();
         self.locals.pop();
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
         self.finish_lambda_captures(ctx, span);
@@ -3206,6 +3496,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 consumed: cap.mutated,
             });
             if cap.mutated {
+                // [linear-lambda] A mutated capture would move the
+                // obligation into the closure: forbidden.
+                let is_linear = self.var_by_id(cap.var_id).is_some_and(|v| {
+                    let mut visited = HashSet::new();
+                    self.ty_transitively_linear(&v.declared, &mut visited)
+                });
+                if is_linear {
+                    if self.inferred.is_some() {
+                        self.error(
+                            span,
+                            format!(
+                                "this lambda captures and mutates `{}`, which \
+                                 holds a linear value: the closure would swallow \
+                                 its obligation; restructure so the value is \
+                                 passed explicitly",
+                                cap.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
                 let is_kept_param = self
                     .var_by_id(cap.var_id)
                     .is_some_and(|v| v.is_param)
@@ -3709,6 +4020,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         branches: &'p [(Expr, Block)],
         else_block: Option<&'p Block>,
+        span: Span,
     ) -> Ty {
         let mut acc_else: Vec<(String, Ty)> = Vec::new();
         let mut branch_tys = Vec::new();
@@ -3754,7 +4066,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 tails.push(None);
             }
         }
-        self.merge_fallthrough(&fallthrough);
+        self.merge_fallthrough(&fallthrough, span);
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
@@ -3850,7 +4162,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             tails.push(tail);
             remaining.retain(|arm| !matched.contains(arm));
         }
-        self.merge_fallthrough(&fallthrough);
+        self.merge_fallthrough(&fallthrough, span);
         if !remaining.is_empty() {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(
@@ -4392,6 +4704,47 @@ impl<'p, 'r> Checker<'p, 'r> {
             best.decl.generics.iter().map(|g| g.name.clone()).collect();
         let subst = best.subst.clone();
         let decl = best.decl;
+        // [linear-generics] An unconstrained generic parameter cannot be
+        // instantiated with a linear type: generic code neither knows
+        // nor honors the obligation. `discard` is the one blessed
+        // generic (deliberately dropping is its purpose); `copy` refuses
+        // with its own message (duplicating an obligation is
+        // meaningless).
+        if self.inferred.is_some()
+            && !(decl.backing == Some(BackingMod::Internal) && decl.name.name == "discard")
+        {
+            for (var_name, ty) in &subst {
+                if !callee_generics.contains(var_name) {
+                    continue;
+                }
+                let mut visited = HashSet::new();
+                if self.ty_transitively_linear(ty, &mut visited) {
+                    if decl.backing == Some(BackingMod::Internal)
+                        && decl.name.name == "copy"
+                    {
+                        self.error(
+                            span,
+                            format!(
+                                "cannot `copy` a value of linear type `{ty}`: \
+                                 that would duplicate its obligation; every \
+                                 linear value has exactly one owner"
+                            ),
+                        );
+                    } else {
+                        self.error(
+                            span,
+                            format!(
+                                "cannot instantiate generic parameter `{var_name}` \
+                                 of `{name}` with linear type `{ty}`: generic code \
+                                 does not honor the use obligation (a `where`-style \
+                                 opt-in may come later)"
+                            ),
+                        );
+                    }
+                    break;
+                }
+            }
+        }
         // [deduce-consume] Deduction lists are a contract, enforced
         // flow-sensitively on bare identifier arguments: parameters *not*
         // kept are consumed (moved) — the variable narrows to `Nothing`

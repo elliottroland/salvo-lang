@@ -1709,3 +1709,50 @@ fn kotlinc_compiles_and_runs_borrows() {
     let expected = "1\n5\n";
     run_kotlin_files(&files, "s3-borrows", expected);
 }
+
+// ===== L6: linear types [linear-obligation] =====
+
+/// The resource pattern linearity exists for: open, use, close — with
+/// `discard` as the deliberate drop [linear-discard]. The checker
+/// guarantees no path leaks the handle; the demo verifies the lowering
+/// (Kotlin: `discard` evaluates and ignores via `.let {}`).
+const LINEAR_DEMO: &str = r#"
+struct FileHandle with Linear {
+    fd: Int
+}
+
+fn open_file(path: Str) [Console] -> [] FileHandle {
+    println("open ${path}")
+    return FileHandle {fd: size(path)}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = open_file("data.txt")
+    let n = h.fd
+    println("fd=${n}")
+    close_file(h)
+    let temp = open_file("scratch")
+    discard(temp)
+    println("done")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_linear() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", LINEAR_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
+    run_kotlin_files(&files, "l6-linear", expected);
+}

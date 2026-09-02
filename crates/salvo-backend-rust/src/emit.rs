@@ -3301,6 +3301,11 @@ impl<'p> Emitter<'p> {
     /// Non-place arguments are already fresh owned values and pass
     /// through.
     fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+        // [linear-discard] `discard(x)` moves the value into `drop`.
+        if f.name.name == "discard" && args.len() == 1 {
+            let code = self.emit_expr(args[0]);
+            return format!("drop({code})");
+        }
         if f.name.name != "copy" || args.len() != 1 {
             self.error(format!(
                 "internal fn `{}` is not supported by the rust backend",

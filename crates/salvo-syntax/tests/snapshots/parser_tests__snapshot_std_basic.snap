@@ -290,5 +290,63 @@ Module {
                 span: 651..684,
             },
         ),
+        Fn(
+            FnDecl {
+                backing: Some(
+                    Internal,
+                ),
+                name: Ident {
+                    name: "discard",
+                    span: 946..953,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 954..955,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 957..962,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 964..965,
+                                },
+                                args: [],
+                                span: 964..965,
+                            },
+                        },
+                        variadic: false,
+                        span: 957..965,
+                    },
+                ],
+                effects: None,
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 973..977,
+                            },
+                            args: [],
+                            span: 973..977,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 943..977,
+            },
+        ),
     ],
 }

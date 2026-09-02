@@ -1210,3 +1210,113 @@ fn l4_lambda_captures() {
     // remedies) is clean: exactly the five violations.
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
+
+// [linear-obligation] L6: values of `with Linear` types must be used —
+// moved onward or `discard`ed — on every path. The negative matrix:
+// scope-exit leak, consumed-on-some-paths-only, dropped expression
+// result, overwriting a live value, returning while owing, `copy`
+// refused, generic instantiation refused, and a lambda swallowing an
+// obligation. The positive matrix (pass onward, discard, return with
+// the caller obligated, kept-parameter borrow, derived alias, linear
+// composite) is clean.
+#[test]
+fn l6_linear_obligations() {
+    let dir = src_dir("l6_linear");
+    fs::write(
+        dir.join("main.sv"),
+        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
+         struct Box2 with Linear {\n    item: FileHandle\n}\n\n\
+         struct Conn with Linear {\n    tags: Mut List<Int>\n}\n\n\
+         fn open_file(path: Str) -> [] FileHandle {\n    \
+         return FileHandle {fd: size(path)}\n}\n\n\
+         fn close_file(h: FileHandle) -> [] None {\n    discard(h)\n}\n\n\
+         fn close_box(b: Box2) -> [] None {\n    discard(b)\n}\n\n\
+         fn inspect(h: FileHandle) -> [h] Int {\n    return h.fd\n}\n\n\
+         fn run(f: () -> None) {\n    f()\n}\n\n\
+         fn leak() {\n    let h = open_file(\"data.txt\")\n}\n\n\
+         fn maybe_leak(flag: Bool) {\n    let h = open_file(\"data.txt\")\n    \
+         if flag {\n        close_file(h)\n    }\n}\n\n\
+         fn drop_result() {\n    open_file(\"data.txt\")\n}\n\n\
+         fn overwrite() {\n    let h = open_file(\"a.txt\")\n    h = open_file(\"b.txt\")\n    \
+         close_file(h)\n}\n\n\
+         fn return_while_owing(flag: Bool) -> Int {\n    let h = open_file(\"data.txt\")\n    \
+         if flag {\n        return 0\n    }\n    close_file(h)\n    return 1\n}\n\n\
+         fn copy_refused() {\n    let h = open_file(\"data.txt\")\n    let c = copy(h)\n    \
+         close_file(h)\n    close_file(c)\n}\n\n\
+         fn swallow() {\n    let conn = Conn {tags: mutable_list(1)}\n    \
+         let g = () -> { add(conn.tags, 2) }\n    run(g)\n    discard(conn)\n}\n\n\
+         fn ok_pass() {\n    let h = open_file(\"data.txt\")\n    close_file(h)\n}\n\n\
+         fn ok_discard() {\n    let h = open_file(\"data.txt\")\n    discard(h)\n}\n\n\
+         fn ok_return() -> FileHandle {\n    let h = open_file(\"data.txt\")\n    return h\n}\n\n\
+         fn ok_kept_borrow() {\n    let h = open_file(\"data.txt\")\n    \
+         let n = inspect(h)\n    close_file(h)\n}\n\n\
+         fn ok_alias() {\n    let h = open_file(\"data.txt\")\n    let alias = h\n    \
+         let n = inspect(alias)\n    close_file(h)\n}\n\n\
+         fn ok_composite() {\n    let h = open_file(\"data.txt\")\n    \
+         let b = Box2 {item: h}\n    close_box(b)\n}\n\n\
+         fn caller_obligated() {\n    let h = ok_return()\n    close_file(h)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`h` still owns a linear value when it goes out of scope"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "`h` owns a linear value that is consumed on some paths but not others"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "this expression produces a linear value that is dropped immediately"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("assigning to `h` drops the linear value it still owns"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot return while `h` still owns a linear value"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot `copy` a value of linear type `FileHandle`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "this lambda captures and mutates `conn`, which holds a linear value"
+        ),
+        "stderr: {stderr}"
+    );
+    // Exactly the seven violations: the positive matrix is clean.
+    assert!(stderr.contains("7 errors"), "stderr: {stderr}");
+}
+
+// [linear-generics] Generic instantiation with a linear type is refused
+// (with `discard` blessed — exercised throughout the test above).
+#[test]
+fn l6_generics_refuse_linear_types() {
+    let dir = src_dir("l6_generics");
+    fs::write(
+        dir.join("main.sv"),
+        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
+         fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    let xs = list(h)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "cannot instantiate generic parameter `T` of `list` with linear type \
+             `FileHandle`"
+        ),
+        "stderr: {stderr}"
+    );
+}

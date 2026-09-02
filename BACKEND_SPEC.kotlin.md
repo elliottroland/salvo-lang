@@ -221,6 +221,9 @@ Conventions:
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+* [linear-discard] `discard(x)` lowers to `(x).let {}` — evaluate and
+  ignore [internal-fn]; linearity is purely static [linear-static], with
+  no runtime component on the JVM.
 * [fate-lambda] Kotlin lambdas capture lexically (aliases), unchanged
   by L4: the checker's capture contract (mutated captures consumed at
   creation, closures poisoned by root mutations) is what keeps the
