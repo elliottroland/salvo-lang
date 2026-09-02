@@ -402,26 +402,58 @@ Conventions:
 
 * [deduce-syntax] The `-> [param: Quals, ...]` list states what a call
   does to each parameter: listed = returned to the caller (borrowed) with
-  exactly the listed qualifiers still known; omitted from a specified
-  list = moved (caller loses access).
-  * Entry forms: bare `[list]` keeps the parameter with *all* its
-    declared qualifiers; `[list: Q1 Q2]` keeps exactly the listed ones;
-    the explicit-empty `[list:]` keeps the parameter but strips every
-    declared qualifier.
-  * Deductions are interpreted relative to the qualifiers *declared on
-    the parameter*: a call removes exactly `declared − kept` from the
-    argument's known qualifiers. Qualifiers the argument carries beyond
-    the declared ones are unaffected (`fn f(list: A B List<T>) ->
-    [list: B]` applied to an `A B C List<T>` leaves `B C List<T>`).
+  the stated qualifiers still known; omitted from a specified list =
+  moved (caller loses access).
+  * Entry forms, by polarity (user design 2026-09-02, D1):
+
+    | Form | Meaning |
+    |---|---|
+    | `[list]` | keep-all: nothing is stripped |
+    | `[list: A B]` | **exhaustive**: afterwards *only* `A B` apply |
+    | `[list:]` | exhaustive and empty: every qualifier stripped |
+    | `[list: -A]` | **delta**: drop `A`, everything else survives |
+    | `[list: Nothing]` | moved (same as omitting the entry) |
+    | `[]` | no promises about any parameter — all moved |
+
+  * The removal set is computed against the qualifiers the *argument*
+    actually carries, not against the parameter's declared set. That is
+    what makes the exhaustive form sound: it also drops qualifiers the
+    callee never declared and therefore cannot have preserved.
+  * **Mutation forces the exhaustive form.** A parameter the body
+    mutates may use neither keep-all nor a delta: mutation can invalidate
+    a caller's state predicates that the signature never mentions (the
+    unsoundness D1 fixed — `clear(list: Mut List<Int>) -> [list]` would
+    silently preserve a caller's `NonEmpty`). Mutation is the only
+    invalidating operation on a kept value: reads preserve state and a
+    move ends the caller's access.
+    * A fn with *no body* (`external`, define signatures) has nothing to
+      inspect, so a parameter declared `Mut` counts as mutated — taking
+      `Mut` is taking permission to invalidate. This is what makes std's
+      own mutators (`add`) drop a caller's predicates. Residual, and
+      deliberate: an external that mutates through the *contents* of a
+      non-`Mut` parameter is trusted, like `as Qual`.
+  * Exhaustiveness is **contagious** through the call graph: a fn that
+    hands a parameter to an exhaustive callee can no longer promise its
+    own caller's extras either, so its inferred entry becomes exhaustive
+    too.
   * Written lists are shape-checked: entries must name a parameter
-    (once), and may only keep qualifiers declared on that parameter.
+    (once); an exhaustive entry may only keep qualifiers declared on that
+    parameter (a deduction preserves or drops, it never *adds* — `+Qual`
+    is rejected, see D2); an entry is either exhaustive or a delta, never
+    both; and `Nothing` is the only type form (other type narrowings are
+    D1b).
+  * A delta may name a qualifier the parameter does not declare (a fn that
+    knows it invalidates a specific property). It is a convenience — the
+    exhaustive form is the sound default, and inference never relies on a
+    delta to be correct.
 * [deduce-infer] An unspecified deduction list is inferred as the
   strictest deduction over all uses of each parameter in the body;
   deductions never depend on the return value. If inference is impossible,
   they must be written.
   * Inference runs as a whole-program fixpoint after checking
-    (`deduce.rs`), starting optimistic (everything kept with its declared
-    qualifiers); constraints only remove facts, so it terminates. Results
+    (`deduce.rs`), starting optimistic (keep-all for every parameter);
+    facts only shrink along `KeepAll` → `Remove` (growing) →
+    `Exhaustive` (shrinking), so it terminates. Results
     are stored in the typed IR (`Checked::deductions`); Kotlin ignores
     them — they are the Rust backend's ownership/borrow contract.
   * Moves are inferred when a bare parameter is: passed to a call whose
@@ -474,8 +506,9 @@ Conventions:
     unreachable code and to derived-variable poison on that path
     [fate-poison].
   * A *kept* parameter sheds its removal set: the argument's narrowed
-    type loses `declared − kept` qualifiers, so a follow-up call whose
-    overload requires a removed qualifier fails resolution (e.g. a
+    type loses whatever the entry's effect drops — everything unnamed for
+    an exhaustive entry, the named ones for a delta — so a follow-up call
+    whose overload requires a removed qualifier fails resolution (e.g. a
     second `remove_first` after `[list: Mut]` stripped `NonEmpty`).
   * Branch-aware merging: each `if`/`when` branch body's consumption and
     qualifier-removal effects are isolated and joined at the construct's
@@ -667,7 +700,7 @@ Conventions:
   * Calling a fn-typed value applies its contract to the arguments
     exactly like a named call [deduce-consume] [deduce-same-call]:
     moved positions consume, kept `Mut` positions are mutation events
-    [fate-poison], kept positions shed `declared − kept` qualifiers.
+    [fate-poison], kept positions shed their entry's removal set.
     The contract propagates through deduction inference (a fn passing
     its own parameter into a consuming contract has that parameter
     inferred moved).

@@ -37,8 +37,10 @@ use lsp_types::{
     WorkspaceEdit,
 };
 
-use salvo_core::{Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, Ty};
-use salvo_syntax::ast::Item;
+use salvo_core::{
+    Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, QualEffect, Ty,
+};
+use salvo_syntax::ast::{DeductionKind, Item};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
@@ -578,19 +580,29 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     if let Some(deductions) = checked.deductions.get(&key) {
         sig.push_str(&format!(" {}", render_deductions(deductions, decl)));
     } else if let Some(declared) = &decl.deductions {
+        let names = |items: &[salvo_syntax::ast::TypeRef]| -> Vec<String> {
+            items.iter().map(|q| q.to_string()).collect()
+        };
         let entries: Vec<String> = declared
             .iter()
-            .map(|d| {
-                let quals: Vec<String> = d.qualifiers.iter().map(|q| q.to_string()).collect();
-                if quals.is_empty() {
-                    if d.explicit {
-                        format!("{}:", d.param.name)
-                    } else {
-                        d.param.name.clone()
-                    }
-                } else {
-                    format!("{}: {}", d.param.name, quals.join(" "))
+            .map(|d| match &d.kind {
+                DeductionKind::KeepAll => d.param.name.clone(),
+                DeductionKind::Moved => format!("{}: Nothing", d.param.name),
+                DeductionKind::Exhaustive(items) if items.is_empty() => {
+                    format!("{}:", d.param.name)
                 }
+                DeductionKind::Exhaustive(items) => {
+                    format!("{}: {}", d.param.name, names(items).join(" "))
+                }
+                DeductionKind::Remove(items) => format!(
+                    "{}: {}",
+                    d.param.name,
+                    names(items)
+                        .iter()
+                        .map(|q| format!("-{q}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
             })
             .collect();
         sig.push_str(&format!(" [{}]", entries.join(", ")));
@@ -606,32 +618,34 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     Some(sig)
 }
 
-/// Renders an effective deduction list: kept parameters with their
-/// remaining qualifiers, moved parameters omitted [deduce-syntax]. A
-/// qualified parameter kept with *no* qualifiers renders in the
-/// explicit-empty form (`name:`) to distinguish it from an unqualified
-/// bare keep.
+/// Renders an effective deduction list [deduce-syntax]: moved parameters
+/// are omitted, and each kept parameter renders in the form its effect
+/// has — bare for keep-all, `p: A B` for an exhaustive set (`p:` when it
+/// is empty), `p: -A` for a delta.
 fn render_deductions(
     deductions: &[ParamDeduction],
-    decl: &salvo_syntax::ast::FnDecl,
+    _decl: &salvo_syntax::ast::FnDecl,
 ) -> String {
     let entries: Vec<String> = deductions
         .iter()
         .filter(|d| d.kept)
-        .map(|d| {
-            if !d.quals.is_empty() {
-                return format!("{}: {}", d.param, d.quals.join(" "));
-            }
-            let declares_quals = decl
-                .params
-                .iter()
-                .find(|p| p.name.name == d.param)
-                .is_some_and(|p| !salvo_core::deduce::declared_quals(&p.ty).is_empty());
-            if declares_quals {
+        .map(|d| match &d.effect {
+            QualEffect::KeepAll => d.param.clone(),
+            QualEffect::Exhaustive(keep) if keep.is_empty() => {
                 format!("{}:", d.param)
-            } else {
-                d.param.clone()
             }
+            QualEffect::Exhaustive(keep) => {
+                format!("{}: {}", d.param, keep.join(" "))
+            }
+            QualEffect::Remove(dropped) => format!(
+                "{}: {}",
+                d.param,
+                dropped
+                    .iter()
+                    .map(|q| format!("-{q}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
         })
         .collect();
     format!("[{}]", entries.join(", "))

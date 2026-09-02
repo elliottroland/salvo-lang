@@ -1591,3 +1591,157 @@ fn l7d_fn_type_contracts() {
     // caller_keeps is clean: exactly the four violations.
     assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }
+
+// ===== D1: exhaustive and delta qualifier deductions =====
+// [deduce-syntax] The fix for the qualifier-preservation unsoundness: a
+// plain list is *exhaustive* (only those qualifiers survive, including
+// ones the callee never declared), `-Q` is a delta, and a body that
+// mutates a parameter may use neither keep-all nor a delta.
+#[test]
+fn exhaustive_deductions_drop_undeclared_qualifiers() {
+    let dir = src_dir("dedu_exhaustive");
+    let prelude = "qualifier NonEmpty of List<Int> {\n    \
+                   fn qualifies(list: List<Int>) -> Bool {\n        \
+                   return list.size() > 0\n    }\n}\n\n";
+
+    // The reproduction of the unsoundness: `clear` declares only `Mut`,
+    // so its exhaustive list drops the caller's `NonEmpty`.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}\
+             external fn clear(list: Mut List<Int>) -> [list: Mut] None\n\n\
+             fn describe(list: NonEmpty Mut List<Int>) -> Int {{\n    \
+             return list.size()\n}}\n\n\
+             fn main() [use] {{\n    use StdOutConsole\n    \
+             let xs = mutable_list(1, 2)\n    \
+             if xs is NonEmpty {{\n        clear(xs)\n        \
+             println(\"${{describe(xs)}}\")\n    }}\n}}\n"
+        ),
+    )
+    .unwrap();
+    let dummy = dir.join("main.kotlin.sv");
+    fs::write(
+        &dummy,
+        "define fn clear(list: Mut List<Int>) -> None {\n    inline: ``\n    \
+         ${list}.clear()\n    ``\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("no matching overload for `describe(Mut List<Int>)`"),
+        "stderr: {stderr}"
+    );
+
+    // The delta form keeps everything it does not name — legal on a
+    // parameter nothing can invalidate (no `Mut`): here `Checked` survives
+    // even though the callee never declares it.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}\
+             qualifier Checked of List<Int> {{\n    \
+             fn qualifies(list: List<Int>) -> Bool {{\n        \
+             return true\n    }}\n}}\n\n\
+             external fn forget_nonempty(list: NonEmpty List<Int>) -> \
+             [list: -NonEmpty] None\n\n\
+             fn needs_checked(list: Checked List<Int>) -> Int {{\n    \
+             return list.size()\n}}\n\n\
+             fn main() [use] {{\n    use StdOutConsole\n    \
+             let xs = list(1, 2)\n    \
+             if xs is NonEmpty Checked {{\n        forget_nonempty(xs)\n        \
+             println(\"${{needs_checked(xs)}}\")\n    }}\n}}\n"
+        ),
+    )
+    .unwrap();
+    let _ = fs::remove_file(&dummy);
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "the delta form must preserve `Checked`: {stderr}"
+    );
+
+    // ...and a bodyless fn with a `Mut` parameter may not use it: taking
+    // `Mut` is taking permission to invalidate.
+    fs::write(
+        dir.join("main.sv"),
+        format!(
+            "{prelude}\
+             external fn touch(list: Mut List<Int>) -> [list: -NonEmpty] None\n"
+        ),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("cannot drop qualifiers selectively"),
+        "stderr: {stderr}"
+    );
+
+    // A mutating body may not keep everything.
+    fs::write(
+        dir.join("main.sv"),
+        "fn grow(list: Mut List<Int>) -> [list] None {\n    list.add(1)\n}\n",
+    )
+    .unwrap();
+    let _ = fs::remove_file(&dummy);
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("is mutated by this function, so the deduction cannot keep every qualifier"),
+        "stderr: {stderr}"
+    );
+}
+
+// [deduce-syntax] Syntax rules for the new entry forms.
+#[test]
+fn deduction_entry_forms_are_validated() {
+    let dir = src_dir("dedu_forms");
+
+    // Mixing exhaustive and delta in one entry.
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier A of Int\n\nfn f(x: A Int) -> [x: A -A] None {\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("either exhaustive (plain qualifier names) or a delta"),
+        "stderr: {stderr}"
+    );
+
+    // `+Qual` is not supported yet (D2).
+    fs::write(
+        dir.join("main.sv"),
+        "qualifier A of Int\n\nfn f(x: Int) -> [x: +A] None {\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("adding qualifiers in a deduction (`+Qual`) is not supported yet"),
+        "stderr: {stderr}"
+    );
+
+    // A type other than `Nothing` is not supported yet (D1b).
+    fs::write(
+        dir.join("main.sv"),
+        "fn f(x: List<Int>) -> [x: List<Int>] None {\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("type narrowing in deductions is not supported yet"),
+        "stderr: {stderr}"
+    );
+}

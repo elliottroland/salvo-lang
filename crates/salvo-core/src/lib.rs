@@ -17,4 +17,4 @@ pub use program::{Program, Symbols};
 pub use reach::reachable_modules;
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{CompanionFile, ModulePath, SourceFile, SourceKind, SourceSet};
-pub use types::{is_subtype, Qual, Ty};
+pub use types::{is_subtype, Qual, QualEffect, Ty};

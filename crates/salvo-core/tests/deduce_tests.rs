@@ -42,14 +42,40 @@ fn fn_key(program: &Program, name: &str) -> FnKey {
     panic!("no fn `{name}`");
 }
 
-/// The `(kept, quals)` facts for one parameter of one fn.
+/// The `(kept, surviving qualifiers)` facts for one parameter of one fn.
+/// The surviving set is the effect resolved against the parameter's
+/// declared qualifiers [deduce-syntax].
 fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (bool, Vec<String>) {
     let key = fn_key(program, fn_name);
     let ded = checked.deductions[&key]
         .iter()
         .find(|d| d.param == param)
         .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));
-    (ded.kept, ded.quals.clone())
+    let Item::Fn(decl) = &program.modules[key.file].items[key.item] else {
+        panic!("not a fn");
+    };
+    let declared = decl
+        .params
+        .iter()
+        .find(|p| p.name.name == param)
+        .map(|p| salvo_core::deduce::declared_quals(&p.ty))
+        .unwrap_or_default();
+    (ded.kept, ded.effect.kept_quals(&declared))
+}
+
+/// The *form* of one parameter's effect, for the [deduce-syntax] polarity
+/// tests: `"keep-all"`, `"exhaustive: A B"`, or `"remove: A"`.
+fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> String {
+    let key = fn_key(program, fn_name);
+    let ded = checked.deductions[&key]
+        .iter()
+        .find(|d| d.param == param)
+        .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));
+    match &ded.effect {
+        salvo_core::QualEffect::KeepAll => "keep-all".to_string(),
+        salvo_core::QualEffect::Exhaustive(q) => format!("exhaustive: {}", q.join(" ")),
+        salvo_core::QualEffect::Remove(q) => format!("remove: {}", q.join(" ")),
+    }
 }
 
 const QUALIFIED_LISTS: &str = r#"
@@ -81,11 +107,12 @@ fn caller<T>(list: A B List<T>) -> None {{
     assert_eq!(quals, vec!["B".to_string()]);
 }
 
-// [deduce-syntax] Deductions are interpreted relative to the *declared*
-// parameter qualifiers: a qualifier the callee never declared (here `C`)
-// is unaffected by the call.
+// [deduce-syntax] A *plain* (exhaustive) list is exactly what survives:
+// a qualifier the callee never declared (here `C`) is dropped too, because
+// the callee cannot have preserved what it never knew about. This is the
+// fix for the qualifier-preservation unsoundness (D1).
 #[test]
-fn undeclared_qualifiers_pass_through_calls() {
+fn exhaustive_lists_drop_undeclared_qualifiers() {
     let src = format!(
         "{QUALIFIED_LISTS}
 fn caller<T>(list: A B C List<T>) -> None {{
@@ -97,7 +124,109 @@ fn caller<T>(list: A B C List<T>) -> None {{
     assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
+    assert_eq!(quals, vec!["B".to_string()]);
+    // Exhaustiveness is contagious: `caller` can no longer promise its own
+    // caller's extras either.
+    assert_eq!(
+        effect_form(&program, &checked, "caller", "list"),
+        "exhaustive: B"
+    );
+}
+
+// [deduce-syntax] A *delta* list (`-A`) drops only what it names, so
+// qualifiers the callee never declared pass through — the old behavior,
+// now opt-in and only legal where nothing can invalidate them.
+#[test]
+fn delta_lists_pass_undeclared_qualifiers_through() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+external fn shed_a<T>(list: A B List<T>) -> [list: -A] None
+
+fn caller<T>(list: A B C List<T>) -> None {{
+    shed_a(list)
+}}
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    let (kept, quals) = facts(&program, &checked, "caller", "list");
+    assert!(kept);
     assert_eq!(quals, vec!["B".to_string(), "C".to_string()]);
+    assert_eq!(
+        effect_form(&program, &checked, "caller", "list"),
+        "remove: A"
+    );
+}
+
+// [deduce-syntax] The soundness rule: a body that *mutates* a parameter
+// may not keep everything, nor drop selectively — mutation can invalidate
+// qualifiers the caller has and the signature never mentions.
+#[test]
+fn mutating_bodies_require_an_exhaustive_list() {
+    let src = "
+internal type List<T> with Mut
+
+qualifier A<T> of List<T>
+
+external fn mutate<T>(list: Mut List<T>) -> [list: Mut] None
+
+fn keeps_all<T>(list: Mut A List<T>) -> [list] None {
+    mutate(list)
+}
+
+fn drops_one<T>(list: Mut A List<T>) -> [list: -A] None {
+    mutate(list)
+}
+
+fn exhaustive<T>(list: Mut A List<T>) -> [list: Mut] None {
+    mutate(list)
+}
+"
+    .to_string();
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("cannot keep every qualifier"))
+            .count(),
+        1,
+        "errors: {messages:?}"
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("cannot drop qualifiers selectively"))
+            .count(),
+        1,
+        "errors: {messages:?}"
+    );
+    // `keeps_all` also trips the promise check (it claims `A` survives a
+    // mutation), which is the same fact reported from the body side; the
+    // exhaustive form produces nothing.
+    assert!(
+        messages.iter().all(|m| !m.contains("exhaustive")),
+        "the exhaustive form must be accepted: {messages:?}"
+    );
+}
+
+// [deduce-syntax] `[p: Nothing]` is the moved form (`Nothing` is
+// uninhabited, so it withdraws use without claiming anything about
+// content) — the same facts as omitting the entry.
+#[test]
+fn nothing_in_a_deduction_means_moved() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+external fn eat<T>(list: List<T>) -> [list: Nothing] None
+
+fn caller<T>(list: List<T>) -> None {{
+    eat(list)
+}}
+"
+    );
+    let (program, checked) = check_src(&src);
+    let (kept, _) = facts(&program, &checked, "caller", "list");
+    assert!(!kept, "the parameter should be moved: {:?}", checked.errors);
 }
 
 // [deduce-infer] Calling a fn that omits the parameter from its written

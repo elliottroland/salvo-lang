@@ -177,20 +177,31 @@ pub enum EffectRef {
 }
 
 /// An entry in a function's deduction list [deduce-syntax]:
-/// `[person]` (bare — kept with *all* its declared qualifiers),
-/// `[list: Mut]` (kept with exactly the listed qualifiers), or
-/// `[list:]` (explicit empty list — kept with *no* qualifiers).
+/// `[person]` (bare — every qualifier the argument has survives),
+/// `[list: Mut]` (*exhaustive* — afterwards only `Mut` applies),
+/// `[list:]` (exhaustive and empty — every qualifier stripped),
+/// `[list: -NonEmpty]` (*delta* — drop `NonEmpty`, keep the rest), and
+/// `[list: Nothing]` (moved, like omitting the entry).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deduction {
     pub param: Ident,
-    /// Qualifiers that remain known after the call, e.g. `Mut` in
-    /// `[list: Mut]`. Only meaningful when `explicit`.
-    pub qualifiers: Vec<TypeRef>,
-    /// True when a `:` followed the parameter name: the written qualifier
-    /// list (possibly empty) is exact. False for a bare `[param]` entry,
-    /// which keeps every qualifier declared on the parameter.
-    pub explicit: bool,
+    pub kind: DeductionKind,
     pub span: Span,
+}
+
+/// The polarity of one deduction entry [deduce-syntax]. A written entry is
+/// either exhaustive (plain qualifier names) or a delta (`-`-prefixed
+/// names); mixing them in one entry is an error.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeductionKind {
+    /// Bare `[list]`: the parameter is kept and *nothing* is stripped.
+    KeepAll,
+    /// `[list: A B]` / `[list:]`: afterwards exactly these apply.
+    Exhaustive(Vec<TypeRef>),
+    /// `[list: -A -B]`: these are dropped, everything else survives.
+    Remove(Vec<TypeRef>),
+    /// `[list: Nothing]`: moved (the caller loses access).
+    Moved,
 }
 
 // --- define templates (backend files) ---

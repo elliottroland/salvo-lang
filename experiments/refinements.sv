@@ -31,6 +31,7 @@ fn give_back<T>(list: NonEmpty List<T>) -> List<T> {
     return copy(list)
 }
 
+// Does something
 fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
     return list.remove_at(0)
 }

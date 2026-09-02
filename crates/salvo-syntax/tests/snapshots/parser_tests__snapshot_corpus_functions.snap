@@ -1550,17 +1550,18 @@ Module {
                                 name: "list",
                                 span: 1217..1221,
                             },
-                            qualifiers: [
-                                TypeRef {
-                                    name: Ident {
-                                        name: "Mut",
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 1223..1226,
+                                        },
+                                        args: [],
                                         span: 1223..1226,
                                     },
-                                    args: [],
-                                    span: 1223..1226,
-                                },
-                            ],
-                            explicit: true,
+                                ],
+                            ),
                             span: 1217..1226,
                         },
                     ],

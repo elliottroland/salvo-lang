@@ -716,7 +716,11 @@ If we remove an element from the list, then we don't know if it's non-empty any 
 fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T
 ```
 
-A deduction entry takes one of three forms: a bare `[list]` keeps the parameter with _all_ of its declared qualifiers; `[list: Mut]` keeps it with exactly the listed qualifiers; and the explicit-empty `[list:]` keeps the parameter but strips every declared qualifier. These are enforced at each call site: passing a variable to `remove_first` above removes `NonEmpty` from what the compiler knows about it, so a second `remove_first(list)` without an intervening `is NonEmpty` check fails overload resolution.
+A deduction entry has a _polarity_. Plain qualifier names are **exhaustive**: `[list: Mut]` says that after the call, `Mut` is the _only_ thing still known about the argument — including qualifiers this function never mentions. A `-` prefix is a **delta**: `[list: -NonEmpty]` drops `NonEmpty` and leaves everything else intact. The bare `[list]` keeps the parameter and strips nothing, the explicit-empty `[list:]` strips every qualifier, and `[list: Nothing]` says the parameter is moved (the same as leaving it out of the list). These are enforced at each call site: passing a variable to `remove_first` above removes `NonEmpty` from what the compiler knows about it, so a second `remove_first(list)` without an intervening `is NonEmpty` check fails overload resolution.
+
+Why "including qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
+
+The flip side is deliberate over-strictness: `add` cannot promise to preserve `NonEmpty` either, even though appending to a list can never empty it. Recovering that precision needs a way for a qualifier to state which operations preserve it, which the language does not have yet; for now, re-test with `is NonEmpty` after a mutating call.
 
 This tells us that after the function has returned, _we no longer know that the list is NonEmpty_. From the calling context, then, we have the following:
 

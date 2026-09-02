@@ -2,18 +2,28 @@
 //!
 //! A function's deduction list (`-> [list: Mut] T`) states what a call
 //! does to each parameter: a listed parameter is given back to the caller
-//! (borrowed) with exactly the listed qualifiers still known; a parameter
-//! omitted from a *written* list is moved. Deductions are interpreted
-//! relative to the qualifiers *declared on the parameter*: a call removes
-//! exactly the set `declared − kept` from the argument's known
-//! qualifiers, so qualifiers the argument has beyond the declared ones
-//! are unaffected.
+//! (borrowed) with the stated qualifiers still known; a parameter omitted
+//! from a *written* list is moved.
+//!
+//! Each entry has a polarity [deduce-syntax]: plain qualifier names are
+//! *exhaustive* (only those survive — including qualifiers the callee
+//! never declared), `-Q` is a *delta* (drop `Q`, keep the rest), a bare
+//! entry keeps everything, and `Nothing` means moved. The removal set is
+//! computed at the call site against the qualifiers the *argument*
+//! carries, which is what makes the exhaustive form sound: a function
+//! that mutates a value can invalidate claims about its contents that its
+//! signature never mentions, so such a parameter may not keep
+//! "everything else" — the bare and delta forms are rejected there. For a
+//! bodyless fn there is nothing to inspect, so a `Mut` parameter counts
+//! as mutated.
 //!
 //! An unwritten list is inferred as the strictest deduction over all uses
 //! of each parameter in the body (including moves), iterated to a
-//! fixpoint over the call graph: inference starts optimistic (everything
-//! kept with its declared qualifiers) and constraints only remove facts,
-//! so the iteration terminates. Written lists are validated against the
+//! fixpoint over the call graph: inference starts optimistic (keep-all)
+//! and facts only shrink along `KeepAll` → `Remove` (growing) →
+//! `Exhaustive` (shrinking), so the iteration terminates. Exhaustiveness
+//! is contagious: handing a parameter to an exhaustive callee makes the
+//! caller's own entry exhaustive. Written lists are validated against the
 //! same body facts: promising a parameter back that the body moves, or a
 //! qualifier the body may remove, is an error.
 //!
@@ -29,12 +39,13 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
-    Block, Deduction, Expr, FnDecl, Item, LambdaBody, Param, Stmt, StrExprPart,
-    StructLitFieldKind, Type,
+    Block, Deduction, DeductionKind, Expr, FnDecl, Item, LambdaBody, Param, Stmt,
+    StrExprPart, StructLitFieldKind, Type,
 };
 use salvo_syntax::Span;
 
 use crate::check::{Checked, Key};
+use crate::types::QualEffect;
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::resolve::FnKey;
@@ -44,12 +55,11 @@ use crate::resolve::FnKey;
 pub struct ParamDeduction {
     pub param: String,
     /// False when a call moves the parameter (omitted from a written
-    /// deduction list, or inferred as moved from the body).
+    /// deduction list, written as `[p: Nothing]`, or inferred as moved).
     pub kept: bool,
-    /// Qualifier names still known after a call, in declared order —
-    /// a subset of the parameter's declared outer qualifiers. Only
+    /// What a call does to the *argument's* known qualifiers. Only
     /// meaningful when `kept`.
-    pub quals: Vec<String>,
+    pub effect: QualEffect,
 }
 
 /// One function participating in inference.
@@ -70,7 +80,9 @@ pub(crate) fn infer(
     program: &Program,
     checked: &mut Checked,
     claims: &HashMap<FnKey, HashSet<String>>,
+    mutations: &HashMap<FnKey, HashSet<String>>,
 ) {
+    let no_mutations: HashSet<String> = HashSet::new();
     let mut fns: Vec<FnInfo<'_>> = Vec::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for (item_idx, item) in ast.items.iter().enumerate() {
@@ -92,12 +104,18 @@ pub(crate) fn infer(
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     for f in &fns {
+        let own = mutations.get(&f.key).unwrap_or(&no_mutations);
+        let bodyless = bodyless_mutations(f.decl);
+        let mutated: &HashSet<String> = if bodyless.is_empty() { own } else { &bodyless };
         let state = match &f.decl.deductions {
-            Some(list) => from_written(f.decl, list, |span, msg| {
+            Some(list) => from_written(f.decl, list, mutated, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
             None => {
                 let mut state = optimistic(f.decl);
+                // [deduce-syntax] A mutated parameter cannot keep
+                // everything: state its declared set exhaustively.
+                exhaustive_for_mutated(f.decl, &mut state, mutated);
                 apply_claims(&mut state, claims.get(&f.key));
                 state
             }
@@ -115,6 +133,11 @@ pub(crate) fn infer(
             }
             let Some(body) = &f.decl.body else { continue };
             let mut new = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
+            exhaustive_for_mutated(
+                f.decl,
+                &mut new,
+                mutations.get(&f.key).unwrap_or(&no_mutations),
+            );
             apply_claims(&mut new, claims.get(&f.key));
             if states.get(&f.key) != Some(&new) {
                 states.insert(f.key, new);
@@ -135,7 +158,7 @@ pub(crate) fn infer(
         };
         let inferred = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
         let written = &states[&f.key];
-        for (w, i) in written.iter().zip(&inferred) {
+        for ((w, i), p) in written.iter().zip(&inferred).zip(&f.decl.params) {
             let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
                 continue;
             };
@@ -151,8 +174,11 @@ pub(crate) fn infer(
                 ));
                 continue;
             }
-            for q in &w.quals {
-                if w.kept && !i.quals.contains(q) {
+            let declared = declared_quals(&p.ty);
+            let promised = w.effect.kept_quals(&declared);
+            let survives = i.effect.kept_quals(&declared);
+            for q in &promised {
+                if w.kept && !survives.contains(q) {
                     errors.push(FileDiagnostic::error(
                         f.key.file,
                         entry.span,
@@ -171,6 +197,45 @@ pub(crate) fn infer(
     checked.deductions = states;
 }
 
+/// [deduce-syntax] A fn with no body (an `external`, or a define
+/// signature) has nothing to inspect, so mutability is the only available
+/// signal: a parameter declared `Mut` is taken as mutable *in order to*
+/// mutate it, and must therefore state what survives exhaustively. This is
+/// what makes std's own mutators (`add`, and any `external` `clear`-like
+/// fn) drop a caller's predicates. Residual hole, deliberately: an
+/// external that mutates through the *contents* of a non-`Mut` parameter
+/// cannot be detected — the same trust boundary as `as Qual`.
+fn bodyless_mutations(decl: &FnDecl) -> HashSet<String> {
+    if decl.body.is_some() {
+        return HashSet::new();
+    }
+    decl.params
+        .iter()
+        .filter(|p| declared_quals(&p.ty).iter().any(|q| q == "Mut"))
+        .map(|p| p.name.name.clone())
+        .collect()
+}
+
+/// [deduce-syntax] Forces the exhaustive form on every parameter the body
+/// invalidates: keeping "everything else" is exactly the unsound claim,
+/// because mutation can falsify qualifiers the caller has and this
+/// signature never mentions. The surviving set is what inference already
+/// computed from the declared qualifiers.
+fn exhaustive_for_mutated(
+    decl: &FnDecl,
+    state: &mut [ParamDeduction],
+    mutated: &HashSet<String>,
+) {
+    for (d, p) in state.iter_mut().zip(&decl.params) {
+        if !d.kept || !mutated.contains(&d.param) {
+            continue;
+        }
+        let declared = declared_quals(&p.ty);
+        let keep = d.effect.kept_quals(&declared);
+        d.effect = QualEffect::Exhaustive(keep);
+    }
+}
+
 /// The qualifier names written on the outside of a parameter type, in
 /// declaration order (`Mut NonEmpty List<T>` -> `["Mut", "NonEmpty"]`).
 pub fn declared_quals(ty: &Type) -> Vec<String> {
@@ -186,25 +251,28 @@ pub fn declared_quals(ty: &Type) -> Vec<String> {
     }
 }
 
-/// Everything kept with its declared qualifiers (the optimistic starting
-/// point of inference, and the state of unannotated bodyless fns).
+/// Everything kept with nothing stripped (the optimistic starting point of
+/// inference, and the state of unannotated bodyless fns).
 pub(crate) fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
     decl.params
         .iter()
         .map(|p| ParamDeduction {
             param: p.name.name.clone(),
             kept: true,
-            quals: declared_quals(&p.ty),
+            effect: QualEffect::KeepAll,
         })
         .collect()
 }
 
 /// A written deduction list, validated for shape: entries must name a
-/// parameter (once), and may only keep qualifiers declared on that
-/// parameter's type [deduce-syntax].
+/// parameter (once), exhaustive entries may only keep qualifiers declared
+/// on that parameter, and `Nothing` is the only type form [deduce-syntax].
+/// `mutated` names the parameters the body invalidates; for those, only
+/// the exhaustive form is sound (see the soundness rule under D1).
 pub(crate) fn from_written(
     decl: &FnDecl,
     list: &[Deduction],
+    mutated: &HashSet<String>,
     mut error: impl FnMut(Span, String),
 ) -> Vec<ParamDeduction> {
     for (i, d) in list.iter().enumerate() {
@@ -225,42 +293,104 @@ pub(crate) fn from_written(
         .iter()
         .map(|p| {
             let declared = declared_quals(&p.ty);
-            match list.iter().find(|d| d.param.name == p.name.name) {
-                Some(d) => {
-                    // Bare `[list]` keeps every declared qualifier; a colon
-                    // makes the written list exact (`[list:]` keeps none)
-                    // [deduce-syntax].
-                    let quals = if !d.explicit {
-                        declared.clone()
-                    } else {
-                        let mut quals = Vec::new();
-                        for q in &d.qualifiers {
-                            if !declared.contains(&q.name.name) {
-                                error(
-                                    q.span,
-                                    format!(
-                                        "deduction keeps qualifier `{}`, which is not \
-                                         declared on parameter `{}`",
-                                        q.name.name, p.name.name
-                                    ),
-                                );
-                            } else {
-                                quals.push(q.name.name.clone());
-                            }
-                        }
-                        quals
-                    };
-                    ParamDeduction {
-                        param: p.name.name.clone(),
-                        kept: true,
-                        quals,
-                    }
-                }
-                None => ParamDeduction {
-                    param: p.name.name.clone(),
+            let name = p.name.name.clone();
+            let Some(d) = list.iter().find(|d| d.param.name == name) else {
+                return ParamDeduction {
+                    param: name,
                     kept: false,
-                    quals: Vec::new(),
-                },
+                    effect: QualEffect::Exhaustive(Vec::new()),
+                };
+            };
+            let invalidates = mutated.contains(&name);
+            let effect = match &d.kind {
+                DeductionKind::Moved => {
+                    return ParamDeduction {
+                        param: name,
+                        kept: false,
+                        effect: QualEffect::Exhaustive(Vec::new()),
+                    };
+                }
+                DeductionKind::KeepAll => {
+                    if invalidates {
+                        error(
+                            d.span,
+                            format!(
+                                "`{name}` is mutated by this function, so the \
+                                 deduction cannot keep every qualifier: mutation \
+                                 can invalidate qualifiers the caller has and \
+                                 this signature never mentions. List exactly \
+                                 what survives (`[{name}: {}]`)",
+                                declared.join(" ")
+                            ),
+                        );
+                    }
+                    QualEffect::KeepAll
+                }
+                DeductionKind::Remove(items) => {
+                    if invalidates {
+                        error(
+                            d.span,
+                            format!(
+                                "`{name}` is mutated by this function, so the \
+                                 deduction cannot drop qualifiers selectively: \
+                                 mutation can invalidate qualifiers the caller \
+                                 has and this signature never mentions. List \
+                                 exactly what survives (`[{name}: {}]`)",
+                                declared.join(" ")
+                            ),
+                        );
+                    }
+                    let mut drop = Vec::new();
+                    for q in items {
+                        if !q.args.is_empty() {
+                            error(
+                                q.span,
+                                "a deduction entry may only name qualifiers (and \
+                                 `Nothing`): type narrowing in deductions is not \
+                                 supported yet"
+                                    .to_string(),
+                            );
+                            continue;
+                        }
+                        drop.push(q.name.name.clone());
+                    }
+                    QualEffect::Remove(drop)
+                }
+                DeductionKind::Exhaustive(items) => {
+                    let mut keep = Vec::new();
+                    for q in items {
+                        if !q.args.is_empty() {
+                            error(
+                                q.span,
+                                "a deduction entry may only name qualifiers (and \
+                                 `Nothing`): type narrowing in deductions is not \
+                                 supported yet"
+                                    .to_string(),
+                            );
+                            continue;
+                        }
+                        if !declared.contains(&q.name.name) {
+                            error(
+                                q.span,
+                                format!(
+                                    "deduction keeps qualifier `{}`, which is not \
+                                     declared on parameter `{name}` (a deduction \
+                                     may preserve or drop qualifiers, not add \
+                                     them)",
+                                    q.name.name
+                                ),
+                            );
+                        } else {
+                            keep.push(q.name.name.clone());
+                        }
+                    }
+                    QualEffect::Exhaustive(keep)
+                }
+            };
+            ParamDeduction {
+                param: name,
+                kept: true,
+                effect,
             }
         })
         .collect()
@@ -318,7 +448,7 @@ fn apply_claims(state: &mut [ParamDeduction], claims: Option<&HashSet<String>>) 
     for p in state.iter_mut() {
         if claims.contains(&p.param) {
             p.kept = false;
-            p.quals.clear();
+            p.effect = QualEffect::Exhaustive(Vec::new());
         }
     }
 }
@@ -339,14 +469,52 @@ impl Walk<'_, '_> {
     fn mark_moved(&mut self, name: &str) {
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
             p.kept = false;
-            p.quals.clear();
+            p.effect = QualEffect::Exhaustive(Vec::new());
         }
     }
 
-    /// Removes `removed` qualifier names from a parameter's kept set.
+    /// A use that drops specific qualifiers: the parameter's effect keeps
+    /// its polarity and grows the removal set [deduce-syntax].
     fn remove_quals(&mut self, name: &str, removed: &[String]) {
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
-            p.quals.retain(|q| !removed.contains(q));
+            p.effect = match &p.effect {
+                QualEffect::KeepAll => QualEffect::Remove(removed.to_vec()),
+                QualEffect::Remove(have) => {
+                    let mut have = have.clone();
+                    for q in removed {
+                        if !have.contains(q) {
+                            have.push(q.clone());
+                        }
+                    }
+                    QualEffect::Remove(have)
+                }
+                QualEffect::Exhaustive(keep) => QualEffect::Exhaustive(
+                    keep.iter().filter(|q| !removed.contains(q)).cloned().collect(),
+                ),
+            };
+        }
+    }
+
+    /// A use that leaves *only* `allowed` known (the callee's list is
+    /// exhaustive): exhaustiveness is contagious through the call graph —
+    /// a fn that hands its parameter to an exhaustive callee can no longer
+    /// promise qualifiers of its own caller either [deduce-syntax].
+    fn restrict_to(&mut self, name: &str, allowed: &[String]) {
+        if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
+            let keep: Vec<String> = match &p.effect {
+                QualEffect::KeepAll => allowed.to_vec(),
+                QualEffect::Exhaustive(keep) => keep
+                    .iter()
+                    .filter(|q| allowed.contains(q))
+                    .cloned()
+                    .collect(),
+                QualEffect::Remove(dropped) => allowed
+                    .iter()
+                    .filter(|q| !dropped.contains(q))
+                    .cloned()
+                    .collect(),
+            };
+            p.effect = QualEffect::Exhaustive(keep);
         }
     }
 
@@ -577,13 +745,10 @@ impl Walk<'_, '_> {
                 self.mark_moved(&name);
                 continue;
             }
-            let declared = declared_quals(&callee_decl.params[pidx].ty);
-            let removed: Vec<String> = declared
-                .into_iter()
-                .filter(|q| !ded.quals.contains(q))
-                .collect();
-            if !removed.is_empty() {
-                self.remove_quals(&name, &removed);
+            match ded.effect.clone() {
+                QualEffect::KeepAll => {}
+                QualEffect::Remove(dropped) => self.remove_quals(&name, &dropped),
+                QualEffect::Exhaustive(keep) => self.restrict_to(&name, &keep),
             }
         }
     }

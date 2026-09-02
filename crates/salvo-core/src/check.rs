@@ -26,7 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
 use crate::source::SourceKind;
-use crate::types::{is_subtype, Qual, Ty, FnParamContract};
+use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
@@ -203,13 +203,26 @@ pub fn check_program<'p>(
     // into deduction inference between the rounds).
     let mut candidates: HashSet<Key> = HashSet::new();
     let mut claims: HashMap<FnKey, HashSet<String>> = HashMap::new();
+    // [deduce-syntax] Parameters whose data the body mutates: those may
+    // not keep "everything else", since mutation can invalidate
+    // qualifiers the signature never mentions.
+    let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
 
     // Round one: no inferred facts yet (strict S1 behavior).
-    let mut out = check_once(program, resolution, symbols, None, &mut candidates, &mut claims);
-    crate::deduce::infer(program, &mut out, &claims);
+    let mut out = check_once(
+        program,
+        resolution,
+        symbols,
+        None,
+        &mut candidates,
+        &mut claims,
+        &mut mutations,
+    );
+    crate::deduce::infer(program, &mut out, &claims, &mutations);
     let mut inferred = std::mem::take(&mut out.deductions);
     let mut prev_candidates = candidates.clone();
     let mut prev_claims = claims.clone();
+    let mut prev_mutations = mutations.clone();
 
     // [deduce-fixpoint] Iterate check → infer until the driving facts
     // stabilize (inferred deductions, move-mode candidates, parameter
@@ -231,14 +244,16 @@ pub fn check_program<'p>(
             Some(&inferred),
             &mut candidates,
             &mut claims,
+            &mut mutations,
         );
         // Deductions are a whole-program fact (strictest over the call
         // graph), re-inferred against this round's final call
         // resolutions [deduce-infer].
-        crate::deduce::infer(program, &mut out, &claims);
+        crate::deduce::infer(program, &mut out, &claims, &mutations);
         let stable = out.deductions == inferred
             && candidates == prev_candidates
-            && claims == prev_claims;
+            && claims == prev_claims
+            && mutations == prev_mutations;
         if stable {
             return out;
         }
@@ -272,6 +287,7 @@ pub fn check_program<'p>(
         inferred = std::mem::take(&mut out.deductions);
         prev_candidates = candidates.clone();
         prev_claims = claims.clone();
+        prev_mutations = mutations.clone();
     }
 }
 
@@ -284,6 +300,7 @@ fn check_once<'p>(
     inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
     move_candidates: &mut HashSet<Key>,
     param_claims: &mut HashMap<FnKey, HashSet<String>>,
+    param_mutations: &mut HashMap<FnKey, HashSet<String>>,
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
@@ -308,6 +325,7 @@ fn check_once<'p>(
             next_var_id: 0,
             move_candidates,
             param_claims,
+            param_mutations,
             own_fn: None,
             own_contract: None,
             own_written: false,
@@ -469,6 +487,10 @@ struct Checker<'p, 'r> {
     /// parameter is moved. Only recorded for fns *without* a written
     /// deduction list; seeded into deduction inference between rounds.
     param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
+    /// [deduce-syntax] Parameters whose data the body mutates — recorded
+    /// for *every* fn (written lists included), since the written-list
+    /// validation needs them.
+    param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
     own_fn: Option<FnKey>,
@@ -586,7 +608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(list) => {
                             // Shape errors are reported by the deduce
                             // pass; the mapping here is silent.
-                            Some(crate::deduce::from_written(f, list, |_, _| {}))
+                            Some(crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {}))
                         }
                         None => self
                             .inferred
@@ -667,7 +689,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else if self.inferred.is_some() {
                 let kept = match &f.deductions {
                     Some(list) => {
-                        crate::deduce::from_written(f, list, |_, _| {})
+                        crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {})
                             .iter()
                             .find(|d| d.param == id.name)
                             .is_some_and(|d| d.kept)
@@ -1260,6 +1282,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [deduce-syntax] Records that the enclosing fn invalidates one of
+    /// its parameters (a mutation of the parameter or of data reached
+    /// through it). Drives the "mutation forces an exhaustive deduction
+    /// list" rule; unlike claims, it is recorded even when the list is
+    /// written, because that is exactly what the validation needs.
+    fn record_param_mutation(&mut self, name: &str) {
+        let Some(key) = self.own_fn else { return };
+        let is_param = self.lookup(name).is_some_and(|var| var.is_param);
+        if is_param {
+            self.param_mutations
+                .entry(key)
+                .or_default()
+                .insert(name.to_string());
+        }
+    }
+
     fn var_by_id(&self, id: u32) -> Option<&LocalVar> {
         self.locals
             .iter()
@@ -1485,7 +1523,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// through it [fn-contract] — the fn-type sibling of the named-call
     /// contract loop (keep the two in sync): moved arguments are
     /// consumed, kept `Mut` positions are mutation events, kept
-    /// positions shed `declared − kept` qualifiers, projections follow
+    /// positions shed their removal set, projections follow
     /// the moved/kept-`Mut` rules, and same-call ordering applies
     /// [deduce-same-call]. An absent contract keeps everything (the
     /// default), so only its `Mut` mutation events fire.
@@ -1509,7 +1547,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     None => FnParamContract {
                         name: None,
                         kept: true,
-                        quals: declared_q.clone(),
+                        effect: QualEffect::KeepAll,
                         mutable: declared_q.iter().any(|q| q == "Mut"),
                     },
                 }
@@ -1537,9 +1575,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             let declared_q: Vec<String> = param_ty
                 .map(|t| t.quals().iter().map(|q| q.name.clone()).collect())
                 .unwrap_or_default();
-            let (kept, kept_quals, mutable) = match contract.and_then(|c| c.get(i)) {
-                Some(e) => (e.kept, e.quals.clone(), e.mutable),
-                None => (true, declared_q.clone(), declared_q.iter().any(|q| q == "Mut")),
+            let (kept, effect, mutable) = match contract.and_then(|c| c.get(i)) {
+                Some(e) => (e.kept, e.effect.clone(), e.mutable),
+                None => (
+                    true,
+                    QualEffect::KeepAll,
+                    declared_q.iter().any(|q| q == "Mut"),
+                ),
             };
             let Expr::Ident(id) = arg else {
                 if kept && mutable {
@@ -1594,12 +1636,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let name = id.name.clone();
                 self.fate_mutation(&name, span);
             }
-            let kept_set: HashSet<&str> =
-                kept_quals.iter().map(String::as_str).collect();
-            let removed: HashSet<String> = declared_q
-                .into_iter()
-                .filter(|q| !kept_set.contains(q.as_str()))
-                .collect();
+            // [deduce-syntax] The removal set is computed against the
+            // qualifiers the *argument* actually carries, so an exhaustive
+            // list also drops qualifiers the callee never declared (and
+            // therefore cannot have preserved through a mutation).
+            let have: Vec<String> = self
+                .lookup(&id.name)
+                .map(|v| {
+                    v.narrowed
+                        .quals()
+                        .iter()
+                        .map(|q| q.name.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let removed = effect.removal_set(&have);
             if !removed.is_empty() {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = var.narrowed.clone().remove_quals(&removed);
@@ -1946,6 +1997,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// derived variable is an error [fate-derived-readonly]; mutating a
     /// root poisons its derived variables [fate-poison].
     fn fate_mutation(&mut self, name: &str, span: Span) {
+        // [deduce-syntax] Record the invalidation against the enclosing
+        // fn's parameter: mutation can falsify qualifiers the caller has
+        // and this signature never mentions, so such a parameter may not
+        // keep "everything else". Recorded for written lists too — that
+        // is what the written-list validation checks.
+        self.record_param_mutation(name);
         let Some(var) = self.lookup(name) else { return };
         let (id, links) = (var.id, var.links.clone());
         if !links.is_empty() {
@@ -2293,27 +2350,36 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|(t, name)| {
                 let declared = declared_quals(t);
                 let mutable = declared.iter().any(|q| q == "Mut");
-                let (kept, quals) = match (name, deductions) {
+                let names = |items: &[ast::TypeRef]| -> Vec<String> {
+                    items.iter().map(|q| q.name.name.clone()).collect()
+                };
+                let (kept, effect) = match (name, deductions) {
                     (Some(id), Some(list)) => {
                         match list.iter().find(|d| d.param.name == id.name) {
-                            Some(d) if d.explicit => (
-                                true,
-                                d.qualifiers
-                                    .iter()
-                                    .map(|q| q.name.name.clone())
-                                    .collect(),
-                            ),
-                            Some(_) => (true, declared.clone()),
-                            None => (false, Vec::new()),
+                            Some(d) => match &d.kind {
+                                ast::DeductionKind::KeepAll => {
+                                    (true, QualEffect::KeepAll)
+                                }
+                                ast::DeductionKind::Exhaustive(items) => {
+                                    (true, QualEffect::Exhaustive(names(items)))
+                                }
+                                ast::DeductionKind::Remove(items) => {
+                                    (true, QualEffect::Remove(names(items)))
+                                }
+                                ast::DeductionKind::Moved => {
+                                    (false, QualEffect::Exhaustive(Vec::new()))
+                                }
+                            },
+                            None => (false, QualEffect::Exhaustive(Vec::new())),
                         }
                     }
                     // Named but no list, or unnamed: keeps everything.
-                    _ => (true, declared.clone()),
+                    _ => (true, QualEffect::KeepAll),
                 };
                 FnParamContract {
                     name: name.as_ref().map(|id| id.name.clone()),
                     kept,
-                    quals,
+                    effect,
                     mutable,
                 }
             })
@@ -3555,7 +3621,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let facts: Option<Vec<crate::deduce::ParamDeduction>> =
                         match &decl.deductions {
                             Some(list) => {
-                                Some(crate::deduce::from_written(decl, list, |_, _| {}))
+                                Some(crate::deduce::from_written(
+                                    decl,
+                                    list,
+                                    &HashSet::new(),
+                                    |_, _| {},
+                                ))
                             }
                             None => self.inferred.and_then(|table| {
                                 table.get(&entry.key).cloned()
@@ -3571,9 +3642,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 FnParamContract {
                                     name: Some(p.name.name.clone()),
                                     kept: entry.map(|d| d.kept).unwrap_or(true),
-                                    quals: entry
-                                        .map(|d| d.quals.clone())
-                                        .unwrap_or_default(),
+                                    effect: entry
+                                        .map(|d| d.effect.clone())
+                                        .unwrap_or(QualEffect::KeepAll),
                                     mutable: pty
                                         .quals()
                                         .iter()
@@ -5511,8 +5582,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // flow-sensitively on bare identifier arguments: parameters *not*
         // kept are consumed (moved) — the variable narrows to `Nothing`
         // and any later use is an error until it is reassigned. Kept
-        // parameters shed their removal set (declared − kept qualifiers)
-        // from the argument's narrowed type, so e.g.
+        // parameters shed their removal set — computed from the entry's
+        // effect against the qualifiers the argument carries
+        // [deduce-syntax] — so e.g.
         // `remove_first(list: NonEmpty Mut List<T>) -> [list: Mut]`
         // leaves the argument un-`NonEmpty` and a second call fails
         // overload resolution. Written lists are enforced directly;
@@ -5522,7 +5594,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
             // Shape errors on written lists are reported by the deduce
             // pass; the mapping here is silent.
-            Some(list) => Some(crate::deduce::from_written(decl, list, |_, _| {})),
+            Some(list) => Some(crate::deduce::from_written(
+                                    decl,
+                                    list,
+                                    &HashSet::new(),
+                                    |_, _| {},
+                                )),
             None => match self.inferred {
                 Some(table) => best.key.and_then(|key| table.get(&key).cloned()),
                 // Round one has no inferred facts yet: fall back to the
@@ -5667,11 +5744,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let name = id.name.clone();
                     self.fate_mutation(&name, span);
                 }
-                let kept: HashSet<&str> = d.quals.iter().map(String::as_str).collect();
-                let removed: HashSet<String> = declared_q
-                    .into_iter()
-                    .filter(|q| !kept.contains(q.as_str()))
-                    .collect();
+                // [deduce-syntax] Computed against what the argument
+                // actually carries: an exhaustive list drops qualifiers
+                // this callee never declared.
+                let have: Vec<String> = self
+                    .lookup(&id.name)
+                    .map(|v| {
+                        v.narrowed
+                            .quals()
+                            .iter()
+                            .map(|q| q.name.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let removed = d.effect.removal_set(&have);
                 if removed.is_empty() {
                     continue;
                 }

@@ -17,6 +17,54 @@ pub struct Qual {
     pub args: Vec<Ty>,
 }
 
+/// What a call does to an argument's known qualifiers [deduce-syntax].
+/// All three reduce to a removal set at the call site, computed against
+/// the qualifiers the *argument* actually carries — which is what makes
+/// the exhaustive form sound: it drops qualifiers the callee never
+/// declared and therefore cannot have preserved.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum QualEffect {
+    /// Bare `[p]`: nothing is stripped. Only sound for a parameter the
+    /// body cannot invalidate — i.e. does not mutate.
+    KeepAll,
+    /// `[p: A B]` / `[p:]`: afterwards *exactly* these apply.
+    Exhaustive(Vec<String>),
+    /// `[p: -A -B]`: these are dropped, everything else survives.
+    Remove(Vec<String>),
+}
+
+impl QualEffect {
+    /// The qualifiers to strip from an argument that currently carries
+    /// `have`.
+    pub fn removal_set(&self, have: &[String]) -> HashSet<String> {
+        match self {
+            QualEffect::KeepAll => HashSet::new(),
+            QualEffect::Exhaustive(keep) => have
+                .iter()
+                .filter(|q| !keep.contains(q))
+                .cloned()
+                .collect(),
+            QualEffect::Remove(drop) => {
+                drop.iter().filter(|q| have.contains(q)).cloned().collect()
+            }
+        }
+    }
+
+    /// The qualifiers a caller may still assume, given a parameter's
+    /// declared set — for signature rendering and body validation.
+    pub fn kept_quals(&self, declared: &[String]) -> Vec<String> {
+        match self {
+            QualEffect::KeepAll => declared.to_vec(),
+            QualEffect::Exhaustive(keep) => keep.clone(),
+            QualEffect::Remove(drop) => declared
+                .iter()
+                .filter(|q| !drop.contains(q))
+                .cloned()
+                .collect(),
+        }
+    }
+}
+
 /// One parameter of a fn type's *contract* [fn-contract]: whether a call
 /// through the fn value keeps the argument, which qualifier names stay
 /// known, and whether the declared parameter type grants mutation
@@ -26,7 +74,9 @@ pub struct Qual {
 pub struct FnParamContract {
     pub name: Option<String>,
     pub kept: bool,
-    pub quals: Vec<String>,
+    /// What a call through this fn value does to the argument's
+    /// qualifiers [deduce-syntax].
+    pub effect: QualEffect,
     pub mutable: bool,
 }
 

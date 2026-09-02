@@ -653,7 +653,8 @@ impl<'s> Parser<'s> {
         Some(effects)
     }
 
-    /// `[person]`, `[list: Mut]`, `[list:]`, `[]` [deduce-syntax]
+    /// `[person]`, `[list: Mut]`, `[list:]`, `[list: -NonEmpty]`,
+    /// `[list: Nothing]`, `[]` [deduce-syntax]
     fn parse_deduction_list(&mut self) -> Option<Vec<Deduction>> {
         self.expect(&TokenKind::LBracket)?;
         self.group_depth += 1;
@@ -663,26 +664,81 @@ impl<'s> Parser<'s> {
                 self.group_depth -= 1;
                 return None;
             };
-            let mut qualifiers = Vec::new();
-            let mut explicit = false;
-            if self.eat(&TokenKind::Colon).is_some() {
-                // A colon makes the (possibly empty) qualifier list exact:
-                // `list: Mut NonEmpty` keeps those, `list:` keeps none.
-                explicit = true;
-                while self.at_ident() {
-                    match self.parse_type_ref() {
-                        Some(r) => qualifiers.push(r),
-                        None => break,
+            let mut end = param.span;
+            let kind = if self.eat(&TokenKind::Colon).is_some() {
+                // A colon introduces the change list. Plain names are
+                // *exhaustive* (only these survive); `-`-prefixed names
+                // are a delta (drop these, keep the rest). Mixing the two
+                // in one entry is an error [deduce-syntax].
+                let mut plain: Vec<TypeRef> = Vec::new();
+                let mut removed: Vec<TypeRef> = Vec::new();
+                loop {
+                    let negated = if self.at(&TokenKind::Minus) {
+                        let span = self.bump().span;
+                        end = span;
+                        true
+                    } else if self.at(&TokenKind::Plus) {
+                        let span = self.bump().span;
+                        self.error(
+                            "adding qualifiers in a deduction (`+Qual`) is not \
+                             supported yet: a deduction may only preserve or \
+                             drop qualifiers",
+                            span,
+                        );
+                        // Parse the name anyway to keep going.
+                        if self.at_ident() {
+                            if let Some(r) = self.parse_type_ref() {
+                                end = r.span;
+                            }
+                        }
+                        continue;
+                    } else {
+                        false
+                    };
+                    if !self.at_ident() {
+                        break;
+                    }
+                    let Some(r) = self.parse_type_ref() else { break };
+                    end = r.span;
+                    if negated {
+                        removed.push(r);
+                    } else {
+                        plain.push(r);
                     }
                 }
-            }
-            let end = qualifiers.last().map(|q| q.span).unwrap_or(param.span);
-            let span = param.span.to(end);
+                match (plain.is_empty(), removed.is_empty()) {
+                    // `[list:]` — exhaustive and empty: strip everything.
+                    (true, true) => DeductionKind::Exhaustive(Vec::new()),
+                    (false, true) => {
+                        // A lone `Nothing` means moved [deduce-syntax].
+                        if plain.len() == 1
+                            && plain[0].name.name == "Nothing"
+                            && plain[0].args.is_empty()
+                        {
+                            DeductionKind::Moved
+                        } else {
+                            DeductionKind::Exhaustive(plain)
+                        }
+                    }
+                    (true, false) => DeductionKind::Remove(removed),
+                    (false, false) => {
+                        self.error(
+                            "a deduction entry is either exhaustive (plain \
+                             qualifier names) or a delta (`-Qual`), not both: \
+                             an exhaustive list already drops everything it \
+                             does not name",
+                            param.span.to(end),
+                        );
+                        DeductionKind::Exhaustive(plain)
+                    }
+                }
+            } else {
+                DeductionKind::KeepAll
+            };
             deductions.push(Deduction {
+                span: param.span.to(end),
                 param,
-                qualifiers,
-                explicit,
-                span,
+                kind,
             });
             if self.eat(&TokenKind::Comma).is_none() {
                 break;

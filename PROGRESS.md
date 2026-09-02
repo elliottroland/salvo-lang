@@ -57,6 +57,18 @@ acceptance, so the shared substrate gets validated under the lower-risk
 feature. Two P1 design points (which projections narrow; whether
 narrowing survives a kept-immutable call) are marked **DECISION**.
 
+**D1 landed 2026-09-02: deductions are exhaustive by default.** A
+confirmed unsoundness — qualifiers surviving calls that invalidate them,
+reproduced with a `clear` that emptied a list while the caller kept
+believing `NonEmpty` — is fixed. `[list: NonEmpty Mut]` now means *only*
+those apply afterwards (including dropping qualifiers the callee never
+declared), `[list: -Q]` is the delta form for "everything else
+preserved", `[list: Nothing]` is moved, and a parameter the body mutates
+may use neither keep-all nor a delta. D2 holds `+Q` asserts and their
+possible unity with constructive qualifiers; D3 covers refinements — the
+general answer to D1's accepted over-strictness, after analysis showed
+blanket qualifier *polymorphism* cannot be sound.
+
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
 style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
@@ -73,7 +85,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 236 tests; includes twenty-three kotlinc and nineteen rustc
+cargo test                  # 241 tests; includes twenty-three kotlinc and nineteen rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1216,7 +1228,188 @@ fields) — mitigated by DECISION P1a's recommendation to include the
 element variant from the start. Neither phase hard-blocks the other:
 they are coupled only through the substrate.
 
-## Remaining leftovers (small; no milestone claims them)
+## Roadmap: deductions and qualifier reasoning
+
+Motivated by a confirmed unsoundness (see "Remaining leftovers"): the
+removal-set rule (`removal = declared − kept`) assumes a function can only
+invalidate qualifiers it *declares*, which is false for any function that
+mutates. Fixing it needs a way to say "and nothing else survives", which a
+delta-only model cannot express.
+
+### D1 — Exhaustive and delta qualifier deductions. ✅ Done 2026-09-02
+
+Keep the `:` syntax; give the qualifier list a *polarity* per entry:
+
+| Form | Meaning |
+|---|---|
+| `[list]` | keep the parameter, all qualifiers preserved (unchanged) |
+| `[list:]` | keep it, strip every qualifier (unchanged) |
+| `[list: NonEmpty Mut]` | **exhaustive**: afterwards *only* these apply |
+| `[list: -NonEmpty]` | **delta**: drop `NonEmpty`, everything else preserved |
+| `[list: Nothing]` | moved (equivalently: omit the entry) |
+| `[]` | no promises about any parameter — everything moved |
+| *(absent)* | inferred [deduce-infer] |
+
+`+Q` (add a qualifier) is **not part of the language** — it is an assert,
+see D2 (user decision 2026-09-02). The parser recognizes the `+` only to
+report "adding qualifiers in a deduction (`+Qual`) is not supported yet"
+instead of a bare parse error.
+
+The plain (exhaustive) form is what closes the hole: `clear`'s
+`[list: Mut]` now drops a caller's `NonEmpty` because it was not listed.
+
+- **Soundness rule (the load-bearing part).** For a parameter the body
+  *mutates*, only the exhaustive form (or `[list:]`) may be written:
+  keep-all `[list]` and `-` deltas both claim "everything else survives",
+  which is exactly the unsound claim. Inference emits the declared set
+  for mutated parameters and keep-all for read-only ones — so pure reads
+  still never strip a caller's qualifiers, which is the property the
+  original removal-set rule existed to protect.
+- **Is mutation the only invalidating operation?** (user question
+  2026-09-02) Within the current language, yes — and it follows from the
+  model rather than being a stipulation. Everything a callee can do to a
+  *kept* parameter is: read it (projections, interpolation, passing it on
+  to other readers) — observably state-preserving, so no predicate can
+  break; mutate it — the invalidating case; or move it — after which the
+  caller has no access, so preservation is moot. There is no way for a
+  kept value to escape observably (fate links do not outlive the call;
+  `use` constructor arguments are moves). So "mutation forces the
+  exhaustive form" is the complete rule for today's language, and a new
+  invalidating operation could only arrive with a new capability
+  (out-parameters, escaping references).
+- **But the *granularity* is wrong, and that is worth marking on
+  qualifiers.** Qualifiers split into two kinds:
+  * **State predicates** (`NonEmpty`, `Sorted`, `Validated`): claims
+    about content. Mutation may falsify them.
+  * **Capabilities** (`Mut`, and the usage disciplines `Linear`,
+    `Once`): claims about what the *holder* may do. Mutation cannot
+    falsify "you may mutate this".
+  Only state predicates need dropping when a body mutates; capabilities
+  survive trivially. Today this distinction is **degenerate**: every
+  capability qualifier is built into the language and every *user*
+  qualifier is a state predicate (or provenance, which behaves like one —
+  `Validated` is falsified by mutation as surely as `NonEmpty`). So D1
+  hard-codes the built-ins and does **not** add a marker; revisit if a
+  user ever needs to declare a capability qualifier.
+  * Consequence for D1's syntax: `Mut` is written explicitly in
+    exhaustive lists (`[list: Mut]`), and `[list:]` keeps stripping
+    everything including `Mut`, exactly as today. The alternative
+    (auto-preserving capabilities) would silently change `[list:]`'s
+    meaning for no present benefit.
+- **Accepted cost (user decision 2026-09-02): over-strictness.** A
+  mutating function cannot promise to preserve a qualifier it does not
+  declare, so `add(list: Mut List<T>, elem: T)` drops a caller's
+  `NonEmpty` even though appending cannot empty a list. Remedy is a
+  re-test (`if list is NonEmpty`); the general answer is D3.
+- **Mixing polarities is an error.** An entry is either all-plain
+  (exhaustive) or all-delta (`-`, and later `+`): `[list: Mut -NonEmpty]`
+  is redundant under the exhaustive reading and contradictory otherwise.
+- **`-Q` may name a qualifier the parameter does not declare** (a
+  function that knows it invalidates a specific property). It is a
+  convenience only — the exhaustive form remains the sound default, and
+  inference never relies on `-`.
+
+**Implementation notes (2026-09-02).** `QualEffect { KeepAll,
+Exhaustive(Vec<String>), Remove(Vec<String>) }` lives in `types.rs` and is
+carried by both `ParamDeduction` and `FnParamContract`; all three forms
+reduce to one operation, `removal_set(have)`, computed against the
+qualifiers the *argument* carries (`have`) — that is where the soundness
+comes from. Mutation is tracked like move-mode claims: `fate_mutation`
+records the enclosing fn's parameter in a new `param_mutations` map (for
+*written* lists too — that is what the validation reads), threaded through
+`check_once` and the fixpoint's convergence check. Inference gained
+`restrict_to` for the contagion rule, and the lattice `KeepAll` →
+`Remove` (growing) → `Exhaustive` (shrinking) is what keeps the fixpoint
+terminating; `bodyless_mutations` supplies the `Mut`-parameter proxy for
+externals. Exactly one test had to change meaning:
+`undeclared_qualifiers_pass_through_calls` *encoded* the unsoundness, and
+is now `exhaustive_lists_drop_undeclared_qualifiers`, with
+`delta_lists_pass_undeclared_qualifiers_through` covering the opt-in.
+- **Type in the entry.** An entry's items are qualifiers plus *at most
+  one* type — structurally identical to an `is` check pattern
+  (`CheckPat { quals, base }`), so the parser and resolver can share that
+  path: uppercase idents parse as type refs, and qualifier-vs-type is
+  settled by resolution.
+  * `[list: Nothing]` is sound *because `Nothing` is uninhabited*: it
+    asserts nothing about runtime content, it only withdraws use. That is
+    why "moved" falls out of the same rule rather than being a special
+    case.
+  * **Type narrowing beyond `Nothing`: its own step (user decision
+    2026-09-02, following the recommendation).** `[x: Str]` on a `Str?`
+    parameter is a *content* claim, so the callee must make it true.
+    Out-parameters would do it, but Salvo has none (reassigning a
+    parameter is a rebind, invisible to the caller). The implementable
+    reading is a **verified postcondition**: "if this call returns
+    normally, the parameter is a `Str`" — checked for Salvo bodies by
+    requiring the promised narrowed type at every normal exit (the
+    machinery `check_linear_exit` already walks), trusted for externals.
+    D1 lands with `Nothing` only; this follows as **D1b**.
+
+### D3 — Refinements (and why polymorphism is probably a dead end)
+
+D1's over-strictness has two candidate general answers. Analysis
+2026-09-02 says they are *not* both needed, and the more obvious one does
+not work:
+
+- **Polymorphism — "preserves whatever predicates it received" — is
+  unsound as a blanket promise.** Different predicates react differently
+  to the *same* mutation: `add(list, elem)` preserves `NonEmpty` but can
+  break `Sorted`. So a mutating function cannot honestly promise to
+  preserve an unknown set. Restricting it to *non*-mutating functions
+  makes it vacuous (keep-all `[list]` already preserves everything
+  there). The only sound version is an explicit per-qualifier set, which
+  is refinements by another name.
+- **Refinements — a qualifier annotates existing functions with
+  additional deductions, without changing their implementation.** This is
+  the same information as "which operations invalidate me", stated from
+  the qualifier's side, and it is per-qualifier-per-function, which is the
+  granularity soundness actually requires. It also inverts the dependency
+  in the useful direction: a user's `NonEmpty` can declare that std's
+  `add` preserves it, without std knowing the qualifier exists.
+  * Open questions: where a refinement may be declared (the qualifier's
+    own file, mirroring the constructor-fn rule?); whether it is trusted
+    or checked; how refinements from several qualifiers on one function
+    compose; and whether a refinement can *strengthen* a std function's
+    contract for callers who do not import the qualifier (it must not).
+
+### D2 — Qualifier asserts (`+Q`)
+
+Deferred (user decision 2026-09-02: not even in the grammar for now).
+`+Q` asserts that the body *establishes* `Q`, which is what `-> T as Q`
+does for return values — the parameter-position analogue. A predicate
+qualifier cannot be proven statically (that means reasoning about the
+algorithm), so establishment is trust (like `as Q`) or a runtime
+`qualifies` check.
+
+- **DECISION D2a** — whether `+Q` and `as Q` unify into one notion of
+  "this function establishes a qualifier", and whether establishment is
+  trusted, runtime-checked, or restricted to fns declared in the
+  qualifier's own file (as `as Q` is today).
+
+### Related, independent: `!is` in expressions
+
+Negated checks (`if x !is Str { … }`) — sugar over `!(x is Str)` with the
+same fact propagation, and no binding form (a failed test binds nothing:
+`x !is T name` is a parse error). Lexing (user decision 2026-09-02): `!`
+binds *adjacently* — `x!` (assert) requires no space before `!`, `!is`
+requires no space between, `!x` (not) requires no space after, and a
+floating `!` (space on both sides) is a syntax error.
+
+The disambiguating clause, refining "not preceded *and* followed by
+alphanumerics": the left neighbour must count `)` and `]` as
+value-endings, or `names.first()!is Str` stays ambiguous — and
+`first()!` is real, common code (the M2 demo interpolates
+`${names.first()!}`). So:
+
+> `!` may not be *directly* preceded by a value-ending token
+> (identifier, literal, `)`, `]`) **and** directly followed by an
+> operand-starting token (identifier, literal, `(`, `[`) or the keyword
+> `is`. Whitespace on one side resolves it.
+
+This keeps `x!.field`, `x!)`, `x!,` legal (the following token cannot
+start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
+(assert then test) and `x !is T` (negated test) as the two spellings.
+
 
 Ownership-arc remainders (each recorded in its milestone section and/or
 spec rule; consolidated here for findability):
@@ -1292,15 +1485,17 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 236)
+## Test inventory (all green: 241)
 
-- `salvo-core`: 37 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 40 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 13 deduction
-  tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
-  qualifiers passing through calls, move inference, call-graph fixpoint
+  skipped with the root exempt) + 16 deduction
+  tests (`tests/deduce_tests.rs`: exhaustive lists dropping *undeclared*
+  qualifiers and delta lists passing them through, mutating bodies
+  requiring the exhaustive form, `Nothing` meaning moved
+  [deduce-syntax], move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
   written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
@@ -1324,7 +1519,7 @@ spec rule; consolidated here for findability):
   ordering, and equality — and `None` itself — while narrowed/asserted
   operands pass; interpolating an optional or a struct field rejected,
   the `is T name` binding and `!` forms accepted).
-- `salvo-cli`: 48 - 40 `analyze` integration tests running the built
+- `salvo-cli`: 50 - 42 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1340,6 +1535,10 @@ spec rule; consolidated here for findability):
   always-exiting path), `when`-arm merging incl. subject consumption,
   partial qualifier removal joining conservatively, and call-site
   qualifier removal for kept params incl. `[list:]` [deduce-consume],
+  the D1 deduction forms ([deduce-syntax]: the `clear`/`NonEmpty`
+  unsoundness now rejected, a delta preserving an undeclared qualifier, a
+  bodyless `Mut` parameter refusing the delta form, a mutating body
+  refusing keep-all, mixed polarities, `+Qual`, and non-`Nothing` types),
   union-arm arguments resolving against union params [type-union],
   the shared-fate matrix (derived variables read-only for
   moves/mutations/returns with the `copy` remedy [fate-derived-readonly],
@@ -1566,6 +1765,25 @@ snapshot diffs.
   name-based occurs check would reject generic forwarding.
 - (sweep) Handler state fields are declared bare (`i: Int = 0`) — there
   is no `state` keyword, despite the prose in some notes.
+- (D1) A test can *encode* the bug. `undeclared_qualifiers_pass_through_
+  calls` asserted the exact behavior that made the checker unsound, with a
+  comment explaining why it was right. When a soundness fix makes a test
+  fail, read the test as evidence about the old model before assuming the
+  new code is wrong — and rewrite it to state the new rule rather than
+  deleting it (the delta form now carries the old behavior as an opt-in).
+- (D1) The unsoundness survived because the *inference* direction hid it:
+  facts only shrink, so "preserve everything not mentioned" looked like a
+  safe optimistic start. Optimism is only safe if the pessimistic end of
+  the lattice is reachable for every fn that needs it — here mutating fns
+  could never reach it, because no constraint knew about qualifiers the
+  signature never named.
+- (D1) Deriving a capability from a *declaration* rather than a body is
+  the only option for `external`s, and it is often the right call anyway:
+  `Mut` on a bodyless parameter means "I may mutate this", which is
+  exactly the fact the soundness rule needs. Applying the same proxy to
+  bodied fns would have been strictly worse (a non-`Mut` parameter can
+  still have `Mut` *contents* mutated through it — the `h.tags` case the
+  fate analysis already tracks).
 - (arrays) The CLI embeds std with `include_dir` at *build* time: adding a
   file under `std/` does not invalidate the crate, so the new module is
   silently invisible to `cargo run -- compile` (the tell is the file count
