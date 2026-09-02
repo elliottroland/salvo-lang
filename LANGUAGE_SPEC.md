@@ -389,10 +389,9 @@ Conventions:
     a qualifier the body may remove, is an error.
 * [deduce-consume] Deduction lists are enforced flow-sensitively at call
   sites on bare identifier arguments — written lists directly, and
-  unannotated fns through their *inferred* facts: checking runs twice,
-  with round two re-checking under round one's inferred deductions (so
-  `return list` in a callee consumes the caller's argument exactly like
-  an explicit `[]`).
+  unannotated fns through their *inferred* facts: checking and inference
+  iterate to a fixpoint [deduce-fixpoint], so `return list` in a callee
+  consumes the caller's argument exactly like an explicit `[]`.
   * A parameter *not kept* is consumed — the variable's type narrows to
     `Nothing`, and any later reference to it is a compile error (a
     `Nothing`-typed value represents an impossibility). Reassigning the
@@ -433,9 +432,10 @@ Conventions:
     fall-through paths: a value consumed on *any* path stays consumed
     (maybe-moved is unusable, as in Rust); disagreeing states keep only
     the qualifiers common to all paths.
-  * Round one's diagnostics are discarded (checking is deterministic;
-    round two re-derives them); deductions are re-inferred against round
-    two's final call resolutions.
+  * Each round's diagnostics replace the previous round's (checking is
+    deterministic, so the stable part re-derives identically); the final
+    round's deductions are re-inferred against its call resolutions
+    [deduce-fixpoint].
   * Consumption is preserved across narrowing scopes: consuming an
     `is`-narrowed variable (or `when` subject) inside its own narrowed
     branch survives the narrowing restore.
@@ -446,6 +446,27 @@ Conventions:
     previous iteration (re-derived duplicate diagnostics are dropped;
     consume-then-reassign within the body stays clean).
   * Variadic parameters and non-identifier arguments are not tracked.
+
+* [deduce-fixpoint] Checking and deduction inference iterate until the
+  driving facts stabilize (decision L3a, 2026-09-02): after each
+  checking round the inferred deductions, move-mode candidates, and
+  parameter claims [fate-move-mode] are compared with the previous
+  round's — another round runs only when something changed, capped at
+  four rounds total. Stable programs finish in two rounds (the
+  pre-existing behavior and cost); a late-discovered fact (e.g. a
+  move-mode candidate first visible under round-two narrowing) gets one
+  more round, so the diagnostic lands at the true site. A program still
+  unstable at the cap gets a deterministic error naming each fn whose
+  inferred contract oscillates (overload resolution can flip with
+  narrowing), with the remedy of writing the deduction list explicitly.
+* [deduce-same-call] Arguments are evaluated left to right; within one
+  call, an argument may not *mention* (read, project, interpolate, or
+  capture) a value that an earlier argument of the same call consumed —
+  `f(a, a)` with two moving parameters, `f(a, size(a))`, and the like
+  are errors at the later argument. The remedy is `copy` at the
+  argument that consumes the value. (Argument typing precedes contract
+  enforcement, so this sibling-argument scan is what closes the gap;
+  nested calls were always ordered correctly.)
 
 ## Shared fate
 
@@ -497,12 +518,12 @@ Conventions:
     [deduce-infer]). A *written* list that keeps the parameter blocks
     the claim: the binding stays borrow-mode and the S1 error stands at
     the move site [fate-derived-readonly].
-  * Mode inference rides the two-round architecture [deduce-consume]:
-    round one is strict (every derived move/mutation records its bind
+  * Mode inference rides the checking rounds [deduce-fixpoint]: the
+    first round is strict (every derived move/mutation records its bind
     chain as move-mode candidates and its parameter claims; the errors
-    are discarded), round two applies the modes. A candidate first
-    seen in round two stays a strict error (no third round; same
-    convergence class as overload re-resolution).
+    are discarded), later rounds apply the modes. A candidate first
+    discovered in a later round triggers one more round, so it is
+    applied rather than left as a strict error.
   * A **projection in a moved position** (consuming call argument,
     literal store, spread, `return`/`break`/`yield`, `use` ctor
     argument) moves data out of its provenance roots — but only
@@ -547,13 +568,40 @@ Conventions:
     same protocol on both backends, and it is what makes clone-vs-alias
     emission differences unobservable (any program that could tell the
     difference is rejected).
-  * Not yet tracked: lambda captures (L4). Bare identifiers in every
-    moved position are tracked since L2 [deduce-consume]; projections
-    of *mutable* data in moved positions are tracked since S2
-    [fate-move-mode] — which closed the moved-position parity
-    divergence (Rust clone vs Kotlin alias) accepted on 2026-09-02.
-    Projections of immutable data in moved positions stay untracked by
-    design: the difference is unobservable.
+  * Bare identifiers in every moved position are tracked since L2
+    [deduce-consume]; projections of *mutable* data in moved positions
+    are tracked since S2 [fate-move-mode]; lambda captures are tracked
+    since L4 [fate-lambda]. Projections of immutable data in moved
+    positions stay untracked by design: the difference is
+    unobservable.
+* [fate-lambda] Lambdas are ordinary values under shared fate (decision
+  L4a, 2026-09-02): a lambda's relationship to the variables it
+  captures is classified from its body, and the contract binds at
+  *creation* (a closure may run zero or more times, unlike a named fn
+  whose deductions fire per call).
+  * A capture that is only *read*: free for transitively-immutable
+    values (clone-vs-alias is unobservable — backend-parity principle);
+    for transitively-mutable values the lambda *value* fate-links to
+    the variable [fate-link] — the variable stays readable, mutating
+    it poisons the closure, and binding/moving the closure follows the
+    ordinary derived-value rules [fate-move-mode].
+  * A capture the body *mutates* is consumed at creation — the closure
+    takes ownership (each call mutates it; an original observing those
+    mutations on one backend but not the other would break parity). A
+    written-kept parameter cannot be captured-and-mutated (error,
+    remedy capture `copy(x)`); an inferable parameter is *claimed* as
+    moved [deduce-infer].
+  * A lambda can never *consume* a capture (a call that moves it, a
+    store, spread, `return`/`break`/`yield`): the lambda may run any
+    number of times, and every run after the first would use a moved
+    value. Error at the consuming site; remedy `copy` inside the
+    lambda.
+  * Effects do not yet cross the lambda boundary as a contract: fn
+    types parse an effect list (`(S) [E] -> T`) but the checker drops
+    it, and lambda bodies check under the enclosing fn's effect
+    environment (lexical). Fn-type contracts (deductions, effects, and
+    a call-multiplicity qualifier enabling consuming captures) are the
+    L7 parameterized-qualifier work.
 * [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
   duplicates a value: the argument is kept untouched with all its
   qualifiers (`[value]`), and the result is a fresh value with no fate

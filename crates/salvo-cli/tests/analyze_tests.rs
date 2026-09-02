@@ -1088,3 +1088,125 @@ fn s2_move_mode_ancestors_are_consumed() {
     );
     assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }
+
+// [deduce-same-call] L3: arguments are evaluated left to right, so a
+// value moved by an earlier argument of the same call cannot be
+// mentioned by a later one — double moves (`f(a, a)`), move-then-read
+// (`f(a, size(a))`), and interpolated mentions are all rejected at the
+// later argument. `copy` at the consuming argument is the remedy;
+// kept-position reads are unaffected.
+#[test]
+fn l3_same_call_ordering() {
+    let dir = src_dir("l3_same_call");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat_two(a: List<Int>, b: List<Int>) -> [] None {\n}\n\n\
+         fn consume_first(a: List<Int>, n: Int) -> [] None {\n}\n\n\
+         fn keep_first(a: List<Int>, n: Int) -> [a] None {\n}\n\n\
+         fn double_move() {\n    let xs = list(1, 2)\n    eat_two(xs, xs)\n}\n\n\
+         fn move_then_read() {\n    let xs = list(1, 2)\n    consume_first(xs, size(xs))\n}\n\n\
+         fn remedy() {\n    let xs = list(1, 2)\n    eat_two(copy(xs), xs)\n}\n\n\
+         fn kept_then_read() {\n    let ys = list(3)\n    keep_first(ys, size(ys))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr
+            .matches(
+                "`xs` cannot be used here: it was consumed (moved) by an earlier \
+                 argument of this call"
+            )
+            .count(),
+        2,
+        "stderr: {stderr}"
+    );
+    // remedy and kept_then_read are clean: exactly the two violations.
+    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+}
+
+// [fate-lambda] L4: lambdas are ordinary values with shared fate.
+// Immutable captures are free; a transitively-mutable read capture
+// fate-links the closure to the variable (mutating it poisons the
+// closure); a mutated capture is consumed at lambda creation (claimed
+// when the enclosing fn's contract is inferable, an error when it is a
+// written-kept parameter); and a lambda can never consume a capture
+// (it may run any number of times) — `copy` is the remedy everywhere.
+#[test]
+fn l4_lambda_captures() {
+    let dir = src_dir("l4_captures");
+    fs::write(
+        dir.join("main.sv"),
+        "fn apply(f: (Int) -> Int, v: Int) -> Int {\n    return f(v)\n}\n\n\
+         fn run(f: () -> None) {\n    f()\n}\n\n\
+         fn consume_list(v: List<Int>) -> [] None {\n}\n\n\
+         fn immutable_free() -> Int {\n    let base = 10\n    let text = \"hi\"\n    \
+         let f = (n: Int) -> { return n + base + size(text) }\n    \
+         let r = apply(f, 1)\n    return r + base + size(text)\n}\n\n\
+         fn poisoned_after_mutation() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         let f = (n: Int) -> { return n + size(xs) }\n    let before = apply(f, 1)\n    \
+         add(xs, 9)\n    return apply(f, 1)\n}\n\n\
+         fn used_before_mutation() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         let f = (n: Int) -> { return n + size(xs) }\n    let r = apply(f, 1)\n    \
+         add(xs, 9)\n    return r + size(xs)\n}\n\n\
+         fn mutate_capture_consumes() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         let g = () -> { add(xs, 1) }\n    run(g)\n    return size(xs)\n}\n\n\
+         fn mutate_capture_remedy() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         let snapshot = copy(xs)\n    let g = () -> { add(snapshot, 1) }\n    run(g)\n    \
+         return size(xs)\n}\n\n\
+         fn move_capture_rejected() {\n    let xs = list(1, 2)\n    \
+         let h = () -> { consume_list(xs) }\n    run(h)\n}\n\n\
+         fn move_capture_remedy() {\n    let xs = list(1, 2)\n    \
+         let h = () -> { consume_list(copy(xs)) }\n    run(h)\n}\n\n\
+         fn kept_mutates(xs: Mut List<Int>) -> [xs: Mut] None {\n    \
+         let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
+         fn infer_claims(xs: Mut List<Int>) {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
+         fn claim_reaches_caller() -> Int {\n    let xs = mutable_list(1)\n    \
+         infer_claims(xs)\n    return size(xs)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Mutating a mutable read-capture's root poisons the closure.
+    assert!(
+        stderr.contains(
+            "`f` cannot be used here: it was bound from `xs` and shares its fate, \
+             and `xs` was mutated after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    // A mutated capture is consumed at creation.
+    assert!(
+        stderr.contains(
+            "`xs` cannot be used here: it was consumed (moved) by a lambda that \
+             captures and mutates it"
+        ),
+        "stderr: {stderr}"
+    );
+    // A lambda can never consume a capture.
+    assert!(
+        stderr.contains(
+            "a lambda cannot consume `xs`: it is captured from the enclosing scope"
+        ),
+        "stderr: {stderr}"
+    );
+    // A written-kept parameter cannot be captured-and-mutated.
+    assert!(
+        stderr.contains(
+            "this lambda captures and mutates `xs`, which is a kept parameter"
+        ),
+        "stderr: {stderr}"
+    );
+    // The capture claim propagates: the caller's argument is consumed.
+    assert!(
+        stderr.contains(
+            "`xs` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+    // The positive matrix (immutable captures, pre-mutation use, `copy`
+    // remedies) is clean: exactly the five violations.
+    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+}

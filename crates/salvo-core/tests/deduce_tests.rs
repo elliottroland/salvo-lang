@@ -357,3 +357,76 @@ external fn list_size<T>(list: List<T>) -> Int
     // own parameter to `claims`, which now moves it.
     assert_eq!(facts(&program, &checked, "caller", "list").0, false);
 }
+
+// [fate-lambda] A lambda that captures and mutates a parameter claims it
+// as moved (the closure takes ownership at creation); a read-only
+// capture keeps the parameter kept.
+#[test]
+fn lambda_capture_mutation_claims_parameters() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+internal type Store<T> with Mut
+
+fn runs(f: () -> None) -> None {{
+    let unused = f
+}}
+
+fn mutates<T>(store: Mut Store<T>) -> None {{
+    let g = () -> {{ bump(store) }}
+    runs(g)
+}}
+
+fn reads<T>(store: Mut Store<T>) -> None {{
+    let g = () -> {{ let n = store_size(store) }}
+    runs(g)
+}}
+
+external fn bump<T>(store: Mut Store<T>) -> [store: Mut] None
+
+external fn store_size<T>(store: Store<T>) -> Int
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    // The mutating capture claims the parameter.
+    assert_eq!(facts(&program, &checked, "mutates", "store").0, false);
+    // A read-only capture keeps it.
+    assert_eq!(facts(&program, &checked, "reads", "store").0, true);
+}
+
+// [deduce-fixpoint] L3: checking iterates to a fixpoint (capped) — a
+// move-mode candidate first discovered in round two (when inferred
+// deductions are first enforced) is applied by a third round, so the
+// diagnostic lands at the true problem site instead of the raw
+// derived-move error.
+#[test]
+fn late_candidates_converge() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn steal<T>(list: List<T>) -> List<T> {{
+    return list
+}}
+
+fn late<T>(seed: List<T>) -> Int {{
+    let xs = seed
+    let ys = xs
+    let zs = steal(ys)
+    return list_size(xs)
+}}
+
+external fn list_size<T>(list: List<T>) -> Int
+"
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("`ys` was bound from it and later moves the value")),
+        "errors: {messages:?}"
+    );
+    assert!(
+        !messages.iter().any(|m| m.contains("cannot move `ys`")),
+        "round-two error should have been superseded: {messages:?}"
+    );
+}

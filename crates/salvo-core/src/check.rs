@@ -125,6 +125,11 @@ pub struct Checked {
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
     pub moved_projections: HashSet<Key>,
+    /// The captured outer locals of each lambda [fate-lambda], keyed by
+    /// the lambda expression's span (for tooling and future emission
+    /// refinements; both emitters currently capture lexically, which is
+    /// an alias on both backends).
+    pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -136,6 +141,15 @@ pub struct Checked {
 pub struct FateRead {
     pub root: String,
     pub bind_span: Span,
+}
+
+/// One captured variable of a lambda [fate-lambda]: the outer local the
+/// body mentions, and whether the capture *consumed* it (the body
+/// mutates it, so the closure took ownership at creation).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LambdaCapture {
+    pub name: String,
+    pub consumed: bool,
 }
 
 impl Checked {
@@ -160,30 +174,82 @@ pub fn check_program<'p>(
     symbols: &Symbols<'p>,
 ) -> Checked {
     // [fate-move-mode] S2 state carried across the rounds: bind events
-    // whose bound variable round one saw moved or mutated (move-mode
-    // candidates), and parameters claimed by such bindings (the binding
-    // takes ownership, so the parameter is moved — seeded into deduction
-    // inference between the rounds).
+    // whose bound variable an earlier round saw moved or mutated
+    // (move-mode candidates), and parameters claimed by such bindings
+    // (the binding takes ownership, so the parameter is moved — seeded
+    // into deduction inference between the rounds).
     let mut candidates: HashSet<Key> = HashSet::new();
     let mut claims: HashMap<FnKey, HashSet<String>> = HashMap::new();
 
-    let mut first = check_once(program, resolution, symbols, None, &mut candidates, &mut claims);
-    crate::deduce::infer(program, &mut first, &claims);
-    let inferred = std::mem::take(&mut first.deductions);
-
-    let mut out = check_once(
-        program,
-        resolution,
-        symbols,
-        Some(&inferred),
-        &mut candidates,
-        &mut claims,
-    );
-    // Deductions are a whole-program fact (strictest over the call graph),
-    // computed once every body has been checked and every call site
-    // resolved [deduce-infer].
+    // Round one: no inferred facts yet (strict S1 behavior).
+    let mut out = check_once(program, resolution, symbols, None, &mut candidates, &mut claims);
     crate::deduce::infer(program, &mut out, &claims);
-    out
+    let mut inferred = std::mem::take(&mut out.deductions);
+    let mut prev_candidates = candidates.clone();
+    let mut prev_claims = claims.clone();
+
+    // [deduce-fixpoint] Iterate check → infer until the driving facts
+    // stabilize (inferred deductions, move-mode candidates, parameter
+    // claims — checking is deterministic in these inputs), capped at
+    // MAX_ROUNDS total checking rounds (decision L3a: extra rounds run
+    // only when facts changed, so stable programs stay at two rounds; a
+    // program still unstable at the cap gets a deterministic error
+    // naming the oscillating fns, with the written-list remedy). Each
+    // round's diagnostics replace the previous round's (re-derived
+    // identically for the stable part).
+    const MAX_ROUNDS: usize = 4;
+    let mut round = 1;
+    loop {
+        round += 1;
+        out = check_once(
+            program,
+            resolution,
+            symbols,
+            Some(&inferred),
+            &mut candidates,
+            &mut claims,
+        );
+        // Deductions are a whole-program fact (strictest over the call
+        // graph), re-inferred against this round's final call
+        // resolutions [deduce-infer].
+        crate::deduce::infer(program, &mut out, &claims);
+        let stable = out.deductions == inferred
+            && candidates == prev_candidates
+            && claims == prev_claims;
+        if stable {
+            return out;
+        }
+        if round >= MAX_ROUNDS {
+            // Make the instability visible [deduce-fixpoint]: name every
+            // fn whose inferred contract still changed in the last round.
+            let mut unstable: Vec<FnKey> = out
+                .deductions
+                .iter()
+                .filter(|(key, ded)| inferred.get(key) != Some(ded))
+                .map(|(key, _)| *key)
+                .collect();
+            unstable.sort_by_key(|k| (k.file, k.item));
+            for key in unstable {
+                if let Some(Item::Fn(f)) = program.modules[key.file].items.get(key.item) {
+                    out.errors.push(FileDiagnostic::error(
+                        key.file,
+                        f.name.span,
+                        format!(
+                            "the inferred deductions of `{}` did not stabilize after \
+                             {MAX_ROUNDS} checking rounds (its contract oscillates \
+                             with overload resolution); write the deduction list \
+                             explicitly",
+                            f.name.name
+                        ),
+                    ));
+                }
+            }
+            return out;
+        }
+        inferred = std::mem::take(&mut out.deductions);
+        prev_candidates = candidates.clone();
+        prev_claims = claims.clone();
+    }
 }
 
 /// One checking round; `inferred` carries the previous round's deduction
@@ -222,6 +288,8 @@ fn check_once<'p>(
             own_fn: None,
             own_contract: None,
             own_written: false,
+            lambda_ctx: Vec::new(),
+            lambda_links: HashMap::new(),
         };
         checker.check_module(ast);
     }
@@ -377,6 +445,33 @@ struct Checker<'p, 'r> {
     /// contracts never gain claims — a kept parameter stays kept and
     /// derived moves stay errors [fate-derived-readonly].
     own_written: bool,
+    /// Enclosing lambdas of the code being checked [fate-lambda]: the
+    /// scope-frame boundary of each (locals below it are *captures*)
+    /// plus the captures recorded so far. Innermost last.
+    lambda_ctx: Vec<LambdaCtx>,
+    /// Fate links carried by lambda *values* [fate-lambda]: a lambda is
+    /// derived from the transitively-mutable variables it reads (keyed
+    /// by the lambda expression's span, this file only).
+    lambda_links: HashMap<Span, Vec<FateLink>>,
+}
+
+/// One enclosing lambda during body checking [fate-lambda].
+struct LambdaCtx {
+    /// `locals.len()` at lambda entry: frames below this index belong to
+    /// the enclosing scope, so variables in them are captures.
+    boundary: usize,
+    /// Captured variables recorded so far (deduplicated by id).
+    captures: Vec<CaptureInfo>,
+}
+
+struct CaptureInfo {
+    name: String,
+    var_id: u32,
+    /// The captured value is transitively mutable [fate-move-mode].
+    mutable: bool,
+    /// The body mutates the capture: the closure takes ownership at
+    /// creation [fate-lambda].
+    mutated: bool,
 }
 
 /// Narrowing facts derived from a condition.
@@ -827,6 +922,24 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// lets move-mode candidates cover every binding of a consuming
     /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
+        // A lambda value is derived from its transitively-mutable read
+        // captures [fate-lambda]: binding it carries those links (the
+        // direct ones restamped to this bind event).
+        if let Expr::Lambda { span, .. } = value {
+            return self
+                .lambda_links
+                .get(span)
+                .map(|ls| {
+                    ls.iter()
+                        .map(|l| FateLink {
+                            root_id: l.root_id,
+                            root_name: l.root_name.clone(),
+                            bind_span,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
         let mut sources = Vec::new();
         Self::provenance(value, &mut sources);
         let mut links: Vec<FateLink> = Vec::new();
@@ -996,6 +1109,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return links;
             }
         }
+        // A lambda cannot consume a capture [fate-lambda]: a move-mode
+        // binding inside a lambda whose ancestors live outside it stays
+        // borrow-mode, and the move site reports the violation.
+        for l in &links {
+            let Some(frame) = self.frame_of_id(l.root_id) else { continue };
+            if self.lambda_ctx.iter().any(|ctx| frame < ctx.boundary) {
+                return links;
+            }
+        }
         self.record_param_claims(&links);
         for l in &links {
             // Other variables derived from this root lose their value
@@ -1031,6 +1153,70 @@ impl<'p, 'r> Checker<'p, 'r> {
             .find_map(|frame| frame.values_mut().find(|v| v.id == id))
     }
 
+    /// The scope-frame index a variable id lives in [fate-lambda].
+    fn frame_of_id(&self, id: u32) -> Option<usize> {
+        self.locals
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, frame)| frame.values().any(|v| v.id == id).then_some(i))
+    }
+
+    // ================= lambda captures [fate-lambda] =================
+
+    /// Records a read of an outer local inside enclosing lambdas: each
+    /// lambda whose boundary lies above the variable's frame captures it
+    /// [fate-lambda]. `mutable` = the value is transitively mutable.
+    fn record_capture(&mut self, frame: usize, name: &str, var_id: u32, mutable: bool) {
+        for ctx in &mut self.lambda_ctx {
+            if frame < ctx.boundary
+                && !ctx.captures.iter().any(|c| c.var_id == var_id)
+            {
+                ctx.captures.push(CaptureInfo {
+                    name: name.to_string(),
+                    var_id,
+                    mutable,
+                    mutated: false,
+                });
+            }
+        }
+    }
+
+    /// Marks a captured variable as mutated by the lambda body: the
+    /// closure takes ownership at creation [fate-lambda].
+    fn mark_capture_mutated(&mut self, frame: usize, var_id: u32) {
+        for ctx in &mut self.lambda_ctx {
+            if frame < ctx.boundary {
+                if let Some(c) = ctx.captures.iter_mut().find(|c| c.var_id == var_id) {
+                    c.mutated = true;
+                }
+            }
+        }
+    }
+
+    /// Guards consumption of a variable inside a lambda body
+    /// [fate-lambda]: a lambda may run any number of times, so it cannot
+    /// consume a value it captures from the enclosing scope — each run
+    /// after the first would use a moved value. Reports the error and
+    /// returns `true` when the consumption must be skipped.
+    fn capture_move_violation(&mut self, frame: usize, name: &str, span: Span) -> bool {
+        let captured = self
+            .lambda_ctx
+            .iter()
+            .any(|ctx| frame < ctx.boundary);
+        if captured {
+            self.error(
+                span,
+                format!(
+                    "a lambda cannot consume `{name}`: it is captured from the \
+                     enclosing scope and the lambda may run any number of times; \
+                     use `copy({name})` inside the lambda"
+                ),
+            );
+        }
+        captured
+    }
+
     /// [fate-move-mode] A projection in a *moved* position — a consuming
     /// call argument, a literal store, spread, `return`/`break`/`yield`,
     /// or a `use` constructor argument — moves data out of its
@@ -1040,12 +1226,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// roots give up the value — they are consumed here, and the
     /// projection is recorded for the emitter (a real partial move); a
     /// written-kept parameter root is an error (moving out of a borrow),
-    /// remedy `copy`. Round one records parameter claims only.
-    fn projection_move(&mut self, expr: &Expr, span: Span) {
+    /// remedy `copy`. Round one records parameter claims only. Returns
+    /// the names of the roots consumed (for same-call ordering checks
+    /// [deduce-same-call]).
+    fn projection_move(&mut self, expr: &Expr, span: Span) -> Vec<String> {
         let mut sources = Vec::new();
         Self::provenance(expr, &mut sources);
         if sources.is_empty() {
-            return;
+            return Vec::new();
         }
         let ty = self
             .out
@@ -1054,15 +1242,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or(Ty::Unknown);
         let mut visited = HashSet::new();
         if !self.ty_transitively_mut(&ty, &mut visited) {
-            return;
+            return Vec::new();
         }
         let links = self.links_for_value(expr, span);
         if links.is_empty() {
-            return;
+            return Vec::new();
         }
         self.record_param_claims(&links);
         if self.inferred.is_none() {
-            return;
+            return Vec::new();
+        }
+        // A lambda cannot consume data out of a capture [fate-lambda].
+        for l in &links {
+            let Some(frame) = self.frame_of_id(l.root_id) else { continue };
+            let name = l.root_name.clone();
+            if self.capture_move_violation(frame, &name, span) {
+                return Vec::new();
+            }
         }
         for l in &links {
             let Some(var) = self.var_by_id(l.root_id) else { continue };
@@ -1076,9 +1272,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                          only be read; use `copy` to pass an independent value"
                     ),
                 );
-                return;
+                return Vec::new();
             }
         }
+        let mut consumed = Vec::new();
         for l in &links {
             self.poison_derived(l.root_id, &l.root_name, FateEvent::Moved, span);
             let file_idx = self.file_idx;
@@ -1091,6 +1288,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "a move of mutable data projected out of it \
                      (`copy` at that site keeps it usable)",
                 );
+                consumed.push(l.root_name.clone());
             }
             // Moving data out of a `for`-loop binding means the loop
             // iterates by value [fate-move-mode].
@@ -1101,6 +1299,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .moved_projections
             .insert((self.file_idx, expr.span()));
+        consumed
     }
 
     /// Whether a type's data is transitively mutable: `Mut` at any depth
@@ -1179,6 +1378,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !links.is_empty() {
             self.error_derived(span, "mutate", name, &links);
             return;
+        }
+        // Mutating a variable captured from outside an enclosing lambda:
+        // the closure takes ownership at creation [fate-lambda].
+        if !self.lambda_ctx.is_empty() {
+            if let Some(frame) = self.frame_of_id(id) {
+                self.mark_capture_mutated(frame, id);
+            }
         }
         self.poison_derived(id, name, FateEvent::Mutated, span);
     }
@@ -1887,6 +2093,85 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
+/// Whether `expr` mentions the variable `name` anywhere — any read,
+/// projection base, interpolation, nested branch/loop body, or lambda
+/// capture. Used for same-call ordering [deduce-same-call]: arguments
+/// are evaluated left to right, so mentioning a value that an earlier
+/// argument of the same call consumed is a use-after-move.
+fn expr_mentions(expr: &Expr, name: &str) -> bool {
+    let block_mentions = |block: &Block| -> bool {
+        block.stmts.iter().any(|stmt| match stmt {
+            Stmt::Let { value, .. } => expr_mentions(value, name),
+            Stmt::Assign { target, value, .. } => {
+                expr_mentions(target, name) || expr_mentions(value, name)
+            }
+            Stmt::Return { value: Some(e), .. }
+            | Stmt::Break { value: Some(e), .. }
+            | Stmt::Yield { value: e, .. } => expr_mentions(e, name),
+            Stmt::Use { handler, .. } => expr_mentions(handler, name),
+            Stmt::Expr(e) => expr_mentions(e, name),
+            _ => false,
+        })
+    };
+    match expr {
+        Expr::Ident(id) => id.name == name,
+        Expr::Str { parts, .. } => parts.iter().any(|p| match p {
+            StrExprPart::Interp(e) => expr_mentions(e, name),
+            _ => false,
+        }),
+        Expr::Field { base, .. } => expr_mentions(base, name),
+        Expr::Call { callee, args, .. } => {
+            expr_mentions(callee, name) || args.iter().any(|a| expr_mentions(a, name))
+        }
+        Expr::Index { base, index, .. } => {
+            expr_mentions(base, name) || expr_mentions(index, name)
+        }
+        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            elems.iter().any(|e| expr_mentions(e, name))
+        }
+        Expr::ArrayInit { size, init, .. } => {
+            expr_mentions(size, name) || expr_mentions(init, name)
+        }
+        Expr::StructLit { fields, .. } => fields.iter().any(|f| match &f.kind {
+            StructLitFieldKind::Named { value, .. } => expr_mentions(value, name),
+            StructLitFieldKind::Spread(e) => expr_mentions(e, name),
+        }),
+        Expr::Unary { operand, .. }
+        | Expr::NonNull { operand, .. }
+        | Expr::PostIncrement { operand, .. }
+        | Expr::Spread { operand, .. } => expr_mentions(operand, name),
+        Expr::Binary { lhs, rhs, .. } => {
+            expr_mentions(lhs, name) || expr_mentions(rhs, name)
+        }
+        Expr::Is { subject, .. } => expr_mentions(subject, name),
+        Expr::If { branches, else_block, .. } => {
+            branches
+                .iter()
+                .any(|(c, b)| expr_mentions(c, name) || block_mentions(b))
+                || else_block.as_ref().is_some_and(|b| block_mentions(b))
+        }
+        Expr::When { subject, branches, .. } => {
+            expr_mentions(subject, name)
+                || branches.iter().any(|b| block_mentions(&b.body))
+        }
+        Expr::While { cond, body, else_block, .. } => {
+            expr_mentions(cond, name)
+                || block_mentions(body)
+                || else_block.as_ref().is_some_and(|b| block_mentions(b))
+        }
+        Expr::For { iterable, body, else_block, .. } => {
+            expr_mentions(iterable, name)
+                || block_mentions(body)
+                || else_block.as_ref().is_some_and(|b| block_mentions(b))
+        }
+        Expr::Lambda { body, .. } => match body {
+            LambdaBody::Expr(e) => expr_mentions(e, name),
+            LambdaBody::Block(b) => block_mentions(b),
+        },
+        _ => false,
+    }
+}
+
 /// Value info about a block's trailing expression (for branch-value
 /// coercions applied once the join type is known).
 struct TailInfo {
@@ -2287,6 +2572,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error_derived(id.span, action, &name, &links);
             return;
         }
+        // A lambda cannot consume a capture [fate-lambda].
+        if let Some(frame) = self.frame_of_id(var_id) {
+            if self.capture_move_violation(frame, &name, id.span) {
+                return;
+            }
+        }
         self.poison_derived(var_id, &name, FateEvent::Moved, span);
         if let Some(var) = self.lookup_mut(&id.name) {
             var.narrowed = Ty::Nothing;
@@ -2343,6 +2634,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let poison = var.poison.clone();
                     let consumed_by = var.consumed_by;
                     let links = var.links.clone();
+                    let var_id = var.id;
                     // [deduce-consume] `Nothing` marks a consumed (moved)
                     // value: referring to it is an impossibility.
                     if matches!(narrowed, Ty::Nothing) {
@@ -2391,6 +2683,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         }
                         return Ty::Unknown;
+                    }
+                    // A read of a variable from outside an enclosing
+                    // lambda is a *capture* [fate-lambda].
+                    if !self.lambda_ctx.is_empty() {
+                        if let Some(frame) = self.frame_of_id(var_id) {
+                            let mut visited = HashSet::new();
+                            let mutable =
+                                self.ty_transitively_mut(&declared, &mut visited);
+                            let name = id.name.clone();
+                            self.record_capture(frame, &name, var_id, mutable);
+                        }
                     }
                     if narrowed != declared {
                         self.out.repr_ty.insert(self.key(id.span), declared);
@@ -2701,7 +3004,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
-            Expr::Lambda { params, body, .. } => self.check_lambda(params, body, expected),
+            Expr::Lambda { params, body, span } => {
+                self.check_lambda(params, body, *span, expected)
+            }
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
             Expr::Error { .. } => Ty::Unknown,
         }
@@ -2822,12 +3127,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         params: &'p [LambdaParam],
         body: &'p LambdaBody,
+        span: Span,
         expected: Option<&Ty>,
     ) -> Ty {
         let (exp_params, exp_ret) = match expected {
             Some(Ty::Fn { params, ret }) => (Some(params.clone()), Some((**ret).clone())),
             _ => (None, None),
         };
+        // [fate-lambda] Everything below this frame boundary is a
+        // capture; the body's reads/mutations of such variables are
+        // recorded, and consuming one is an error (the lambda may run
+        // any number of times).
+        self.lambda_ctx.push(LambdaCtx {
+            boundary: self.locals.len(),
+            captures: Vec::new(),
+        });
         self.locals.push(HashMap::new());
         let mut param_tys = Vec::new();
         for (i, p) in params.iter().enumerate() {
@@ -2859,9 +3173,106 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.loop_stack = saved_loops;
         self.ret_ty = saved_ret;
         self.locals.pop();
+        let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
+        self.finish_lambda_captures(ctx, span);
         Ty::Fn {
             params: param_tys,
             ret: Box::new(ret),
+        }
+    }
+
+    /// Applies the capture contract of a checked lambda body
+    /// [fate-lambda]:
+    /// - a *mutated* capture is consumed at creation — the closure took
+    ///   ownership (each call mutates it, and the original observing
+    ///   those mutations on one backend but not the other would break
+    ///   parity); a written-kept parameter cannot be captured-and-
+    ///   mutated (you cannot own what the caller keeps), and an
+    ///   inferable parameter is claimed as moved;
+    /// - the lambda *value* fate-links to its transitively-mutable
+    ///   read captures: the variables stay readable, mutating one
+    ///   poisons the closure, and moving the closure follows the
+    ///   ordinary derived-value rules [fate-link] [fate-move-mode];
+    /// - immutable captures are free (clone-vs-alias is unobservable —
+    ///   backend-parity principle);
+    /// - the capture list is exported for tooling and emitters
+    ///   (`Checked::lambda_captures`).
+    fn finish_lambda_captures(&mut self, ctx: LambdaCtx, span: Span) {
+        let mut links: Vec<FateLink> = Vec::new();
+        let mut exported: Vec<LambdaCapture> = Vec::new();
+        for cap in &ctx.captures {
+            exported.push(LambdaCapture {
+                name: cap.name.clone(),
+                consumed: cap.mutated,
+            });
+            if cap.mutated {
+                let is_kept_param = self
+                    .var_by_id(cap.var_id)
+                    .is_some_and(|v| v.is_param)
+                    && !self.param_owned(&cap.name);
+                if is_kept_param && self.own_written {
+                    if self.inferred.is_some() {
+                        self.error(
+                            span,
+                            format!(
+                                "this lambda captures and mutates `{}`, which is a kept \
+                                 parameter (the caller keeps it); capture \
+                                 `copy({})` instead",
+                                cap.name, cap.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                if self
+                    .var_by_id(cap.var_id)
+                    .is_some_and(|v| v.is_param)
+                {
+                    if let Some(key) = self.own_fn {
+                        if !self.own_written {
+                            self.param_claims
+                                .entry(key)
+                                .or_default()
+                                .insert(cap.name.clone());
+                        }
+                    }
+                }
+                // Consume the original: the closure owns the value now.
+                self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span);
+                if let Some(var) = self.var_by_id_mut(cap.var_id) {
+                    var.narrowed = Ty::Nothing;
+                    var.poison = None;
+                    var.consumed_by = Some(
+                        "a lambda that captures and mutates it (bind a `copy` first \
+                         to keep the original usable)",
+                    );
+                }
+                continue;
+            }
+            if cap.mutable {
+                // The closure shares fate with its mutable read-captures:
+                // link it (transitively through the capture's own links).
+                if !links.iter().any(|l| l.root_id == cap.var_id) {
+                    links.push(FateLink {
+                        root_id: cap.var_id,
+                        root_name: cap.name.clone(),
+                        bind_span: span,
+                    });
+                }
+                if let Some(var) = self.var_by_id(cap.var_id) {
+                    for l in var.links.clone() {
+                        if !links.iter().any(|e| e.root_id == l.root_id) {
+                            links.push(l);
+                        }
+                    }
+                }
+            }
+        }
+        if !links.is_empty() {
+            self.lambda_links.insert(span, links);
+        }
+        if !exported.is_empty() {
+            self.out.lambda_captures.insert(self.key(span), exported);
         }
     }
 
@@ -4012,7 +4423,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         if let Some(contract) = contract {
             let fixed_count = decl.params.iter().filter(|p| !p.variadic).count();
-            for (i, arg) in args.iter().enumerate().take(fixed_count) {
+            // [deduce-same-call] Arguments are evaluated left to right:
+            // a value moved by an earlier argument of *this* call cannot
+            // be mentioned by a later one. (Argument typing runs before
+            // this loop, so the ordinary consumed-read error cannot see
+            // sibling-argument moves.)
+            let mut consumed_here: Vec<String> = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                if let Some(name) = consumed_here
+                    .iter()
+                    .find(|n| expr_mentions(arg, n))
+                    .cloned()
+                {
+                    self.error(
+                        arg.span(),
+                        format!(
+                            "`{name}` cannot be used here: it was consumed (moved) \
+                             by an earlier argument of this call (arguments are \
+                             evaluated left to right); use `copy` at the argument \
+                             that consumes it"
+                        ),
+                    );
+                }
+                if i >= fixed_count {
+                    continue;
+                }
                 let param = &decl.params[i];
                 let Some(d) = contract.iter().find(|d| d.param == param.name.name)
                 else {
@@ -4040,7 +4475,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else if !d.kept {
                         // A projection in a *moved* position moves data
                         // out of its provenance roots [fate-move-mode].
-                        self.projection_move(arg, span);
+                        let consumed = self.projection_move(arg, span);
+                        consumed_here.extend(consumed);
                     }
                     continue;
                 };
@@ -4059,11 +4495,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         continue;
                     }
                     let name = id.name.clone();
+                    // A lambda cannot consume a capture [fate-lambda].
+                    if let Some(frame) = self.frame_of_id(var_id) {
+                        if self.capture_move_violation(frame, &name, id.span) {
+                            continue;
+                        }
+                    }
                     self.poison_derived(var_id, &name, FateEvent::Moved, span);
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = Ty::Nothing;
                         var.consumed_by = Some("an earlier call");
                     }
+                    consumed_here.push(name);
                     continue;
                 }
                 // Kept. A parameter declared `Mut` gives the callee

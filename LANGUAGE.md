@@ -834,6 +834,21 @@ let zs = copy(ys)    // an independent duplicate
 add(zs, 6)           // fine, and ys is untouched
 ```
 
+**Lambdas follow the same discipline.** A lambda's relationship to the variables it captures is read off its body, and binds when the closure is created (a closure may run any number of times, so its contract cannot wait for the call): captured immutable values are free; a captured mutable value that the body only *reads* links the closure to it — the variable stays usable, but mutating it poisons the closure; a captured mutable value that the body *mutates* is consumed at creation — the closure owns it now (`copy` first to keep the original); and a lambda can never *consume* a capture, since every run after the first would use a moved value (`copy` inside the lambda instead).
+
+```
+let xs = mutable_list(1, 2)
+let f = (n: Int) -> { return n + size(xs) }   // reads xs: closure linked to it
+apply(f, 1)          // fine
+add(xs, 9)           // mutates the root: f is poisoned
+apply(f, 1)          // ERROR: f shared xs's fate and xs was mutated
+
+let g = () -> { add(xs, 1) }   // mutates xs: g takes ownership at creation
+size(xs)             // ERROR: xs was consumed by the lambda; copy first
+```
+
+One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
+
 Some consequences worth knowing:
 
 - **Values from calls are always independent.** `copy(x)`, `get(xs, 0)`, and every other function result carries no links — a function that wants to return a projection of a *kept* parameter must `copy` internally.

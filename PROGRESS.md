@@ -5,18 +5,18 @@ end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
 deductions, uniform across types, branch- and loop-aware). Roadmap stages
-**S1 (shared fate, strict), L2 (remaining consuming sites), and S2
-(move-mode bindings) are complete**: fate links with poison rules, the
-`internal fn copy` intrinsic, consumption at every move event, and
-binding modes inferred from downstream flow — move-mode bindings take
-ownership (ancestors consumed at the binding, parameters claimed into
-the deduction fixpoint) and the Rust backend emits them as *real moves*,
-making inferred consuming pipelines zero-clone end to end. The
-moved-position projection parity divergence is closed. This document
-is the handoff point for continuing development: it records what is
-built, the key design decisions, known limitations, and the plan for
-what's next — chiefly the roadmap toward full linear types (next up:
-S3 borrow emission, or L3/L4 hygiene items).
+**S1 (shared fate, strict), L2 (remaining consuming sites), S2
+(move-mode bindings), L3 (same-call + convergence), and L4 (lambda
+captures) are complete**: fate links with poison rules, the `internal
+fn copy` intrinsic, consumption at every move event, binding modes
+inferred from downstream flow (Rust emits real moves — zero-clone
+pipelines), same-call argument ordering, checking iterated to a capped
+fixpoint, and lambdas as ordinary values under shared fate (captures
+classified read/mutate/move from the body, contract bound at creation).
+This document is the handoff point for continuing development: it
+records what is built, the key design decisions, known limitations, and
+the plan for what's next — chiefly the roadmap toward full linear types
+(next up: S3 borrow emission).
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -34,7 +34,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 163 tests; includes eight kotlinc and eight rustc
+cargo test                  # 167 tests; includes eight kotlinc and eight rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -378,6 +378,57 @@ from downstream flow. What landed (rule [fate-move-mode]):
   bindings channel (`pattern_bindings`), so each pass re-declares them
   fresh (an iteration binds a new element).
 
+### L3 + L4 — convergence, same-call ordering, lambda captures (completed 2026-09-02)
+
+- **L3 same-call ordering [deduce-same-call]:** within one call, a later
+  argument may not mention a value an earlier argument consumed
+  (`f(a, a)`, `f(a, size(a))`) — argument typing precedes contract
+  enforcement, so the contract loop now tracks what this call consumed
+  (`consumed_here`, fed by bare-ident moves and `projection_move`'s
+  returned root names) and mention-checks every argument
+  (`expr_mentions`, a full expression/block walk). Nested calls were
+  already ordered (consumption applies during argument typing).
+- **L3a decided (user, 2026-09-02): iterate to a capped fixpoint
+  [deduce-fixpoint]** — option (iii): extra checking rounds run only
+  when the driving facts changed (inferred deductions, move-mode
+  candidates, claims), capped at four; stable programs stay at two
+  rounds and identical cost; a program unstable at the cap gets a
+  deterministic error naming the oscillating fns with the
+  write-the-list remedy. Candidates/claims grow monotonically, so late
+  discoveries converge — a move-mode candidate first seen under
+  round-two narrowing is now *applied* in round three (the diagnostic
+  moves from the raw derived-move error to the true site). The cap
+  error is direct code but untested: constructing a genuine overload
+  oscillator is an open exercise.
+- **L4a decided (user, 2026-09-02): lambdas are ordinary values under
+  shared fate [fate-lambda]** — superseding the recorded
+  captures-copy recommendation after the emitter audit (plain borrow
+  closures on Rust; Kotlin aliases; mutate-after-capture was a rustc
+  E0502, not a silent divergence). Per-capture classification from the
+  body, bound at creation: immutable reads free; mutable reads link
+  the closure to the variable (root mutation poisons it — the E0502
+  class becomes a Salvo diagnostic); mutated captures consumed at
+  creation (kept-param → error, inferable param → claim); consuming a
+  capture is always an error (multiplicity untracked). **No emitter
+  changes**: borrow-captures alias on both backends, so parity is
+  direct, and checker-legal programs pass NLL (verified end to end —
+  identical stdout). Implementation rides the existing event
+  machinery: a `lambda_ctx` boundary stack, capture recording in the
+  Ident read arm, mutation marking in `fate_mutation`, consumption
+  guards at the four consuming sites, and `finish_lambda_captures`
+  applying the contract; lambda values get links via `links_for_value`
+  and `Checked::lambda_captures` is exported for tooling/emitters.
+  Discovered en route: PROGRESS previously overstated "captures are
+  completely untracked" — body *consumption* already applied inline at
+  creation; the new guard turns that into the multiplicity error.
+- Known loud leftover [fate-lambda]: returning/storing a
+  capture-carrying closure is a rustc lifetime error the checker does
+  not reject; the recorded refinement is `move`-closure emission with
+  hoisted clones, pending a treatment for captured effect-handler
+  locals. Fn-type contracts (deductions/effects on `Ty::Fn`, the
+  named-fn mode mismatch, closure double-use) remain deferred to the
+  L7 parameterized-qualifier work.
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -635,38 +686,30 @@ day [fate-move-mode].
   decision is parity-sound. Spec'd under [type-str] and cross-referenced
   from [deduce-consume].
 
-### L3 — Same-call and convergence tightening
+### L3 — Same-call and convergence tightening. ✅ Done 2026-09-02
 
-Two known approximations in the current engine:
+(See the L3+L4 section in the decision log above.) Same-call argument
+ordering enforced [deduce-same-call]; checking iterates to a capped
+fixpoint [deduce-fixpoint].
 
-- `f(a, a)` where both parameters move: arguments are all typed before
-  narrowing applies, so the double move within one call isn't caught.
-  Fix: apply consumption between argument checks (or a post-check scan
-  of the call's own args).
-- Two-round checking doesn't iterate: round two's narrowing can change
-  overload resolution whose re-inferred deductions never feed back.
-  Fix: iterate check→infer to a fixpoint with a small round cap.
-  - **DECISION L3a** — determinism/cost policy: fixed cap (e.g. 4
-    rounds, error if still unstable — making instability *visible*) vs
-    iterate-to-fixpoint (risk of oscillation between overload choices;
-    needs a tie-breaker rule).
+- **DECISION L3a — decided (user, 2026-09-02):** option (iii) — iterate
+  only while facts changed, cap four rounds, deterministic instability
+  error with the write-the-list remedy.
 
-### L4 — Lambda captures
+### L4 — Lambda captures. ✅ Done 2026-09-02
 
-Captures are completely untracked (lambda bodies are a barrier). A
-closure that captures `n` and is stored/returned carries `n` with it.
-Prerequisite: audit what the Rust emitter actually does with captured
-locals today (clone vs move) — the checker rule must match the emission
-or change it.
+(See the L3+L4 section in the decision log above; rule [fate-lambda].)
 
-- **DECISION L4a — capture semantics.** Options: (a) captures always
-  *move* (creation consumes; strictest, simplest, matches "no hidden
-  borrows"); (b) captures copy via the L1a `copy` semantics (never
-  consume, costs clones — closest to current emission); (c) inferred
-  per-lambda from usage, with fn-typed values carrying deduction-like
-  capture contracts (most precise, most machinery). Recommendation:
-  start with (b) to match today's emitters, leave (c) as the long-term
-  design.
+- **DECISION L4a — decided (user, 2026-09-02):** lambdas are ordinary
+  values under shared fate — per-capture classification from the body
+  (read/mutate/move), contract bound at creation; immutable reads
+  free, mutable reads fate-link the closure, mutated captures consumed
+  at creation, consuming a capture always an error. The emitter audit
+  superseded the recorded (b) recommendation: plain borrow-closures
+  already alias on both backends, so no emitter change was needed.
+  Option (c) — full capture/deduction contracts on fn types — remains
+  the long-term design, folded into the L7 parameterized-qualifier
+  work.
 
 ### L5 — Places and partial moves
 
@@ -772,10 +815,19 @@ practice, independent returns may be the permanently right answer.
   per-qualifier join declarations, and whether `Nothing` gains
   parameters (recommended: yes — strictly more informative, revival
   unchanged).
+- Additional option for the same milestone (user suggestion
+  2026-09-02): a **call-multiplicity compiler qualifier** on fn-typed
+  parameters, surfaced in deduction lists — e.g. a fn whose deductions
+  mark a lambda parameter `Once` guarantees it calls the lambda at most
+  once. That would let a lambda *consume* its captures when passed to
+  such a fn (today always an error [fate-lambda], because multiplicity
+  is untracked) — the Rust backend would emit `FnOnce`. Fits the same
+  distinct-class rules (compiler-inserted, inferred from the callee's
+  body, never affecting overloads).
 
 Sequencing note: L1 lands in stages (S1 strict checker-only → S2
 move-mode bindings → S3 borrow emission); S1+L2 closed real
-rustc-rejection gaps; L3 is hygiene; L4 needs the emitter audit first;
+rustc-rejection gaps; L3 and L4 are done (2026-09-02);
 L5 is largely subsumed by shared fate (field-disjoint precision only);
 L6 is the only phase introducing new language surface and should get a
 LANGUAGE.md section of its own before implementation. Per AGENTS.md,
@@ -838,13 +890,13 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 163)
+## Test inventory (all green: 167)
 
-- `salvo-core`: 23 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 11 deduction
+  skipped with the root exempt) + 13 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
@@ -852,11 +904,15 @@ affected layer.
   `let`-bindings linking instead of moving — the parameter stays kept,
   reads through the alias are free, `copy` severs [fate-link] — and
   move-mode bindings *claiming* parameters as moved, through binding
-  chains and propagated through the call graph [fate-move-mode]) + 2
+  chains and propagated through the call graph [fate-move-mode], a
+  lambda capture-mutation claiming its parameter while a read capture
+  keeps it [fate-lambda], and late move-mode candidates converging in a
+  third round with the refined diagnostic superseding the raw
+  derived-move error [deduce-fixpoint]) + 2
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 39 - 32 `analyze` integration tests running the built
+- `salvo-cli`: 41 - 34 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -902,6 +958,14 @@ affected layer.
   through whole chains, the moved-position parity probe rejected,
   kept-parameter projections erroring with the `copy` remedy, and
   written-kept bindings keeping the S1 move-site error),
+  same-call argument ordering ([deduce-same-call]: double moves and
+  move-then-read within one call rejected at the later argument, `copy`
+  at the consuming argument and kept-position reads clean),
+  the L4 capture matrix ([fate-lambda]: immutable captures free,
+  closure poisoned by a mutable read-capture's root mutation, mutated
+  captures consumed at creation with claims reaching callers,
+  written-kept parameter capture-mutation rejected, capture consumption
+  always rejected, `copy` remedies clean),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -986,6 +1050,25 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L4) "Lambda bodies are a barrier" was only ever true of
+  `loop_stack`: bodies are checked *inline*, so flow events (consuming
+  calls, mutations) always fired against outer variables — captures
+  were never fully untracked, they were tracked with the wrong
+  multiplicity (once, at creation). The L4 model rides those existing
+  events (a boundary stack + guards at the consuming sites) instead of
+  adding a separate capture walk; when auditing "untracked" claims,
+  check what the inline checking already does.
+- (L3) Sibling arguments of one call are the *only* place where a read
+  can see a value after its move without the standard consumed-read
+  error firing: argument typing runs before contract enforcement, and
+  nested calls consume during typing. Hence the dedicated
+  mention-scan (`expr_mentions`) rather than a flow-state fix.
+- (L3a) The fixpoint converges because move-mode candidates and claims
+  only grow; inferred deductions are the one non-monotone axis
+  (overload resolution can flip with narrowing), which is why the
+  round cap exists. The instability error path is untested — nobody
+  has constructed a genuine oscillator yet; if you find one, turn it
+  into a test.
 - (S2) Round one must see *every* fate event, or mode inference goes
   blind: kept-`Mut` mutation events only fired when a call contract
   existed, and round one had no inferred facts — so mutation-driven

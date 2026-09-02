@@ -134,6 +134,18 @@ derives them mechanically:
     source and the derived variable readable, so the source must remain
     physically valid. (Replacing borrow-mode links with real borrows is
     roadmap stage S3.)
+  * **Lambdas emit plain (borrowing) closures [fate-lambda]:** captures
+    are rustc borrow-captures, which alias — the same semantics as
+    Kotlin's lexical capture, so parity is direct. Checker-legal
+    programs pass borrowck because a closure is poisoned by a root
+    mutation (its borrows end before the mutation under NLL) and
+    mutated captures are consumed at creation (no later conflicting
+    use). Known loud leftover: *returning or storing* a
+    capture-carrying closure is a rustc lifetime error the checker does
+    not reject; the recorded refinement is `move`-closure emission with
+    hoisted clones (`Checked::lambda_captures` carries the capture
+    list), which needs a treatment for captured effect-handler locals
+    first.
   * **Move-mode bindings move [fate-move-mode]:** a bind event in
     `Checked::binding_modes` (the checker consumed the ancestors at the
     binding) emits the value as its raw place — a real move, partial

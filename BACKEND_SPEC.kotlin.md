@@ -221,6 +221,10 @@ Conventions:
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+* [fate-lambda] Kotlin lambdas capture lexically (aliases), unchanged
+  by L4: the checker's capture contract (mutated captures consumed at
+  creation, closures poisoned by root mutations) is what keeps the
+  alias semantics aligned with the Rust backend's borrow-captures.
 * [fate-move-mode] Kotlin emission is *unchanged* by binding modes:
   bindings alias on the JVM in every mode. Parity with the Rust
   backend's real moves comes from the checker — a move-mode binding
