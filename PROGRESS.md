@@ -47,6 +47,16 @@ implemented (std array functions; optionals rejected at operators and in
 interpolation), leaving `when` on non-identifier subjects and the wider
 operator-typing rules open.
 
+**Next arc: place-based flow analysis (P1).** A new roadmap section
+tracks widening flow-state keys from variables to *places*: **P1** is
+field smart-casting (`h.field is Str` narrowing reads of `h.field`),
+with **P2** `when` on field subjects riding on it, and L5's
+field-disjoint ownership sharing the same substrate. Recommended
+sequencing is P1 before L5 — P1 has a live customer and is monotone in
+acceptance, so the shared substrate gets validated under the lower-risk
+feature. Two P1 design points (which projections narrow; whether
+narrowing survives a kept-immutable call) are marked **DECISION**.
+
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
 style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
@@ -1016,9 +1026,11 @@ instead of per-variable states).
   practice.
 - **Not L5: field smart-casting.** Place-based *type narrowing* (reads
   of `h.field` narrowed by `h.field is T`) is a separate feature from
-  place-based ownership, tracked under "Remaining leftovers" with its own
-  scope sketch. It became user-facing on 2026-09-02 when the
-  optional-strictness rules landed.
+  place-based ownership — it is roadmap phase **P1** (see "Roadmap:
+  place-based flow analysis"), which shares L5's `Place` substrate. The
+  recommendation there is **P1 before L5**: P1 has a live customer
+  (`when` on field subjects) and is monotone in acceptance, so the shared
+  substrate gets designed and validated under the lower-risk feature.
 
 ### L6 — Must-use: true linearity. ✅ Done 2026-09-02
 
@@ -1122,6 +1134,88 @@ L6 landed 2026-09-02 with its own LANGUAGE.md section and the
 [linear-*] rule family. Per AGENTS.md, each phase lands with
 LANGUAGE_SPEC.md rules and tests at every affected layer.
 
+## Roadmap: place-based flow analysis
+
+A second flow-analysis arc, independent of linearity. Today every flow
+fact is keyed by *variable* — narrowed type, poison, links, consumed
+state all live on a `LocalVar` and are snapshotted/merged by name (see
+the S1 gotcha: keep new facts inside `VarState` so
+`snapshot_narrows`/`restore_narrows`/`merge_fallthrough` stay the single
+source of truth). Two wanted features both need that key widened to a
+*place* (`h`, `h.field`, `h.a.b`):
+
+- **P1 — field smart-casting**: place-based *type* narrowing. After
+  `h.field is Str`, reads of `h.field` have type `Str`.
+- **L5 (field-disjoint precision)** — place-based *ownership*: using one
+  field while another is moved or borrowed. Lives in the linear-types
+  roadmap above; listed here because it shares P1's substrate.
+
+### P1 — Field smart-casting (place-based narrowing)
+
+Motivation, in order of weight:
+
+1. **`when` on field subjects** becomes natural (user interest
+   2026-09-02). Without narrowing, arms cannot read the subject at all
+   except through a binding, and `when` bindings only work for
+   single-type arms — so `when h.result { … }` would be a poor cousin of
+   the variable form. With narrowing it is the same feature.
+2. **The optional-strictness rules made the gap user-facing**
+   (2026-09-02): `[interp-no-none]` / `[op-no-none]` mean a field check
+   must use the `is T name` binding form before the value can be
+   interpolated or used as an operand. Three LANGUAGE.md examples had to
+   be rewritten for exactly this.
+3. It is **monotone in acceptance**: currently-rejected reads become
+   legal, no existing program changes meaning. Low blast radius.
+
+Scope: a `Place` (root var id + projection path), prefix relations
+(is-prefix-of / overlaps), place-keyed narrowing state through
+snapshot/restore/merge, and invalidation on assignment to any prefix,
+mutation through a `Mut`-keeping call on any prefix, and root
+reassignment — the same event set the fate analysis already watches
+(`fate_mutation`, [fate-poison]). Emitters already lower the *tests* for
+any place; they need the narrowed *reads* unwrapped (Kotlin smart-casts
+`T?` but needs `.value as T` for wrapper unions; Rust needs the `.uN()`
+accessor), and checker/emitter must agree as ever.
+
+- **DECISION P1a** — which projections narrow. Field chains are the
+  clear case; array/tuple *elements* (`arr[i]`) are not statically
+  identifiable in general, so narrowing them is either unsound or
+  restricted to constant indices. Recommendation: field chains only at
+  first, but define the projection enum with an element variant from the
+  start so L5 can reuse it without a rework.
+- **DECISION P1b** — whether narrowing survives a *call* that keeps the
+  root (`f(h)` with `h` kept but not `Mut`): a kept-immutable parameter
+  cannot mutate, so narrowing could survive. Conservative default:
+  invalidate on any `Mut`-keeping call, survive pure reads.
+- **P2 — `when` on field subjects** rides on P1 and is small once
+  narrowing exists (the checker's `when` currently rejects non-ident
+  subjects because `narrows` is name-keyed; emitters already handle
+  field subjects for `is`). Also a **DECISION** in its own right — it is
+  a language-surface change ([when-union-subject]).
+
+### Sequencing with L5 (recommendation)
+
+**P1 before L5.** Both widen the same key, so whichever lands first pays
+for the substrate; the argument for P1 going first:
+
+- P1 has a live customer (`when` on fields, plus the strictness
+  regression); L5a records that field-disjoint ownership has *no current
+  use case*. Designing the shared substrate under the feature that is
+  actually wanted validates it with real code instead of speculation.
+- P1 is monotone (more programs compile, nothing breaks). L5 changes
+  rejection behavior in both directions — more precision accepts some
+  programs while a place lattice tracks new events that can surface new
+  errors. Smaller blast radius first.
+- The integration with fate/poison happens once either way; doing it
+  with the smaller feature means less code is at risk when the keying
+  changes.
+
+The one risk of P1-first is designing `Place` against the easier
+consumer and having to generalize it for ownership (elements, not just
+fields) — mitigated by DECISION P1a's recommendation to include the
+element variant from the start. Neither phase hard-blocks the other:
+they are coupled only through the substrate.
+
 ## Remaining leftovers (small; no milestone claims them)
 
 Ownership-arc remainders (each recorded in its milestone section and/or
@@ -1175,29 +1269,12 @@ spec rule; consolidated here for findability):
   intermediate `let`; single-level coercion only (errors, never mis-emits).
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
-- **Field smart-casting (place-based type narrowing)** — struct-field
-  subjects do not flow-narrow: after `h.field is Str`, *reads of
-  `h.field`* still have the declared type, so they cannot be
-  interpolated or used as operands ([interp-no-none] [op-no-none]) and
-  the `is Str name` binding form is the only idiom. Union-test lowering
-  and `is`-bindings already work for any place, so this is purely the
-  narrowing side. Distinct from L5, which is place-based *ownership*
-  (partial moves) — the two only share the "track places, not
-  variables" idea.
-  * Priority note: this was invisible before 2026-09-02 (Kotlin's own
-    smart casts covered it and Rust was the only complainer). The
-    optional-strictness rules made it user-facing — it forced three
-    LANGUAGE.md examples to the binding form.
-  * Scope sketch: narrowing state is keyed by variable *name*
-    (`narrows: Vec<(String, Ty)>`, `LocalVar.narrowed`,
-    `snapshot_narrows`/`restore_narrows`); field narrowing needs a place
-    key with invalidation on assignment to any prefix, mutation through
-    a `Mut`-keeping call on any prefix, and root reassignment — the same
-    event set the fate analysis already watches (`fate_mutation`,
-    [fate-poison]), so there is machinery to ride on. Emitters need the
-    narrowed *reads* unwrapped (they already lower the tests): Kotlin
-    smart-casts `T?` but needs `.value as T` for wrapper unions, Rust
-    needs the `.uN()` accessor. Both sides must agree, as ever.
+- **Field smart-casting** is now roadmap phase **P1** (place-based flow
+  analysis), not a leftover: struct-field subjects do not flow-narrow, so
+  after `h.field is Str` a read of `h.field` still has the declared type
+  and cannot be interpolated or used as an operand
+  ([interp-no-none] [op-no-none]) — the `is Str name` binding form is the
+  idiom until P1 lands.
 - `yield` inside a *value-position* loop of an iterator body is a kotlinc
   error ("restricted suspending functions…"): the `run {}` value lowering
   is not an inline suspension scope. Loud, never silently wrong; the fix
@@ -1206,13 +1283,10 @@ spec rule; consolidated here for findability):
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 - **DECISION (open, for the user):**
-  - `when` requires a plain variable subject [when-union-subject] while
-    `is` accepts any place. Extending it is liftable: field access is
-    pure, so re-reading the place per arm is stable and exhaustiveness is
-    computed from the declared type; the restriction is an artifact of
-    narrowing being keyed by variable *name*. Mutation inside an arm
-    would stale the narrowing, but that hazard already exists for
-    `if … is` on fields.
+  - `when` on field subjects is roadmap phase **P2** (it rides on P1's
+    narrowing); the language-surface change to [when-union-subject] is
+    still a decision, as are P1a (which projections narrow) and P1b
+    (whether narrowing survives a kept-immutable call).
   - Binary operators are typed only for `None` [op-no-none]: everything
     else is unchecked (`Str * Bool` passes, result typing is just the
     left operand's type). Decide the operator typing rules — legal
