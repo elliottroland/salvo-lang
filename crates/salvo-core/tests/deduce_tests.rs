@@ -318,3 +318,42 @@ external fn list_size<T>(list: List<T>) -> Int
     );
     assert_eq!(facts(&program, &checked, "escapes", "list").0, true);
 }
+
+// [fate-move-mode] S2: a binding that is later *moved* takes ownership —
+// binding a bare parameter (or a projection of one) and then moving the
+// derived variable claims the parameter as moved, transitively through
+// binding chains and loop bindings. The claim feeds the interprocedural
+// fixpoint: callers see the argument consumed. A written list keeping
+// the parameter blocks the claim (the S1 error stands instead).
+#[test]
+fn move_mode_bindings_claim_parameters() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn claims<T>(list: List<T>) -> List<T> {{
+    let alias = list
+    return alias
+}}
+
+fn chain_claims<T>(list: List<T>) -> List<T> {{
+    let a = list
+    let b = a
+    return b
+}}
+
+fn caller<T>(list: List<T>) -> Int {{
+    let result = claims(list)
+    return list_size(result)
+}}
+
+external fn list_size<T>(list: List<T>) -> Int
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    // The move-mode binding claims the parameter: not kept.
+    assert_eq!(facts(&program, &checked, "claims", "list").0, false);
+    assert_eq!(facts(&program, &checked, "chain_claims", "list").0, false);
+    // The claim propagates through the call graph: `caller` passes its
+    // own parameter to `claims`, which now moves it.
+    assert_eq!(facts(&program, &checked, "caller", "list").0, false);
+}

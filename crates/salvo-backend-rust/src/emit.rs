@@ -1459,13 +1459,14 @@ impl<'p> Emitter<'p> {
                 pattern,
                 ty,
                 value,
-                ..
-            } => self.emit_let(pattern, ty.as_ref(), value, indent),
-            Stmt::Assign { target, value, .. } => {
+                span,
+            } => self.emit_let(pattern, ty.as_ref(), value, *span, indent),
+            Stmt::Assign { target, value, span } => {
                 let t = self.emit_raw(target);
                 // A bare-identifier source is a fate link, not a move
-                // [fate-link].
-                let v = self.emit_linked_value(value);
+                // [fate-link] — unless the assignment is a move-mode bind
+                // event [fate-move-mode].
+                let v = self.emit_bound_value(value, *span);
                 format!("{pad}{t} = {v};\n")
             }
             Stmt::Return { value, .. } => match (ctx, value) {
@@ -1521,6 +1522,7 @@ impl<'p> Emitter<'p> {
         pattern: &Pattern,
         ty: Option<&Type>,
         value: &Expr,
+        stmt_span: Span,
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
@@ -1537,7 +1539,7 @@ impl<'p> Emitter<'p> {
                 let code = self.emit_struct_lit(Some(annot), fields, *span);
                 self.apply_coercion(*span, code)
             }
-            _ => self.emit_linked_value(value),
+            _ => self.emit_bound_value(value, stmt_span),
         };
         match pattern {
             Pattern::Ident(name) => {
@@ -1691,7 +1693,11 @@ impl<'p> Emitter<'p> {
                 // Owned iteration [rs-iter-vec]: borrowed lists clone;
                 // an owned local also clones — iteration is a read and
                 // the loop binding only fate-links to it [fate-link].
-                let iter = self.emit_linked_value(iterable);
+                // A *move-mode* loop iterates by value [fate-move-mode]:
+                // the checker consumed the iterable's roots (the binding
+                // or its data is moved in the body), so the collection
+                // itself moves into the loop — no clone.
+                let iter = self.emit_bound_value(iterable, iterable.span());
                 let mut out = String::new();
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
@@ -1911,6 +1917,23 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// The value of a `let`/assignment bind event: a *move-mode* binding
+    /// [fate-move-mode] took ownership — the checker consumed the
+    /// ancestors at the binding — so the place is rendered directly (a
+    /// real move, partial for projections, no clone). Borrow-mode falls
+    /// back to the fate-link clone (`emit_linked_value`).
+    fn emit_bound_value(&mut self, value: &Expr, bind_span: Span) -> String {
+        if self
+            .checked
+            .binding_modes
+            .contains(&(self.file_idx, bind_span))
+        {
+            let code = self.emit_place(value);
+            return self.apply_coercion(value.span(), code);
+        }
+        self.emit_linked_value(value)
+    }
+
     /// The value of a `let`/assignment/`for` whose source is a bare
     /// identifier: the binding fate-links to the source and the checker
     /// keeps both usable (reads never consume [fate-link]), so an owned
@@ -1956,6 +1979,16 @@ impl<'p> Emitter<'p> {
             }
             Expr::Field { .. } | Expr::Index { .. } => {
                 let place = self.emit_place(expr);
+                // A projection in a moved position whose roots the
+                // checker consumed renders as the raw place — a real
+                // partial move, no clone [fate-move-mode].
+                if self
+                    .checked
+                    .moved_projections
+                    .contains(&(self.file_idx, expr.span()))
+                {
+                    return place;
+                }
                 // Field-cast reads are already owned (clone inside).
                 if let Expr::Field { span, .. } = expr {
                     if self.checked.field_casts.contains_key(&(self.file_idx, *span)) {
@@ -2900,8 +2933,11 @@ impl<'p> Emitter<'p> {
             }
             1 => {
                 // `P {...base, f: v}` -> `P { f: v, ..base.clone() }`
-                // (spread copies conceptually [struct-spread]; the clone
-                // keeps the base usable, matching Kotlin's `.copy`).
+                // [struct-spread]. The checker consumes the spread base
+                // [deduce-consume], so the clone-vs-move choice is
+                // unobservable (a real move is a deferred perf
+                // refinement); the clone also keeps unchecked contexts
+                // safe.
                 let base = match spreads[0] {
                     e @ (Expr::Ident(_) | Expr::Field { .. } | Expr::Index { .. }) => {
                         format!("{}.clone()", self.emit_place(e))

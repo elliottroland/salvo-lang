@@ -121,16 +121,28 @@ derives them mechanically:
   * field reads and index reads of non-Copy types clone
     (`person.name.clone()`, `v[i as usize].clone()`) — moving out of a
     place behind a (possible) reference is not generally legal, and the
-    checker does not track last-use;
+    checker does not track last-use. Exception [fate-move-mode]: a
+    projection in `Checked::moved_projections` (a moved-position
+    projection of mutable data whose roots the checker consumed)
+    renders as the raw place — a real partial move;
   * call results, literals, and constructed values are already owned.
   * Assignment targets, `is` subjects, and borrow positions use the raw
     place (no clone).
-  * **Fate-linked bindings clone [fate-link]:** a `let`/assignment value
+  * **Borrow-mode bindings clone [fate-link]:** a `let`/assignment value
     or `for` iterable that is a *bare identifier* of an owned non-Copy
     local emits `x.clone()`, not a move — the checker keeps both the
     source and the derived variable readable, so the source must remain
-    physically valid. (Clone-by-default is the S1 emission; replacing
-    borrow-mode links with real borrows is roadmap stage S3.)
+    physically valid. (Replacing borrow-mode links with real borrows is
+    roadmap stage S3.)
+  * **Move-mode bindings move [fate-move-mode]:** a bind event in
+    `Checked::binding_modes` (the checker consumed the ancestors at the
+    binding) emits the value as its raw place — a real move, partial
+    for projections (`let name = person.name;`) — and a `for` loop
+    whose iterable span is in the table iterates *by value* (the
+    collection moves into the loop). This is what makes inferred
+    consuming pipelines zero-clone end to end. `is`/`when` move-mode
+    bindings still clone (restriction-valid: the checker consumed the
+    subject, so the difference is unobservable).
 * **Local bindings.** Every `let` emits `let mut` (the crate-root
   `#![allow(unused_mut)]` silences the cosmetic lint): Salvo mutability
   (assignment, `++`, `Mut` methods, `&mut` argument positions) is
@@ -288,7 +300,10 @@ derives them mechanically:
   literal site.
 * [struct-spread] `P {...p, f: v}` emits
   `P { f: v, ..(p-owned) }` (functional update; the base is rendered
-  owned, cloning when needed).
+  owned, cloning when needed). The deep clone diverges from Kotlin's
+  shallow `.copy()` on `Mut` fields, which is unobservable because the
+  checker consumes the spread base [deduce-consume] — replacing the
+  clone with a real move is a deferred performance refinement.
 
 ## Deliberate cuts ([backend-never-wrong])
 

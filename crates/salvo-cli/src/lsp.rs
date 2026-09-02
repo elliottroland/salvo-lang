@@ -332,6 +332,41 @@ impl Server<'_> {
             }
         }
         let (span, ty) = best?;
+        // A fate-linked (derived) variable presents its compiler
+        // qualifier: the type line carries a bare `ReadOnly`, and the
+        // qualifier's parameters (roots, binding sites) follow as
+        // on-request detail [fate-link] (progressive disclosure — user
+        // decision 2026-09-02).
+        if let Some(reads) = checked.fate_reads.get(&(file_idx, span)) {
+            let roots: Vec<String> = reads
+                .iter()
+                .map(|r| {
+                    let pos = span_to_range(content, r.bind_span).start;
+                    format!(
+                        "`{}` (bound at {}:{})",
+                        r.root,
+                        pos.line + 1,
+                        pos.character + 1
+                    )
+                })
+                .collect();
+            let detail = format!(
+                "Compiler qualifier `ReadOnly` — shares fate with {}. Reads are \
+                 free; moving or mutating it is rejected; `copy(...)` makes an \
+                 independent value.",
+                roots.join(", ")
+            );
+            return Some(Hover {
+                contents: HoverContents::Array(vec![
+                    MarkedString::LanguageString(LanguageString {
+                        language: "salvo".to_string(),
+                        value: format!("ReadOnly {ty}"),
+                    }),
+                    MarkedString::String(detail),
+                ]),
+                range: Some(span_to_range(content, span)),
+            });
+        }
         Some(Hover {
             contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
                 language: "salvo".to_string(),

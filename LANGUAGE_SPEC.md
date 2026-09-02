@@ -46,6 +46,10 @@ Conventions:
   literals.
   * The lexer captures each `${...}` fragment as raw source + offset; the
     parser re-lexes fragments with spans shifted back into the file.
+  * Interpolation is a *read* (user decision 2026-09-02, L2a): `"${n}"`
+    never consumes `n` [deduce-consume]. Both backends render the
+    interpolated value as an owned copy purely for formatting — no
+    reference is retained — so reads-never-consume is parity-sound.
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let`.
   * Backends may support only small sizes; unsupported sizes are codegen
@@ -371,12 +375,14 @@ Conventions:
     deduction omits it, returned, `break`- or `yield`-ed, stored in a
     struct/array/tuple literal, or passed to a `use` handler
     constructor. Binding a bare parameter (or a projection of one) with
-    `let`/assignment is *not* a move — it fate-links the new variable to
-    the parameter [fate-link], and every way the linked value could
-    escape is a checker error until `copy` makes it independent
-    [fate-derived-readonly]. Unresolved callees (backend interop,
-    effect members) borrow leniently and preserve all qualifiers; value
-    flow out of a branch/loop tail is not tracked as a move yet.
+    `let`/assignment is *not* a move by itself — it fate-links the new
+    variable to the parameter [fate-link] — but a binding that is later
+    moved or mutated *claims* the parameter as moved (move-mode takes
+    ownership through the chain [fate-move-mode]); the claims are
+    seeded into the fixpoint between the checking rounds. Unresolved
+    callees (backend interop, effect members) borrow leniently and
+    preserve all qualifiers; value flow out of a branch/loop tail is
+    not tracked as a move yet.
   * A written list is validated against the same body facts: it may be
     *stricter* than the body (drop qualifiers, move parameters the body
     gives back), but promising a parameter back that the body moves, or
@@ -394,6 +400,27 @@ Conventions:
     backend-copyable scalars the move never appears in generated code,
     but the Salvo-level contract is enforced the same (decision:
     consistency over target-level permissiveness).
+  * Every other move event consumes a bare identifier the same way (L2,
+    mirroring the [deduce-infer] move list): storing it in a
+    struct/array/tuple literal, spreading it (`...n` — in a struct
+    literal or any spread position), `return n`, `break n`, `yield n`,
+    and passing it to a `use` handler constructor. The use-site
+    diagnostic names the consuming event ("consumed (moved) by a
+    literal store / a `...` spread / a `break` / a `yield` / a `use`
+    handler registration / an earlier call"). Reads never consume —
+    in particular string interpolation `"${n}"` is a read [type-str]
+    (user decision 2026-09-02, L2a).
+  * The code after a loop is reached from the fall-through exit *and*
+    from every `break`: the loop exit merges the flow state captured at
+    each `break` statement, so a value consumed on a break path stays
+    consumed after the loop even when the `break` sits inside an
+    always-exiting branch (which contributes nothing to the merge
+    *inside* the body — the loop exit is where its state lands).
+  * `yield n` inside a loop consumes anew every iteration; the loop
+    back-edge re-check reports the second-iteration use at the `yield`
+    itself. `return n` is terminal — the consumption is visible only to
+    unreachable code and to derived-variable poison on that path
+    [fate-poison].
   * A *kept* parameter sheds its removal set: the argument's narrowed
     type loses `declared − kept` qualifiers, so a follow-up call whose
     overload requires a removed qualifier fails resolution (e.g. a
@@ -436,12 +463,69 @@ Conventions:
     expressions are independent.
   * Links are flow state: they union across branch merges (may-be-linked
     is linked) and survive loop back-edge re-checking.
-* [fate-derived-readonly] A fate-linked (derived) variable is read-only:
-  moving it (a call that does not keep it, `return`, `break value`,
-  `yield`) or mutating it (a `Mut` call argument, projection assignment,
-  `++`) is an error at that site; the remedy is `copy`. (Allowing moves
-  of derived values when every root is owned and dead — Rust-style
-  partial moves — is roadmap stage S2.)
+  * Tooling presentation (user decision 2026-09-02): a derived variable
+    is rendered with a compiler-inserted `ReadOnly` qualifier — bare on
+    the type line, with its parameters (the fate roots and binding
+    sites, recorded in `Checked::fate_reads`) shown only as on-request
+    detail. Presentation-only today; `ReadOnly` is not part of the type
+    system and cannot be written in source. Parameterized compiler
+    qualifiers as *checked* signature vocabulary are the leading design
+    for L7 (see PROGRESS.md).
+* [fate-derived-readonly] A fate-linked (derived) variable in
+  *borrow-mode* is read-only: moving it (a call that does not keep it,
+  `return`, `break value`, `yield`, a struct/array/tuple literal store,
+  spread `...`, a `use` handler-constructor argument) or mutating it (a
+  `Mut` call argument, projection assignment, `++`) is an error at that
+  site; the remedy is `copy`. Since S2, this is the rule's *residual*
+  scope: it applies when an ancestor is a written-kept parameter (you
+  cannot move out of a borrow) — every other derived move/mutation makes
+  the binding move-mode instead [fate-move-mode].
+* [fate-move-mode] Bindings have modes, inferred from downstream flow
+  (S2). A derived variable that is later *moved or mutated* makes its
+  bind event (the `let`/assignment/`for`/`is`/`when`/destructure that
+  created the links) **move-mode**: the binding takes ownership — every
+  ancestor is consumed *at the binding* (a later use of an ancestor is
+  an error naming the binding), and the variable is the value's
+  independent owner from the binding on (no links). The whole derivation
+  chain moves together (`persons` → `person` → `name` → `longest`), so
+  consuming pipelines are zero-copy end to end.
+  * Ownership requirement: every live ancestor must be owned by the fn —
+    a local, or a parameter the fn's effective deduction contract moves.
+    When the contract is *inferred*, a move-mode binding reaching a
+    parameter **claims** it (the parameter becomes moved; callers hand
+    over ownership — the claim is seeded into the deduction fixpoint
+    [deduce-infer]). A *written* list that keeps the parameter blocks
+    the claim: the binding stays borrow-mode and the S1 error stands at
+    the move site [fate-derived-readonly].
+  * Mode inference rides the two-round architecture [deduce-consume]:
+    round one is strict (every derived move/mutation records its bind
+    chain as move-mode candidates and its parameter claims; the errors
+    are discarded), round two applies the modes. A candidate first
+    seen in round two stays a strict error (no third round; same
+    convergence class as overload re-resolution).
+  * A **projection in a moved position** (consuming call argument,
+    literal store, spread, `return`/`break`/`yield`, `use` ctor
+    argument) moves data out of its provenance roots — but only
+    projections of *transitively mutable* data are tracked (`Mut` at
+    any depth, following struct fields): for immutable data the
+    backends' clone-vs-alias difference is unobservable
+    (backend-parity principle). Owned roots are consumed at the site;
+    a written-kept parameter root errors ("cannot move mutable data
+    out of ..."), remedy `copy`. This closed the 2026-09-02 moved-
+    position parity divergence.
+  * A `for`-loop binding is fresh each iteration (consuming it in the
+    body is legal; the loop re-check re-declares it per pass). When a
+    move-mode binding consumes a loop binding — or the loop binding is
+    itself moved — the loop iterates *by value* and the iterable's
+    roots are consumed.
+  * Emission: the Rust backend emits move-mode bind events as real
+    moves (partial moves for projections; by-value iteration for
+    move-mode loops; tracked moved-position projections render as raw
+    places) — `Checked::binding_modes` / `Checked::moved_projections`.
+    Kotlin emission is unchanged: the consumption of the ancestors is
+    what keeps alias-vs-move unobservable. `is`/`when` move-mode
+    bindings still emit clones on Rust (restriction-valid; a faithful
+    refinement can come with S3).
 * [fate-poison] Mutating, moving, or reassigning a *root* variable
   poisons every variable derived from it: they narrow to `Nothing` with
   the fate recorded, a later use is an error naming the root and the
@@ -463,10 +547,13 @@ Conventions:
     same protocol on both backends, and it is what makes clone-vs-alias
     emission differences unobservable (any program that could tell the
     difference is rejected).
-  * Not yet tracked (later stages): non-identifier call arguments in
-    *moved* positions (kept-`Mut` positions are tracked, see above),
-    struct/array/tuple literal stores, `use` handler-constructor
-    arguments, and lambda captures.
+  * Not yet tracked: lambda captures (L4). Bare identifiers in every
+    moved position are tracked since L2 [deduce-consume]; projections
+    of *mutable* data in moved positions are tracked since S2
+    [fate-move-mode] — which closed the moved-position parity
+    divergence (Rust clone vs Kotlin alias) accepted on 2026-09-02.
+    Projections of immutable data in moved positions stay untracked by
+    design: the difference is unobservable.
 * [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
   duplicates a value: the argument is kept untouched with all its
   qualifiers (`[value]`), and the result is a fresh value with no fate
@@ -634,7 +721,12 @@ Conventions:
   * Hover returns the checker's type (`Checked::expr_ty`) for the
     smallest expression under the cursor; `Unknown`-typed expressions
     yield no hover. On a fn *name* it instead returns the full
-    source-like signature ([fn-ref-table]).
+    source-like signature ([fn-ref-table]). A fate-linked (derived)
+    variable hovers as `ReadOnly T` — a bare compiler qualifier on the
+    type line — with the qualifier's parameters (the roots it shares
+    fate with and their binding sites, plus the `copy` remedy) as
+    detail below (progressive disclosure, user decision 2026-09-02)
+    [fate-link].
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
   * Positions convert between byte offsets (Salvo spans) and UTF-16

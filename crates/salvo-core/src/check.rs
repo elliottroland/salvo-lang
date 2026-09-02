@@ -108,8 +108,34 @@ pub struct Checked {
     /// mapped to the declaration it resolves to. Drives the LSP's
     /// signature hover.
     pub fn_refs: HashMap<Key, FnKey>,
+    /// Reads of fate-linked (derived) variables [fate-link], keyed by the
+    /// identifier span: the roots the variable shares fate with, and
+    /// where each link was bound. Presentation-only: tooling renders the
+    /// variable's type with a bare `ReadOnly` compiler qualifier and
+    /// serves the parameters (roots, binding sites) as on-request detail
+    /// (user decision 2026-09-02, progressive disclosure).
+    pub fate_reads: HashMap<Key, Vec<FateRead>>,
+    /// Move-mode bind events [fate-move-mode]: the spans of `let`/
+    /// assignment statements (and, for `for` loops, of the iterable
+    /// expression) where the binding took ownership of the bound value —
+    /// the ancestors were consumed at the binding. The Rust backend
+    /// emits these as real moves instead of clones.
+    pub binding_modes: HashSet<Key>,
+    /// Projection expressions in *moved* positions whose provenance
+    /// roots were consumed [fate-move-mode]: the Rust backend may render
+    /// the place directly (a partial move) instead of cloning.
+    pub moved_projections: HashSet<Key>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
+}
+
+/// One fate link of a derived variable, exposed for tooling
+/// [fate-link]: the root variable's name and the span of the binding
+/// that created the link.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FateRead {
+    pub root: String,
+    pub bind_span: Span,
 }
 
 impl Checked {
@@ -133,15 +159,30 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut first = check_once(program, resolution, symbols, None);
-    crate::deduce::infer(program, &mut first);
+    // [fate-move-mode] S2 state carried across the rounds: bind events
+    // whose bound variable round one saw moved or mutated (move-mode
+    // candidates), and parameters claimed by such bindings (the binding
+    // takes ownership, so the parameter is moved — seeded into deduction
+    // inference between the rounds).
+    let mut candidates: HashSet<Key> = HashSet::new();
+    let mut claims: HashMap<FnKey, HashSet<String>> = HashMap::new();
+
+    let mut first = check_once(program, resolution, symbols, None, &mut candidates, &mut claims);
+    crate::deduce::infer(program, &mut first, &claims);
     let inferred = std::mem::take(&mut first.deductions);
 
-    let mut out = check_once(program, resolution, symbols, Some(&inferred));
+    let mut out = check_once(
+        program,
+        resolution,
+        symbols,
+        Some(&inferred),
+        &mut candidates,
+        &mut claims,
+    );
     // Deductions are a whole-program fact (strictest over the call graph),
     // computed once every body has been checked and every call site
     // resolved [deduce-infer].
-    crate::deduce::infer(program, &mut out);
+    crate::deduce::infer(program, &mut out, &claims);
     out
 }
 
@@ -152,6 +193,8 @@ fn check_once<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    move_candidates: &mut HashSet<Key>,
+    param_claims: &mut HashMap<FnKey, HashSet<String>>,
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
@@ -174,6 +217,11 @@ fn check_once<'p>(
             can_use: false,
             loop_stack: Vec::new(),
             next_var_id: 0,
+            move_candidates,
+            param_claims,
+            own_fn: None,
+            own_contract: None,
+            own_written: false,
         };
         checker.check_module(ast);
     }
@@ -196,6 +244,22 @@ struct LocalVar {
     /// `narrowed = Nothing` when a fate root is mutated/moved/reassigned)
     /// [fate-poison].
     poison: Option<Poison>,
+    /// What consumed this variable (set together with
+    /// `narrowed = Nothing` when the variable itself was moved: a call,
+    /// `return`/`break`/`yield`, a literal store, spread, or a `use`
+    /// handler registration) — names the event in the use-site
+    /// diagnostic [deduce-consume].
+    consumed_by: Option<&'static str>,
+    /// Whether this variable is a parameter (or handler state field) of
+    /// the enclosing fn: a parameter root is *owned* for move-mode
+    /// bindings only when the fn's effective contract moves it
+    /// [fate-move-mode]; locals are always owned.
+    is_param: bool,
+    /// For `for`-loop bindings: the span of the iterable expression.
+    /// When a move-mode binding consumes such a root, the loop itself
+    /// becomes move-mode (it iterates by value) and this span keys the
+    /// emitter's `binding_modes` entry [fate-move-mode].
+    for_origin: Option<Span>,
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -213,6 +277,11 @@ enum FateEvent {
     Moved,
     Mutated,
     Reassigned,
+    /// A move-mode binding took ownership of the value [fate-move-mode]:
+    /// the poisoned variable is the *root*, and `Poison::root_name`
+    /// carries the binding's name (the diagnostic tells the story in
+    /// the binding→root direction).
+    BoundAway,
 }
 
 impl FateEvent {
@@ -221,6 +290,7 @@ impl FateEvent {
             FateEvent::Moved => "moved",
             FateEvent::Mutated => "mutated",
             FateEvent::Reassigned => "reassigned",
+            FateEvent::BoundAway => "bound away",
         }
     }
 }
@@ -240,14 +310,17 @@ struct VarState {
     narrowed: Ty,
     links: Vec<FateLink>,
     poison: Option<Poison>,
+    consumed_by: Option<&'static str>,
 }
 
 /// Flow state of every local, per scope frame [deduce-consume].
 type NarrowSnapshot = Vec<HashMap<String, VarState>>;
 
 /// An `is`/`when`/`for` binding to declare in a branch scope: name, type,
-/// and the fate links inherited from the subject [fate-link].
-type Binding = (Ident, Ty, Vec<FateLink>);
+/// the fate links inherited from the subject [fate-link], and — for
+/// `for`-loop bindings — the span of the iterable expression
+/// [fate-move-mode].
+type Binding = (Ident, Ty, Vec<FateLink>, Option<Span>);
 
 struct Checker<'p, 'r> {
     scope: &'r ModuleScope<'p>,
@@ -281,6 +354,29 @@ struct Checker<'p, 'r> {
     loop_stack: Vec<LoopCtx>,
     /// Fresh-id counter for local bindings [fate-link].
     next_var_id: u32,
+    /// Move-mode candidates [fate-move-mode]: bind events (keyed by bind
+    /// span) whose bound variable round one saw moved or mutated —
+    /// collected at `error_derived`, the single choke point for every
+    /// derived move/mutation (round one's errors are discarded). Round
+    /// two applies move-mode at these bind sites.
+    move_candidates: &'r mut HashSet<Key>,
+    /// Parameters claimed by move-mode bindings and moved-position
+    /// projections [fate-move-mode]: the binding takes ownership, so the
+    /// parameter is moved. Only recorded for fns *without* a written
+    /// deduction list; seeded into deduction inference between rounds.
+    param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
+    /// The fn currently being checked, when it is a top-level `fn` item
+    /// (member fns have no key).
+    own_fn: Option<FnKey>,
+    /// The current fn's effective deduction contract (written list, else
+    /// the previous round's inferred facts): decides whether a parameter
+    /// root is *owned* (moved by the contract) for move-mode bindings
+    /// [fate-move-mode]. `None` for member fns and in round one.
+    own_contract: Option<Vec<crate::deduce::ParamDeduction>>,
+    /// Whether the current fn has a *written* deduction list: written
+    /// contracts never gain claims — a kept parameter stays kept and
+    /// derived moves stay errors [fate-derived-readonly].
+    own_written: bool,
 }
 
 /// Narrowing facts derived from a condition.
@@ -331,14 +427,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Fn(f) => {
                     // The declaration's own name is a fn reference
                     // [fn-ref-table].
-                    self.out.fn_refs.insert(
-                        self.key(f.name.span),
-                        FnKey {
-                            file: self.file_idx,
-                            item: item_idx,
-                        },
-                    );
-                    self.check_fn(f, &[], &[])
+                    let key = FnKey {
+                        file: self.file_idx,
+                        item: item_idx,
+                    };
+                    self.out.fn_refs.insert(self.key(f.name.span), key);
+                    // [fate-move-mode] The fn's own effective contract
+                    // decides whether a parameter root is owned: the
+                    // written list when present (never gains claims),
+                    // else the previous round's inferred facts.
+                    self.own_fn = Some(key);
+                    self.own_written = f.deductions.is_some();
+                    self.own_contract = match &f.deductions {
+                        Some(list) => {
+                            // Shape errors are reported by the deduce
+                            // pass; the mapping here is silent.
+                            Some(crate::deduce::from_written(f, list, |_, _| {}))
+                        }
+                        None => self
+                            .inferred
+                            .and_then(|table| table.get(&key).cloned()),
+                    };
+                    self.check_fn(f, &[], &[]);
+                    self.own_fn = None;
+                    self.own_written = false;
+                    self.own_contract = None;
                 }
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
@@ -422,6 +535,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     poison: None,
+                    consumed_by: None,
+                    is_param: true,
+                    for_origin: None,
                 },
             );
         }
@@ -437,6 +553,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     id,
                     links: Vec::new(),
                     poison: None,
+                    consumed_by: None,
+                    is_param: true,
+                    for_origin: None,
                 },
             );
         }
@@ -586,6 +705,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        // A handler-constructor argument is stored in the handler for the
+        // rest of the scope: passing a bare identifier moves it
+        // [deduce-consume].
+        for a in args {
+            self.fate_move(a, "store", "a `use` handler registration", a.span());
+        }
         let mut subst: HashMap<String, Ty> = HashMap::new();
         for (p, a) in param_tys.iter().zip(&arg_tys) {
             unify(p, a, &mut subst);
@@ -638,12 +763,26 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Declares a new local carrying fate links to the variables it was
     /// bound from [fate-link].
     fn declare_with_links(&mut self, name: &Ident, ty: Ty, links: Vec<FateLink>) {
+        self.declare_var(name, ty, links, false, None);
+    }
+
+    fn declare_var(
+        &mut self,
+        name: &Ident,
+        ty: Ty,
+        links: Vec<FateLink>,
+        is_param: bool,
+        for_origin: Option<Span>,
+    ) {
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
                 format!("`{}` is already declared (shadowing is not allowed)", name.name),
             );
         }
+        // [fate-move-mode] A move-mode binding takes ownership: its
+        // ancestors are consumed here and the binding carries no links.
+        let links = self.apply_binding_mode(&name.name, links);
         let id = self.next_var_id;
         self.next_var_id += 1;
         self.locals.last_mut().expect("scope stack").insert(
@@ -654,6 +793,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 id,
                 links,
                 poison: None,
+                consumed_by: None,
+                is_param,
+                for_origin,
             },
         );
     }
@@ -677,7 +819,13 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The fate links a binding from `value` carries: each source
     /// variable plus its own links, flattened (transitive links point at
-    /// the ultimate roots) [fate-link], deduplicated by root id.
+    /// the ultimate roots) [fate-link], deduplicated by root id. The
+    /// direct source link carries this bind event's span; transitive
+    /// links *keep their original bind spans*, so a variable's links
+    /// describe the whole derivation chain (`longest` → `name` →
+    /// `person` → `persons`, each at its own bind site) — which is what
+    /// lets move-mode candidates cover every binding of a consuming
+    /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
         let mut sources = Vec::new();
         Self::provenance(value, &mut sources);
@@ -698,14 +846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 &mut links,
             );
             for l in var.links.clone() {
-                push(
-                    FateLink {
-                        root_id: l.root_id,
-                        root_name: l.root_name,
-                        bind_span,
-                    },
-                    &mut links,
-                );
+                push(l, &mut links);
             }
         }
         links
@@ -734,7 +875,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Errors on an ownership-requiring operation (move or `Mut` op) on a
     /// fate-linked (derived) variable [fate-derived-readonly]: derived
     /// values are read-only; `copy` makes an independent value.
+    ///
+    /// This is also the S2 mode-inference probe [fate-move-mode]: every
+    /// move/mutation of a derived variable lands here, so the binding
+    /// event (the links' shared bind span) is recorded as a move-mode
+    /// candidate for the next round, and parameter roots are claimed as
+    /// moved when the fn's contract is inferable (no written list).
     fn error_derived(&mut self, span: Span, action: &str, name: &str, links: &[FateLink]) {
+        self.record_move_candidates(links);
+        self.record_param_claims(links);
         let root = &links[0].root_name;
         self.error(
             span,
@@ -745,6 +894,279 @@ impl<'p, 'r> Checker<'p, 'r> {
                  `copy(...)`)"
             ),
         );
+    }
+
+    /// Records the *whole chain* of bind events behind `links` as
+    /// move-mode candidates [fate-move-mode]: the links themselves carry
+    /// the latest bind span, and each live root's own links carry the
+    /// bind spans further down the derivation chain (`persons` → `person`
+    /// → `name` → `longest`). Making every binding in a consuming
+    /// pipeline move-mode is what lets the emitter produce a zero-clone
+    /// chain of real moves.
+    fn record_move_candidates(&mut self, links: &[FateLink]) {
+        let mut spans: Vec<Span> = Vec::new();
+        let mut stack: Vec<u32> = Vec::new();
+        for l in links {
+            spans.push(l.bind_span);
+            stack.push(l.root_id);
+        }
+        let mut seen: HashSet<u32> = HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(var) = self.var_by_id(id) {
+                for l in &var.links {
+                    spans.push(l.bind_span);
+                    stack.push(l.root_id);
+                }
+            }
+        }
+        for span in spans {
+            self.move_candidates.insert((self.file_idx, span));
+        }
+    }
+
+    /// Claims every parameter root among `links` as moved by the current
+    /// fn [fate-move-mode] — only when the fn's contract is *inferable*
+    /// (no written deduction list): a binding or projection that takes
+    /// ownership of data reached through a parameter makes the fn demand
+    /// ownership from its callers. Claims are seeded into deduction
+    /// inference between the checking rounds.
+    fn record_param_claims(&mut self, links: &[FateLink]) {
+        let Some(key) = self.own_fn else { return };
+        if self.own_written {
+            return;
+        }
+        for l in links {
+            let is_param = self
+                .var_by_id(l.root_id)
+                .is_some_and(|var| var.is_param);
+            if is_param {
+                self.param_claims
+                    .entry(key)
+                    .or_default()
+                    .insert(l.root_name.clone());
+            }
+        }
+    }
+
+    fn var_by_id(&self, id: u32) -> Option<&LocalVar> {
+        self.locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.values().find(|v| v.id == id))
+    }
+
+    /// Whether a parameter is *owned* by the current fn: its effective
+    /// deduction contract (written list, else the previous round's
+    /// inferred facts including claims) moves it [fate-move-mode].
+    fn param_owned(&self, name: &str) -> bool {
+        self.own_contract
+            .as_ref()
+            .and_then(|c| c.iter().find(|d| d.param == name))
+            .is_some_and(|d| !d.kept)
+    }
+
+    /// [fate-move-mode] S2: applies the binding mode at a link-creating
+    /// bind event. Borrow-mode (the default) keeps the links — the
+    /// binding shares fate with its ancestors. Move-mode fires when the
+    /// bind event is a candidate (round one saw the bound variable moved
+    /// or mutated) and every ancestor is owned in-function (a local, or
+    /// a parameter the fn's effective contract moves): the binding takes
+    /// ownership — the ancestors are consumed *here* (poison lands at
+    /// the binding), the event is recorded for the emitter (real move,
+    /// no clone), and the binding carries no links. A written-kept
+    /// parameter ancestor keeps borrow-mode, so the S1 error re-derives
+    /// at the move site [fate-derived-readonly].
+    fn apply_binding_mode(&mut self, binding_name: &str, links: Vec<FateLink>) -> Vec<FateLink> {
+        // Round one is strict S1: candidates are being collected.
+        if self.inferred.is_none() || links.is_empty() {
+            return links;
+        }
+        let bind_span = links[0].bind_span;
+        if !self.move_candidates.contains(&(self.file_idx, bind_span)) {
+            return links;
+        }
+        // Every live ancestor must be owned; a dead root has nothing
+        // left to consume and does not block the move.
+        for l in &links {
+            let Some(var) = self.var_by_id(l.root_id) else { continue };
+            if var.is_param && !self.param_owned(&l.root_name) {
+                return links;
+            }
+        }
+        self.record_param_claims(&links);
+        for l in &links {
+            // Other variables derived from this root lose their value
+            // [fate-poison].
+            self.poison_derived(l.root_id, &l.root_name, FateEvent::Moved, bind_span);
+            let file_idx = self.file_idx;
+            let mut loop_origin = None;
+            if let Some(var) = self.var_by_id_mut(l.root_id) {
+                loop_origin = var.for_origin;
+                var.narrowed = Ty::Nothing;
+                var.consumed_by = None;
+                var.poison = Some(Poison {
+                    root_name: binding_name.to_string(),
+                    event: FateEvent::BoundAway,
+                    event_span: bind_span,
+                });
+            }
+            // Consuming a `for`-loop binding means the loop iterates by
+            // value: the loop itself becomes a move-mode event, keyed by
+            // its iterable span for the emitter.
+            if let Some(origin) = loop_origin {
+                self.out.binding_modes.insert((file_idx, origin));
+            }
+        }
+        self.out.binding_modes.insert((self.file_idx, bind_span));
+        Vec::new()
+    }
+
+    fn var_by_id_mut(&mut self, id: u32) -> Option<&mut LocalVar> {
+        self.locals
+            .iter_mut()
+            .rev()
+            .find_map(|frame| frame.values_mut().find(|v| v.id == id))
+    }
+
+    /// [fate-move-mode] A projection in a *moved* position — a consuming
+    /// call argument, a literal store, spread, `return`/`break`/`yield`,
+    /// or a `use` constructor argument — moves data out of its
+    /// provenance roots. Only projections of *transitively mutable* data
+    /// are tracked: for immutable data the backends' clone-vs-alias
+    /// difference is unobservable (backend-parity principle). Owned
+    /// roots give up the value — they are consumed here, and the
+    /// projection is recorded for the emitter (a real partial move); a
+    /// written-kept parameter root is an error (moving out of a borrow),
+    /// remedy `copy`. Round one records parameter claims only.
+    fn projection_move(&mut self, expr: &Expr, span: Span) {
+        let mut sources = Vec::new();
+        Self::provenance(expr, &mut sources);
+        if sources.is_empty() {
+            return;
+        }
+        let ty = self
+            .out
+            .ty_of(self.file_idx, expr.span())
+            .cloned()
+            .unwrap_or(Ty::Unknown);
+        let mut visited = HashSet::new();
+        if !self.ty_transitively_mut(&ty, &mut visited) {
+            return;
+        }
+        let links = self.links_for_value(expr, span);
+        if links.is_empty() {
+            return;
+        }
+        self.record_param_claims(&links);
+        if self.inferred.is_none() {
+            return;
+        }
+        for l in &links {
+            let Some(var) = self.var_by_id(l.root_id) else { continue };
+            if var.is_param && !self.param_owned(&l.root_name) {
+                let root = l.root_name.clone();
+                self.error(
+                    span,
+                    format!(
+                        "cannot move mutable data out of `{root}`: it is a kept \
+                         parameter (the caller keeps it), so its projections can \
+                         only be read; use `copy` to pass an independent value"
+                    ),
+                );
+                return;
+            }
+        }
+        for l in &links {
+            self.poison_derived(l.root_id, &l.root_name, FateEvent::Moved, span);
+            let file_idx = self.file_idx;
+            let mut loop_origin = None;
+            if let Some(var) = self.var_by_id_mut(l.root_id) {
+                loop_origin = var.for_origin;
+                var.narrowed = Ty::Nothing;
+                var.poison = None;
+                var.consumed_by = Some(
+                    "a move of mutable data projected out of it \
+                     (`copy` at that site keeps it usable)",
+                );
+            }
+            // Moving data out of a `for`-loop binding means the loop
+            // iterates by value [fate-move-mode].
+            if let Some(origin) = loop_origin {
+                self.out.binding_modes.insert((file_idx, origin));
+            }
+        }
+        self.out
+            .moved_projections
+            .insert((self.file_idx, expr.span()));
+    }
+
+    /// Whether a type's data is transitively mutable: `Mut` at any depth
+    /// — top-level qualifier, type argument, array/tuple/union
+    /// component, or a struct field followed recursively through struct
+    /// declarations [type-with-mut] [fate-move-mode]. Mirrors the Kotlin
+    /// backend's transitive immutability analysis for `copy` lowering.
+    fn ty_transitively_mut(&self, ty: &Ty, visited: &mut HashSet<String>) -> bool {
+        if ty.quals().iter().any(|q| q.name == "Mut") {
+            return true;
+        }
+        match ty.strip_quals() {
+            Ty::Named { name, args } => {
+                if args.iter().any(|a| self.ty_transitively_mut(a, visited)) {
+                    return true;
+                }
+                let Some(decl) = self.scope.structs.get(name.as_str()) else {
+                    return false;
+                };
+                if !visited.insert(name.clone()) {
+                    return false; // recursive struct: already being checked
+                }
+                decl.fields.iter().any(|f| self.ast_type_mut(&f.ty, visited))
+            }
+            Ty::Array(elem) => self.ty_transitively_mut(elem, visited),
+            Ty::Tuple(elems) => {
+                elems.iter().any(|e| self.ty_transitively_mut(e, visited))
+            }
+            Ty::Union(arms) => arms.iter().any(|a| self.ty_transitively_mut(a, visited)),
+            _ => false,
+        }
+    }
+
+    /// `ty_transitively_mut` over written (AST) types — struct fields
+    /// are declared syntactically [fate-move-mode].
+    fn ast_type_mut(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                if qualifiers.iter().any(|q| q.name.name == "Mut") {
+                    return true;
+                }
+                if base.args.iter().any(|a| self.ast_type_mut(a, visited)) {
+                    return true;
+                }
+                let Some(decl) = self.scope.structs.get(base.name.name.as_str()) else {
+                    return false;
+                };
+                if !visited.insert(base.name.name.clone()) {
+                    return false;
+                }
+                decl.fields.iter().any(|f| self.ast_type_mut(&f.ty, visited))
+            }
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                qualifiers.iter().any(|q| q.name.name == "Mut")
+                    || self.ast_type_mut(base, visited)
+            }
+            ast::Type::Union { arms, .. } => {
+                arms.iter().any(|a| self.ast_type_mut(a, visited))
+            }
+            ast::Type::Tuple { elems, .. } => {
+                elems.iter().any(|e| self.ast_type_mut(e, visited))
+            }
+            ast::Type::Array { elem, .. } => self.ast_type_mut(elem, visited),
+            ast::Type::Nullable { inner, .. } => self.ast_type_mut(inner, visited),
+            ast::Type::Fn { .. } => false,
+        }
     }
 
     /// Handles a whole-variable mutation event on `name` (a `Mut` call
@@ -819,6 +1241,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 narrowed: var.narrowed.clone(),
                                 links: var.links.clone(),
                                 poison: var.poison.clone(),
+                                consumed_by: var.consumed_by,
                             },
                         )
                     })
@@ -834,6 +1257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.narrowed = state.narrowed.clone();
                     var.links = state.links.clone();
                     var.poison = state.poison.clone();
+                    var.consumed_by = state.consumed_by;
                 }
             }
         }
@@ -933,16 +1357,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                let poison = if matches!(joined, Ty::Nothing) {
-                    states.iter().find_map(|s| s.poison.clone())
+                let (poison, consumed_by) = if matches!(joined, Ty::Nothing) {
+                    (
+                        states.iter().find_map(|s| s.poison.clone()),
+                        states.iter().find_map(|s| s.consumed_by),
+                    )
                 } else {
-                    None
+                    (None, None)
                 };
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
                 {
                     var.narrowed = joined;
                     var.links = links;
                     var.poison = poison;
+                    var.consumed_by = consumed_by;
                 }
             }
         }
@@ -1476,6 +1904,10 @@ struct LoopCtx {
     /// A bare `break` or a `continue` occurred: an iteration may end
     /// without producing a value, so `None` joins the loop's value type.
     may_skip_value: bool,
+    /// Flow-state snapshot at each `break`: the loop's exit merges these
+    /// with the fall-through exit state, so a value consumed on a break
+    /// path stays consumed after the loop [deduce-consume].
+    break_states: Vec<NarrowSnapshot>,
 }
 
 /// A parsed `is` check: qualifiers + optional base type (or `None`).
@@ -1514,8 +1946,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(HashMap::new());
         // [effect-scope] `use` registrations expire with the block.
         let effect_depth = self.effect_env.len();
-        for (ident, ty, links) in bindings {
-            self.declare_with_links(&ident, ty, links);
+        for binding in bindings {
+            self.declare_binding(binding);
         }
         let mut value = Ty::none();
         let mut tail = None;
@@ -1636,7 +2068,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // variables derived from it are poisoned
                     // [fate-poison]; the variable itself revives with
                     // fresh links to the new value's sources [fate-link].
+                    // An assignment is a bind event: move-mode applies
+                    // [fate-move-mode].
                     let links = self.links_for_value(value, *span);
+                    let links = self.apply_binding_mode(&id.name, links);
                     let root = self
                         .lookup(&id.name)
                         .map(|var| (var.id, id.name.clone()));
@@ -1652,6 +2087,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         var.narrowed = value_ty;
                         var.links = links;
                         var.poison = None;
+                        var.consumed_by = None;
                     }
                 }
                 Ty::none()
@@ -1669,8 +2105,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         // Returning a value moves it: a fate-linked
                         // (derived) variable cannot be moved
-                        // [fate-derived-readonly].
-                        self.fate_move_of_derived(v, "return");
+                        // [fate-derived-readonly]; returning a root
+                        // consumes it [deduce-consume] (terminal here,
+                        // but visible to unreachable code and to
+                        // derived-variable poison [fate-poison]).
+                        self.fate_move(v, "return", "a `return`", *span);
                     }
                     None => {
                         if !expected.is_none_ty()
@@ -1695,9 +2134,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match value {
                     Some(v) => {
                         let vty = self.check_expr(v, None);
-                        // `break value` moves the value out of the loop
-                        // [fate-derived-readonly].
-                        self.fate_move_of_derived(v, "break with");
+                        // `break value` moves the value out of the loop:
+                        // a derived variable cannot be moved
+                        // [fate-derived-readonly]; a root is consumed
+                        // [deduce-consume] — the code after the loop sees
+                        // it moved.
+                        self.fate_move(v, "break with", "a `break`", *span);
                         let repr = self.repr_of(v, &vty);
                         if let Some(ctx) = self.loop_stack.last_mut() {
                             ctx.breaks.push(TailInfo {
@@ -1713,6 +2155,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
+                // The loop's exit is reachable from every `break`: record
+                // this path's flow state so the after-loop merge sees
+                // values consumed on break paths [deduce-consume] (an
+                // always-exiting branch containing the `break` contributes
+                // nothing to the merge *inside* the body, but the loop
+                // exit is exactly where its state lands).
+                let snap = self.snapshot_narrows();
+                if let Some(ctx) = self.loop_stack.last_mut() {
+                    ctx.break_states.push(snap);
+                }
                 Ty::Nothing
             }
             Stmt::Continue { span } => {
@@ -1722,7 +2174,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Nothing
             }
-            Stmt::Yield { value, .. } => {
+            Stmt::Yield { value, span } => {
                 let elem = match &self.ret_ty {
                     Ty::Named { name, args } if name == "Iter" && !args.is_empty() => {
                         args[0].clone()
@@ -1730,9 +2182,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => Ty::Unknown,
                 };
                 self.check_expr(value, Some(&elem));
-                // Yielding a value moves it into the produced iterator
-                // [fate-derived-readonly].
-                self.fate_move_of_derived(value, "yield");
+                // Yielding a value moves it into the produced iterator:
+                // a derived variable cannot be moved
+                // [fate-derived-readonly]; a root is consumed
+                // [deduce-consume] — a yield in a loop body consumes
+                // anew every iteration, which the loop re-check surfaces
+                // on the back edge.
+                self.fate_move(value, "yield", "a `yield`", *span);
                 Ty::none()
             }
             Stmt::Use { handler, span } => {
@@ -1751,45 +2207,90 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn declare_pattern(&mut self, pattern: &Pattern, ty: Ty, links: Vec<FateLink>) {
+        for binding in self.pattern_bindings(pattern, ty, links, None) {
+            self.declare_binding(binding);
+        }
+    }
+
+    /// Declares one branch/loop binding (name, type, inherited links,
+    /// `for`-loop origin) [fate-link] [fate-move-mode].
+    fn declare_binding(&mut self, (ident, ty, links, for_origin): Binding) {
+        self.declare_var(&ident, ty, links, false, for_origin);
+    }
+
+    /// Flattens a binding pattern into the `(name, type, links)` triples
+    /// it declares [fate-link]. Loop bindings go through this so each
+    /// checking pass of a loop body re-declares them fresh — an iteration
+    /// binds a *new* element, so consumption of the binding never
+    /// survives the back edge [deduce-consume].
+    fn pattern_bindings(
+        &mut self,
+        pattern: &Pattern,
+        ty: Ty,
+        links: Vec<FateLink>,
+        for_origin: Option<Span>,
+    ) -> Vec<Binding> {
         match pattern {
-            Pattern::Ident(id) => self.declare_with_links(id, ty, links),
+            Pattern::Ident(id) => vec![(id.clone(), ty, links, for_origin)],
             Pattern::Tuple { elems, .. } => {
                 let elem_tys: Vec<Ty> = match &ty {
                     Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
                     _ => vec![Ty::Unknown; elems.len()],
                 };
-                for (p, t) in elems.iter().zip(elem_tys) {
-                    self.declare_pattern(p, t, links.clone());
-                }
+                elems
+                    .iter()
+                    .zip(elem_tys)
+                    .flat_map(|(p, t)| self.pattern_bindings(p, t, links.clone(), for_origin))
+                    .collect()
             }
-            Pattern::Struct { fields, .. } => {
-                for f in fields {
+            Pattern::Struct { fields, .. } => fields
+                .iter()
+                .map(|f| {
                     // [let-destructure] Destructuring reads the declared
-                    // field type (qualifier
-                    // overrides only apply to direct field accesses, which
-                    // the backend can cast).
+                    // field type (qualifier overrides only apply to direct
+                    // field accesses, which the backend can cast).
                     let fty = self
                         .declared_field_ty(&ty, &f.field.name)
                         .unwrap_or(Ty::Unknown);
                     // Each destructured binding is a projection of the
                     // source: it shares the source's fate [fate-link].
-                    self.declare_with_links(&f.binding, fty, links.clone());
-                }
-            }
+                    (f.binding.clone(), fty, links.clone(), for_origin)
+                })
+                .collect(),
         }
     }
 
-    /// Errors when a move-position value is a fate-linked (derived)
-    /// variable [fate-derived-readonly]: `return x`, `yield x`, and
-    /// `break x` move the value, which a derived variable cannot do —
-    /// `copy` is the remedy.
-    fn fate_move_of_derived(&mut self, value: &Expr, action: &str) {
-        let Expr::Ident(id) = value else { return };
+    /// Handles a move-position value — `return x`, `break x`, `yield x`,
+    /// a struct/array/tuple literal store, spread `...x`, or a `use`
+    /// handler-constructor argument [deduce-consume]. Only bare
+    /// identifiers (through spread) are tracked. Moving a fate-linked
+    /// (derived) variable is an error [fate-derived-readonly] — `copy`
+    /// is the remedy; moving a root consumes it (narrows to `Nothing`,
+    /// with `moved_by` naming the event in the use-site diagnostic) and
+    /// poisons its derived variables [fate-poison], exactly like a
+    /// call-site move.
+    fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
+        let inner = match value {
+            Expr::Spread { operand, .. } => operand.as_ref(),
+            _ => value,
+        };
+        let Expr::Ident(id) = inner else {
+            // A projection in a moved position moves data out of its
+            // provenance roots [fate-move-mode].
+            self.projection_move(inner, span);
+            return;
+        };
         let Some(var) = self.lookup(&id.name) else { return };
-        if !var.links.is_empty() {
-            let links = var.links.clone();
-            let name = id.name.clone();
+        let (var_id, links) = (var.id, var.links.clone());
+        let name = id.name.clone();
+        if !links.is_empty() {
             self.error_derived(id.span, action, &name, &links);
+            return;
+        }
+        self.poison_derived(var_id, &name, FateEvent::Moved, span);
+        if let Some(var) = self.lookup_mut(&id.name) {
+            var.narrowed = Ty::Nothing;
+            var.consumed_by = Some(moved_by);
         }
     }
 
@@ -1840,10 +2341,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let narrowed = var.narrowed.clone();
                     let declared = var.declared.clone();
                     let poison = var.poison.clone();
+                    let consumed_by = var.consumed_by;
+                    let links = var.links.clone();
                     // [deduce-consume] `Nothing` marks a consumed (moved)
                     // value: referring to it is an impossibility.
                     if matches!(narrowed, Ty::Nothing) {
                         match poison {
+                            // [fate-move-mode] The variable is a *root*
+                            // consumed by a move-mode binding:
+                            // `root_name` carries the binding's name.
+                            Some(p) if p.event == FateEvent::BoundAway => self.error(
+                                id.span,
+                                format!(
+                                    "`{}` cannot be used here: `{binding}` was bound \
+                                     from it and later moves the value, so the \
+                                     binding took ownership; bind with `copy(...)` \
+                                     (e.g. `let {binding} = copy(...)`) to keep \
+                                     `{}` usable, or reassign it before use",
+                                    id.name,
+                                    id.name,
+                                    binding = p.root_name,
+                                ),
+                            ),
                             // [fate-poison] Two-site diagnostic: the value
                             // shared fate with a root that was
                             // mutated/moved/reassigned after the binding.
@@ -1864,9 +2383,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 id.span,
                                 format!(
                                     "`{}` cannot be used here: it was consumed (moved) \
-                                     by an earlier call, so its type is `Nothing`; \
+                                     by {}, so its type is `Nothing`; \
                                      reassign it before use",
-                                    id.name
+                                    id.name,
+                                    consumed_by.unwrap_or("an earlier call"),
                                 ),
                             ),
                         }
@@ -1874,6 +2394,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     if narrowed != declared {
                         self.out.repr_ty.insert(self.key(id.span), declared);
+                    }
+                    // Expose the fate links of derived-variable reads for
+                    // tooling (`ReadOnly` presentation) [fate-link].
+                    if !links.is_empty() {
+                        let reads: Vec<FateRead> = links
+                            .iter()
+                            .map(|l| FateRead {
+                                root: l.root_name.clone(),
+                                bind_span: l.bind_span,
+                            })
+                            .collect();
+                        self.out.fate_reads.insert(self.key(id.span), reads);
                     }
                     return narrowed;
                 }
@@ -1934,6 +2466,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for e in elems {
                     tys.push(self.check_expr(e, expected_elem.as_ref()));
                 }
+                // Storing a value in an array literal moves it
+                // [deduce-consume]; spread elements move their operand.
+                for e in elems {
+                    self.fate_move(e, "store", "a literal store", e.span());
+                }
                 let elem = expected_elem.unwrap_or_else(|| {
                     if tys.is_empty() {
                         Ty::Unknown
@@ -1968,10 +2505,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for (i, e) in elems.iter().enumerate() {
                     tys.push(self.check_expr(e, expected_elems.map(|ts| &ts[i])));
                 }
+                // Storing a value in a tuple literal moves it
+                // [deduce-consume].
+                for e in elems {
+                    self.fate_move(e, "store", "a literal store", e.span());
+                }
                 Ty::Tuple(tys)
             }
             Expr::StructLit { ty, fields, span } => {
-                self.check_struct_lit(ty.as_ref(), fields, expected, *span)
+                let struct_ty = self.check_struct_lit(ty.as_ref(), fields, expected, *span);
+                // Storing a value in a struct literal moves it; spreading
+                // a value moves it too (its fields are stored)
+                // [deduce-consume].
+                for f in fields {
+                    match &f.kind {
+                        StructLitFieldKind::Named { value, .. } => {
+                            self.fate_move(value, "store", "a literal store", value.span());
+                        }
+                        StructLitFieldKind::Spread(e) => {
+                            self.fate_move(e, "spread", "a `...` spread", e.span());
+                        }
+                    }
+                }
+                struct_ty
             }
             Expr::Unary { op, operand, .. } => {
                 let t = self.check_expr(operand, None);
@@ -2075,7 +2631,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     &info.then_narrows.clone(),
                     info.bindings.clone(),
                 );
-                let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
+                let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
+                // The code after the loop is reached from the fall-through
+                // exit *and* from every `break`: merge the break-path
+                // states in, so a value consumed on a break path stays
+                // consumed after the loop [deduce-consume].
+                let break_states = std::mem::take(&mut ctx.break_states);
+                if !break_states.is_empty() {
+                    let mut states = vec![self.snapshot_narrows()];
+                    states.extend(break_states);
+                    self.merge_fallthrough(&states);
+                }
                 // `else` runs only when the loop never ran, i.e. the
                 // condition failed on first evaluation: else-narrows apply.
                 let (else_ty, else_tail) = match else_block {
@@ -2102,15 +2668,26 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty);
-                self.locals.push(HashMap::new());
                 // The loop binding is a projection of the iterated
                 // collection: it shares the collection's fate [fate-link].
+                // It goes through the per-pass bindings channel so every
+                // checking pass re-declares it fresh — each iteration
+                // binds a new element [deduce-consume].
                 let links = self.links_for_value(iterable, iterable.span());
-                self.declare_pattern(pattern, elem, links);
+                let bindings =
+                    self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
                 self.loop_stack.push(LoopCtx::default());
-                let (body_ty, body_tail) = self.check_loop_body(body, &[], Vec::new());
-                let ctx = self.loop_stack.pop().expect("loop ctx pushed above");
-                self.locals.pop();
+                let (body_ty, body_tail) = self.check_loop_body(body, &[], bindings);
+                let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
+                // Merge break-path states into the after-loop state (the
+                // loop-binding frame is popped first, so the snapshots'
+                // shared outer frames align) [deduce-consume].
+                let break_states = std::mem::take(&mut ctx.break_states);
+                if !break_states.is_empty() {
+                    let mut states = vec![self.snapshot_narrows()];
+                    states.extend(break_states);
+                    self.merge_fallthrough(&states);
+                }
                 let (else_ty, else_tail) = match else_block {
                     Some(b) => {
                         let (t, tail) = self.check_branch_block(b, Vec::new());
@@ -2416,8 +2993,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         out.else_narrows.push((name.clone(), rem.clone()));
                     }
                 }
-                if let Some((ident, ty, links)) = info.binding {
-                    out.bindings.push((ident, ty, links));
+                if let Some(binding) = info.binding {
+                    out.bindings.push(binding);
                 }
                 out
             }
@@ -2430,7 +3007,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let l = self.analyze_cond(lhs);
                 let r = self.with_narrows(&l.then_narrows.clone(), |c| {
                     c.locals.push(HashMap::new());
-                    for (ident, ty, links) in &l.bindings {
+                    for (ident, ty, links, _) in &l.bindings {
                         c.declare_with_links(ident, ty.clone(), links.clone());
                     }
                     let r = c.analyze_cond(rhs);
@@ -2629,7 +3206,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The binding aliases the subject: they share fate
             // [fate-link].
             let links = self.links_for_value(subject, b.span);
-            (b.clone(), bty, links)
+            (b.clone(), bty, links, None)
         });
 
         IsInfo {
@@ -2844,7 +3421,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .insert(self.key(b.span), narrow_ty.clone());
                 // The `when` binding aliases the subject [fate-link].
                 let links = self.links_for_value(subject, b.span);
-                bindings.push((b.clone(), narrow_ty.clone(), links));
+                bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
             let narrows = vec![(subject_id.name.clone(), narrow_ty)];
             // Isolate this branch's consumption effects; only
@@ -3420,9 +3997,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Shape errors on written lists are reported by the deduce
             // pass; the mapping here is silent.
             Some(list) => Some(crate::deduce::from_written(decl, list, |_, _| {})),
-            None => best.key.and_then(|key| {
-                self.inferred.and_then(|table| table.get(&key).cloned())
-            }),
+            None => match self.inferred {
+                Some(table) => best.key.and_then(|key| table.get(&key).cloned()),
+                // Round one has no inferred facts yet: fall back to the
+                // optimistic contract (everything kept with its declared
+                // qualifiers). It enforces no moves and no qualifier
+                // removal — its only effect is the kept-`Mut` *mutation*
+                // events, which S2's mode inference needs to see in
+                // round one so mutation-driven move-mode candidates are
+                // recorded before round two declares the bindings
+                // [fate-move-mode].
+                None => Some(crate::deduce::optimistic(decl)),
+            },
         };
         if let Some(contract) = contract {
             let fixed_count = decl.params.iter().filter(|p| !p.variadic).count();
@@ -3451,6 +4037,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         for name in names {
                             self.fate_mutation(&name, span);
                         }
+                    } else if !d.kept {
+                        // A projection in a *moved* position moves data
+                        // out of its provenance roots [fate-move-mode].
+                        self.projection_move(arg, span);
                     }
                     continue;
                 };
@@ -3472,6 +4062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.poison_derived(var_id, &name, FateEvent::Moved, span);
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = Ty::Nothing;
+                        var.consumed_by = Some("an earlier call");
                     }
                     continue;
                 }

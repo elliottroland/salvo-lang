@@ -1602,3 +1602,58 @@ fn kotlinc_compiles_and_runs_copy() {
     let expected = "hi\n3 4\na b\n1 9\n3\n";
     run_kotlin_files(&files, "copy", expected);
 }
+
+// ===== S2: move-mode bindings [fate-move-mode] =====
+
+/// The same program as the Rust backend's S2 demo: Kotlin emission is
+/// unchanged by move modes (aliases stay aliases; the checker's
+/// consumption of the ancestors is what keeps the difference from
+/// Rust's real moves unobservable — backend-parity principle). The
+/// exact stdout must match the Rust run.
+const S2_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn longest_name(persons: List<Person>) -> Str {
+    let longest = ""
+    for person in persons {
+        let name = person.name
+        if size(name) > size(longest) {
+            longest = name
+        }
+    }
+    return longest
+}
+
+fn consume(text: Str) -> [] None {
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    println(longest_name(people))
+    for s in list("x", "y") {
+        consume(s)
+    }
+    let xs = mutable_list(1, 2)
+    let ys = xs
+    ys.add(3)
+    println("${ys.size()}")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_move_modes() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", S2_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "Grace\n3\n";
+    run_kotlin_files(&files, "s2-moves", expected);
+}

@@ -67,7 +67,10 @@ Conventions:
 
 * [struct-decl] Structs emit as `data class` with `val` fields (`var`
   under `Mut`, defaults as `= expr`, optional nullable defaults `= null`).
-* [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`.
+* [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
+  copy aliases `Mut` fields where Rust deep-clones, which is
+  unobservable because the checker consumes the spread base
+  [deduce-consume].
 * [kt-mutability] `let` emits `val`, or `var` when the name is assigned or
   `++`-incremented anywhere in the fn (mutation pre-scan);
   `Mut List<T>` emits `MutableList<T>` via the define's `Mut inline:`
@@ -218,6 +221,12 @@ Conventions:
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+* [fate-move-mode] Kotlin emission is *unchanged* by binding modes:
+  bindings alias on the JVM in every mode. Parity with the Rust
+  backend's real moves comes from the checker — a move-mode binding
+  consumes its ancestors, so no program can observe alias-vs-move —
+  and the same holds for tracked moved-position projections of mutable
+  data.
 
 ## Deliberate cuts ([backend-never-wrong])
 

@@ -26,7 +26,7 @@
 //! as plain borrows that preserve all qualifiers. Value flow of a bare
 //! parameter out of a branch/loop tail is not tracked as a move yet.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
     Block, Deduction, Expr, FnDecl, Item, LambdaBody, Param, Stmt, StrExprPart,
@@ -59,8 +59,18 @@ struct FnInfo<'p> {
 }
 
 /// Computes (or validates) the deduction list of every top-level `fn` and
-/// stores the result in `checked.deductions`.
-pub(crate) fn infer(program: &Program, checked: &mut Checked) {
+/// stores the result in `checked.deductions`. `claims` carries parameters
+/// the checker saw claimed by move-mode bindings and moved-position
+/// projections [fate-move-mode]: the binding takes ownership of data
+/// reached through the parameter, so the fn demands ownership from its
+/// callers — the claimed parameter is moved. Claims only exist for fns
+/// without a written list, and are applied after every body inference
+/// (facts only disappear, so the fixpoint still terminates).
+pub(crate) fn infer(
+    program: &Program,
+    checked: &mut Checked,
+    claims: &HashMap<FnKey, HashSet<String>>,
+) {
     let mut fns: Vec<FnInfo<'_>> = Vec::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for (item_idx, item) in ast.items.iter().enumerate() {
@@ -86,7 +96,11 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
             Some(list) => from_written(f.decl, list, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
-            None => optimistic(f.decl),
+            None => {
+                let mut state = optimistic(f.decl);
+                apply_claims(&mut state, claims.get(&f.key));
+                state
+            }
         };
         states.insert(f.key, state);
     }
@@ -100,7 +114,8 @@ pub(crate) fn infer(program: &Program, checked: &mut Checked) {
                 continue;
             }
             let Some(body) = &f.decl.body else { continue };
-            let new = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
+            let mut new = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
+            apply_claims(&mut new, claims.get(&f.key));
             if states.get(&f.key) != Some(&new) {
                 states.insert(f.key, new);
                 changed = true;
@@ -173,7 +188,7 @@ pub fn declared_quals(ty: &Type) -> Vec<String> {
 
 /// Everything kept with its declared qualifiers (the optimistic starting
 /// point of inference, and the state of unannotated bodyless fns).
-fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
+pub(crate) fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
     decl.params
         .iter()
         .map(|p| ParamDeduction {
@@ -288,6 +303,19 @@ fn bare_ident(e: &Expr) -> Option<&str> {
         Expr::Ident(id) => Some(&id.name),
         Expr::Spread { operand, .. } => bare_ident(operand),
         _ => None,
+    }
+}
+
+/// Marks every claimed parameter as moved [fate-move-mode]: a move-mode
+/// binding (or moved-position projection) took ownership of data reached
+/// through it, so the fn demands ownership from its callers.
+fn apply_claims(state: &mut [ParamDeduction], claims: Option<&HashSet<String>>) {
+    let Some(claims) = claims else { return };
+    for p in state.iter_mut() {
+        if claims.contains(&p.param) {
+            p.kept = false;
+            p.quals.clear();
+        }
     }
 }
 

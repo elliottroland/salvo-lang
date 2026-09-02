@@ -973,3 +973,101 @@ fn rustc_compiles_and_runs_copy() {
     let expected = "hi\n3 4\na b\n1 9\n3\n";
     run_rust_files(&files, "copy", expected);
 }
+
+// ===== S2: move-mode bindings [fate-move-mode] =====
+
+/// The flagship zero-clone consuming pipeline: `persons` is inferred
+/// moved (the `name` binding takes ownership through the loop binding),
+/// the loop iterates by value, the field moves out, and the result moves
+/// up — no clones anywhere. Plus a mutation-driven move-mode binding
+/// (`ys` from `xs`) and a per-iteration consumed loop binding.
+const S2_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn longest_name(persons: List<Person>) -> Str {
+    let longest = ""
+    for person in persons {
+        let name = person.name
+        if size(name) > size(longest) {
+            longest = name
+        }
+    }
+    return longest
+}
+
+fn consume(text: Str) -> [] None {
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    println(longest_name(people))
+    for s in list("x", "y") {
+        consume(s)
+    }
+    let xs = mutable_list(1, 2)
+    let ys = xs
+    ys.add(3)
+    println("${ys.size()}")
+}
+"#;
+
+// [fate-move-mode] Move-mode bindings and loops emit real moves: the
+// claimed parameter is taken by value, the loop iterates by value, the
+// field projection partial-moves, and the binding chain never clones.
+#[test]
+fn move_mode_bindings_emit_real_moves() {
+    let files = generate(&[("main.sv", S2_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    // The claimed parameter is owned (moved in).
+    assert!(
+        main.content.contains("pub fn longest_name(persons: Vec<Person>) -> String"),
+        "generated:\n{}",
+        main.content
+    );
+    // Move-mode loop: by value, no clone.
+    assert!(
+        main.content.contains("for mut person in persons {"),
+        "generated:\n{}",
+        main.content
+    );
+    // Move-mode bindings: a real partial move and a real move.
+    assert!(
+        main.content.contains("let mut name = person.name;"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut ys = xs;"),
+        "generated:\n{}",
+        main.content
+    );
+    // The whole pipeline is clone-free.
+    let pipeline = main
+        .content
+        .split("pub fn longest_name")
+        .nth(1)
+        .and_then(|rest| rest.split("pub fn").next())
+        .expect("longest_name body");
+    assert!(
+        !pipeline.contains(".clone()"),
+        "pipeline should be clone-free:\n{pipeline}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_move_modes() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", S2_DEMO, false)]);
+    let expected = "Grace\n3\n";
+    run_rust_files(&files, "s2-moves", expected);
+}

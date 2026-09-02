@@ -656,8 +656,8 @@ fn fate_derived_variables_are_read_only() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(v: List<Int>) -> [] None {\n}\n\n\
-         fn move_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    consume(ys)\n}\n\n\
-         fn mutate_derived() {\n    let xs = mutable_list(1, 2)\n    let ys = xs\n    add(ys, 3)\n}\n\n\
+         fn move_derived() -> Int {\n    let xs = list(1, 2)\n    let ys = xs\n    consume(ys)\n    return size(xs)\n}\n\n\
+         fn mutate_derived() -> Int {\n    let xs = mutable_list(1, 2)\n    let ys = xs\n    add(ys, 3)\n    return size(xs)\n}\n\n\
          fn return_derived(v: Str) -> [v] Str {\n    let w = v\n    return w\n}\n\n\
          fn read_derived(v: Str) -> [v] Int {\n    let w = v\n    return size(w)\n}\n",
     )
@@ -665,21 +665,27 @@ fn fate_derived_variables_are_read_only() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(
-        stderr.contains("cannot move `ys`: it was bound from `xs` and shares its fate"),
+    // [fate-move-mode] S2: moving or mutating a derived variable whose
+    // roots are owned is legal — the binding takes ownership and the
+    // *root* is consumed at the binding; its later use names the binding.
+    assert_eq!(
+        stderr
+            .matches(
+                "`xs` cannot be used here: `ys` was bound from it and later moves the value"
+            )
+            .count(),
+        2,
         "stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("cannot mutate `ys`: it was bound from `xs`"),
-        "stderr: {stderr}"
-    );
+    // A *written-kept* parameter root keeps the S1 error at the move
+    // site [fate-derived-readonly]: you cannot move out of a borrow.
     assert!(
         stderr.contains("cannot return `w`: it was bound from `v`"),
         "stderr: {stderr}"
     );
     // Exactly the three violations: reading a derived variable is fine.
     assert!(stderr.contains("3 errors"), "stderr: {stderr}");
-    assert!(stderr.contains("use `copy`"), "stderr: {stderr}");
+    assert!(stderr.contains("copy"), "stderr: {stderr}");
 }
 
 // [fate-poison] Mutating, moving, or reassigning a root poisons every
@@ -854,4 +860,231 @@ fn fate_mut_projection_arguments_poison_derived() {
     );
     // `remedy` is clean: exactly the two violations above.
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+}
+
+// [deduce-consume] L2: the remaining move events consume a bare root
+// identifier exactly like a call-site move — storing it in a
+// struct/array/tuple literal, spreading it (`...n`), `break n` (the code
+// after the loop sees it moved, even when the `break` sits inside a
+// branch), `yield n` (anew every iteration — the loop re-check surfaces
+// the back edge), and passing it to a `use` handler constructor. The
+// use-site diagnostic names the consuming event. Derived variables
+// cannot be moved by any of these [fate-derived-readonly].
+#[test]
+fn l2_move_sites_consume_roots() {
+    let dir = src_dir("l2_move_sites");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Box {\n    item: Str\n}\n\n\
+         effect Greeter {\n    fn greet() -> Str\n}\n\n\
+         handler FixedGreeter(text: Str) of Greeter {\n    \
+         fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
+         fn read(s: Str) -> [s] None {\n}\n\n\
+         fn tuple_store() {\n    let s = \"x\"\n    let t = (s, 1)\n    read(s)\n}\n\n\
+         fn array_store() {\n    let s = \"x\"\n    let a = [s]\n    read(s)\n}\n\n\
+         fn struct_store() {\n    let s = \"x\"\n    let b = Box {item: s}\n    read(s)\n}\n\n\
+         fn spread_store() {\n    let b = Box {item: \"x\"}\n    let c = Box {...b}\n    \
+         read(b.item)\n}\n\n\
+         fn break_in_branch() {\n    let s = \"x\"\n    let r = while true {\n        \
+         if true {\n            break s\n        }\n    }\n    read(s)\n}\n\n\
+         fn yield_in_loop() -> Iter<Str> {\n    let s = \"x\"\n    \
+         for i in [1, 2] {\n        yield s\n    }\n}\n\n\
+         fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n\n\
+         fn store_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
+         read_list(xs)\n}\n\n\
+         fn read_list(v: List<Int>) -> [v] None {\n}\n\n\
+         fn spread_derived() {\n    let b = Box {item: \"x\"}\n    let d = b\n    \
+         let c = Box {...d}\n    read(b.item)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Literal stores (tuple, array, struct) each consume `s`.
+    assert_eq!(
+        stderr
+            .matches("`s` cannot be used here: it was consumed (moved) by a literal store")
+            .count(),
+        3,
+        "stderr: {stderr}"
+    );
+    // Spread consumes its base.
+    assert!(
+        stderr.contains("`b` cannot be used here: it was consumed (moved) by a `...` spread"),
+        "stderr: {stderr}"
+    );
+    // `break s` inside an always-exiting branch still reaches the code
+    // after the loop (the loop exit merges break-path states).
+    assert!(
+        stderr.contains("`s` cannot be used here: it was consumed (moved) by a `break`"),
+        "stderr: {stderr}"
+    );
+    // `yield s` in a loop consumes anew every iteration: the back edge
+    // errors at the yield itself on the re-check.
+    assert!(
+        stderr.contains("`s` cannot be used here: it was consumed (moved) by a `yield`"),
+        "stderr: {stderr}"
+    );
+    // Handler-constructor arguments are stored in the handler.
+    assert!(
+        stderr.contains(
+            "`s` cannot be used here: it was consumed (moved) by a `use` handler registration"
+        ),
+        "stderr: {stderr}"
+    );
+    // [fate-move-mode] S2: storing/spreading a derived variable of owned
+    // roots is legal — the binding takes ownership, so the *root* is
+    // consumed at the binding and its later use names the binding.
+    assert!(
+        stderr.contains(
+            "`xs` cannot be used here: `ys` was bound from it and later moves the value"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "`b` cannot be used here: `d` was bound from it and later moves the value"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("9 errors"), "stderr: {stderr}");
+}
+
+// [deduce-consume] L2 positive matrix: `copy` at each new move site keeps
+// the source usable [copy-fn]; reassignment revives (also within a loop
+// body ahead of the back edge); a `break value` consumes only its own
+// operand; and a `return` inside a branch poisons derived variables only
+// on the exiting path — the fall-through path never saw the move.
+#[test]
+fn l2_move_sites_remedies_stay_clean() {
+    let dir = src_dir("l2_move_remedies");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Box {\n    item: Str\n}\n\n\
+         effect Greeter {\n    fn greet() -> Str\n}\n\n\
+         handler FixedGreeter(text: Str) of Greeter {\n    \
+         fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
+         fn read(s: Str) -> [s] None {\n}\n\n\
+         fn copy_remedies() [use] {\n    let s = \"x\"\n    \
+         let t = (copy(s), 1)\n    let a = [copy(s)]\n    \
+         let b = Box {item: copy(s)}\n    let c = Box {...copy(b)}\n    \
+         use FixedGreeter(copy(s))\n    read(s)\n    read(b.item)\n}\n\n\
+         fn revive() {\n    let s = \"x\"\n    let t = (s, 1)\n    s = \"y\"\n    read(s)\n}\n\n\
+         fn yield_then_reassign() -> Iter<Str> {\n    let s = \"x\"\n    \
+         for i in [1, 2] {\n        yield s\n        s = \"y\"\n    }\n}\n\n\
+         fn break_consumes_only_its_operand() {\n    let s = \"x\"\n    let n = 0\n    \
+         let r = while n < 3 {\n        if n == 2 {\n            break n\n        }\n        \
+         n++\n    }\n    read(s)\n}\n\n\
+         fn return_poisons_only_exiting_path(flag: Bool) -> Str {\n    let s = \"x\"\n    \
+         let d = s\n    if flag {\n        return s\n    }\n    return copy(d)\n}\n\n\
+         fn main() {\n    revive()\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [fate-move-mode] S2 positive matrix: move-mode bindings make consuming
+// pipelines legal with zero copies — moving/mutating a derived variable
+// whose ancestors are owned (locals, or parameters the fn's inferred
+// contract moves) consumes the ancestors at the binding. Loop bindings
+// are fresh per iteration (consuming one is legal), projections of
+// *immutable* data in moved positions stay untracked (clone-vs-alias is
+// unobservable), and `copy` still severs where the source must stay
+// usable.
+#[test]
+fn s2_move_mode_pipelines_stay_clean() {
+    let dir = src_dir("s2_positive");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
+         struct Label {\n    text: Str\n}\n\n\
+         fn consume(text: Str) -> [] None {\n}\n\n\
+         fn longest_name(persons: List<Person>) -> Str {\n    let longest = \"\"\n    \
+         for person in persons {\n        let name = person.name\n        \
+         if size(name) > size(longest) {\n            longest = name\n        }\n    }\n    \
+         return longest\n}\n\n\
+         fn per_iteration() {\n    for s in list(\"a\", \"b\") {\n        consume(s)\n    }\n}\n\n\
+         fn immutable_projection_store(person: Person) -> [person] Label {\n    \
+         return Label {text: person.name}\n}\n\n\
+         fn copy_keeps_source() -> Int {\n    let xs = list(1, 2)\n    let ys = copy(xs)\n    \
+         consume_list(ys)\n    return size(xs)\n}\n\n\
+         fn consume_list(v: List<Int>) -> [] None {\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let people = list(Person {name: \"Ada\", age: 36}, Person {name: \"Grace\", age: 45})\n    \
+         println(longest_name(people))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// [fate-move-mode] S2 negative matrix: the poison lands at the binding —
+// using an ancestor after a move-mode binding errors naming the binding;
+// a written-kept parameter ancestor keeps the S1 move-site error; and a
+// projection of *mutable* data in a moved position consumes its owned
+// roots (closing the 2026-09-02 parity divergence) or errors for a
+// kept-parameter root.
+#[test]
+fn s2_move_mode_ancestors_are_consumed() {
+    let dir = src_dir("s2_negative");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Holder {\n    tags: Mut List<Int>\n}\n\n\
+         struct Wrapper {\n    item: Mut List<Int>\n}\n\n\
+         fn wrap(list: Mut List<Int>) -> [] Wrapper {\n    return Wrapper {item: list}\n}\n\n\
+         fn consume_list(v: List<Int>) -> [] None {\n}\n\n\
+         fn chain() -> Int {\n    let xs = list(1, 2)\n    let a = xs\n    let b = a\n    \
+         consume_list(b)\n    return size(xs)\n}\n\n\
+         fn parity_probe() -> Int {\n    let h = Holder {tags: mutable_list(1)}\n    \
+         let w = wrap(h.tags)\n    add(h.tags, 9)\n    return size(w.item)\n}\n\n\
+         fn kept_leak(h: Holder) -> [h] Wrapper {\n    return wrap(h.tags)\n}\n\n\
+         fn kept_remedy(h: Holder) -> [h] Wrapper {\n    return wrap(copy(h.tags))\n}\n\n\
+         fn kept_binding(v: Str) -> [v] Str {\n    let w = v\n    return w\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Chain: `xs` was consumed at `a`'s binding (the whole chain is
+    // move-mode); the use-site error names the binding.
+    assert!(
+        stderr.contains(
+            "`xs` cannot be used here: `a` was bound from it and later moves the value"
+        ),
+        "stderr: {stderr}"
+    );
+    // The parity probe is rejected: `wrap(h.tags)` moved mutable data
+    // out of `h`, so the later `add(h.tags, 9)` cannot observe an alias
+    // on one backend and a clone on the other.
+    assert!(
+        stderr.contains(
+            "`h` cannot be used here: it was consumed (moved) by a move of \
+             mutable data projected out of it"
+        ),
+        "stderr: {stderr}"
+    );
+    // A kept parameter's mutable data cannot be moved out; `copy` is the
+    // remedy (kept_remedy is clean).
+    assert!(
+        stderr.contains(
+            "cannot move mutable data out of `h`: it is a kept parameter"
+        ),
+        "stderr: {stderr}"
+    );
+    // A written-kept parameter binding keeps the S1 error at the move
+    // site [fate-derived-readonly].
+    assert!(
+        stderr.contains("cannot return `w`: it was bound from `v`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }

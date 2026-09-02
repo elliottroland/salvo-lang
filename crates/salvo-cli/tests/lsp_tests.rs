@@ -247,6 +247,51 @@ fn diagnostics_hover_and_shutdown() {
         "unexpected hover: {response}"
     );
 
+    // [fate-link] Hovering a fate-linked (derived) variable presents the
+    // compiler qualifier: a bare `ReadOnly` on the type line, with the
+    // qualifier's parameters (root, binding site) as detail below
+    // (progressive disclosure).
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 4},
+                "contentChanges": [{
+                    "text": "fn read(s: Str) -> [s] None {\n}\n\nfn derived() {\n    let xs = \"hello\"\n    let ys = xs\n    read(ys)\n}\n"
+                }]
+            }
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0);
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 6, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 6, "character": 9}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 6);
+    let contents = response["result"]["contents"]
+        .as_array()
+        .unwrap_or_else(|| panic!("hover contents not an array: {response}"));
+    assert_eq!(
+        contents[0]["value"].as_str(),
+        Some("ReadOnly Str"),
+        "unexpected hover type line: {response}"
+    );
+    let detail = contents[1].as_str().unwrap();
+    assert!(
+        detail.contains("Compiler qualifier `ReadOnly`")
+            && detail.contains("shares fate with `xs` (bound at 6:")
+            && detail.contains("`copy(...)`"),
+        "unexpected hover detail: {detail}"
+    );
+
     // Clean shutdown.
     send(
         &mut lsp.stdin,

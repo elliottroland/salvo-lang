@@ -1,17 +1,22 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-01: both backends (Kotlin, Rust) work
+Status snapshot as of 2026-09-02: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
-deductions, uniform across types, branch- and loop-aware). Roadmap stage
-**S1 (shared fate, strict checker-only) is complete**: fate links with
-poison rules, the `internal fn copy` intrinsic with type-directed
-lowering on both backends, and `[struct-mut]` enforcement. This document
+deductions, uniform across types, branch- and loop-aware). Roadmap stages
+**S1 (shared fate, strict), L2 (remaining consuming sites), and S2
+(move-mode bindings) are complete**: fate links with poison rules, the
+`internal fn copy` intrinsic, consumption at every move event, and
+binding modes inferred from downstream flow — move-mode bindings take
+ownership (ancestors consumed at the binding, parameters claimed into
+the deduction fixpoint) and the Rust backend emits them as *real moves*,
+making inferred consuming pipelines zero-clone end to end. The
+moved-position projection parity divergence is closed. This document
 is the handoff point for continuing development: it records what is
 built, the key design decisions, known limitations, and the plan for
 what's next — chiefly the roadmap toward full linear types (next up:
-S2/L2).
+S3 borrow emission, or L3/L4 hygiene items).
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -29,7 +34,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 154 tests; includes seven kotlinc and seven rustc
+cargo test                  # 163 tests; includes eight kotlinc and eight rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -277,12 +282,113 @@ the decided model). What landed:
 - Deliberately not tracked yet (later stages): non-identifier call
   arguments in *moved* positions (physically a clone today;
   kept-`Mut` positions *are* tracked since the 2026-09-02 parity fix —
-  they mutate their provenance roots), struct/array/tuple literal
-  stores, `use` handler-constructor arguments, lambda captures, and
-  S2's move-mode relaxation.
+  they mutate their provenance roots), lambda captures, and S2's
+  move-mode relaxation. (Literal stores, spread, and `use`
+  handler-constructor arguments landed in L2 — see the next section.)
+
+### L2 — remaining consuming sites (completed 2026-09-02)
+
+Every remaining move event now feeds the same consumption lattice as
+call-site moves (mirroring the [deduce-infer] move list): storing a bare
+identifier in a struct/array/tuple literal, spread `...n` (struct-literal
+spreads and any `Expr::Spread`), `return n`, `break n`, `yield n`, and
+`use Handler(n)` constructor arguments. One helper (`fate_move`) handles
+all of them: a derived variable errors at the site
+[fate-derived-readonly], a root is consumed (`Nothing`) and poisons its
+derived variables [fate-poison], exactly like a call. What's worth
+knowing:
+
+- **Loop exits merge break-path states.** `LoopCtx` captures a
+  `NarrowSnapshot` at every `break`; the `while`/`for` checking merges
+  them with the fall-through exit state via `merge_fallthrough`. Without
+  this, a `break s` inside an `if` was invisible after the loop (the
+  always-exiting branch contributes nothing to the merge *inside* the
+  body — correct there, but the loop exit is precisely where break-path
+  state lands). Merge order puts the current (fall-through) snapshot
+  first so the shorter frame stack drives the merge (break snapshots
+  carry extra inner frames; for `for` loops the merge runs after the
+  binding frame is popped).
+- **Diagnostics name the event**: `LocalVar`/`VarState` carry
+  `consumed_by: Option<&'static str>` ("a literal store", "a `...`
+  spread", "a `break`", "a `yield`", "a `use` handler registration",
+  "an earlier call"), threaded through snapshot/restore/merge like
+  poison, cleared by reassignment revival.
+- **`yield` + back edge works for free**: the existing loop re-check
+  reports the second-iteration use at the `yield` itself.
+- **L2a decided (user, 2026-09-02)**: string interpolation is a *read*
+  — `"${n}"` never consumes. Spec'd under [type-str], cross-referenced
+  from [deduce-consume]. Parity-sound because both emitters render the
+  interpolated value as an owned copy purely for formatting.
+- **Parity audit** (per the backend-parity principle): all new sites
+  render through `emit_expr` = owned rendering in the Rust backend, and
+  an owned non-Copy local emits as a bare place — a *physical move* —
+  so bare-ident consumption is faithful-emission parity and closed real
+  rustc-rejection gaps (`let t = (s, 1)` then `read(s)` was
+  checker-clean but rustc-rejected before L2). Struct-literal spread was
+  a latent *mutable-data* parity hole: Kotlin emits shallow `.copy()`
+  (aliases `Mut` fields) while Rust deep-clones (`..base.clone()`) —
+  `let p2 = Person {...p}; add(p.tags, 2)` would print different values
+  per backend. Closed by restriction: the spread consumes `p`. The one
+  finding left open — *projection* values in moved positions (literal
+  stores `Box {item: h.tags}`, moved-position call arguments), where
+  Rust cloned and Kotlin aliased, observable for mutable data and *not*
+  caught by rustc — was accepted as a known live divergence (user
+  decision 2026-09-02) and closed by S2 the same day [fate-move-mode].
+
+### S2 — move-mode bindings (completed 2026-09-02)
+
+The relaxation stage of shared fate: bindings have *modes* inferred
+from downstream flow. What landed (rule [fate-move-mode]):
+
+- **Mode inference rides the two-round architecture.** Round one is
+  strict S1; `error_derived` — the single choke point for every derived
+  move/mutation — records the *whole bind chain* as move-mode
+  candidates (links now keep their original bind spans when flattened,
+  so a variable's links describe the full derivation chain even after
+  intermediate variables die) plus parameter *claims*. Round two
+  applies the modes at every bind event (`declare_var` and assignment
+  re-links): all live ancestors owned → consume them at the binding
+  (poison names the binding, `FateEvent::BoundAway`), the binding
+  carries no links, and the event is recorded in
+  `Checked::binding_modes`.
+- **Claims make the flagship work.** A move-mode binding reaching a
+  parameter of an *inferable* fn claims it as moved;
+  `deduce::infer(program, checked, claims)` seeds claims after every
+  body inference (monotone). Written-kept parameters block claims: the
+  binding stays borrow-mode and the S1 error stands at the move site.
+- **Moved-position projections closed the accepted parity divergence**
+  (the S2 obligation): a projection of *transitively mutable* data
+  (`ty_transitively_mut`, following struct fields with a visited set)
+  in a moved position consumes its owned roots
+  (`Checked::moved_projections`; for-binding roots flip the loop to
+  by-value) or errors for a written-kept parameter root ("cannot move
+  mutable data out of `h`", remedy `copy`). The 2026-09-02 probe
+  (`wrap(h.tags)` then `add(h.tags, 9)`) is now *rejected* — verified.
+  Immutable projections stay untracked by design (unobservable).
+- **Rust emission is faithful**: move-mode bind events emit raw places
+  (real moves, partial for projections), move-mode loops iterate by
+  value, tracked projections render without clones. The flagship
+  pipeline (`longest_name` with inferred deductions) emits **zero
+  clones**, rustc-compiles, and prints identically on both backends
+  (verified end to end). Kotlin emission unchanged. `is`/`when`
+  move-mode bindings still clone on Rust (restriction-valid).
+- **Pre-existing false positive fixed**: a `for`-loop binding consumed
+  in the body (`for s in xs { consume(s) }`) errored on the back-edge
+  re-check — bindings now go through `check_loop_body`'s per-pass
+  bindings channel (`pattern_bindings`), so each pass re-declares them
+  fresh (an iteration binds a new element).
 
 ### Current architectural facts worth knowing
 
+- **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
+  variables record their links into `Checked::fate_reads` (root name +
+  bind span per link [fate-link]); the LSP hover renders such a
+  variable as `ReadOnly T` with the qualifier's parameters (roots,
+  binding sites, `copy` remedy) as detail below the type line —
+  progressive disclosure per user decision. Presentation-only:
+  `ReadOnly` is not in the type system and cannot be written. It is
+  phase 1 of the parameterized-compiler-qualifier design recorded
+  under L7.
 - **Resolution/checking pipeline**: `emit_program` runs
   `Symbols::collect` (flat, still used for define templates and arity
   fallbacks) → `salvo_core::resolve` (per-file scopes) →
@@ -329,16 +435,19 @@ the decided model). What landed:
 
 ## Roadmap: toward full linear types
 
-Where we are: an *affine* analysis ("use at most once") that watches one
-event — a bare identifier passed at a call site whose deduction contract
-moves or weakens it — with solid underpinnings: interprocedural contracts
-(inferred + validated deductions), `Nothing`-narrowing with revival, and
-branch-/loop-aware state merging. The deduction *inference* already knows
-every way a value escapes a function; the *local flow analysis* only
-reacts to calls. Closing the gap is mostly feeding more events into the
-same lattice, plus two genuinely new mechanisms (places, must-use).
-Meanwhile the safety net holds: any hole surfaces as a rustc error on the
-generated code (loud, never silently wrong); Kotlin is unaffected.
+Where we are: an *affine* analysis ("use at most once") with solid
+underpinnings: interprocedural contracts (inferred + validated
+deductions), `Nothing`-narrowing with revival, and branch-/loop-aware
+state merging. Since L2, the local flow analysis watches *every* move
+event the deduction inference knows — call-site moves, literal stores,
+spread, `return`/`break`/`yield`, `use` constructor arguments — for bare
+identifiers; the remaining gaps are projection values in moved positions
+(a parity question, see the L2 audit), lambda captures (L4), and the two
+genuinely new mechanisms (places, must-use). The safety net holds:
+holes surface as rustc errors on the generated code (loud, never
+silently wrong); the one known exception — moved-position projections
+of mutable data — was closed by S2 (see the backend-parity principle
+note).
 
 Each phase below is independently shippable, in rough dependency order.
 Items marked **DECISION** need a language-design call before or during
@@ -384,6 +493,17 @@ the stages below:
   the binding is the remedy. Audit the remaining untracked events
   (literal stores, `use` ctor args, interpolation, *moved*-position
   projection args) against this principle when L2 lands them.
+- **Moved-position projection divergence — CLOSED by S2 (2026-09-02):**
+  a *projection* of transitively-`Mut` data in a *moved* position (a
+  consuming call argument, a literal store, a `use` ctor argument)
+  cloned in Rust but aliased in Kotlin, and rustc did not catch it (the
+  clone is valid Rust) — verified live with `wrap(h.tags)` then
+  `add(h.tags, 9)`: Kotlin printed 2, Rust printed 1. S2 closed it
+  [fate-move-mode]: such projections now consume their owned roots (the
+  probe program is *rejected* — re-verified) or error for written-kept
+  parameter roots with the `copy` remedy; tracked projections also emit
+  as real partial moves in Rust. Projections of immutable data remain
+  deliberately untracked (clone-vs-alias unobservable).
 
 ### L1 — Shared fate: links, poison, and `copy` (user decisions 2026-09-01)
 
@@ -455,18 +575,19 @@ Stages (each independently shippable):
     independent; a fn returning a projection of a kept param must
     `copy` internally; links stay intraprocedural. Derived-return
     annotations are reconsidered in a dedicated late milestone (L7).
-- **S2 — move-mode bindings.** The relaxation: moving/mutating a
-  derived member becomes legal when every ancestor is owned
-  in-function (a local or a *consumed* param) and unused after the
-  binding; the poison lands at the binding. Zero-clone consuming
-  pipelines become expressible (`longest_name` over an *omitted*
-  `persons` param: iterate by value, move the field out, return it —
-  no copies at all). Needs the binding-mode fixpoint interleaved with
-  the existing two-round check architecture. Strict-first is safe:
-  the relaxation only makes more programs legal.
-  - Refinement (recorded, optional): *read redirection* (see the
-    backend-parity principle) can soften poison-at-binding — a read of
-    exactly the moved path (`person.name` after a move-mode
+- **S2 — move-mode bindings. ✅ Done 2026-09-02** (see the S2 section
+  in the decision log above; rule [fate-move-mode]). Binding modes
+  inferred from downstream flow; move-mode bindings consume their
+  owned ancestors at the binding and emit as real moves (zero-clone
+  pipelines verified end to end); parameters are claimed into the
+  deduction fixpoint; written-kept parameters keep the S1 errors.
+  - **Obligation discharged**: the moved-position projection
+    divergence is closed — projections of transitively-`Mut` data in
+    moved positions consume owned roots / error for written-kept
+    parameter roots (`copy` remedy); the parity probe is rejected.
+  - Refinement (recorded, optional, still open): *read redirection*
+    (see the backend-parity principle) can soften poison-at-binding —
+    a read of exactly the moved path (`person.name` after a move-mode
     `let name = person.name`, before any mutation) is provably equal
     to the surviving variable, so the checker may allow it and the
     Rust emitter substitutes `name`. Keeps more source shapes legal
@@ -485,29 +606,34 @@ Stages (each independently shippable):
     independent on another (`if c { person.name } else { compute() }`)
     is `&T` vs `T` in Rust: forbid, auto-`copy` the owned branch, or
     `Cow`-style? Decide when S3 starts.
+  - The moved-position projection divergence was closed by S2 (the
+    probe program is rejected); S3's exit criterion still includes
+    re-running the parity probe after the emission regime changes.
 
-### L2 — Remaining consuming sites
+### L2 — Remaining consuming sites. ✅ Done 2026-09-02
 
-Feed the other escape routes into the same narrowing: storing a bare
-identifier in a struct/array/tuple literal, `yield n`, `break n`,
-`return n` (terminal, but matters inside branches), spread `...n`, and
-`use Handler(n)` constructor arguments. (S1 already errors on `return`/
-`break`/`yield` of a fate-*derived* variable; L2 adds the root-consuming
-events.) Mirrors the move list in [deduce-infer]; mostly mechanical. The
-`yield` case interacts with the loop back-edge re-check (a yield in a
-loop body consumes every iteration — the two-pass analysis already
-models it once the event is tracked).
+(See the L2 section in the decision log above.) All root-consuming move
+events are tracked: literal stores, spread, `return`/`break`/`yield`
+(with break-path states merged into loop exits, and the yield/back-edge
+interaction handled by the existing two-pass loop analysis), and `use`
+constructor arguments. The parity audit found bare-ident consumption is
+faithful-emission parity (Rust already moved at these sites) and closed
+the struct-spread shallow-copy-vs-deep-clone hole by restriction.
+Remaining audit finding: projection values in moved positions cloned
+in Rust and aliased in Kotlin — observable for mutable data only, and
+*not* caught by rustc (the clone is valid Rust). Accepted as a known
+live divergence (user decision 2026-09-02) and closed by S2 the same
+day [fate-move-mode].
 
 - **Priority item — done 2026-09-02**: the verified parity bug (see the
   backend-parity principle above) is fixed — non-identifier arguments
   in kept-`Mut` positions run `fate_mutation` on their provenance
-  roots. The remaining L2 events should be audited against the parity
-  principle as they land, not just for strictness (in particular,
-  *moved*-position projection arguments and literal stores are still
-  physically clones in Rust while Kotlin stores an alias).
-- **DECISION L2a — interpolation.** Is `"${n}"` a read or a move? Both
-  emitters render interpolated values owned-by-clone, so it is
-  physically a copy. Recommendation: reads never consume; spec it.
+  roots.
+- **DECISION L2a — interpolation (decided 2026-09-02).** `"${n}"` is a
+  *read*: reads never consume. Both emitters render interpolated values
+  owned-by-clone purely for formatting (no reference retained), so the
+  decision is parity-sound. Spec'd under [type-str] and cross-referenced
+  from [deduce-consume].
 
 ### L3 — Same-call and convergence tightening
 
@@ -608,9 +734,47 @@ practice, independent returns may be the permanently right answer.
   surface if so (e.g. `-> [persons] persons.T`-style vs a marker on
   the return type); every std external returning a projection would
   need auditing.
+- **Leading design for L7a (user decision 2026-09-02): parameterized
+  compiler qualifiers.** Supersedes the `-> [persons] persons.T`
+  strawman. Compiler-inserted qualifiers form a distinct class — never
+  affecting overload resolution/`unify`/mangling/erasure, not testable
+  with `is`, not constructible, strippable only by blessed fns
+  (`copy`, later `discard`) — and may carry *parameters* the checker
+  uses for checking and diagnostics. `ReadOnly(from: root)` is the
+  fate link as a type; `-> ReadOnly(from: param) T` in a signature is
+  the derived-return annotation, giving exact root-naming (the caller
+  links the result to that argument; Rust lifetime annotations are
+  generated mechanically from the parameter — elision already covers
+  the single-kept-param case). The same vehicle can later carry
+  deduction contracts on `Ty::Fn` values (closing the
+  named-fn-as-lambda mode-mismatch leftover) and L4 capture contracts.
+  Representational discipline: parameters are var identities in flow
+  state and param *names* in signatures, substituted at call
+  boundaries (same shape as generic substitution). Adoption is phased
+  so each step pays for itself:
+  1. **Presentation (✅ done 2026-09-02)**: derived variables hover as
+     bare `ReadOnly T`, with the parameters (roots, binding sites,
+     `copy` remedy) as on-request detail — progressive disclosure per
+     user decision; `Checked::fate_reads` carries the data. No
+     type-system change.
+  2. **Internal unification (when L7 starts)**: fold
+     links/poison/consumed_by into parameterized qualifiers on the
+     narrowed type with per-qualifier join direction (`ReadOnly`
+     params union across branches; user qualifiers intersect);
+     diagnostics gain LSP related-information spans from the
+     parameters. Same programs accepted/rejected — done at L7 to avoid
+     refactoring twice.
+  3. **Signature transport (L7 proper)**: `ReadOnly(from: param)` in
+     return position, call-site substitution, mechanical Rust lifetime
+     generation; std externals returning projections audited then.
+  Open decision points for when L7 starts: the writability boundary
+  (readable everywhere; writable only in return position first?),
+  per-qualifier join declarations, and whether `Nothing` gains
+  parameters (recommended: yes — strictly more informative, revival
+  unchanged).
 
 Sequencing note: L1 lands in stages (S1 strict checker-only → S2
-move-mode bindings → S3 borrow emission); S1+L2 close real
+move-mode bindings → S3 borrow emission); S1+L2 closed real
 rustc-rejection gaps; L3 is hygiene; L4 needs the emitter audit first;
 L5 is largely subsumed by shared fate (field-disjoint precision only);
 L6 is the only phase introducing new language surface and should get a
@@ -674,23 +838,25 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 155)
+## Test inventory (all green: 163)
 
-- `salvo-core`: 22 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 23 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 10 deduction
+  skipped with the root exempt) + 11 deduction
   tests (`tests/deduce_tests.rs`: removal-set subtraction, undeclared
   qualifiers passing through calls, move inference, call-graph fixpoint
   transitivity, lenient interop borrows, written-list body validation,
-  written-list shape validation, stricter-than-body lists, and
+  written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
-  reads through the alias are free, `copy` severs [fate-link]) + 2
+  reads through the alias are free, `copy` severs [fate-link] — and
+  move-mode bindings *claiming* parameters as moved, through binding
+  chains and propagated through the call graph [fate-move-mode]) + 2
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 35 - 28 `analyze` integration tests running the built
+- `salvo-cli`: 39 - 32 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -720,6 +886,22 @@ affected layer.
   and rejecting mutation through derived ones),
   `[struct-mut]` field assignment requiring a `Mut`-qualified struct
   value,
+  the L2 move-site matrix (struct/array/tuple literal stores, spread,
+  `break` inside an always-exiting branch consuming after the loop,
+  `yield`-in-loop back-edge, `use` constructor arguments — each with the
+  event named in the diagnostic, derived variables rejected at the new
+  sites, and the positive side: `copy` at every site, reassignment
+  revival incl. ahead of the loop back edge, `break n` consuming only
+  its operand, and in-branch `return` poison not leaking to the
+  fall-through path [deduce-consume] [fate-derived-readonly]),
+  the S2 move-mode matrix ([fate-move-mode]: the zero-clone pipeline
+  and mutation-driven move-mode staying clean, per-iteration loop
+  bindings consumable, immutable projections in moved positions free,
+  `copy` keeping sources usable; and the negative side: ancestors
+  consumed at the binding with the use-site error naming the binding
+  through whole chains, the moved-position parity probe rejected,
+  kept-parameter projections erroring with the `copy` remedy, and
+  written-kept bindings keeping the S1 move-site error),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -728,7 +910,9 @@ affected layer.
   initialize, didOpen of an unsaved broken buffer -> publishDiagnostics
   with UTF-16 range, didChange fix -> clearing publish, hover -> checked
   type, fn-name hover -> full signature with inferred deductions at both
-  the declaration and a call site [fn-ref-table],
+  the declaration and a call site [fn-ref-table], derived-variable
+  hover -> bare `ReadOnly T` type line with root/binding-site detail
+  below [fate-link],
   shutdown/exit -> clean process exit; codeAction import quickfix
   round-trip [diag-import-suggest]) + 3 grammar tests
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
@@ -738,7 +922,7 @@ affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 53 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 54 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -768,11 +952,12 @@ affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and seven kotlinc compile+run tests
+  mutability is a codegen error); and eight kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
-  with packages, generated imports, and a companion file, and the S1
-  copy demo).
-- `salvo-backend-rust`: 25 - golden snapshots of the same five demos
+  with packages, generated imports, and a companion file, the S1
+  copy demo, and the S2 move-mode demo — emission unchanged, stdout
+  identical to the Rust run [fate-move-mode]).
+- `salvo-backend-rust`: 27 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -787,9 +972,13 @@ affected layer.
   fns/types, uncovered core externals, generic effect members
   [rs-effects]); `copy`-lowering assertions (`.clone()` on the
   argument's place, and fate-linked `let`s cloning instead of moving
-  [rs-copy] [fate-link]); and seven rustc compile+run tests with exact
-  stdout assertions mirroring the kotlinc set (demo, unions, qualifiers,
-  effects, loops, multi-module, copy).
+  [rs-copy] [fate-link]); move-mode emission assertions
+  (`move_mode_bindings_emit_real_moves` [fate-move-mode]: claimed
+  parameter taken by value, loop by value, partial field move, move-mode
+  `let` moving, pipeline clone-free); and eight rustc compile+run tests
+  with exact stdout assertions mirroring the kotlinc set (demo, unions,
+  qualifiers, effects, loops, multi-module, copy, and the S2 zero-clone
+  move-mode demo).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -797,6 +986,48 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (S2) Round one must see *every* fate event, or mode inference goes
+  blind: kept-`Mut` mutation events only fired when a call contract
+  existed, and round one had no inferred facts — so mutation-driven
+  move-mode candidates were recorded one round too late. The fix:
+  round one falls back to the *optimistic* contract
+  (`deduce::optimistic`) for unwritten callees — it enforces no moves
+  and strips nothing, so it is behavior-neutral except for surfacing
+  the `Mut` mutation events.
+- (S2) Flattened fate links now keep their *original* bind spans
+  (only the direct source link carries the current event's span). This
+  makes a variable's links describe its whole derivation chain, which
+  move-mode candidate recording needs — intermediate variables of a
+  chain (loop bindings especially) are often dead by the time the move
+  is seen. If links are ever restamped again, zero-clone chains break
+  silently (one clone reappears per dead intermediate).
+- (S2) A `for`-loop binding must be re-declared *fresh on every
+  checking pass* of the body (it binds a new element each iteration).
+  Declaring it outside `check_loop_body` let its consumed state leak
+  into the back-edge re-check — a live false positive
+  (`for s in xs { consume(s) }` errored) that predated S2 and only
+  surfaced when move-mode made consuming loop bindings routine. Loop
+  bindings go through the per-pass `bindings` channel
+  (`pattern_bindings`); `is`-bindings always did.
+- (L2) An always-exiting branch contributes nothing to the merge after
+  the construct — which is correct *inside* a loop body but silently
+  drops `break`-path consumption for the code *after the loop*. The
+  loop exit is a join point of its own: `LoopCtx` captures a state
+  snapshot at every `break` and the loop merges them with the
+  fall-through exit state. When adding a new control-flow event, ask
+  *where its state lands*, not just whether the branch exits.
+- (L2) When merging snapshots with different frame depths
+  (`merge_fallthrough`), put the shallowest (current) snapshot first —
+  it drives the key iteration, and deeper break-time frames align as a
+  prefix. For `for` loops, merge only after the loop-binding frame is
+  popped.
+- (L2) Kotlin's `.copy()` for struct spread is *shallow* while Rust's
+  `..base.clone()` is *deep* — a mutable-data parity divergence that
+  had been sitting unobserved in [struct-spread] since M8. Consuming
+  the spread base closed it by restriction. Same audit lens as the S1
+  lesson: for every emission difference, ask "could the two backends
+  disagree observably?" — the remaining known case is projection values
+  in moved positions (documented in [fate-poison]).
 - (S1) `[struct-mut]` ("only `Mut Name` values may have fields
   assigned") was in both specs but *unenforced* — and became
   load-bearing: Kotlin's identity lowering of `copy` is only correct if

@@ -114,6 +114,8 @@ let person = Person {name: "Roland", age: 36}
 let person2 = Person {...person, surname: "Elliott", age: 25}
 ```
 
+Spreading a variable consumes it — its fields now live in the new struct — so `person` can no longer be used after building `person2`; spread `copy(person)` instead to keep both (see the ownership section for the full rules).
+
 When the type of a struct is known, then the type annotation can be dropped:
 
 ```
@@ -738,6 +740,8 @@ fn consume<T>(list: List<T>) -> [] Unit
 
 In this case calling `consume(list)` would _move_ the variable to the function: `list`'s type narrows to `Nothing` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the deduction list is written out or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
 
+Consuming calls are not the only way a value moves. Every other escape route consumes a bare variable the same way, and the error at a later use names the event: storing it in a struct, array, or tuple literal (the literal owns it now), spreading it (`...n` reads all of its fields into a new value and consumes the source), returning it, `break`-ing with it, `yield`-ing it (an iterator function that yields the same variable inside a loop consumes it anew every iteration — an error the loop analysis reports on the second iteration), and passing it to a `use` handler constructor (the handler stores it for the rest of the scope). A `break` with a value reaches the code after the loop on every exit path, so a variable consumed by `break` is unusable after the loop even when the `break` sits inside a branch. Reads, by contrast, never consume anything — in particular, string interpolation is a read: `"${n}"` formats the value and retains nothing, so `n` stays usable. As always, `copy(...)` at the move site keeps the original usable, and reassignment revives it.
+
 When the deduction list is not specified, then it is implied that all parameters are included, with the qualifiers that are inferred from their usage in the function. For example:
 
 ```
@@ -762,10 +766,12 @@ Binding a parameter with `let` is *not* on the move list: it creates a *shared f
 
 ### Shared fate and `copy`
 
-Salvo has no references, but variables can still overlap: `let m = n` and `let name = person.name` both make a new name for data that another variable already owns. Salvo tracks this as **shared fate**: when one variable is bound to the value or a projection of another — by `let`, assignment, destructuring, a `for`-loop binding, or an `is`/`when` binding — the new variable becomes *derived from* its source, transitively down to the ultimate root. Reading either variable is always fine; reads never consume anything. But operations that need *ownership* of the data are restricted:
+Salvo has no references, but variables can still overlap: `let m = n` and `let name = person.name` both make a new name for data that another variable already owns. Salvo tracks this as **shared fate**: when one variable is bound to the value or a projection of another — by `let`, assignment, destructuring, a `for`-loop binding, or an `is`/`when` binding — the new variable becomes *derived from* its source, transitively down to the ultimate root. Reading either variable is always fine; reads never consume anything. Operations that need *ownership* of the data are governed by the binding's **mode**, which the compiler infers from how the derived variable is used later:
 
-- A **derived** variable can only be read. Moving it (returning it, `yield`-ing it, `break`-ing with it, or passing it to a call that consumes it) or mutating it (passing it as a `Mut` argument, assigning through a projection of it) is a compile-time error.
-- Mutating, moving, or reassigning a **root** poisons every variable derived from it: the derived values may no longer exist, so using one afterwards is an error naming both the link and the event. Reassigning a poisoned variable revives it.
+- **Borrow-mode** (a derived variable that is only ever read): reads flow freely and every ancestor stays usable. Mutating, moving, or reassigning a **root** poisons every variable derived from it — the derived values may no longer exist, so using one afterwards is an error naming both the link and the event. Reassigning a poisoned variable revives it.
+- **Move-mode** (a derived variable that is later moved or mutated): the binding *takes ownership* — every ancestor is consumed at the binding itself, and using an ancestor afterwards is an error naming the binding. From the binding on, the variable is the value's independent owner. This is what makes zero-copy consuming pipelines legal: the whole chain of bindings hands the value along, and the Rust backend emits real moves with no clones.
+- Move-mode needs every ancestor to be *owned* by the function. Locals always are. A parameter is owned when the function's deductions move it — and when the deduction list is inferred, a move-mode binding reaching a parameter *claims* it: the parameter becomes moved, and callers hand over ownership. A **written** deduction list that keeps the parameter pins it as borrowed instead: moving or mutating anything derived from it stays a compile-time error — you cannot move out of a borrow — and the remedy is `copy`.
+- The same ownership rule applies to a **projection in a moved position** — passing `h.tags` to a call that consumes it, or storing it in a literal. If the projected data is mutable, the move consumes the owner (`h` is unusable afterwards) or, for a kept parameter, is an error with the `copy` remedy. Projections of immutable data are free: whether a backend copies or shares immutable data is unobservable.
 
 The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links.
 
@@ -773,7 +779,7 @@ The escape hatch is one word: the standard library's `copy` duplicates a value, 
 fn copy<T>(value: T) -> [value] T   // internal: each backend implements it
 ```
 
-Here is the discipline at work, together with the deduction contract:
+Here is the discipline at work, together with the deduction contract. With a *written* deduction list that keeps `persons`, moving a derived value out is an error:
 
 ```
 fn longest_name(persons: Person[]) -> [persons] Str {
@@ -784,35 +790,56 @@ fn longest_name(persons: Person[]) -> [persons] Str {
         }
     }
     return longest        // ERROR: `longest` shares its fate with `persons`,
-                          // which this function only borrows ([persons])
+                          // which this function promised to keep ([persons])
 }
 ```
 
-The fix is a single copy at the escape point — one copy for the whole function instead of one per iteration:
+One fix is a single copy at the escape point — one copy for the whole function instead of one per iteration:
 
 ```
     return copy(longest)
 ```
 
-And the poison rule in action:
+The other fix is to *not* promise the parameter back: drop the written deduction list, and the compiler infers that the pipeline consumes `persons` — the bindings become move-mode, the function demands ownership from its callers, and the whole thing compiles with **zero copies** (in Rust: the argument moves in, the loop iterates by value, the field moves out, the result moves up):
 
 ```
+fn longest_name(persons: Person[]) -> Str {   // inferred: persons is moved
+    let longest = ""
+    for person in persons {
+        if longest.size() < person.name.size() {
+            longest = person.name
+        }
+    }
+    return longest        // fine: the chain owns the value all the way
+}
+```
+
+Both modes in action on locals:
+
+```
+// Borrow-mode: `ys` is only read, so `xs` stays usable — but mutating
+// the root poisons the derived variable.
 let xs = mutable_list(1, 2, 3)
-let ys = xs          // ys derived from xs
+let ys = xs          // ys derived from xs (borrow-mode: ys is never moved/mutated)
 add(xs, 4)           // mutates the root...
 size(ys)             // ERROR: ys shared xs's fate and xs was mutated
-add(ys, 5)           // ERROR: a derived variable is read-only
 
-let zs = copy(xs)
-add(zs, 6)           // fine: zs is independent
+// Move-mode: `ys` is mutated later, so the binding takes ownership.
+let xs = mutable_list(1, 2, 3)
+let ys = xs          // ys takes ownership: xs is consumed here
+add(ys, 5)           // fine: ys owns the value
+add(xs, 4)           // ERROR: ys was bound from xs and later moves the value
+
+let zs = copy(ys)    // an independent duplicate
+add(zs, 6)           // fine, and ys is untouched
 ```
 
 Some consequences worth knowing:
 
-- **Values from calls are always independent.** `copy(x)`, `get(xs, 0)`, and every other function result carries no links — a function that wants to return a projection of a kept parameter must `copy` internally (as `longest_name` does).
-- **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives.
-- **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation (Kotlin shares references; Rust clones today and can borrow tomorrow) with no observable difference between them.
-- Whole-variable granularity: mutating a struct value poisons variables derived from *any* of its fields; field-precise tracking may come later.
+- **Values from calls are always independent.** `copy(x)`, `get(xs, 0)`, and every other function result carries no links — a function that wants to return a projection of a *kept* parameter must `copy` internally.
+- **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives. A `for`-loop binding is fresh each iteration: consuming it inside the body is fine.
+- **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation with no observable difference: Kotlin shares references throughout; Rust emits real moves for move-mode bindings and clones for borrow-mode ones (real borrows are a later stage).
+- Whole-variable granularity: mutating a struct value poisons variables derived from *any* of its fields, and a move-mode binding consumes its ancestors wholly; field-precise tracking may come later.
 
 ### Copy semantics per backend
 
