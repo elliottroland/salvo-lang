@@ -959,8 +959,9 @@ fn copy_lowers_to_clone_and_linked_lets_clone() {
     assert!(main.content.contains("let mut ys = xs.clone();"), "generated:\n{}", main.content);
     assert!(main.content.contains("let mut q = p.clone();"), "generated:\n{}", main.content);
     assert!(main.content.contains("let mut brr = arr.clone();"), "generated:\n{}", main.content);
-    // The fate-linked alias also clones: both `zs` and `xs` stay usable.
-    assert!(main.content.contains("let mut zs = xs.clone();"), "generated:\n{}", main.content);
+    // The fate-linked alias is a real borrow since S3
+    // [rs-borrow-locals]: both `zs` and `xs` stay usable, no clone.
+    assert!(main.content.contains("let mut zs = &xs;"), "generated:\n{}", main.content);
 }
 
 #[test]
@@ -1070,4 +1071,98 @@ fn rustc_compiles_and_runs_move_modes() {
     let files = generate(&[("main.sv", S2_DEMO, false)]);
     let expected = "Grace\n3\n";
     run_rust_files(&files, "s2-moves", expected);
+}
+
+// ===== S3: borrow emission [rs-borrow-locals] =====
+
+/// Borrow-mode bindings and loops emit real borrows: reading through a
+/// kept parameter never clones — the collection iterates by reference,
+/// the field binding holds `&T`, and reads thread through the
+/// reference-binding rendering.
+const S3_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn count_long(persons: List<Person>) -> [persons] Int {
+    let total = 0
+    for person in persons {
+        let n = person.name
+        if size(n) > 3 {
+            total = total + 1
+        }
+    }
+    return total
+}
+
+fn poison_guards_the_borrow() -> Int {
+    let xs = mutable_list(1, 2)
+    let ys = xs
+    let n = size(ys)
+    add(xs, 9)
+    return n + size(xs)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    println("${count_long(people)}")
+    println("${poison_guards_the_borrow()}")
+}
+"#;
+
+// [rs-borrow-locals] Borrow-mode bindings from pure places emit `&T`
+// locals; borrow-mode loops over concrete non-union elements iterate by
+// reference; the read-only pipeline is clone-free.
+#[test]
+fn borrow_mode_bindings_emit_borrows() {
+    let files = generate(&[("main.sv", S3_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains("pub fn count_long(persons: &Vec<Person>) -> i32"),
+        "generated:\n{}",
+        main.content
+    );
+    // By-reference iteration: the borrowed parameter is iterated bare.
+    assert!(
+        main.content.contains("for person in persons {"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut n = &person.name;"),
+        "generated:\n{}",
+        main.content
+    );
+    // Borrow-mode alias of an owned local.
+    assert!(
+        main.content.contains("let mut ys = &xs;"),
+        "generated:\n{}",
+        main.content
+    );
+    let pipeline = main
+        .content
+        .split("pub fn count_long")
+        .nth(1)
+        .and_then(|rest| rest.split("pub fn").next())
+        .expect("count_long body");
+    assert!(
+        !pipeline.contains(".clone()"),
+        "read-only pipeline should be clone-free:\n{pipeline}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_borrows() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", S3_DEMO, false)]);
+    let expected = "1\n5\n";
+    run_rust_files(&files, "s3-borrows", expected);
 }

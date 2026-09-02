@@ -128,12 +128,29 @@ derives them mechanically:
   * call results, literals, and constructed values are already owned.
   * Assignment targets, `is` subjects, and borrow positions use the raw
     place (no clone).
-  * **Borrow-mode bindings clone [fate-link]:** a `let`/assignment value
-    or `for` iterable that is a *bare identifier* of an owned non-Copy
-    local emits `x.clone()`, not a move — the checker keeps both the
-    source and the derived variable readable, so the source must remain
-    physically valid. (Replacing borrow-mode links with real borrows is
-    roadmap stage S3.)
+  * **Borrow-mode bindings borrow [rs-borrow-locals] (S3):** a `let`
+    from a *pure place* — a bare identifier or field/index chain with
+    no coercion, narrowing unwrap, or field cast — whose bind event is
+    not move-mode and whose name is never reassigned in the fn emits a
+    real borrow: the local holds `&T` (`let mut n = &person.name;`,
+    bare pass-through for an already-`&` root, `&*x` reborrow for
+    `&mut` roots) and registers as a reference binding, so reads thread
+    through the existing rendering (clone in owned positions, bare in
+    borrow positions, `*x` for Copy). Borrow-mode `for` loops over
+    pure-place iterables with plain ident bindings and concrete
+    *non-union* element types iterate *by reference* (`for x in &xs`,
+    or bare for an already-borrowed parameter) with the loop variable
+    as a reference binding — no collection clone. Everything else
+    (mixed joins, reassigned names, union/optional elements,
+    value-position loops, `is`/`when` bindings, coerced values) keeps
+    the fate-link clone — sound by restriction, since links union
+    across branches and poison covers every observation (decision S3a,
+    2026-09-02: mixed joins are an emission fallback, not a semantic
+    restriction — no program's legality changes). Checker legality
+    aligns with NLL because a borrow's last use precedes any root
+    mutation/move in checker-legal code; the known loud exception is a
+    single call that both passes a borrow-emitted local and moves its
+    root (rustc E0505, checker-legal by left-to-right ordering).
   * **Lambdas emit plain (borrowing) closures [fate-lambda]:** captures
     are rustc borrow-captures, which alias — the same semantics as
     Kotlin's lexical capture, so parity is direct. Checker-legal

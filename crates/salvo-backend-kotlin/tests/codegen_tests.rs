@@ -1657,3 +1657,55 @@ fn kotlinc_compiles_and_runs_move_modes() {
     let expected = "Grace\n3\n";
     run_kotlin_files(&files, "s2-moves", expected);
 }
+
+// ===== S3: borrow emission parity mirror [fate-link] =====
+
+/// The same program as the Rust backend's S3 borrow demo: Kotlin's
+/// aliases and Rust's borrows are the same semantics, so the stdout
+/// must match exactly.
+const S3_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn count_long(persons: List<Person>) -> [persons] Int {
+    let total = 0
+    for person in persons {
+        let n = person.name
+        if size(n) > 3 {
+            total = total + 1
+        }
+    }
+    return total
+}
+
+fn poison_guards_the_borrow() -> Int {
+    let xs = mutable_list(1, 2)
+    let ys = xs
+    let n = size(ys)
+    add(xs, 9)
+    return n + size(xs)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    println("${count_long(people)}")
+    println("${poison_guards_the_borrow()}")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_borrows() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", S3_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "1\n5\n";
+    run_kotlin_files(&files, "s3-borrows", expected);
+}

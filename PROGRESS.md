@@ -4,19 +4,18 @@ Status snapshot as of 2026-09-02: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
-deductions, uniform across types, branch- and loop-aware). Roadmap stages
-**S1 (shared fate, strict), L2 (remaining consuming sites), S2
-(move-mode bindings), L3 (same-call + convergence), and L4 (lambda
-captures) are complete**: fate links with poison rules, the `internal
-fn copy` intrinsic, consumption at every move event, binding modes
-inferred from downstream flow (Rust emits real moves — zero-clone
-pipelines), same-call argument ordering, checking iterated to a capped
-fixpoint, and lambdas as ordinary values under shared fate (captures
-classified read/mutate/move from the body, contract bound at creation).
-This document is the handoff point for continuing development: it
-records what is built, the key design decisions, known limitations, and
-the plan for what's next — chiefly the roadmap toward full linear types
-(next up: S3 borrow emission).
+deductions, uniform across types, branch- and loop-aware). The whole
+shared-fate arc is complete — **S1 (strict links + poison), L2
+(remaining consuming sites), S2 (move-mode bindings → real moves), L3
+(same-call ordering + capped check/infer fixpoint), L4 (lambda captures
+under shared fate), and S3 (borrow emission)**: move-mode bindings emit
+real moves, borrow-mode bindings and loops emit real borrows (`&T`
+locals, by-reference iteration), and read-only pipelines over kept
+parameters are clone-free end to end. This document is the handoff
+point for continuing development: it records what is built, the key
+design decisions, known limitations, and the plan for what's next —
+the remaining linear-types phases (L5 field precision if ever needed,
+L6 must-use linearity, L7 parameterized compiler qualifiers).
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -34,7 +33,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 167 tests; includes eight kotlinc and eight rustc
+cargo test                  # 170 tests; includes nine kotlinc and nine rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -429,6 +428,45 @@ from downstream flow. What landed (rule [fate-move-mode]):
   named-fn mode mismatch, closure double-use) remain deferred to the
   L7 parameterized-qualifier work.
 
+### S3 — borrow emission (completed 2026-09-02)
+
+The final shared-fate stage: borrow-mode bindings become real Rust
+borrows [rs-borrow-locals]. What landed:
+
+- **`&T` locals via `BindKind::Ref` reuse**: a borrow-mode `let` from a
+  *pure place* (bare ident / field / index chain; no coercion,
+  narrowing unwrap, or field cast; name never reassigned; bind event
+  not move-mode) emits `let mut n = &person.name;` and registers as a
+  reference binding — the entire existing kept-parameter rendering
+  (owned reads clone, borrow positions pass bare, Copy derefs) then
+  applies unchanged. Already-`&` roots pass the reference through;
+  `&mut` roots reborrow (`&*x`).
+- **By-reference loops**: a borrow-mode `for` over a pure-place
+  iterable with a plain ident binding iterates without cloning the
+  collection (`for person in persons` where `persons: &Vec<Person>`),
+  the loop variable itself a reference binding. Guarded to concrete
+  non-union element types — union/optional elements go through
+  `matches!`/unwrap lowering that expects owned subjects and keep the
+  clone path.
+- **Decision S3a resolved as emission, not semantics**: a mixed join
+  (linked on one path, independent on another) simply keeps today's
+  owned/clone emission — since S1, links union across branches and
+  poison covers every observation, so the clone is restriction-sound;
+  forbidding would have added errors with no parity need, and `Cow`
+  buys nothing. No program's legality changed anywhere in S3.
+- **Borrowck alignment**: checker-legal programs pass NLL because
+  poison forbids using a derived value after its root is mutated,
+  moved, or reassigned — so every borrow's last use precedes the
+  conflicting event. Known loud exception (documented, rare shape): a
+  single call that passes a borrow-emitted local *and* moves its root
+  (rustc E0505; the checker's left-to-right argument model accepts
+  it). Loud, never wrong.
+- **Exit criterion verified**: the moved-position parity probe is
+  still rejected after the emission change, and the read-only pipeline
+  demo compiles and prints identically on both backends with *zero*
+  clones in the Rust output (`count_long`: borrowed param, borrowed
+  loop, borrowed field binding).
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -643,23 +681,19 @@ Stages (each independently shippable):
     to the surviving variable, so the checker may allow it and the
     Rust emitter substitutes `name`. Keeps more source shapes legal
     without clones.
-- **S3 — borrow emission (Rust).** Borrow-mode bindings emit real
-  borrows (locals holding `&T` — a new emission regime; today every
-  read is cloned), move-mode bindings emit partial moves; loops
-  iterate by reference for borrow-mode bindings. Kotlin emission
-  unchanged throughout. Checker legality must match what borrowck
-  accepts — audit before landing. Where a borrow is awkward (mixed
-  joins below), read redirection is an alternative tool before
-  reaching for clones — and per the backend-parity principle, a clone
-  is only acceptable there if the data is immutable or the difference
-  is otherwise unobservable.
-  - **DECISION S3a — mixed joins.** A variable linked on one path and
-    independent on another (`if c { person.name } else { compute() }`)
-    is `&T` vs `T` in Rust: forbid, auto-`copy` the owned branch, or
-    `Cow`-style? Decide when S3 starts.
-  - The moved-position projection divergence was closed by S2 (the
-    probe program is rejected); S3's exit criterion still includes
-    re-running the parity probe after the emission regime changes.
+- **S3 — borrow emission (Rust). ✅ Done 2026-09-02** (see the S3
+  section in the decision log above; rule [rs-borrow-locals]).
+  Borrow-mode bindings from pure places emit `&T` locals; borrow-mode
+  loops iterate by reference; Kotlin unchanged; clone fallback
+  everywhere else (restriction-sound).
+  - **DECISION S3a — resolved 2026-09-02 as emission, not semantics:**
+    mixed joins keep the owned/clone emission — link-union + poison
+    already reject every observation, so no forbid and no `Cow`; no
+    program's legality changed. Read redirection remains a recorded
+    future refinement.
+  - Exit criterion verified: the parity probe is still rejected after
+    the emission change, and the borrow demo prints identically on
+    both backends with zero clones in the Rust pipeline.
 
 ### L2 — Remaining consuming sites. ✅ Done 2026-09-02
 
@@ -890,7 +924,7 @@ affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 167)
+## Test inventory (all green: 170)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -986,7 +1020,7 @@ affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 54 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 55 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1016,12 +1050,13 @@ affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and eight kotlinc compile+run tests
+  mutability is a codegen error); and nine kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
-  copy demo, and the S2 move-mode demo — emission unchanged, stdout
-  identical to the Rust run [fate-move-mode]).
-- `salvo-backend-rust`: 27 - golden snapshots of the same five demos
+  copy demo, and the S2/S3 move-mode and borrow demos — emission
+  unchanged, stdout identical to the Rust runs [fate-move-mode]
+  [fate-link]).
+- `salvo-backend-rust`: 29 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1039,10 +1074,13 @@ affected layer.
   [rs-copy] [fate-link]); move-mode emission assertions
   (`move_mode_bindings_emit_real_moves` [fate-move-mode]: claimed
   parameter taken by value, loop by value, partial field move, move-mode
-  `let` moving, pipeline clone-free); and eight rustc compile+run tests
-  with exact stdout assertions mirroring the kotlinc set (demo, unions,
-  qualifiers, effects, loops, multi-module, copy, and the S2 zero-clone
-  move-mode demo).
+  `let` moving, pipeline clone-free); borrow emission assertions
+  (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
+  parameter iterated bare by reference, `&T` field binding, borrow
+  alias of an owned local, read-only pipeline clone-free); and nine
+  rustc compile+run tests with exact stdout assertions mirroring the
+  kotlinc set (demo, unions, qualifiers, effects, loops, multi-module,
+  copy, the S2 zero-clone move-mode demo, and the S3 borrow demo).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1050,6 +1088,22 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (S3) Decide the borrow path *before* emitting the value: `emit_let`
+  computed `value_code` eagerly, and the discarded emission would have
+  recorded coercions/union sizes for code that never lands. Emission
+  helpers are not side-effect free — order decisions first, render
+  second.
+- (S3) By-reference loops hand `&T` to every lowering that touches the
+  loop variable: `matches!`/unwrap lowering for union and optional
+  elements expects owned subjects and breaks on references — hence the
+  concrete-non-union element guard. If later refinements widen the
+  guard, extend the union-test rendering to ref patterns first.
+- (S3) Borrowck alignment is a consequence of poison, not a separate
+  analysis: a checker-legal program never uses a derived value after
+  its root's mutation/move, so NLL sees every borrow die before the
+  conflict. The one mismatch is *within a single call* (pass a
+  borrowed local and move its root in one argument list — rustc E0505,
+  checker-legal): loud, documented, rare.
 - (L4) "Lambda bodies are a barrier" was only ever true of
   `loop_stack`: bodies are checked *inline*, so flow events (consuming
   calls, mutations) always fired against outer variables — captures

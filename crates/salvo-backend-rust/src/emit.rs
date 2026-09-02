@@ -1526,6 +1526,34 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
+        // [rs-borrow-locals] S3: a borrow-mode binding from a pure place
+        // emits a real borrow — the local holds `&T` and reads thread
+        // through the existing reference-binding rendering (clone in
+        // owned positions, bare in borrow positions). Requires: an ident
+        // pattern, not a move-mode bind event, the name never reassigned
+        // in this fn (one Rust type per local), and a pure place value;
+        // everything else keeps the fate-link clone. Decided before the
+        // value is emitted so no spurious coercions are recorded.
+        if let Pattern::Ident(name) = pattern {
+            if !self
+                .checked
+                .binding_modes
+                .contains(&(self.file_idx, stmt_span))
+                && !self.mutated.contains(name.name.as_str())
+            {
+                if let Some(borrow) = self.borrow_value(value) {
+                    self.bindings.insert(name.name.clone(), BindKind::Ref);
+                    let annot = match ty {
+                        Some(t) => format!(": &{}", self.emit_type(t)),
+                        None => String::new(),
+                    };
+                    return format!(
+                        "{pad}let mut {}{annot} = {borrow};\n",
+                        rs_ident(&name.name)
+                    );
+                }
+            }
+        }
         // Bare struct literals pick up the annotated type.
         let value_code = match (value, ty) {
             (
@@ -1689,15 +1717,45 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                let var = self.for_pattern_var(pattern);
-                // Owned iteration [rs-iter-vec]: borrowed lists clone;
-                // an owned local also clones — iteration is a read and
-                // the loop binding only fate-links to it [fate-link].
-                // A *move-mode* loop iterates by value [fate-move-mode]:
-                // the checker consumed the iterable's roots (the binding
-                // or its data is moved in the body), so the collection
-                // itself moves into the loop — no clone.
-                let iter = self.emit_bound_value(iterable, iterable.span());
+                // [rs-borrow-locals] S3: a borrow-mode loop (not made
+                // by-value by a move-mode event [fate-move-mode])
+                // over a pure-place iterable with a plain ident binding
+                // iterates *by reference* — no clone of the collection,
+                // and the loop variable is a reference binding. Guarded
+                // to concrete non-union element types: union/optional
+                // elements go through `matches!`/unwrap lowering that
+                // expects owned subjects, and keep the clone path.
+                let by_value = self
+                    .checked
+                    .binding_modes
+                    .contains(&(self.file_idx, iterable.span()));
+                let elem_ok = self
+                    .ty_of(iterable.span())
+                    .map(|t| match t.strip_quals() {
+                        Ty::Named { name, args } if name == "List" || name == "Iter" => {
+                            args.first().is_some_and(|e| {
+                                matches!(e.strip_quals(), Ty::Named { .. })
+                                    && !matches!(e.strip_quals(), Ty::Union(_))
+                            })
+                        }
+                        Ty::Array(e) => {
+                            matches!(e.strip_quals(), Ty::Named { .. })
+                        }
+                        _ => false,
+                    })
+                    .unwrap_or(false);
+                let borrow_iter = if !by_value && elem_ok && matches!(pattern, Pattern::Ident(_))
+                {
+                    self.borrow_value(iterable)
+                } else {
+                    None
+                };
+                let by_ref = borrow_iter.is_some();
+                let var = self.for_pattern_var(pattern, by_ref);
+                let iter = match borrow_iter {
+                    Some(code) => code,
+                    None => self.emit_bound_value(iterable, iterable.span()),
+                };
                 let mut out = String::new();
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
@@ -1914,6 +1972,61 @@ impl<'p> Emitter<'p> {
         match self.bindings.get(name) {
             Some(BindKind::SelfField) => format!("self.{}", rs_ident(name)),
             _ => rs_ident(name),
+        }
+    }
+
+    /// Whether an expression is a *pure place*: a bare identifier of a
+    /// bound local/parameter or a field/index chain over one, with no
+    /// coercion, narrowing unwrap, or field cast anywhere — i.e. it can
+    /// be borrowed directly [rs-borrow-locals].
+    fn place_is_pure(&self, expr: &Expr) -> bool {
+        if self.coercion_of(expr.span()).is_some() {
+            return false;
+        }
+        match expr {
+            Expr::Ident(id) => {
+                id.name != "None"
+                    && !self
+                        .checked
+                        .repr_ty
+                        .contains_key(&(self.file_idx, id.span))
+                    && self.bindings.contains_key(id.name.as_str())
+            }
+            Expr::Field { base, span, .. } => {
+                !self
+                    .checked
+                    .field_casts
+                    .contains_key(&(self.file_idx, *span))
+                    && self.place_is_pure(base)
+            }
+            Expr::Index { base, .. } => self.place_is_pure(base),
+            _ => false,
+        }
+    }
+
+    /// A borrow of a pure place [rs-borrow-locals]: `&place` for owned
+    /// roots, the bare name for an already-`&` binding, a reborrow for
+    /// `&mut` roots. `None` when the value is not a pure place (the
+    /// caller falls back to the clone path).
+    fn borrow_value(&mut self, value: &Expr) -> Option<String> {
+        if !self.place_is_pure(value) {
+            return None;
+        }
+        match value {
+            Expr::Ident(id) => match self.bindings.get(id.name.as_str()) {
+                Some(BindKind::Ref) => Some(self.binding_place(&id.name)),
+                Some(BindKind::RefMut) => {
+                    Some(format!("&*{}", self.binding_place(&id.name)))
+                }
+                Some(BindKind::Owned) | Some(BindKind::SelfField) => {
+                    Some(format!("&{}", self.binding_place(&id.name)))
+                }
+                None => None,
+            },
+            Expr::Field { .. } | Expr::Index { .. } => {
+                Some(format!("&{}", self.emit_place(value)))
+            }
+            _ => None,
         }
     }
 
@@ -2637,9 +2750,14 @@ impl<'p> Emitter<'p> {
     }
 
     /// The `for <pat> in ...` binding for a Salvo loop pattern.
-    fn for_pattern_var(&mut self, pattern: &Pattern) -> String {
+    fn for_pattern_var(&mut self, pattern: &Pattern, by_ref: bool) -> String {
         match pattern {
             Pattern::Ident(id) => {
+                // [rs-borrow-locals] A by-reference loop binds `&T`.
+                if by_ref {
+                    self.bindings.insert(id.name.clone(), BindKind::Ref);
+                    return rs_ident(&id.name);
+                }
                 self.bindings.insert(id.name.clone(), BindKind::Owned);
                 format!("mut {}", rs_ident(&id.name))
             }
@@ -2713,7 +2831,9 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("let mut {ran} = false;\n"));
         }
         if is_for {
-            let var = self.for_pattern_var(pattern.unwrap());
+            // Value-position loops keep owned iteration (no borrow
+            // refinement yet [rs-borrow-locals]).
+            let var = self.for_pattern_var(pattern.unwrap(), false);
             let iter = self.emit_expr(cond_or_iter);
             out.push_str(&format!("for {var} in {iter} {{\n"));
         } else {
