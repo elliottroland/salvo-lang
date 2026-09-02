@@ -1526,3 +1526,68 @@ fn l7c_derived_returns() {
     );
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
+
+// [fn-contract] L7d: fn types carry contracts — named parameters plus a
+// standard deduction list (`(v: List<Int>) -> [] Int` consumes,
+// `-> [v] Int` keeps, unannotated keeps everything). Calls through fn
+// values apply the contract (consumption, double-use, interprocedural
+// propagation); lambdas checked against a keeping contract may not
+// consume their kept parameters; a consuming fn cannot be passed where
+// a keeping one is expected (checked via the named-fn contract).
+#[test]
+fn l7d_fn_type_contracts() {
+    let dir = src_dir("l7d_contracts");
+    fs::write(
+        dir.join("main.sv"),
+        "fn apply_consuming(f: (v: List<Int>) -> [] Int, data: List<Int>) -> Int {\n    \
+         return f(data)\n}\n\n\
+         fn apply_keeping(f: (v: List<Int>) -> [v] Int, data: List<Int>) -> [data] Int {\n    \
+         return f(data) + f(data)\n}\n\n\
+         fn double_use_bad(f: (v: List<Int>) -> [] Int, data: List<Int>) -> Int {\n    \
+         let a = f(data)\n    return f(data)\n}\n\n\
+         fn eat(v: List<Int>) -> [] Int {\n    return 0\n}\n\n\
+         fn consuming_where_keeping_bad() -> Int {\n    let xs = list(1, 2)\n    \
+         return apply_keeping(eat, xs)\n}\n\n\
+         fn kept_param_consumed_bad() -> Int {\n    let xs = list(1, 2)\n    \
+         return apply_keeping((v: List<Int>) -> {\n        let w = eat(v)\n        \
+         return w\n    }, xs)\n}\n\n\
+         fn caller_loses() -> Int {\n    let xs = list(1, 2)\n    \
+         let n = apply_consuming((v: List<Int>) -> { return size(v) }, xs)\n    \
+         return n + size(xs)\n}\n\n\
+         fn caller_keeps() -> Int {\n    let xs = list(1, 2)\n    \
+         let n = apply_keeping((v: List<Int>) -> { return size(v) }, xs)\n    \
+         return n + size(xs)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Double use through a consuming contract.
+    assert!(
+        stderr.contains(
+            "`data` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+    // A consuming named fn cannot fit a keeping contract.
+    assert!(
+        stderr.contains("no matching overload for `apply_keeping("),
+        "stderr: {stderr}"
+    );
+    // A kept lambda parameter cannot be consumed.
+    assert!(
+        stderr.contains(
+            "cannot consume `v`: this lambda's contract keeps it"
+        ),
+        "stderr: {stderr}"
+    );
+    // The consuming contract propagates: the caller's argument dies.
+    assert!(
+        stderr.contains(
+            "`xs` cannot be used here: it was consumed (moved) by an earlier call"
+        ),
+        "stderr: {stderr}"
+    );
+    // caller_keeps is clean: exactly the four violations.
+    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
+}

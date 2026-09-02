@@ -471,7 +471,11 @@ Module {
                                     },
                                 },
                             ],
+                            param_names: [
+                                None,
+                            ],
                             effects: None,
+                            deductions: None,
                             ret: Named {
                                 qualifiers: [],
                                 base: TypeRef {

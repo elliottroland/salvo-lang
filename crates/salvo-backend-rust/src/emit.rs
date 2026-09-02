@@ -861,8 +861,12 @@ impl<'p> Emitter<'p> {
         if self.is_copy_ast_type(&param.ty) {
             return ParamMode::Owned;
         }
-        if matches!(param.ty, Type::Fn { .. }) || is_fn_group(&param.ty) {
-            return ParamMode::Owned; // closures pass by value
+        if is_fn_group(&param.ty) {
+            return ParamMode::Owned; // `Once` closures pass by value
+        }
+        if matches!(param.ty, Type::Fn { .. }) {
+            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
+            return ParamMode::RefMut;
         }
         let kept = key
             .and_then(|k| self.checked.deductions.get(&k))
@@ -882,12 +886,12 @@ impl<'p> Emitter<'p> {
     /// The default kept rule for fns outside the deduction tables
     /// (qualifier/effect/handler members) [rs-borrows].
     fn default_param_mode(&mut self, ty: &Type, variadic: bool) -> ParamMode {
-        if variadic
-            || self.is_copy_ast_type(ty)
-            || matches!(ty, Type::Fn { .. })
-            || is_fn_group(ty)
-        {
+        if variadic || self.is_copy_ast_type(ty) || is_fn_group(ty) {
             return ParamMode::Owned;
+        }
+        if matches!(ty, Type::Fn { .. }) {
+            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
+            return ParamMode::RefMut;
         }
         if type_has_mut(ty) {
             ParamMode::RefMut
@@ -1259,14 +1263,39 @@ impl<'p> Emitter<'p> {
             Type::Nullable { inner, .. } => format!("Option<{}>", self.emit_type(inner)),
             Type::Array { elem, .. } => format!("Vec<{}>", self.emit_type(elem)),
             Type::Union { arms, .. } => self.emit_union_type(arms),
-            Type::Fn { params, ret, .. } => {
+            Type::Fn {
+                params,
+                param_names,
+                deductions,
+                ret,
+                ..
+            } => {
                 // Only meaningful in parameter position [fn-lambda].
-                let ps: Vec<String> = params.iter().map(|p| self.emit_type(p)).collect();
+                // [fn-contract] Argument types follow the contract:
+                // kept non-Copy borrow, kept `Mut` borrows mutably,
+                // moved (or Copy) owned. `FnMut` accepts both plain and
+                // handler-mutating closures.
+                let ps: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let (kept, is_mut) =
+                            ast_fn_param_contract(params, param_names, deductions, i);
+                        let base = self.emit_type(p);
+                        if kept && is_mut {
+                            format!("&mut {base}")
+                        } else if kept && !self.is_copy_ast_type(p) {
+                            format!("&{base}")
+                        } else {
+                            base
+                        }
+                    })
+                    .collect();
                 let ret = match ret.as_ref() {
                     Type::Named { base, .. } if base.name.name == "None" => String::new(),
                     other => format!(" -> {}", self.emit_type(other)),
                 };
-                format!("impl Fn({}){ret}", ps.join(", "))
+                format!("impl FnMut({}){ret}", ps.join(", "))
             }
             Type::Tuple { elems, .. } => {
                 let parts: Vec<String> = elems.iter().map(|e| self.emit_type(e)).collect();
@@ -1477,7 +1506,7 @@ impl<'p> Emitter<'p> {
                 format!("({})", strs.join(", "))
             }
             Ty::Array(elem) => format!("Vec<{}>", self.rust_ty(elem)),
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 let ps: Vec<String> = params.iter().map(|p| self.rust_ty(p)).collect();
                 format!("impl Fn({}) -> {}", ps.join(", "), self.rust_ty(ret))
             }
@@ -2444,7 +2473,7 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => self.emit_if_expr(branches, else_block.as_ref()),
-            Expr::Lambda { params, body, .. } => self.emit_lambda(params, body),
+            Expr::Lambda { params, body, span } => self.emit_lambda(params, body, *span),
             Expr::Spread { operand, .. } => self.emit_owned(operand),
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
@@ -2587,6 +2616,75 @@ impl<'p> Emitter<'p> {
         } else {
             format!("({})", parts.join(" && "))
         }
+    }
+
+    /// An adapter closure for a named fn passed as a fn value
+    /// [fn-contract]: `&mut |a0, a1| name(a0, &a1)` — adapter parameters
+    /// arrive per the fn-type contract (owned for moved/Copy, references
+    /// for kept), and the body forwards per the declaration's actual
+    /// modes. `None` when the name is not a known fn.
+    fn named_fn_adapter(
+        &mut self,
+        name: &str,
+        span: Span,
+        expected: &Type,
+    ) -> Option<String> {
+        let key = self.checked.fn_refs.get(&(self.file_idx, span)).copied();
+        let decl = match key.and_then(|k| self.fn_by_key(k)) {
+            Some(d) => d,
+            None => self.symbols.fns.get(name).and_then(|v| v.first()).copied()?,
+        };
+        let Type::Fn {
+            params: exp_params,
+            param_names,
+            deductions,
+            ..
+        } = expected
+        else {
+            return None;
+        };
+        let rust_name = self.rust_fn_name(decl);
+        let names: Vec<String> = (0..decl.params.len())
+            .map(|i| format!("__a{i}"))
+            .collect();
+        let fwd: Vec<String> = decl
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                // Incoming mode per the expected contract; forwarding per
+                // the declaration's actual mode. Illegal combinations are
+                // checker-rejected before emission [fn-contract].
+                let (in_kept, in_mut) =
+                    ast_fn_param_contract(exp_params, param_names, deductions, i);
+                let in_ref = in_kept
+                    && !exp_params
+                        .get(i)
+                        .is_some_and(|t| self.is_copy_ast_type(t));
+                let mode = self.param_mode(key, p);
+                match (mode, in_ref, in_mut) {
+                    (ParamMode::Owned, false, _) => format!("__a{i}"),
+                    (ParamMode::Ref, true, false) => format!("__a{i}"),
+                    (ParamMode::Ref, true, true) => format!("&*__a{i}"),
+                    (ParamMode::Ref, false, _) => format!("&__a{i}"),
+                    (ParamMode::RefMut, true, true) => format!("__a{i}"),
+                    (ParamMode::RefMut, false, _) => format!("&mut __a{i}"),
+                    // Owned decl fed by a reference: checker-rejected
+                    // (consuming where keeping); render defensively.
+                    (ParamMode::Owned, true, _) => format!("__a{i}.clone()"),
+                    (ParamMode::RefMut, true, false) => format!("&mut *__a{i}"),
+                }
+            })
+            .collect();
+        Some(format!(
+            "&mut |{}| {rust_name}({})",
+            names
+                .iter()
+                .map(|p| format!("mut {p}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            fwd.join(", ")
+        ))
     }
 
     /// Renders an argument for a `&T` parameter position [rs-borrows].
@@ -3110,19 +3208,55 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    fn emit_lambda(&mut self, params: &[LambdaParam], body: &LambdaBody) -> String {
+    fn emit_lambda(
+        &mut self,
+        params: &[LambdaParam],
+        body: &LambdaBody,
+        span: Span,
+    ) -> String {
+        // [fn-contract] Parameters the expected contract keeps are
+        // reference bindings (mutably for `Mut`); moved (and
+        // uncontracted) parameters stay owned.
+        let contract = self
+            .checked
+            .lambda_contracts
+            .get(&(self.file_idx, span))
+            .cloned();
         let saved: Vec<(String, Option<BindKind>)> = params
             .iter()
-            .map(|p| {
-                let old = self.bindings.insert(p.name.name.clone(), BindKind::Owned);
+            .enumerate()
+            .map(|(i, p)| {
+                let kind = match contract.as_ref().and_then(|c| c.get(i)) {
+                    Some(e) if e.kept && e.mutable => BindKind::RefMut,
+                    Some(e)
+                        if e.kept
+                            && !p
+                                .ty
+                                .as_ref()
+                                .is_some_and(|t| self.is_copy_ast_type(t)) =>
+                    {
+                        BindKind::Ref
+                    }
+                    _ => BindKind::Owned,
+                };
+                let old = self.bindings.insert(p.name.name.clone(), kind);
                 (p.name.name.clone(), old)
             })
             .collect();
         let param_list: Vec<String> = params
             .iter()
-            .map(|p| match &p.ty {
+            .enumerate()
+            .map(|(i, p)| match &p.ty {
                 Some(t) => {
                     let ty = self.emit_type(t);
+                    // [fn-contract] Annotations match the binding mode.
+                    let ty = match contract.as_ref().and_then(|c| c.get(i)) {
+                        Some(e) if e.kept && e.mutable => format!("&mut {ty}"),
+                        Some(e) if e.kept && !self.is_copy_ast_type(t) => {
+                            format!("&{ty}")
+                        }
+                        _ => ty,
+                    };
                     format!("{}: {ty}", rs_ident(&p.name.name))
                 }
                 None => rs_ident(&p.name.name),
@@ -3393,8 +3527,39 @@ impl<'p> Emitter<'p> {
             return self.emit_fn_call(name, f, key, args, span);
         }
 
-        // 5. Local callable / interop: owned args pass-through.
-        let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        // 5. Local callable / interop. A call through a fn-typed value
+        // renders its arguments per the recorded contract [fn-contract]:
+        // kept non-Copy borrows, kept `Mut` borrows mutably, moved (or
+        // Copy) owned. Interop calls (no contract) keep owned
+        // pass-through.
+        let contract = self
+            .checked
+            .fn_value_calls
+            .get(&(self.file_idx, span))
+            .cloned();
+        let arg_code: Vec<String> = match contract {
+            Some(entries) => args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let (kept, is_mut) = entries
+                        .get(i)
+                        .map(|e| (e.kept, e.mutable))
+                        .unwrap_or((true, false));
+                    let copy = self
+                        .ty_of(a.span())
+                        .is_some_and(|t| Self::is_copy_ty(t));
+                    if kept && is_mut {
+                        self.borrowed_mut_arg(a)
+                    } else if kept && !copy {
+                        self.borrowed_arg(a)
+                    } else {
+                        self.emit_expr(a)
+                    }
+                })
+                .collect(),
+            None => args.iter().map(|a| self.emit_expr(a)).collect(),
+        };
         let generics = self.emit_call_type_args(type_args);
         format!("{}{generics}({})", rs_ident(name), arg_code.join(", "))
     }
@@ -3429,7 +3594,7 @@ impl<'p> Emitter<'p> {
                 Some(_) => self.param_mode(fn_key, param),
                 None => self.default_param_mode(&param.ty, param.variadic),
             };
-            out.push(self.emit_arg(arg, mode));
+            out.push(self.emit_arg(arg, mode, Some(&param.ty)));
         }
         if variadic_at.is_some() {
             let rest = args.get(fixed..).unwrap_or(&[]);
@@ -3452,7 +3617,16 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    fn emit_arg(&mut self, arg: &Expr, mode: ParamMode) -> String {
+    fn emit_arg(&mut self, arg: &Expr, mode: ParamMode, param_ty: Option<&Type>) -> String {
+        // [fn-contract] A named fn passed into a fn-typed position wraps
+        // in an adapter closure matching the expected contract.
+        if let (Some(pt @ Type::Fn { .. }), Expr::Ident(id)) = (param_ty, arg) {
+            if !self.bindings.contains_key(id.name.as_str()) {
+                if let Some(code) = self.named_fn_adapter(&id.name, id.span, pt) {
+                    return code;
+                }
+            }
+        }
         match mode {
             ParamMode::Owned => self.emit_expr(arg),
             ParamMode::Ref => {
@@ -3831,6 +4005,31 @@ fn binary_op(op: BinaryOp) -> &'static str {
 
 /// The base type name of an AST type (pairs define templates with
 /// overloaded external declarations).
+/// The (kept, mutable) contract of one fn-type parameter [fn-contract]:
+/// kept unless the written deduction list omits its name; mutable when
+/// the declared type carries `Mut`. Defaults keep everything.
+fn ast_fn_param_contract(
+    params: &[Type],
+    param_names: &[Option<salvo_syntax::ast::Ident>],
+    deductions: &Option<Vec<salvo_syntax::ast::Deduction>>,
+    i: usize,
+) -> (bool, bool) {
+    let is_mut = params
+        .get(i)
+        .map(|t| match t {
+            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
+                qualifiers.iter().any(|q| q.name.name == "Mut")
+            }
+            _ => false,
+        })
+        .unwrap_or(false);
+    let kept = match (param_names.get(i).and_then(|n| n.as_ref()), deductions) {
+        (Some(name), Some(list)) => list.iter().any(|d| d.param.name == name.name),
+        _ => true,
+    };
+    (kept, is_mut)
+}
+
 /// A qualified group over a fn type (`Once (A) -> B`) [once-fn].
 fn is_fn_group(ty: &Type) -> bool {
     matches!(
@@ -3869,7 +4068,7 @@ fn ty_is_concrete(ty: &Ty) -> bool {
         Ty::Union(arms) => arms.iter().all(ty_is_concrete),
         Ty::Tuple(elems) => elems.iter().all(ty_is_concrete),
         Ty::Array(elem) => ty_is_concrete(elem),
-        Ty::Fn { params, ret } => params.iter().all(ty_is_concrete) && ty_is_concrete(ret),
+        Ty::Fn { params, ret, .. } => params.iter().all(ty_is_concrete) && ty_is_concrete(ret),
         _ => true,
     }
 }
@@ -4008,12 +4207,16 @@ fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {
         },
         Type::Fn {
             params,
+            param_names,
             effects,
+            deductions,
             ret,
             span,
         } => Type::Fn {
             params: params.iter().map(|p| subst_ast_type(p, map)).collect(),
+            param_names: param_names.clone(),
             effects: effects.clone(),
+            deductions: deductions.clone(),
             ret: Box::new(subst_ast_type(ret, map)),
             span: *span,
         },

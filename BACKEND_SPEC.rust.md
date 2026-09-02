@@ -332,6 +332,16 @@ derives them mechanically:
 * [struct-defaults] Rust has no default arguments: struct literals
   inline the declared default expressions for omitted fields at every
   literal site.
+* [fn-contract] Fn-typed parameters emit `&mut impl FnMut(…)` — the
+  value is borrowed (closure double-use works; `FnMut` accepts
+  handler-mutating closures), with argument types per the contract:
+  kept non-Copy `&T`, kept `Mut` `&mut T`, moved or Copy owned. Calls
+  through fn values render arguments per the recorded contract
+  (`Checked::fn_value_calls`); lambda parameter bindings and
+  annotations follow `Checked::lambda_contracts`; a named fn passed by
+  value wraps in a mechanical adapter closure
+  (`&mut |__a0, …| name(&__a0, …)`) bridging the contract's calling
+  convention to the declaration's actual modes.
 * [once-fn] `Once` fn parameters emit `impl FnOnce(…)`; consuming
   closures are `FnOnce` by rustc's own capture inference, so lambda
   emission is unchanged. Calling the parameter is a plain call (the

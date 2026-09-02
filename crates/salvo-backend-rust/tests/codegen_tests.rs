@@ -1404,3 +1404,83 @@ fn rustc_compiles_and_runs_derived_returns() {
     let expected = "adult: Grace\nhead: Kid\ndone\n";
     run_rust_files(&files, "l7c-derived", expected);
 }
+
+// ===== L7d: fn-type contracts [fn-contract] =====
+
+/// Contracts on fn types: a keeping contract lets the callee call the
+/// value repeatedly and the caller keep the argument (Rust: borrowed
+/// argument types, `&mut impl FnMut`); a consuming contract moves the
+/// argument; named fns pass through adapter closures (Rust) and
+/// function references (Kotlin).
+const CONTRACTS_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn apply_keeping(f: (v: List<Person>) -> [v] Int, data: List<Person>) -> [data] Int {
+    return f(data) + f(data)
+}
+
+fn apply_consuming(f: (v: List<Person>) -> [] Int, data: List<Person>) -> Int {
+    return f(data)
+}
+
+fn count(people: List<Person>) -> [people] Int {
+    return size(people)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
+    println("twice=${twice}")
+    println("still=${size(people)}")
+    let named = apply_keeping(count, people)
+    println("named=${named}")
+    let eaten = apply_consuming((v: List<Person>) -> { return size(v) }, people)
+    println("eaten=${eaten}")
+    println("done")
+}
+"#;
+
+// [fn-contract] Keeping contracts borrow, consuming contracts own; fn
+// params are `&mut impl FnMut`; named fns wrap in adapters.
+#[test]
+fn fn_type_contracts_emit_modes() {
+    let files = generate(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains(
+            "pub fn apply_keeping(f: &mut impl FnMut(&Vec<Person>) -> i32, data: &Vec<Person>) -> i32"
+        ),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains(
+            "pub fn apply_consuming(f: &mut impl FnMut(Vec<Person>) -> i32, data: Vec<Person>) -> i32"
+        ),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("count(&__a0)") || main.content.contains("count(__a0)"),
+        "adapter expected:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_fn_contracts() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
+    run_rust_files(&files, "l7d-contracts", expected);
+}

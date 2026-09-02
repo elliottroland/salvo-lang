@@ -1897,3 +1897,56 @@ fn kotlinc_compiles_and_runs_derived_returns() {
     let expected = "adult: Grace\nhead: Kid\ndone\n";
     run_kotlin_files(&files, "l7c-derived", expected);
 }
+
+// ===== L7d: fn-type contracts [fn-contract] =====
+
+/// Contracts on fn types: a keeping contract lets the callee call the
+/// value repeatedly and the caller keep the argument (Rust: borrowed
+/// argument types, `&mut impl FnMut`); a consuming contract moves the
+/// argument; named fns pass through adapter closures (Rust) and
+/// function references (Kotlin).
+const CONTRACTS_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn apply_keeping(f: (v: List<Person>) -> [v] Int, data: List<Person>) -> [data] Int {
+    return f(data) + f(data)
+}
+
+fn apply_consuming(f: (v: List<Person>) -> [] Int, data: List<Person>) -> Int {
+    return f(data)
+}
+
+fn count(people: List<Person>) -> [people] Int {
+    return size(people)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
+    println("twice=${twice}")
+    println("still=${size(people)}")
+    let named = apply_keeping(count, people)
+    println("named=${named}")
+    let eaten = apply_consuming((v: List<Person>) -> { return size(v) }, people)
+    println("eaten=${eaten}")
+    println("done")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_fn_contracts() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
+    run_kotlin_files(&files, "l7d-contracts", expected);
+}

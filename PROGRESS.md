@@ -13,13 +13,15 @@ are clone-free — and `with Linear` types carry a use obligation
 explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
-limitations, and the plan for what's next — L7a (`<T with Linear>`),
-L7b (`Once` fn types), and L7c (derived returns `ReadOnly[from: p]` —
-zero-copy accessors with generated Rust lifetimes) are done; still
-open: fn-type contracts (deductions/effects on `Ty::Fn`, `Once`
-inference, the named-fn mode mismatch) and the internal qualifier
-unification (deferred — nothing forces it yet); L5 field precision
-only if whole-variable granularity proves too coarse.
+limitations, and the plan for what's next. **The L7 milestone is
+complete** — L7a (`<T with Linear>`), L7b (`Once` fn types), L7c
+(derived returns `ReadOnly[from: p]`), and L7d (fn-type contracts:
+named fn-type parameters with standard deduction lists, applied at
+fn-value calls, inherited by lambdas, carried by named fns, emitted as
+real Rust modes). Small recorded remainders: fn-type *effect* lists
+parse but are not yet enforced, `Once` inference, the internal
+qualifier unification (nothing forces it), and L5 field precision only
+if whole-variable granularity proves too coarse.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -37,7 +39,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 186 tests; includes thirteen kotlinc and thirteen rustc
+cargo test                  # 190 tests; includes fourteen kotlinc and fourteen rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -627,6 +629,47 @@ where annotations already name parameters). What landed:
   by the provenance validation — reassignable borrowed locals are the
   recorded refinement.
 
+### L7d — fn-type contracts (completed 2026-09-02)
+
+The user-directed redesign of the original "piece 3": instead of a
+fixed all-moved convention, fn types carry *declared* contracts —
+default keeps-everything, so nothing broke and the parity hole closed
+by faithful emission. Rule [fn-contract]:
+
+- **Surface**: fn-type parameters may be named and a standard deduction
+  list may follow the arrow (`(v: List<Int>) -> [] Int`). `Type::Fn`
+  gained `param_names`/`deductions`; `Ty::Fn` gained
+  `contract: Option<Vec<FnParamContract>>` (a types.rs struct — kept
+  out of `Display` to avoid message churn).
+- **Checker**: `apply_fn_value_contract` mirrors the named-call
+  contract loop (consumption, kept-`Mut` mutation events, qualifier
+  shedding, same-call ordering, Once escape, capture/kept guards) at
+  fn-value call sites; lambdas checked against a contract mark kept
+  parameters `lambda_kept` (never consumable — guarded at all four
+  consuming sites plus binding modes); named fns passed by value build
+  their contract from written/inferred deductions; `contract_fits`
+  (keeps <: consumes, inverted like [once-fn] and flagged with it)
+  joined `is_subtype` and `unify`. One enabling fix: single-candidate
+  named calls now type *lambda literal* arguments against the callee's
+  parameter types upfront, so expected fn-type contracts actually
+  reach `check_lambda` (multi-candidate calls keep the untyped probe).
+- **deduce.rs**: calls through fn-typed *parameters* of the walking fn
+  apply that parameter's written contract, so consuming contracts
+  propagate interprocedurally (`caller_loses` sees its argument die).
+- **Rust emission**: fn params render `&mut impl FnMut(…)` (closure
+  double-use fixed by faithful emission; `FnMut` accepts
+  handler-mutating closures; `Once` stays `impl FnOnce`), argument
+  types per contract, call-site arguments per
+  `Checked::fn_value_calls`, lambda bindings/annotations per
+  `Checked::lambda_contracts`, and named fns wrap in mechanical
+  adapter closures. **Kotlin**: contracts erase; named fns emit
+  `::name` function references (that pass was silently broken on
+  Kotlin too — `count` bare emitted a call-less identifier kotlinc
+  rejects).
+- Deferred, recorded: fn-type *effect* lists (parse, lexical env
+  meanwhile), `Once` inference, per-parameter written contracts
+  beyond kept/moved/quals.
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -1023,6 +1066,43 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 
 ## Remaining leftovers (small; no milestone claims them)
 
+Ownership-arc remainders (each recorded in its milestone section and/or
+spec rule; consolidated here for findability):
+
+- **Fn-type effect lists** (`(v: T) [Console] -> ...`) parse but are not
+  enforced as contracts — lambda bodies use the lexical effect
+  environment [fn-contract].
+- **`Once` inference**: a callee calling its fn param at most once does
+  not auto-promote to `Once`; written only [once-fn]. Same
+  written-validates/unwritten-infers pattern as deductions when taken.
+- **Contracted lambdas passed to *overloaded* fns**: expected fn-type
+  contracts only reach lambda literals for single-candidate callees
+  (multi-candidate arg typing stays unbiased) [fn-contract]. Related:
+  passing an *overloaded* fn by name resolves to the first overload
+  (`entries[0]`) with no signature-based selection.
+- **Returning/storing capture-carrying closures**: rustc lifetime error
+  the checker does not reject; the recorded refinement is
+  `move`-closure emission with hoisted clones, pending a treatment for
+  captured effect-handler locals [fate-lambda].
+- **Exactly-once closures**: a `Once` lambda may not consume a *linear*
+  capture (the closure would inherit the obligation) [linear-lambda];
+  supporting it means linear fn values.
+- **Reassignable borrowed locals** (accumulator bodies in derived-return
+  fns: `best = person; …; return best`) are rejected by provenance
+  validation; supporting them is the recorded [readonly-return]
+  refinement.
+- **Effect members with their own generics** are not covered by the
+  linear instantiation ban [linear-generics].
+- **Same-call borrow/move (E0505 shape)**: one call that passes a
+  borrow-emitted local *and* moves its root is checker-legal
+  (left-to-right model) but rustc-rejected — loud, rare
+  [rs-borrow-locals].
+- **Internal qualifier unification** (folding links/poison/consumed_by
+  into parameterized qualifiers with per-qualifier joins) remains
+  unforced — L7c/L7d landed on links alone; revisit only when a
+  customer needs it. L5 field-disjoint precision likewise only if
+  whole-variable granularity pinches.
+
 - `salvo lsp` go-to-definition: `Resolution`/`Symbols` know the declaring
   items but no def-site *spans* are recorded; add ident spans to the
   declaration tables and a `textDocument/definition` handler. Also worth
@@ -1063,9 +1143,6 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   re-parenthesizing by precedence: `(a - b) * c` would emit as
   `a - b * c` (latent, unexercised by std/demos; the Rust emitter got
   precedence-aware rendering in M8 - port it back).
-- Rust: passing a named fn where a lambda is expected can mismatch
-  parameter modes (`impl Fn(S) -> T` args are owned; a named fn's params
-  may be borrows) - rustc rejects it loudly, never wrong output.
 - Rust: interpolating a still-optional value (a `T?` never narrowed) is a
   rustc error (`Option` has no `Display`); Kotlin prints `null`. Narrow
   or `!` first.
@@ -1076,7 +1153,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 186)
+## Test inventory (all green: 190)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1098,7 +1175,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 46 - 39 `analyze` integration tests running the built
+- `salvo-cli`: 47 - 40 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1171,6 +1248,10 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   mutation poisoning the result, borrowed results immovable with the
   `copy` remedy clean, direct element returns and forwarded derived
   calls clean),
+  the L7d contract matrix ([fn-contract]: double use through a
+  consuming contract rejected, a consuming named fn rejected at a
+  keeping boundary, kept lambda parameters unconsumable, consuming
+  contracts propagating to callers, keeping contracts clean),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -1191,7 +1272,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 59 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 60 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1221,15 +1302,15 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and thirteen kotlinc compile+run tests
+  mutability is a codegen error); and fourteen kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
-  resource demo, and the L7a/L7b/L7c linear-generics, `Once`, and
-  derived-returns demos —
+  resource demo, and the L7a–L7d linear-generics, `Once`,
+  derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 36 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 38 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1251,16 +1332,19 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
   alias of an owned local, read-only pipeline clone-free); `discard`
-  lowering assertions (`drop(...)` [linear-discard]); and thirteen rustc
+  lowering assertions (`drop(...)` [linear-discard]); and fourteen rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
   resource demo, the L7a linear-generics workflow demo, the L7b
   `Once` demo — with `once_fn_params_emit_fnonce` asserting the
-  `impl FnOnce` rendering [once-fn] — and the L7c derived-returns demo,
+  `impl FnOnce` rendering [once-fn] — the L7c derived-returns demo,
   with `derived_returns_emit_borrows` asserting the elided and
   generated-lifetime signatures and the borrow returns
-  [readonly-return]).
+  [readonly-return], and the L7d contracts demo, with
+  `fn_type_contracts_emit_modes` asserting `&mut impl FnMut`
+  signatures with contract-mode argument types and the named-fn
+  adapter [fn-contract]).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1268,6 +1352,18 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L7d) Expected types only reach lambda arguments when the arg-typing
+  pass supplies them: named calls typed all arguments with `None`
+  before overload matching, so fn-type contracts silently never
+  arrived at `check_lambda`. Single-candidate callees now pre-lower
+  their parameter types as expecteds for lambda literals; overloaded
+  callees still probe untyped (an expected could bias resolution) —
+  contracted lambdas passed to *overloaded* fns are a known gap.
+- (L7d) The named-fn-by-value pass was broken on BOTH backends in
+  different ways (Rust: signature-mode mismatch; Kotlin: a bare
+  identifier where `::name` is required) — when a feature is
+  "loud-but-unsupported", verify each backend's failure mode
+  separately; they rarely match.
 - (L7c) A borrow crossing a fn boundary interacts with *every* later
   relaxation: S2's move-mode would happily have "taken ownership" of a
   physically borrowed call result (moving out of a `&` — rustc

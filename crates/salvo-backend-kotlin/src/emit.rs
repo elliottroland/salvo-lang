@@ -1080,7 +1080,7 @@ impl<'p> Emitter<'p> {
                 }
             }
             Ty::Array(elem) => format!("Array<{}>", self.emit_ty(elem)),
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 let ps: Vec<String> = params.iter().map(|p| self.emit_ty(p)).collect();
                 format!("({}) -> {}", ps.join(", "), self.emit_ty(ret))
             }
@@ -1723,6 +1723,15 @@ impl<'p> Emitter<'p> {
             Expr::Ident(id) => {
                 if id.name == "None" {
                     "null".to_string()
+                } else if !self.taken_names.contains(&id.name)
+                    && self
+                        .checked
+                        .fn_refs
+                        .contains_key(&(self.file_idx, id.span))
+                {
+                    // Passing a named fn by value [fn-contract]: Kotlin
+                    // needs the function-reference syntax.
+                    format!("::{}", kt_ident(&id.name))
                 } else {
                     kt_ident(&id.name)
                 }
@@ -2498,6 +2507,7 @@ impl<'p> Emitter<'p> {
                 Some(Ty::Union(vec![Self::approx_ty(inner, subst)?, Ty::none()]))
             }
             Type::Fn { .. } => Some(Ty::Fn {
+                contract: None,
                 params: Vec::new(),
                 ret: Box::new(Ty::Unknown),
             }),
@@ -2742,7 +2752,7 @@ fn ty_is_concrete(ty: &Ty) -> bool {
         Ty::Union(arms) => arms.iter().all(ty_is_concrete),
         Ty::Tuple(elems) => elems.iter().all(ty_is_concrete),
         Ty::Array(elem) => ty_is_concrete(elem),
-        Ty::Fn { params, ret } => params.iter().all(ty_is_concrete) && ty_is_concrete(ret),
+        Ty::Fn { params, ret, .. } => params.iter().all(ty_is_concrete) && ty_is_concrete(ret),
         _ => true,
     }
 }
@@ -2880,12 +2890,16 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
         },
         Type::Fn {
             params,
+            param_names,
             effects,
+            deductions,
             ret,
             span,
         } => Type::Fn {
             params: params.iter().map(|p| subst_ast_type(p, map)).collect(),
+            param_names: param_names.clone(),
             effects: effects.clone(),
+            deductions: deductions.clone(),
             ret: Box::new(subst_ast_type(ret, map)),
             span: *span,
         },

@@ -605,6 +605,43 @@ Conventions:
     environment (lexical). Fn-type contracts (deductions, effects, and
     a call-multiplicity qualifier enabling consuming captures) are the
     L7 parameterized-qualifier work.
+* [fn-contract] Fn types carry *contracts* (L7d, 2026-09-02): parameters
+  may be named, and a standard deduction list may follow the arrow —
+  `(v: List<Int>) -> [] Int` consumes its argument,
+  `(v: List<Int>) -> [v] Int` keeps it, and an unannotated fn type
+  keeps everything (the default, matching the previous lenient
+  behavior — no programs changed legality by default).
+  * Calling a fn-typed value applies its contract to the arguments
+    exactly like a named call [deduce-consume] [deduce-same-call]:
+    moved positions consume, kept `Mut` positions are mutation events
+    [fate-poison], kept positions shed `declared − kept` qualifiers.
+    The contract propagates through deduction inference (a fn passing
+    its own parameter into a consuming contract has that parameter
+    inferred moved).
+  * A lambda checked against a contracted fn type inherits it: kept
+    parameters belong to the closure's caller and can never be
+    consumed inside the body (error, remedy `copy`); `Mut`-kept
+    parameters may be mutated (mutation is `Mut`-type-gated as usual).
+  * A *named fn* passed by value carries its declaration's contract
+    (written list, else inferred), so boundaries are checked with real
+    modes.
+  * Boundary variance is inverted like [once-fn], flagged for the same
+    future review: a fn that *keeps* its argument fits where a
+    *consuming* one is expected (the caller merely over-estimates the
+    damage), never the reverse; mutation permission must be granted by
+    the expectation (`contract_fits`).
+  * Effect lists on fn types (`(v: T) [Console] -> ...`) parse but are
+    not yet enforced as contracts (deferred; lambda bodies use the
+    lexical effect environment). `Once` inference also remains open.
+  * Backends: Kotlin erases contracts (aliases throughout; named fns
+    pass as `::name` function references). Rust renders fn parameters
+    as `&mut impl FnMut(…)` (accepting both plain and handler-mutating
+    closures; `Once` stays owned `impl FnOnce`), argument types per
+    contract (kept non-Copy `&T`, kept `Mut` `&mut T`, moved/Copy
+    owned), call-site arguments per the recorded contract, lambda
+    parameter bindings/annotations per contract, and named fns wrap in
+    mechanical adapter closures bridging the contract's calling
+    convention to the declaration's actual modes.
 * [once-fn] `Once` is the language-level call-multiplicity qualifier
   (decision L7b, 2026-09-02): valid only on *function types*
   (`f: Once () -> None`), it means the value is callable **at most

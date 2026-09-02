@@ -277,10 +277,17 @@ pub enum Type {
     Array { elem: Box<Type>, span: Span },
     /// `T?` — sugar for `T | None`.
     Nullable { inner: Box<Type>, span: Span },
-    /// `(S) -> T` or `(S) [E] -> T` — a function/lambda type.
+    /// `(S) -> T` or `(S) [E] -> T` — a function/lambda type. Parameters
+    /// may be *named* (`(v: List<Int>) -> [v] Int`), which lets a
+    /// deduction list state the fn value's contract [fn-contract]; an
+    /// unannotated fn type keeps everything (the default contract).
     Fn {
         params: Vec<Type>,
+        /// Parallel to `params`: the optional parameter names.
+        param_names: Vec<Option<Ident>>,
         effects: Option<Vec<EffectRef>>,
+        /// `-> [deductions] R` inside the fn type [fn-contract].
+        deductions: Option<Vec<Deduction>>,
         ret: Box<Type>,
         span: Span,
     },

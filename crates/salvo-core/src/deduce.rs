@@ -281,6 +281,7 @@ fn infer_body(
         fn_decls,
         states,
         params: optimistic(f.decl),
+        decl: f.decl,
     };
     walk.block(body);
     walk.params
@@ -293,6 +294,9 @@ struct Walk<'a, 'p> {
     fn_decls: &'a HashMap<FnKey, &'p FnDecl>,
     states: &'a HashMap<FnKey, Vec<ParamDeduction>>,
     params: Vec<ParamDeduction>,
+    /// The declaration being walked (for its fn-typed parameters'
+    /// written contracts [fn-contract]).
+    decl: &'p FnDecl,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -519,6 +523,41 @@ impl Walk<'_, '_> {
             .get(&(self.file, span))
             .and_then(|key| Some((self.fn_decls.get(key)?, self.states.get(key)?)));
         let Some((callee_decl, callee_state)) = resolved else {
+            // [fn-contract] A call through a fn-typed *parameter* of the
+            // walking fn applies that parameter's written fn-type
+            // contract: consumed positions move bare-parameter
+            // arguments. Default (no written list): keeps everything.
+            if let Expr::Ident(callee_id) = callee {
+                let fn_param_ty = self
+                    .decl
+                    .params
+                    .iter()
+                    .find(|p| p.name.name == callee_id.name)
+                    .map(|p| &p.ty);
+                if let Some(Type::Fn {
+                    param_names,
+                    deductions: Some(list),
+                    ..
+                }) = fn_param_ty
+                {
+                    for (i, a) in arg_exprs.into_iter().enumerate() {
+                        let Some(name) = bare_ident(a) else {
+                            self.expr(a);
+                            continue;
+                        };
+                        let kept = param_names
+                            .get(i)
+                            .and_then(|n| n.as_ref())
+                            .map(|n| list.iter().any(|d| d.param.name == n.name))
+                            .unwrap_or(true);
+                        if !kept {
+                            let name = name.to_string();
+                            self.mark_moved(&name);
+                        }
+                    }
+                    return;
+                }
+            }
             for a in arg_exprs {
                 self.expr(a);
             }

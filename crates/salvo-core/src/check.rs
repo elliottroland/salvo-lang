@@ -26,7 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
 use crate::resolve::{FnKey, ModuleScope, Resolution};
 use crate::source::SourceKind;
-use crate::types::{is_subtype, Qual, Ty};
+use crate::types::{is_subtype, Qual, Ty, FnParamContract};
 
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
@@ -135,6 +135,14 @@ pub struct Checked {
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
     pub derived_calls: HashMap<Key, usize>,
+    /// Calls *through fn-typed values* [fn-contract], keyed by the call
+    /// span: the effective per-argument contract (post-default), for the
+    /// Rust backend's argument rendering.
+    pub fn_value_calls: HashMap<Key, Vec<FnParamContract>>,
+    /// Lambdas checked against a *contracted* fn type [fn-contract],
+    /// keyed by the lambda span: the contract, for the Rust backend's
+    /// parameter-binding modes.
+    pub lambda_contracts: HashMap<Key, Vec<FnParamContract>>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -338,6 +346,10 @@ struct LocalVar {
     /// Where the variable was declared (for linear-obligation
     /// diagnostics [linear-obligation]).
     decl_span: Span,
+    /// A lambda parameter whose fn-type contract *keeps* it
+    /// [fn-contract]: the value belongs to the caller — read-only-ish
+    /// (mutation is type-gated by `Mut`), never consumable.
+    lambda_kept: bool,
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -726,6 +738,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_param: true,
                     for_origin: None,
                     decl_span: p.name.span,
+                    lambda_kept: false,
                 },
             );
         }
@@ -745,6 +758,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_param: true,
                     for_origin: None,
                     decl_span: field.name.span,
+                    lambda_kept: false,
                 },
             );
         }
@@ -989,6 +1003,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 is_param,
                 for_origin,
                 decl_span: name.span,
+                lambda_kept: false,
             },
         );
     }
@@ -1243,7 +1258,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // left to consume and does not block the move.
         for l in &links {
             let Some(var) = self.var_by_id(l.root_id) else { continue };
-            if var.is_param && !self.param_owned(&l.root_name) {
+            if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
                 return links;
             }
         }
@@ -1416,6 +1431,151 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// Applies a fn *value's* contract to the arguments of a call
+    /// through it [fn-contract] — the fn-type sibling of the named-call
+    /// contract loop (keep the two in sync): moved arguments are
+    /// consumed, kept `Mut` positions are mutation events, kept
+    /// positions shed `declared − kept` qualifiers, projections follow
+    /// the moved/kept-`Mut` rules, and same-call ordering applies
+    /// [deduce-same-call]. An absent contract keeps everything (the
+    /// default), so only its `Mut` mutation events fire.
+    fn apply_fn_value_contract(
+        &mut self,
+        args: &[&'p Expr],
+        params: &[Ty],
+        contract: Option<&[FnParamContract]>,
+        span: Span,
+    ) {
+        // Record the effective per-argument contract for the emitter's
+        // argument rendering [fn-contract].
+        let effective: Vec<FnParamContract> = (0..args.len())
+            .map(|i| {
+                let declared_q: Vec<String> = params
+                    .get(i)
+                    .map(|t| t.quals().iter().map(|q| q.name.clone()).collect())
+                    .unwrap_or_default();
+                match contract.and_then(|c| c.get(i)) {
+                    Some(e) => e.clone(),
+                    None => FnParamContract {
+                        name: None,
+                        kept: true,
+                        quals: declared_q.clone(),
+                        mutable: declared_q.iter().any(|q| q == "Mut"),
+                    },
+                }
+            })
+            .collect();
+        self.out.fn_value_calls.insert(self.key(span), effective);
+        let mut consumed_here: Vec<String> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            if let Some(name) = consumed_here
+                .iter()
+                .find(|n| expr_mentions(arg, n))
+                .cloned()
+            {
+                self.error(
+                    arg.span(),
+                    format!(
+                        "`{name}` cannot be used here: it was consumed (moved) \
+                         by an earlier argument of this call (arguments are \
+                         evaluated left to right); use `copy` at the argument \
+                         that consumes it"
+                    ),
+                );
+            }
+            let param_ty = params.get(i);
+            let declared_q: Vec<String> = param_ty
+                .map(|t| t.quals().iter().map(|q| q.name.clone()).collect())
+                .unwrap_or_default();
+            let (kept, kept_quals, mutable) = match contract.and_then(|c| c.get(i)) {
+                Some(e) => (e.kept, e.quals.clone(), e.mutable),
+                None => (true, declared_q.clone(), declared_q.iter().any(|q| q == "Mut")),
+            };
+            let Expr::Ident(id) = arg else {
+                if kept && mutable {
+                    let mut sources = Vec::new();
+                    Self::provenance(arg, &mut sources);
+                    let names: Vec<String> =
+                        sources.iter().map(|s| s.name.clone()).collect();
+                    for name in names {
+                        self.fate_mutation(&name, span);
+                    }
+                } else if !kept {
+                    let consumed = self.projection_move(arg, span);
+                    consumed_here.extend(consumed);
+                }
+                continue;
+            };
+            let arg_once = self
+                .lookup(&id.name)
+                .map(|v| v.narrowed.quals().iter().any(|q| q.name == "Once"))
+                .unwrap_or(false);
+            if !kept || arg_once {
+                if self.inferred.is_none() {
+                    continue;
+                }
+                let state = self
+                    .lookup(&id.name)
+                    .map(|var| (var.id, var.links.clone()));
+                let Some((var_id, links)) = state else { continue };
+                if !links.is_empty() {
+                    let name = id.name.clone();
+                    self.error_derived(id.span, "move", &name, &links);
+                    continue;
+                }
+                let name = id.name.clone();
+                if let Some(frame) = self.frame_of_id(var_id) {
+                    if self.capture_move_violation(frame, &name, id.span) {
+                        continue;
+                    }
+                }
+                if self.consume_kept_lambda_param(&name, id.span) {
+                    continue;
+                }
+                self.poison_derived(var_id, &name, FateEvent::Moved, span);
+                if let Some(var) = self.lookup_mut(&id.name) {
+                    var.narrowed = Ty::Nothing;
+                    var.consumed_by = Some("an earlier call");
+                }
+                consumed_here.push(name);
+                continue;
+            }
+            if mutable {
+                let name = id.name.clone();
+                self.fate_mutation(&name, span);
+            }
+            let kept_set: HashSet<&str> =
+                kept_quals.iter().map(String::as_str).collect();
+            let removed: HashSet<String> = declared_q
+                .into_iter()
+                .filter(|q| !kept_set.contains(q.as_str()))
+                .collect();
+            if !removed.is_empty() {
+                if let Some(var) = self.lookup_mut(&id.name) {
+                    var.narrowed = var.narrowed.clone().remove_quals(&removed);
+                }
+            }
+        }
+    }
+
+    /// Guards consumption of a lambda parameter the contract *keeps*
+    /// [fn-contract]: the value belongs to the closure's caller, so it
+    /// can only be read (a Rust borrow). Reports and returns `true` when
+    /// the consumption must be skipped.
+    fn consume_kept_lambda_param(&mut self, name: &str, span: Span) -> bool {
+        let kept = self.lookup(name).is_some_and(|v| v.lambda_kept);
+        if kept {
+            self.error(
+                span,
+                format!(
+                    "cannot consume `{name}`: this lambda's contract keeps it \
+                     (the caller retains the value); use `copy({name})`"
+                ),
+            );
+        }
+        kept
+    }
+
     /// [fate-move-mode] A projection in a *moved* position — a consuming
     /// call argument, a literal store, spread, `return`/`break`/`yield`,
     /// or a `use` constructor argument — moves data out of its
@@ -1461,7 +1621,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for l in &links {
             let Some(var) = self.var_by_id(l.root_id) else { continue };
-            if var.is_param && !self.param_owned(&l.root_name) {
+            if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
                 let root = l.root_name.clone();
                 self.error(
                     span,
@@ -2039,6 +2199,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Array(Box::new(self.lower_type_subst(elem, subst, depth)))
             }
             ast::Type::Fn { params, ret, .. } => Ty::Fn {
+                contract: self.lower_fn_contract(ty),
                 params: params
                     .iter()
                     .map(|p| self.lower_type_subst(p, subst, depth))
@@ -2046,6 +2207,87 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ret: Box::new(self.lower_type_subst(ret, subst, depth)),
             },
         }
+    }
+
+    /// Builds a fn type's contract from its written parameter names and
+    /// deduction list [fn-contract]. `None` when nothing is written (the
+    /// default: keeps everything). Entries: kept unless the (explicit)
+    /// deduction list omits the named parameter; kept quals per the list
+    /// (bare name = all declared); `mutable` = the declared param type
+    /// carries `Mut`.
+    fn lower_fn_contract(&mut self, ty: &ast::Type) -> Option<Vec<FnParamContract>> {
+        let ast::Type::Fn {
+            params,
+            param_names,
+            deductions,
+            ..
+        } = ty
+        else {
+            return None;
+        };
+        if param_names.iter().all(|n| n.is_none()) && deductions.is_none() {
+            return None;
+        }
+        let declared_quals = |t: &ast::Type| -> Vec<String> {
+            match t {
+                ast::Type::Named { qualifiers, .. }
+                | ast::Type::QualifiedGroup { qualifiers, .. } => {
+                    qualifiers.iter().map(|q| q.name.name.clone()).collect()
+                }
+                _ => Vec::new(),
+            }
+        };
+        let entries: Vec<FnParamContract> = params
+            .iter()
+            .zip(param_names)
+            .map(|(t, name)| {
+                let declared = declared_quals(t);
+                let mutable = declared.iter().any(|q| q == "Mut");
+                let (kept, quals) = match (name, deductions) {
+                    (Some(id), Some(list)) => {
+                        match list.iter().find(|d| d.param.name == id.name) {
+                            Some(d) if d.explicit => (
+                                true,
+                                d.qualifiers
+                                    .iter()
+                                    .map(|q| q.name.name.clone())
+                                    .collect(),
+                            ),
+                            Some(_) => (true, declared.clone()),
+                            None => (false, Vec::new()),
+                        }
+                    }
+                    // Named but no list, or unnamed: keeps everything.
+                    _ => (true, declared.clone()),
+                };
+                FnParamContract {
+                    name: name.as_ref().map(|id| id.name.clone()),
+                    kept,
+                    quals,
+                    mutable,
+                }
+            })
+            .collect();
+        // Validate the deduction list references named parameters.
+        if let Some(list) = deductions {
+            for d in list {
+                let known = param_names
+                    .iter()
+                    .flatten()
+                    .any(|n| n.name == d.param.name);
+                if !known {
+                    self.error(
+                        d.param.span,
+                        format!(
+                            "`{}` names no parameter of this function type \
+                             (name the parameter: `({}: ...) -> [...] ...`)",
+                            d.param.name, d.param.name
+                        ),
+                    );
+                }
+            }
+        }
+        Some(entries)
     }
 
     fn lower_quals(
@@ -3074,6 +3316,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
+        // A kept lambda parameter belongs to the caller [fn-contract].
+        if self.consume_kept_lambda_param(&name, id.span) {
+            return;
+        }
         self.poison_derived(var_id, &name, FateEvent::Moved, span);
         if let Some(var) = self.lookup_mut(&id.name) {
             var.narrowed = Ty::Nothing;
@@ -3222,9 +3468,44 @@ impl<'p, 'r> Checker<'p, 'r> {
                         decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
                     let ret = self.fn_return_ty(decl);
                     self.generics = saved;
+                    // [fn-contract] The fn value carries the declaration's
+                    // contract (written list, else the inferred facts), so
+                    // boundary checks compare real modes — a consuming fn
+                    // no longer masquerades as keeps-everything.
+                    let facts: Option<Vec<crate::deduce::ParamDeduction>> =
+                        match &decl.deductions {
+                            Some(list) => {
+                                Some(crate::deduce::from_written(decl, list, |_, _| {}))
+                            }
+                            None => self.inferred.and_then(|table| {
+                                table.get(&entry.key).cloned()
+                            }),
+                        };
+                    let contract = facts.map(|facts| {
+                        decl.params
+                            .iter()
+                            .zip(&params)
+                            .map(|(p, pty)| {
+                                let entry =
+                                    facts.iter().find(|d| d.param == p.name.name);
+                                FnParamContract {
+                                    name: Some(p.name.name.clone()),
+                                    kept: entry.map(|d| d.kept).unwrap_or(true),
+                                    quals: entry
+                                        .map(|d| d.quals.clone())
+                                        .unwrap_or_default(),
+                                    mutable: pty
+                                        .quals()
+                                        .iter()
+                                        .any(|q| q.name == "Mut"),
+                                }
+                            })
+                            .collect()
+                    });
                     return Ty::Fn {
                         params,
                         ret: Box::new(ret),
+                        contract,
                     };
                 }
                 Ty::Unknown
@@ -3291,6 +3572,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let init_ty = Ty::Fn {
                     params: vec![Ty::named("Int")],
                     ret: Box::new(elem.clone()),
+                    contract: None,
                 };
                 self.check_expr(init, Some(&init_ty));
                 Ty::Array(Box::new(elem))
@@ -3632,10 +3914,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         expected: Option<&Ty>,
     ) -> Ty {
-        let (exp_params, exp_ret) = match expected.map(|t| t.strip_quals()) {
-            Some(Ty::Fn { params, ret }) => (Some(params.clone()), Some((**ret).clone())),
-            _ => (None, None),
-        };
+        let (exp_params, exp_ret, exp_contract) =
+            match expected.map(|t| t.strip_quals()) {
+                Some(Ty::Fn {
+                    params,
+                    ret,
+                    contract,
+                }) => (
+                    Some(params.clone()),
+                    Some((**ret).clone()),
+                    contract.clone(),
+                ),
+                _ => (None, None, None),
+            };
         // [fate-lambda] Everything below this frame boundary is a
         // capture; the body's reads/mutations of such variables are
         // recorded, and consuming one is an error (the lambda may run
@@ -3654,7 +3945,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .or_else(|| exp_params.as_ref().and_then(|ps| ps.get(i).cloned()))
                 .unwrap_or(Ty::Unknown);
             self.declare(&p.name, ty.clone());
+            // [fn-contract] A parameter the expected contract *keeps*
+            // belongs to the closure's caller: never consumable inside
+            // the body.
+            let kept = exp_contract
+                .as_ref()
+                .and_then(|c| c.get(i))
+                .is_some_and(|e| e.kept);
+            eprintln!("DBG lambda param {} kept={} contract={:?}", p.name.name, kept, exp_contract.is_some());
+            if kept {
+                if let Some(var) = self.lookup_mut(&p.name.name) {
+                    var.lambda_kept = true;
+                }
+            }
             param_tys.push(ty);
+        }
+        // [fn-contract] Exported for the emitter's parameter-binding
+        // modes.
+        if let Some(c) = &exp_contract {
+            self.out.lambda_contracts.insert(self.key(span), c.clone());
         }
         let saved_ret = std::mem::replace(
             &mut self.ret_ty,
@@ -3684,6 +3993,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let fn_ty = Ty::Fn {
             params: param_tys,
             ret: Box::new(ret),
+            contract: None,
         };
         // [once-fn] A lambda that consumes a capture is callable at most
         // once: its type gains `Once`, so it only fits `Once` fn
@@ -4643,15 +4953,20 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             Ty::Fn {
                 params: pp,
                 ret: pr,
+                contract: pc,
             },
             Ty::Fn {
                 params: ap,
                 ret: ar,
+                contract: ac,
             },
         ) => {
             pp.len() == ap.len()
                 && pp.iter().zip(ap).all(|(p, a)| unify(p, a, subst))
                 && unify(pr, ar, subst)
+                // [fn-contract] keeps <: consumes (inverted, like
+                // [once-fn]); mutation permission must be granted.
+                && crate::types::contract_fits(ac.as_deref(), pc.as_deref(), pp.len())
         }
         (Ty::Any, _) => true,
         _ => param == arg,
@@ -4702,11 +5017,16 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
                 .collect(),
         ),
         Ty::Array(elem) => Ty::Array(Box::new(substitute_vars(elem, subst, callee_generics))),
-        Ty::Fn { params, ret } => Ty::Fn {
+        Ty::Fn {
+            params,
+            ret,
+            contract,
+        } => Ty::Fn {
             params: params
                 .iter()
                 .map(|p| substitute_vars(p, subst, callee_generics))
                 .collect(),
+            contract: contract.clone(),
             ret: Box::new(substitute_vars(ret, subst, callee_generics)),
         },
         other => other.clone(),
@@ -4761,10 +5081,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Ty::Unknown;
                 }
                 let once = vty.quals().iter().any(|q| q.name == "Once");
-                if let Ty::Fn { params, ret } = vty.strip_quals().clone() {
+                if let Ty::Fn { params, ret, contract } = vty.strip_quals().clone() {
                     for (i, a) in args.iter().enumerate() {
                         self.check_expr(a, params.get(i));
                     }
+                    // [fn-contract] Apply the fn value's contract to the
+                    // arguments (default: keeps everything).
+                    let arg_refs: Vec<&'p Expr> = args.iter().collect();
+                    self.apply_fn_value_contract(
+                        &arg_refs,
+                        &params,
+                        contract.as_deref(),
+                        span,
+                    );
                     // [once-fn] Calling a `Once` fn consumes it: the
                     // existing consumption machinery then enforces the
                     // multiplicity (second call, loop back edge, branch
@@ -4811,7 +5140,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Computed callee (a `Once`-typed temporary is called at most
         // once by construction [once-fn]).
         let cty = self.check_expr(callee, None);
-        if let Ty::Fn { params, ret } = cty.strip_quals().clone() {
+        if let Ty::Fn { params, ret, contract: _ } = cty.strip_quals().clone() {
             for (i, a) in args.iter().enumerate() {
                 self.check_expr(a, params.get(i));
             }
@@ -4870,7 +5199,40 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         // Type the arguments once, then match candidates against them.
-        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        // With a *single* candidate its parameter types flow into the
+        // arguments as expected types — which is what lets lambda
+        // literals infer their parameter types and inherit fn-type
+        // contracts [fn-contract]. (Multiple candidates keep the
+        // untyped probe: expected types could bias overload choice.)
+        let single_params: Option<Vec<Ty>> = if candidates.len() == 1 {
+            let decl = candidates[0].1;
+            let saved = self.enter_generics(&decl.generics);
+            let tys = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic)
+                .map(|p| self.lower_type(&p.ty))
+                .collect();
+            self.generics = saved;
+            Some(tys)
+        } else {
+            None
+        };
+        let arg_tys: Vec<Ty> = args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let exp = single_params.as_ref().and_then(|ps| ps.get(i));
+                // Only lambda literals benefit; other expressions keep
+                // the historical untyped probe (expected types can
+                // trigger coercion recording).
+                if matches!(a, Expr::Lambda { .. }) {
+                    self.check_expr(a, exp)
+                } else {
+                    self.check_expr(a, None)
+                }
+            })
+            .collect();
 
         struct Viable<'p> {
             key: Option<FnKey>,
@@ -5168,6 +5530,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if self.capture_move_violation(frame, &name, id.span) {
                             continue;
                         }
+                    }
+                    // A kept lambda parameter belongs to the caller
+                    // [fn-contract].
+                    if self.consume_kept_lambda_param(&name, id.span) {
+                        continue;
                     }
                     self.poison_derived(var_id, &name, FateEvent::Moved, span);
                     if let Some(var) = self.lookup_mut(&id.name) {

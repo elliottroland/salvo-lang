@@ -937,11 +937,23 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::LParen)?.span;
         self.group_depth += 1;
         let mut elems = Vec::new();
+        let mut names: Vec<Option<Ident>> = Vec::new();
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
+            // A named fn-type parameter: `v: List<Int>` [fn-contract].
+            let name = if matches!(self.peek().kind, TokenKind::Ident(_))
+                && matches!(self.peek_at(1).kind, TokenKind::Colon)
+            {
+                let id = self.ident()?;
+                self.bump(); // :
+                Some(id)
+            } else {
+                None
+            };
             let Some(ty) = self.parse_type() else {
                 self.group_depth -= 1;
                 return None;
             };
+            names.push(name);
             elems.push(ty);
             if self.eat(&TokenKind::Comma).is_none() {
                 break;
@@ -957,14 +969,29 @@ impl<'s> Parser<'s> {
         };
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
+            // `-> [deductions] R`: the fn value's contract [fn-contract].
+            let deductions = if self.at(&TokenKind::LBracket) && self.same_line() {
+                Some(self.parse_deduction_list()?)
+            } else {
+                None
+            };
             let ret = self.parse_type()?;
             let span = start.to(ret.span());
             return Some(Type::Fn {
                 params: elems,
+                param_names: names,
                 effects,
+                deductions,
                 ret: Box::new(ret),
                 span,
             });
+        }
+        if names.iter().any(|n| n.is_some()) {
+            self.error(
+                "named parameters are only meaningful in function types \
+                 (expected `->` after `)`)",
+                start,
+            );
         }
         if let Some(effects) = effects {
             // `[...]` after a paren type only makes sense for fn types.

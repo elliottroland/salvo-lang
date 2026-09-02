@@ -224,6 +224,10 @@ Conventions:
 * [readonly-return] Derived returns erase: the result already is the
   alias on the JVM, and the checker's caller-side links keep it aligned
   with Rust's borrows.
+* [fn-contract] Contracts erase (Kotlin lambdas alias; the checker's
+  contract application keeps the semantics aligned with Rust's modes);
+  a named fn passed by value emits the function-reference syntax
+  (`::name`).
 * [once-fn] `Once` erases: the parameter emits the ordinary Kotlin
   function type, and the at-most-once protocol is enforced by the
   checker alone.

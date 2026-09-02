@@ -17,6 +17,19 @@ pub struct Qual {
     pub args: Vec<Ty>,
 }
 
+/// One parameter of a fn type's *contract* [fn-contract]: whether a call
+/// through the fn value keeps the argument, which qualifier names stay
+/// known, and whether the declared parameter type grants mutation
+/// (`Mut`). An fn type without a written contract keeps everything (the
+/// default).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FnParamContract {
+    pub name: Option<String>,
+    pub kept: bool,
+    pub quals: Vec<String>,
+    pub mutable: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     /// A nominal type: `Str`, `List<Int>`, a struct, an effect, ...
@@ -30,7 +43,13 @@ pub enum Ty {
     Union(Vec<Ty>),
     Tuple(Vec<Ty>),
     Array(Box<Ty>),
-    Fn { params: Vec<Ty>, ret: Box<Ty> },
+    /// A function/lambda type; `contract` carries the written per-param
+    /// deduction facts [fn-contract] (`None` = keeps everything).
+    Fn {
+        params: Vec<Ty>,
+        ret: Box<Ty>,
+        contract: Option<Vec<FnParamContract>>,
+    },
     /// A generic type parameter in scope, e.g. `T`.
     Var(String),
     Any,
@@ -239,13 +258,48 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         (Ty::Tuple(xs), Ty::Tuple(ys)) => {
             xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| is_subtype(x, y))
         }
-        (Ty::Fn { params: pa, ret: ra }, Ty::Fn { params: pb, ret: rb }) => {
+        (
+            Ty::Fn { params: pa, ret: ra, contract: ca },
+            Ty::Fn { params: pb, ret: rb, contract: cb },
+        ) => {
             pa.len() == pb.len()
                 && pa.iter().zip(pb).all(|(x, y)| compatible(x, y))
                 && is_subtype(ra, rb)
+                && contract_fits(ca.as_deref(), cb.as_deref(), pa.len())
         }
         _ => false,
     }
+}
+
+/// Whether a fn value with contract `a` may be used where contract `b`
+/// is expected [fn-contract]. INVERTED direction like `Once` [once-fn]:
+/// a fn that *keeps* its argument fits where a *consuming* one is
+/// expected (the caller merely over-estimates the damage), never the
+/// reverse. `None` = keeps everything.
+pub fn contract_fits(
+    a: Option<&[FnParamContract]>,
+    b: Option<&[FnParamContract]>,
+    arity: usize,
+) -> bool {
+    let keeps_all = |c: Option<&[FnParamContract]>, i: usize| -> (bool, bool) {
+        // (kept, mutable) per position; default keeps, not mutable-add.
+        match c {
+            None => (true, false),
+            Some(list) => list
+                .get(i)
+                .map(|e| (e.kept, e.mutable))
+                .unwrap_or((true, false)),
+        }
+    };
+    (0..arity).all(|i| {
+        let (a_kept, _a_mut) = keeps_all(a, i);
+        let (b_kept, b_mut) = keeps_all(b, i);
+        // Expected kept => supplied must keep. Expected consuming =>
+        // anything fits. Expected mutable grants permission; a supplied
+        // fn that mutates needs the expectation to grant it.
+        let (_, a_mut) = keeps_all(a, i);
+        (!b_kept || a_kept) && (!a_mut || b_mut || !b_kept)
+    })
 }
 
 /// Invariant compatibility (used for generic arguments).
@@ -302,7 +356,7 @@ impl fmt::Display for Ty {
                 write!(f, ")")
             }
             Ty::Array(elem) => write!(f, "{elem}[]"),
-            Ty::Fn { params, ret } => {
+            Ty::Fn { params, ret, .. } => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
