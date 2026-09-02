@@ -74,6 +74,7 @@ Module {
                             span: 126..127,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -169,6 +170,7 @@ Module {
                             span: 229..230,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -273,6 +275,7 @@ Module {
                             span: 334..335,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -393,6 +396,7 @@ Module {
                             span: 443..444,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -507,6 +511,7 @@ Module {
                             span: 542..543,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -599,6 +604,7 @@ Module {
                             span: 634..635,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {
@@ -688,6 +694,7 @@ Module {
                             span: 718..719,
                         },
                     ],
+                    generic_with: [],
                     params: [
                         Param {
                             name: Ident {

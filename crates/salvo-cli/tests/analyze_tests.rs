@@ -1299,14 +1299,19 @@ fn l6_linear_obligations() {
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused
-// (with `discard` blessed — exercised throughout the test above).
+// unless the type parameter declares `<T with Linear>`; variadic
+// positions refuse linear values outright (they are untracked).
 #[test]
 fn l6_generics_refuse_linear_types() {
     let dir = src_dir("l6_generics");
     fs::write(
         dir.join("main.sv"),
         "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
-         fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    let xs = list(h)\n}\n",
+         fn hold<T>(value: T) -> T {\n    return value\n}\n\n\
+         fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
+         let kept = hold(h)\n    discard(kept)\n}\n\n\
+         fn variadic_refused() {\n    let h = FileHandle {fd: 1}\n    \
+         let xs = list(h)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1314,9 +1319,75 @@ fn l6_generics_refuse_linear_types() {
     assert!(!out.status.success());
     assert!(
         stderr.contains(
-            "cannot instantiate generic parameter `T` of `list` with linear type \
-             `FileHandle`"
+            "cannot instantiate generic parameter `T` of `hold` with linear type \
+             `FileHandle`: `hold` does not declare `<T with Linear>`"
         ),
         "stderr: {stderr}"
     );
+    assert!(
+        stderr.contains("a linear value cannot be passed in a variadic position"),
+        "stderr: {stderr}"
+    );
+}
+
+// [linear-generics] L7a: `<T with Linear>` opts a generic fn into
+// linear instantiation — its body treats `T` values as linear (a
+// written-moved parameter that the body drops is rejected), forwarding
+// an opted `T` to an *unopted* generic is rejected, only `Linear` is
+// accepted in the clause, and the opted std surface makes the
+// `List<FileHandle>` workflow legal (construct empty, `add`
+// individually — variadic positions refuse linear values — `size`,
+// `discard`).
+#[test]
+fn l7a_generic_linear_opt_in() {
+    let dir = src_dir("l7a_optin");
+    fs::write(
+        dir.join("main.sv"),
+        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
+         fn open_file(n: Int) -> [] FileHandle {\n    return FileHandle {fd: n}\n}\n\n\
+         fn hold<T with Linear>(value: T) -> T {\n    return value\n}\n\n\
+         fn eat<T with Linear>(value: T) -> [] None {\n}\n\n\
+         fn forward<T with Linear>(value: T) {\n    let kept = unopted(value)\n    \
+         discard(kept)\n}\n\n\
+         fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
+         fn bad_clause<T with Mut>(value: T) -> T {\n    return value\n}\n\n\
+         fn variadic_refused() {\n    let h = open_file(1)\n    \
+         let xs = mutable_list(h)\n}\n\n\
+         fn workflow() -> Int {\n    let handles: Mut List<FileHandle> = mutable_list()\n    \
+         add(handles, open_file(1))\n    add(handles, open_file(2))\n    \
+         let n = size(handles)\n    discard(handles)\n    return n\n}\n\n\
+         fn ok_hold() {\n    let h = hold(open_file(9))\n    discard(h)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // The opted body treats `T` as linear: a written-moved parameter
+    // dropped by the body is a leak.
+    assert!(
+        stderr.contains("`value` still owns a linear value when it goes out of scope"),
+        "stderr: {stderr}"
+    );
+    // Forwarding to an unopted generic is rejected.
+    assert!(
+        stderr.contains(
+            "cannot instantiate generic parameter `T` of `unopted` with linear \
+             type `T`: `unopted` does not declare `<T with Linear>`"
+        ),
+        "stderr: {stderr}"
+    );
+    // Only `Linear` is supported in the clause.
+    assert!(
+        stderr.contains("only `Linear` is supported in a type-parameter `with` clause"),
+        "stderr: {stderr}"
+    );
+    // Variadic positions refuse linear values.
+    assert!(
+        stderr.contains("a linear value cannot be passed in a variadic position"),
+        "stderr: {stderr}"
+    );
+    // workflow and ok_hold are clean. Six errors total: the four above
+    // plus the two follow-on leaks in `variadic_refused` (the refused
+    // `h` is never discharged, and `xs` — a linear composite — leaks).
+    assert!(stderr.contains("6 errors"), "stderr: {stderr}");
 }

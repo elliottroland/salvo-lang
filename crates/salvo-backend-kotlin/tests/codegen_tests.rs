@@ -1756,3 +1756,50 @@ fn kotlinc_compiles_and_runs_linear() {
     let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
     run_kotlin_files(&files, "l6-linear", expected);
 }
+
+// ===== L7a: generic linear opt-in [linear-generics] =====
+
+/// `<T with Linear>` in action: the opted std surface makes a linear
+/// collection workflow legal end to end — construct empty, `add`
+/// individually, `size`, and `discard` the (linear) collection.
+const LINEAR_GENERICS_DEMO: &str = r#"
+struct FileHandle with Linear {
+    fd: Int
+}
+
+fn open_file(n: Int) [Console] -> [] FileHandle {
+    println("open ${n}")
+    return FileHandle {fd: n}
+}
+
+fn hold<T with Linear>(value: T) -> T {
+    return value
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let h = hold(open_file(9))
+    println("held fd=${h.fd}")
+    discard(h)
+    let handles: Mut List<FileHandle> = mutable_list()
+    add(handles, open_file(1))
+    add(handles, open_file(2))
+    println("count=${size(handles)}")
+    discard(handles)
+    println("done")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_linear_generics() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
+    run_kotlin_files(&files, "l7a-linear-generics", expected);
+}

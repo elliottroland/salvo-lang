@@ -290,6 +290,7 @@ fn check_once<'p>(
             own_written: false,
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
+            own_linear_generics: HashSet::new(),
         };
         checker.check_module(ast);
     }
@@ -456,6 +457,11 @@ struct Checker<'p, 'r> {
     /// derived from the transitively-mutable variables it reads (keyed
     /// by the lambda expression's span, this file only).
     lambda_links: HashMap<Span, Vec<FateLink>>,
+    /// Type parameters of the current fn that opted into linearity with
+    /// `<T with Linear>` [linear-generics]: `T`-typed values are treated
+    /// as linear in the body, and callers may instantiate them with
+    /// linear types.
+    own_linear_generics: HashSet<String>,
 }
 
 /// One enclosing lambda during body checking [fate-lambda].
@@ -601,6 +607,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
+        }
+        // [linear-generics] Type-parameter opt-ins: `<T with Linear>`
+        // treats `T`-typed values as linear in this body and admits
+        // linear instantiation at call sites. Only `Linear` is
+        // supported in a type-parameter `with` clause.
+        self.own_linear_generics = f
+            .generic_with
+            .iter()
+            .filter(|(_, q)| q.name.name == "Linear")
+            .map(|(id, _)| id.name.clone())
+            .collect();
+        for (_, q) in &f.generic_with {
+            if q.name.name != "Linear" {
+                self.error(
+                    q.span,
+                    format!(
+                        "only `Linear` is supported in a type-parameter `with` \
+                         clause (found `{}`)",
+                        q.name.name
+                    ),
+                );
+            }
         }
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
@@ -1372,6 +1400,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             Ty::Union(arms) => {
                 arms.iter().any(|a| self.ty_transitively_linear(a, visited))
             }
+            // [linear-generics] An opted-in type parameter is treated as
+            // linear inside its fn (worst case), which also makes calls
+            // that forward it to other generics require *their* opt-in.
+            Ty::Var(name) => self.own_linear_generics.contains(name),
             _ => false,
         }
     }
@@ -4710,11 +4742,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         // generic (deliberately dropping is its purpose); `copy` refuses
         // with its own message (duplicating an obligation is
         // meaningless).
-        if self.inferred.is_some()
-            && !(decl.backing == Some(BackingMod::Internal) && decl.name.name == "discard")
-        {
+        if self.inferred.is_some() {
+            let opted: HashSet<&str> = decl
+                .generic_with
+                .iter()
+                .filter(|(_, q)| q.name.name == "Linear")
+                .map(|(id, _)| id.name.as_str())
+                .collect();
             for (var_name, ty) in &subst {
                 if !callee_generics.contains(var_name) {
+                    continue;
+                }
+                // [linear-generics] `<T with Linear>` admits linear
+                // instantiation: the callee's body honors the obligation
+                // (or, for bodiless externals, its audit claims so).
+                if opted.contains(var_name.as_str()) {
                     continue;
                 }
                 let mut visited = HashSet::new();
@@ -4735,9 +4777,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             span,
                             format!(
                                 "cannot instantiate generic parameter `{var_name}` \
-                                 of `{name}` with linear type `{ty}`: generic code \
-                                 does not honor the use obligation (a `where`-style \
-                                 opt-in may come later)"
+                                 of `{name}` with linear type `{ty}`: `{name}` does \
+                                 not declare `<{var_name} with Linear>`, so it does \
+                                 not honor the use obligation"
                             ),
                         );
                     }
@@ -4799,6 +4841,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 if i >= fixed_count {
+                    // [linear-generics] Variadic positions are untracked
+                    // by the flow analysis, so a linear value passed
+                    // there would leave its obligation unresolvable
+                    // (physically moved, statically still owed).
+                    if self.inferred.is_some() {
+                        let ty = self
+                            .out
+                            .ty_of(self.file_idx, arg.span())
+                            .cloned()
+                            .unwrap_or(Ty::Unknown);
+                        let mut visited = HashSet::new();
+                        if self.ty_transitively_linear(&ty, &mut visited) {
+                            self.error(
+                                arg.span(),
+                                "a linear value cannot be passed in a variadic \
+                                 position (variadic arguments are not tracked); \
+                                 add it to the collection individually instead",
+                            );
+                        }
+                    }
                     continue;
                 }
                 let param = &decl.params[i];

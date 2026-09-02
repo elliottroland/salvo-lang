@@ -12,6 +12,7 @@ Module {
                     span: 3..6,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -208,6 +209,7 @@ Module {
                     span: 171..174,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -414,6 +416,7 @@ Module {
                         span: 352..353,
                     },
                 ],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -655,6 +658,7 @@ Module {
                     span: 527..536,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -728,6 +732,7 @@ Module {
                     span: 582..594,
                 },
                 generics: [],
+                generic_with: [],
                 params: [],
                 effects: None,
                 deductions: None,
@@ -944,6 +949,7 @@ Module {
                     span: 735..740,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -1085,6 +1091,7 @@ Module {
                     span: 846..855,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -1265,6 +1272,7 @@ Module {
                     span: 1010..1016,
                 },
                 generics: [],
+                generic_with: [],
                 params: [],
                 effects: None,
                 deductions: None,
@@ -1470,6 +1478,7 @@ Module {
                         span: 1182..1183,
                     },
                 ],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -1574,6 +1583,7 @@ Module {
                         span: 1242..1243,
                     },
                 ],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -1642,6 +1652,7 @@ Module {
                         span: 1294..1295,
                     },
                 ],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -1823,6 +1834,7 @@ Module {
                     span: 1436..1449,
                 },
                 generics: [],
+                generic_with: [],
                 params: [],
                 effects: Some(
                     [

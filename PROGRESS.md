@@ -13,10 +13,11 @@ are clone-free — and `with Linear` types carry a use obligation
 explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
-limitations, and the plan for what's next — chiefly L7 (parameterized
-compiler qualifiers: derived returns, fn-type contracts, `Once`
-multiplicity, `where T: Linear`-style generic opt-in); L5 field
-precision only if whole-variable granularity proves too coarse.
+limitations, and the plan for what's next — the remaining L7 sub-phases
+(the generic linear opt-in `<T with Linear>` landed as L7a; still open:
+`Once` multiplicity, derived returns, fn-type contracts, internal
+qualifier unification); L5 field precision only if whole-variable
+granularity proves too coarse.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -34,7 +35,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 175 tests; includes ten kotlinc and ten rustc
+cargo test                  # 178 tests; includes eleven kotlinc and eleven rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -513,6 +514,39 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   have no body to check. `List<FileHandle>` is expressible but not
   constructible until a generic opt-in exists (L7).
 
+### L7a — generic linear opt-in `<T with Linear>` (completed 2026-09-02)
+
+Syntax decision (user, 2026-09-02, option C of the explored set): the
+opt-in reuses the `with Linear` phrase on *type parameters* — one
+qualifier per `with`, comma separates parameters; struct-side syntax
+deferred. What landed (rule [linear-generics] rewritten):
+
+- **Parser**: `parse_generics_with` parses `<T with Q, U>` into
+  `FnDecl.generic_with: Vec<(Ident, TypeRef)>` (fn declarations and
+  define signatures); non-fn declarations report "`with` on a type
+  parameter is only supported on functions". Uniform snapshot churn
+  (new FnDecl field) accepted.
+- **Checker**: `own_linear_generics` set per fn; `Ty::Var(name)` joined
+  the transitive linearity analysis — so opted bodies are checked with
+  `T` linear (a written-moved parameter the body drops is a leak), and
+  forwarding an opted `T` to an unopted generic fails the ban
+  compositionally. The ban lift replaced the discard-by-name blessing;
+  `copy` keeps its dedicated refusal. Only `Linear` is accepted in the
+  clause.
+- **Variadic guard**: linear values are refused in variadic positions
+  (untracked — the value would be physically moved but statically still
+  owed); the audit found this while opting in `list`/`mutable_list`,
+  whose variadic constructors would otherwise have leaked obligations.
+  Empty construction + `add` is the supported pattern.
+- **std audit**: `add`, `list`, `mutable_list`, `size` opted in;
+  `discard` re-declared as
+  `internal fn discard<T with Linear>(value: T) -> [] None`; `get`
+  deliberately *not* opted (returns an alias of an element — a clone of
+  a linear value would duplicate the obligation); `copy` refused.
+- Verified end to end: the `List<FileHandle>` workflow (construct
+  empty, `add` individually, `size`, `discard`) compiles and prints
+  identically on both backends.
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -879,6 +913,12 @@ practice, independent returns may be the permanently right answer.
   per-qualifier join declarations, and whether `Nothing` gains
   parameters (recommended: yes — strictly more informative, revival
   unchanged).
+- **L7a delivered 2026-09-02**: the generic linear opt-in
+  `<T with Linear>` (see the decision-log section; syntax option C —
+  `where` clauses and qualifier-prefix forms were explored and
+  declined; body-inference recorded as a possible later complement,
+  mirroring the deduction precedent: written validates, unwritten
+  infers).
 - Additional option for the same milestone (user suggestion
   2026-09-02): a **call-multiplicity compiler qualifier** on fn-typed
   parameters, surfaced in deduction lists — e.g. a fn whose deductions
@@ -952,7 +992,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 175)
+## Test inventory (all green: 178)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -974,7 +1014,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 43 - 36 `analyze` integration tests running the built
+- `salvo-cli`: 44 - 37 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1033,6 +1073,11 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   a live value, return-while-owing, `copy` refused, lambda swallow
   rejected — with pass/discard/return/kept-borrow/alias/composite all
   clean — and the generic instantiation ban [linear-generics]),
+  the L7a opt-in matrix ([linear-generics]: opted bodies checked with
+  `T` linear, unopted forwarding rejected, non-`Linear` clauses
+  rejected, variadic positions refusing linear values with their
+  follow-on leaks, and the opted-std `List<FileHandle>` workflow
+  clean),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -1053,7 +1098,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 56 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 57 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1083,13 +1128,14 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and ten kotlinc compile+run tests
+  mutability is a codegen error); and eleven kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
-  copy demo, the S2/S3 move-mode and borrow demos, and the L6 linear
-  resource demo — emission aliases throughout, stdout identical to the
-  Rust runs [fate-move-mode] [fate-link] [linear-static]).
-- `salvo-backend-rust`: 31 - golden snapshots of the same five demos
+  copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
+  resource demo, and the L7a linear-generics workflow demo — emission
+  aliases throughout, stdout identical to the Rust runs
+  [fate-move-mode] [fate-link] [linear-static]).
+- `salvo-backend-rust`: 32 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1111,11 +1157,11 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
   alias of an owned local, read-only pipeline clone-free); `discard`
-  lowering assertions (`drop(...)` [linear-discard]); and ten rustc
+  lowering assertions (`drop(...)` [linear-discard]); and eleven rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
-  the S2 zero-clone move-mode demo, the S3 borrow demo, and the L6
-  linear resource demo).
+  the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
+  resource demo, and the L7a linear-generics workflow demo).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1123,6 +1169,13 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L7a) Opting a variadic constructor into linearity is a trap:
+  variadic positions are untracked by the flow analysis, so a linear
+  argument would be physically moved while statically still owed —
+  contradictory requirements. The variadic guard refuses linear values
+  there outright; collection construction with linear elements is
+  empty-then-`add`. When opting in an external, audit *every* position,
+  not just the contract shape.
 - (L6) A Salvo-bodied consuming fn must end the obligation chain
   itself: `fn close(h: FileHandle) -> [] None {}` leaks `h` by its own
   rules — the body owns the moved-in value and must `discard` it (real

@@ -31,6 +31,7 @@ Module {
                                 span: 56..61,
                             },
                             generics: [],
+                            generic_with: [],
                             params: [
                                 Param {
                                     name: Ident {

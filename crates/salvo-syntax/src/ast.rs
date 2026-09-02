@@ -137,6 +137,8 @@ pub struct FnDecl {
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// Per-type-parameter opt-ins: `<T with Linear>` [linear-generics].
+    pub generic_with: Vec<(Ident, TypeRef)>,
     pub params: Vec<Param>,
     /// `None` means unspecified (pure); `Some(vec![])` means explicit `[]`.
     pub effects: Option<Vec<EffectRef>>,

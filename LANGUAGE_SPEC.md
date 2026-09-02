@@ -651,12 +651,30 @@ Conventions:
   through declarations), type arguments, array/tuple/union components.
   Storing a linear value moves the obligation into the container.
 * [linear-generics] An unconstrained generic parameter cannot be
-  instantiated with a linear type (decision L6d): generic code does not
-  honor the obligation. `discard` is the one blessed generic; `copy`
-  refuses with a dedicated message (duplicating an obligation is
-  meaningless). A `where T: Linear`-style opt-in may come later (with
-  the L7 qualifier work). Effect members with their own generics are
-  not yet covered (known leftover).
+  instantiated with a linear type (decision L6d): unopted generic code
+  does not honor the obligation. A fn opts in *per type parameter* with
+  `<T with Linear>` (decision L7a-syntax, 2026-09-02 — the same
+  `with Linear` phrase as on type declarations, one qualifier per
+  `with`, the comma separates parameters):
+  * inside the opted fn, `T`-typed values are treated as linear
+    (`Ty::Var` participates in the transitive analysis), so the body is
+    checked under the worst case — including that forwarding an opted
+    `T` to an unopted generic is an error (compositional);
+  * for bodiless externals the opt-in is a trusted audit claim; std's
+    audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
+    (whose declaration is now honestly
+    `internal fn discard<T with Linear>(value: T) -> [] None` — no
+    blessed-by-name special case), while `get` stays out (returns an
+    alias of an element) and `copy` refuses with a dedicated message
+    (duplicating an obligation is meaningless);
+  * a linear value cannot be passed in a *variadic* position (variadic
+    arguments are untracked, so the obligation would be physically
+    moved but statically unresolvable);
+  * `with` on type parameters of non-fn declarations (structs,
+    qualifiers, effects) is a parse error for now (struct-side deferred
+    by user decision); only `Linear` is accepted in the clause.
+  * Effect members with their own generics are not yet covered by the
+    ban (known leftover).
 * [linear-lambda] A lambda may read-capture a linear value (an alias,
   no obligation) but not capture-and-mutate one [fate-lambda]: the
   closure would swallow the obligation.

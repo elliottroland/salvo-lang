@@ -303,7 +303,22 @@ impl<'s> Parser<'s> {
 
     /// `<A, B, C>` — declaration-site generic parameters.
     fn parse_generics(&mut self) -> Vec<Ident> {
+        let (generics, with) = self.parse_generics_with();
+        for (ident, _) in &with {
+            self.error(
+                "`with` on a type parameter is only supported on functions",
+                ident.span,
+            );
+        }
+        generics
+    }
+
+    /// Type parameters with optional per-parameter `with` opt-ins
+    /// [linear-generics]: `<T with Linear, U>` — one qualifier per
+    /// `with` (the comma separates parameters).
+    fn parse_generics_with(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
         let mut generics = Vec::new();
+        let mut with = Vec::new();
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
@@ -312,7 +327,14 @@ impl<'s> Parser<'s> {
                     break;
                 }
                 match self.ident() {
-                    Some(id) => generics.push(id),
+                    Some(id) => {
+                        if self.eat(&TokenKind::KwWith).is_some() {
+                            if let Some(q) = self.parse_type_ref() {
+                                with.push((id.clone(), q));
+                            }
+                        }
+                        generics.push(id);
+                    }
                     None => {
                         self.bump();
                         continue;
@@ -327,7 +349,7 @@ impl<'s> Parser<'s> {
             }
             self.group_depth -= 1;
         }
-        generics
+        (generics, with)
     }
 
     fn parse_struct(&mut self) -> Option<StructDecl> {
@@ -487,7 +509,7 @@ impl<'s> Parser<'s> {
     fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident()?;
-        let generics = self.parse_generics();
+        let (generics, generic_with) = self.parse_generics_with();
         let params = self.parse_params()?;
 
         // Effects: `[Random<Int>, Console, use]`
@@ -530,6 +552,7 @@ impl<'s> Parser<'s> {
             backing,
             name,
             generics,
+            generic_with,
             params,
             effects,
             deductions,
@@ -709,7 +732,7 @@ impl<'s> Parser<'s> {
     fn parse_fn_signature_only(&mut self) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident()?;
-        let generics = self.parse_generics();
+        let (generics, generic_with) = self.parse_generics_with();
         let params = self.parse_params()?;
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
             Some(self.parse_effect_list()?)
@@ -730,6 +753,7 @@ impl<'s> Parser<'s> {
             backing: None,
             name,
             generics,
+            generic_with,
             params,
             effects,
             deductions,

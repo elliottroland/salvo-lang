@@ -161,6 +161,7 @@ Module {
                     span: 136..141,
                 },
                 generics: [],
+                generic_with: [],
                 params: [],
                 effects: None,
                 deductions: None,
@@ -583,6 +584,7 @@ Module {
                     span: 525..531,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -659,6 +661,7 @@ Module {
                     span: 593..604,
                 },
                 generics: [],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {

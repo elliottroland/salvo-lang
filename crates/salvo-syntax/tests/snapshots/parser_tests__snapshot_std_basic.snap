@@ -237,6 +237,7 @@ Module {
                         span: 659..660,
                     },
                 ],
+                generic_with: [],
                 params: [
                     Param {
                         name: Ident {
@@ -305,25 +306,41 @@ Module {
                         span: 954..955,
                     },
                 ],
+                generic_with: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 954..955,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "Linear",
+                                span: 961..967,
+                            },
+                            args: [],
+                            span: 961..967,
+                        },
+                    ),
+                ],
                 params: [
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 957..962,
+                            span: 969..974,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 964..965,
+                                    span: 976..977,
                                 },
                                 args: [],
-                                span: 964..965,
+                                span: 976..977,
                             },
                         },
                         variadic: false,
-                        span: 957..965,
+                        span: 969..977,
                     },
                 ],
                 effects: None,
@@ -336,16 +353,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 973..977,
+                                span: 985..989,
                             },
                             args: [],
-                            span: 973..977,
+                            span: 985..989,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 943..977,
+                span: 943..989,
             },
         ),
     ],

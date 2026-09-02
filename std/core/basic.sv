@@ -24,4 +24,4 @@ internal fn copy<T>(value: T) -> [value] T
 // it: the escape hatch for linear types — the one generic fn blessed to
 // accept them. Implemented by each backend directly (Kotlin: evaluate
 // and ignore; Rust: `drop`).
-internal fn discard<T>(value: T) -> [] None
+internal fn discard<T with Linear>(value: T) -> [] None
