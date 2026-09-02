@@ -13,6 +13,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -210,6 +211,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -417,6 +419,7 @@ Module {
                     },
                 ],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -659,6 +662,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -733,6 +737,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [],
                 effects: None,
                 deductions: None,
@@ -950,6 +955,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -1092,6 +1098,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -1273,6 +1280,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [],
                 effects: None,
                 deductions: None,
@@ -1479,6 +1487,7 @@ Module {
                     },
                 ],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -1584,6 +1593,7 @@ Module {
                     },
                 ],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -1653,6 +1663,7 @@ Module {
                     },
                 ],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {
@@ -1835,6 +1846,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [],
                 effects: Some(
                     [

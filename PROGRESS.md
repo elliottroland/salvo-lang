@@ -13,12 +13,13 @@ are clone-free — and `with Linear` types carry a use obligation
 explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
-limitations, and the plan for what's next — the remaining L7 sub-phases
-(the generic linear opt-in `<T with Linear>` landed as L7a and the
-`Once` fn qualifier as L7b; still open: derived returns
-`ReadOnly(from: param)`, fn-type contracts, internal qualifier
-unification); L5 field precision only if whole-variable granularity
-proves too coarse.
+limitations, and the plan for what's next — L7a (`<T with Linear>`),
+L7b (`Once` fn types), and L7c (derived returns `ReadOnly[from: p]` —
+zero-copy accessors with generated Rust lifetimes) are done; still
+open: fn-type contracts (deductions/effects on `Ty::Fn`, `Once`
+inference, the named-fn mode mismatch) and the internal qualifier
+unification (deferred — nothing forces it yet); L5 field precision
+only if whole-variable granularity proves too coarse.
 
 Companion documents: LANGUAGE.md is the narrative spec (source of truth);
 LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
@@ -36,7 +37,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 182 tests; includes twelve kotlinc and twelve rustc
+cargo test                  # 186 tests; includes thirteen kotlinc and thirteen rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -584,6 +585,48 @@ machinery). Rule [once-fn]:
 - No inference in v1 (written `Once` only); the parser needed nothing —
   `Once () -> None` already parsed as a qualified group over a fn type.
 
+### L7c — derived returns `ReadOnly[from: p]` (completed 2026-09-02)
+
+The relaxation of S1a: zero-copy accessors across fn boundaries. Rule
+[readonly-return]; surface decided by the user (square brackets — angle
+reads as generics, round collides with qualified groups, square is
+where annotations already name parameters). What landed:
+
+- **Parser**: `parse_derived_return` recognizes
+  `ReadOnly[from: param]` between the deduction list and the return
+  type in both fn parse paths; stored as `FnDecl.derived_return`
+  (never enters the type AST — mirroring the checker design, where the
+  fact becomes links at the boundary and the result's *type* stays
+  plain, so overloading is untouched).
+- **Checker**: validation (parameter exists, *kept* — written or
+  inferred), return-provenance validation (every returned value's link
+  chain terminates at `p`, `None` free, forwarded derived calls
+  validate through the same links), and returns in derived fns do not
+  consume. Caller side: `Checked::derived_calls` (call span → argument
+  index) makes `links_for_value` link results to arguments.
+- **Borrowed links close the S2 interaction**: probing found move-mode
+  would have "taken ownership" of a *physically borrowed* result
+  (`take(h)` after narrowing `first(...)`'s result compiled to moving
+  out of a `&`). `FateLink` gained a `borrowed` flag, set through
+  derived calls and propagated through derivation chains;
+  `apply_binding_mode` refuses move-mode over borrowed links, so the
+  S1 error with the `copy` remedy stands.
+- **Rust emission**: `&T` / `Option<&T>` returns; lifetime elision for
+  a single reference parameter, mechanical `'a` generation onto the
+  annotated parameter and return when there are more — the first
+  deliberate exception to the no-lifetimes invariant. Return values
+  render as borrows (`Some(&place)`, bare for `&` bindings,
+  pass-through for forwarded derived calls). Caller-side narrowing
+  works without emitter changes (`Option<&T>` is `Copy`; the
+  `.clone()` on a `&&T` copies the reference — the
+  `suspicious_double_ref_op` lint joined the generated allow list).
+  std's `first` dropped its `.cloned()` — clone-free — and gained the
+  annotation. Kotlin: zero changes.
+- **v1 scope recorded**: plain `T` and `T?` shapes; fn declarations
+  only; accumulator bodies (`best = person; …; return best`) rejected
+  by the provenance validation — reassignable borrowed locals are the
+  recorded refinement.
+
 ### Current architectural facts worth knowing
 
 - **`ReadOnly` presentation (landed 2026-09-02)**: reads of fate-linked
@@ -956,6 +999,11 @@ practice, independent returns may be the permanently right answer.
   declined; body-inference recorded as a possible later complement,
   mirroring the deduction precedent: written validates, unwritten
   infers).
+- **L7c delivered 2026-09-02**: derived returns `ReadOnly[from: p]`
+  (see the decision-log section) — the L7a-recorded bare-`ReadOnly`
+  idea matured into the parameterized square-bracket surface; the
+  internal qualifier unification was *not* needed (links carry the
+  fact across the one boundary it crosses).
 - **L7b delivered 2026-09-02**: the `Once` call-multiplicity qualifier
   (see the decision-log section) — landed on *fn types* rather than in
   deduction lists (the surface originally sketched here; user approved
@@ -1028,7 +1076,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 
-## Test inventory (all green: 182)
+## Test inventory (all green: 186)
 
 - `salvo-core`: 25 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1050,7 +1098,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   structured-diagnostic tests (`tests/diag_tests.rs`: checker errors
   carry file index/span/severity and render with file:line:col + caret;
   multi-file programs index the declaring file [diag-structured]).
-- `salvo-cli`: 45 - 38 `analyze` integration tests running the built
+- `salvo-cli`: 46 - 39 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1118,6 +1166,11 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   call consumed, `Once` lambdas rejected at plain-fn boundaries,
   escape-then-call rejected, `Once` on non-fn types rejected, with
   maybe-call and both subtyping directions' positives clean),
+  the L7c derived-return matrix ([readonly-return]: independent
+  returns rejected, moved/unknown parameters rejected, argument
+  mutation poisoning the result, borrowed results immovable with the
+  `copy` remedy clean, direct element returns and forwarded derived
+  calls clean),
   `--backend` opting
   define files into the analysis, unknown backend rejected) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
@@ -1138,7 +1191,7 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 58 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 59 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1168,14 +1221,15 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
-  mutability is a codegen error); and twelve kotlinc compile+run tests
+  mutability is a codegen error); and thirteen kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
-  resource demo, and the L7a/L7b linear-generics and `Once` demos —
+  resource demo, and the L7a/L7b/L7c linear-generics, `Once`, and
+  derived-returns demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 34 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 36 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -1197,13 +1251,16 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
   (`borrow_mode_bindings_emit_borrows` [rs-borrow-locals]: `&Vec`
   parameter iterated bare by reference, `&T` field binding, borrow
   alias of an owned local, read-only pipeline clone-free); `discard`
-  lowering assertions (`drop(...)` [linear-discard]); and twelve rustc
+  lowering assertions (`drop(...)` [linear-discard]); and thirteen rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
-  resource demo, the L7a linear-generics workflow demo, and the L7b
+  resource demo, the L7a linear-generics workflow demo, the L7b
   `Once` demo — with `once_fn_params_emit_fnonce` asserting the
-  `impl FnOnce` rendering [once-fn]).
+  `impl FnOnce` rendering [once-fn] — and the L7c derived-returns demo,
+  with `derived_returns_emit_borrows` asserting the elided and
+  generated-lifetime signatures and the borrow returns
+  [readonly-return]).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -1211,6 +1268,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (L7c) A borrow crossing a fn boundary interacts with *every* later
+  relaxation: S2's move-mode would happily have "taken ownership" of a
+  physically borrowed call result (moving out of a `&` — rustc
+  rejects, checker accepted). Flow facts that change physical
+  representation must be carried on the links themselves
+  (`FateLink.borrowed`) so every downstream rule can refuse; when
+  adding a new emission regime, probe its interaction with move-mode
+  before shipping.
 - (L7b) The Ident-callable path in `check_call` never `check_expr`s the
   callee identifier, so consumed-value reads did not error there —
   calling an already-consumed callable was silently accepted until the

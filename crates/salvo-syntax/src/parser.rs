@@ -313,6 +313,31 @@ impl<'s> Parser<'s> {
         generics
     }
 
+    /// The optional derived-return annotation before a return type
+    /// [readonly-return]: `ReadOnly[from: param]` — the returned value
+    /// is derived from (borrows) the named kept parameter. Only
+    /// meaningful in return position; the annotation never enters the
+    /// type itself.
+    fn parse_derived_return(&mut self) -> Option<Ident> {
+        let is_readonly = matches!(
+            &self.peek().kind,
+            TokenKind::Ident(name) if name == "ReadOnly"
+        );
+        if !is_readonly || !matches!(self.peek_at(1).kind, TokenKind::LBracket) {
+            return None;
+        }
+        self.bump(); // ReadOnly
+        self.bump(); // [
+        let key = self.ident()?;
+        if key.name != "from" {
+            self.error("expected `from:` in `ReadOnly[from: param]`", key.span);
+        }
+        self.expect(&TokenKind::Colon)?;
+        let param = self.ident()?;
+        self.expect(&TokenKind::RBracket)?;
+        Some(param)
+    }
+
     /// Type parameters with optional per-parameter `with` opt-ins
     /// [linear-generics]: `<T with Linear, U>` — one qualifier per
     /// `with` (the comma separates parameters).
@@ -519,15 +544,18 @@ impl<'s> Parser<'s> {
             None
         };
 
-        // `-> [deductions] return_type (as Qualifier)?`
+        // `-> [deductions] (ReadOnly[from: param])? return_type
+        // (as Qualifier)?`
         let mut deductions = None;
         let mut return_type = None;
         let mut constructs = None;
+        let mut derived_return = None;
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
             if self.at(&TokenKind::LBracket) {
                 deductions = Some(self.parse_deduction_list()?);
             }
+            derived_return = self.parse_derived_return();
             return_type = Some(self.parse_type()?);
             // `-> T as Qualifier` marks a constructive-qualifier constructor.
             if self.at(&TokenKind::KwAs) && self.same_line() {
@@ -554,6 +582,7 @@ impl<'s> Parser<'s> {
             generics,
             generic_with,
             params,
+            derived_return,
             effects,
             deductions,
             return_type,
@@ -741,11 +770,13 @@ impl<'s> Parser<'s> {
         };
         let mut deductions = None;
         let mut return_type = None;
+        let mut derived_return = None;
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
             if self.at(&TokenKind::LBracket) {
                 deductions = Some(self.parse_deduction_list()?);
             }
+            derived_return = self.parse_derived_return();
             return_type = Some(self.parse_type()?);
         }
         let end = return_type.as_ref().map(|t| t.span()).unwrap_or(name.span);
@@ -755,6 +786,7 @@ impl<'s> Parser<'s> {
             generics,
             generic_with,
             params,
+            derived_return,
             effects,
             deductions,
             return_type,

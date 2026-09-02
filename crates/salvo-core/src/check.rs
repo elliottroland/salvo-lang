@@ -130,6 +130,11 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
+    /// Calls to fns with a derived return (`ReadOnly[from: param]`
+    /// [readonly-return]), keyed by the call span: the index of the
+    /// argument the result borrows. The checker links the result to that
+    /// argument; the Rust backend renders the result as a borrow.
+    pub derived_calls: HashMap<Key, usize>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -291,6 +296,7 @@ fn check_once<'p>(
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
             own_linear_generics: HashSet::new(),
+            own_derived_return: None,
         };
         checker.check_module(ast);
     }
@@ -341,6 +347,10 @@ struct FateLink {
     root_id: u32,
     root_name: String,
     bind_span: Span,
+    /// The link passes through a derived-return call [readonly-return]:
+    /// the value is *physically borrowed*, so move-mode can never take
+    /// ownership through it [fate-move-mode].
+    borrowed: bool,
 }
 
 /// What happened to a fate root [fate-poison].
@@ -462,6 +472,11 @@ struct Checker<'p, 'r> {
     /// as linear in the body, and callers may instantiate them with
     /// linear types.
     own_linear_generics: HashSet<String>,
+    /// The current fn's derived-return parameter
+    /// (`-> ReadOnly[from: p] T` [readonly-return]): every returned
+    /// value must be derived from `p`, and the return is a *borrow*, not
+    /// a move.
+    own_derived_return: Option<String>,
 }
 
 /// One enclosing lambda during body checking [fate-lambda].
@@ -610,6 +625,49 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
+        }
+        // [readonly-return] `-> ReadOnly[from: p] T`: `p` must be a
+        // parameter and must be *kept* — a moved parameter's data needs
+        // no annotation (the callee owns it), and a borrow of a moved
+        // value could not outlive the call.
+        self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
+        if let Some(id) = &f.derived_return {
+            let is_param = f.params.iter().any(|p| p.name.name == id.name)
+                || extra_params.iter().any(|p| p.name.name == id.name);
+            if !is_param {
+                self.error(
+                    id.span,
+                    format!(
+                        "`ReadOnly[from: {}]` names no parameter of this function",
+                        id.name
+                    ),
+                );
+            } else if self.inferred.is_some() {
+                let kept = match &f.deductions {
+                    Some(list) => {
+                        crate::deduce::from_written(f, list, |_, _| {})
+                            .iter()
+                            .find(|d| d.param == id.name)
+                            .is_some_and(|d| d.kept)
+                    }
+                    None => self
+                        .own_contract
+                        .as_ref()
+                        .and_then(|c| c.iter().find(|d| d.param == id.name))
+                        .is_some_and(|d| d.kept),
+                };
+                if !kept {
+                    self.error(
+                        id.span,
+                        format!(
+                            "`ReadOnly[from: {}]` requires `{}` to be kept: a \
+                             moved parameter is owned by this function, so its \
+                             data is returned by ordinary moves",
+                            id.name, id.name
+                        ),
+                    );
+                }
+            }
         }
         // [linear-generics] Type-parameter opt-ins: `<T with Linear>`
         // treats `T`-typed values as linear in this body and admits
@@ -962,6 +1020,34 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// lets move-mode candidates cover every binding of a consuming
     /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
+        // [readonly-return] The result of a derived-return call borrows
+        // the annotated argument: it carries that argument's links
+        // (dot-notation receivers are argument 0).
+        if let Expr::Call { callee, args, span, .. } = value {
+            if let Some(&idx) = self.out.derived_calls.get(&(self.file_idx, *span)) {
+                let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref()
+                {
+                    if idx == 0 {
+                        Some(base)
+                    } else {
+                        args.get(idx - 1)
+                    }
+                } else {
+                    args.get(idx)
+                };
+                if let Some(arg) = arg {
+                    return self
+                        .links_for_value(arg, bind_span)
+                        .into_iter()
+                        .map(|mut l| {
+                            l.borrowed = true;
+                            l
+                        })
+                        .collect();
+                }
+                return Vec::new();
+            }
+        }
         // A lambda value is derived from its transitively-mutable read
         // captures [fate-lambda]: binding it carries those links (the
         // direct ones restamped to this bind event).
@@ -975,6 +1061,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             root_id: l.root_id,
                             root_name: l.root_name.clone(),
                             bind_span,
+                            borrowed: l.borrowed,
                         })
                         .collect()
                 })
@@ -990,11 +1077,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         for src in sources {
             let Some(var) = self.lookup(&src.name) else { continue };
+            // A source that is itself physically borrowed propagates the
+            // flag to its direct link [readonly-return].
+            let src_borrowed = var.links.iter().any(|l| l.borrowed);
             push(
                 FateLink {
                     root_id: var.id,
                     root_name: src.name.clone(),
                     bind_span,
+                    borrowed: src_borrowed,
                 },
                 &mut links,
             );
@@ -1135,6 +1226,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn apply_binding_mode(&mut self, binding_name: &str, links: Vec<FateLink>) -> Vec<FateLink> {
         // Round one is strict S1: candidates are being collected.
         if self.inferred.is_none() || links.is_empty() {
+            return links;
+        }
+        // [readonly-return] A value reached through a derived-return
+        // call is *physically borrowed*: move-mode cannot take ownership
+        // through it — the binding stays borrow-mode and the move site
+        // reports the S1 error with the `copy` remedy.
+        if links.iter().any(|l| l.borrowed) {
             return links;
         }
         let bind_span = links[0].bind_span;
@@ -1284,6 +1382,38 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         false
+    }
+
+    /// Validates a returned value against the fn's derived-return
+    /// annotation [readonly-return]: `None` is fine (no borrow), and
+    /// everything else must be derived from the annotated parameter —
+    /// its provenance chain must terminate at `from` and nowhere else.
+    fn check_derived_return_value(&mut self, value: &Expr, from: &str) {
+        if matches!(value, Expr::Ident(id) if id.name == "None") {
+            return;
+        }
+        let from_id = match self.lookup(from) {
+            Some(var) => var.id,
+            None => return,
+        };
+        let links = self.links_for_value(value, value.span());
+        let ok = !links.is_empty()
+            && links.iter().all(|l| {
+                l.root_id == from_id
+                    || self
+                        .var_by_id(l.root_id)
+                        .is_some_and(|v| v.links.iter().any(|x| x.root_id == from_id))
+            });
+        if !ok {
+            self.error(
+                value.span(),
+                format!(
+                    "this function returns `ReadOnly[from: {from}]`, so every \
+                     returned value must be derived from `{from}` (a projection, \
+                     element, or alias of it) or be `None`"
+                ),
+            );
+        }
     }
 
     /// [fate-move-mode] A projection in a *moved* position — a consuming
@@ -2715,13 +2845,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("expected return type `{expected}`, found `{vty}`"),
                             );
                         }
-                        // Returning a value moves it: a fate-linked
-                        // (derived) variable cannot be moved
-                        // [fate-derived-readonly]; returning a root
-                        // consumes it [deduce-consume] (terminal here,
-                        // but visible to unreachable code and to
-                        // derived-variable poison [fate-poison]).
-                        self.fate_move(v, "return", "a `return`", *span);
+                        // [readonly-return] A derived-return fn
+                        // *borrows* its result out: the value must be
+                        // derived from the annotated parameter (or be
+                        // `None`), and nothing is consumed.
+                        if let Some(from) = self.own_derived_return.clone() {
+                            self.check_derived_return_value(v, &from);
+                        } else {
+                            // Returning a value moves it: a fate-linked
+                            // (derived) variable cannot be moved
+                            // [fate-derived-readonly]; returning a root
+                            // consumes it [deduce-consume] (terminal
+                            // here, but visible to unreachable code and
+                            // to derived-variable poison [fate-poison]).
+                            self.fate_move(v, "return", "a `return`", *span);
+                        }
                         // [linear-obligation] Nothing linear may be
                         // alive anywhere when the fn exits.
                         self.check_linear_exit(0, *span, "return");
@@ -3657,6 +3795,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         root_id: cap.var_id,
                         root_name: cap.name.clone(),
                         bind_span: span,
+                        borrowed: false,
                     });
                 }
                 if let Some(var) = self.var_by_id(cap.var_id) {
@@ -5058,6 +5197,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = var.narrowed.clone().remove_quals(&removed);
                 }
+            }
+        }
+        // [readonly-return] Record derived-return calls: the result
+        // borrows the annotated argument — the caller links the result
+        // to it, and the Rust backend renders the result as a borrow.
+        if let Some(from) = &decl.derived_return {
+            if let Some(idx) = decl
+                .params
+                .iter()
+                .position(|p| p.name.name == from.name)
+            {
+                self.out.derived_calls.insert(self.key(span), idx);
             }
         }
         // The callee's declared effect dependencies must be satisfiable

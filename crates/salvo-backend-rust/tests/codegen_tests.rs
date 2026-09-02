@@ -1318,3 +1318,89 @@ fn rustc_compiles_and_runs_once_fns() {
     let expected = "consumed 3 items\nplain 7\ndone\n";
     run_rust_files(&files, "l7b-once", expected);
 }
+
+// ===== L7c: derived returns [readonly-return] =====
+
+/// Zero-copy accessors across fn boundaries: a derived return borrows
+/// the kept parameter (elided lifetime with one reference parameter, a
+/// generated `'a` with more), std's `first` is clone-free, and the
+/// caller's narrowing works on the borrowed result.
+const DERIVED_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {
+    for person in persons {
+        if person.age >= 18 {
+            return person
+        }
+    }
+    return None
+}
+
+fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {
+    return first(persons)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
+    let adult = find_adult(people)
+    if adult is Person a {
+        println("adult: ${a.name}")
+    }
+    let head = head_of(people, "x")
+    if head is Person h {
+        println("head: ${h.name}")
+    }
+    println("done")
+}
+"#;
+
+// [readonly-return] Derived returns emit borrows: elided lifetime for a
+// single reference parameter, a generated `'a` when there are more; the
+// std `first` define is clone-free.
+#[test]
+fn derived_returns_emit_borrows() {
+    let files = generate(&[("main.sv", DERIVED_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content
+            .contains("pub fn find_adult(persons: &Vec<Person>) -> Option<&Person>"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains(
+            "pub fn head_of<'a>(persons: &'a Vec<Person>, tag: &String) -> Option<&'a Person>"
+        ),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("return Some(person);"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("return persons.first();"),
+        "generated:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_derived_returns() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", DERIVED_DEMO, false)]);
+    let expected = "adult: Grace\nhead: Kid\ndone\n";
+    run_rust_files(&files, "l7c-derived", expected);
+}

@@ -1843,3 +1843,57 @@ fn kotlinc_compiles_and_runs_once_fns() {
     let expected = "consumed 3 items\nplain 7\ndone\n";
     run_kotlin_files(&files, "l7b-once", expected);
 }
+
+// ===== L7c: derived returns [readonly-return] =====
+
+/// Zero-copy accessors across fn boundaries: a derived return borrows
+/// the kept parameter (elided lifetime with one reference parameter, a
+/// generated `'a` with more), std's `first` is clone-free, and the
+/// caller's narrowing works on the borrowed result.
+const DERIVED_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {
+    for person in persons {
+        if person.age >= 18 {
+            return person
+        }
+    }
+    return None
+}
+
+fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {
+    return first(persons)
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let people = list(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
+    let adult = find_adult(people)
+    if adult is Person a {
+        println("adult: ${a.name}")
+    }
+    let head = head_of(people, "x")
+    if head is Person h {
+        println("head: ${h.name}")
+    }
+    println("done")
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_derived_returns() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", DERIVED_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let expected = "adult: Grace\nhead: Kid\ndone\n";
+    run_kotlin_files(&files, "l7c-derived", expected);
+}

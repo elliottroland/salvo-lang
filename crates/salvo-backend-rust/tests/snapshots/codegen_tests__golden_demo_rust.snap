@@ -29,7 +29,7 @@ pub fn println(console: &mut dyn Console, message: &String) {
 }
 
 // ===== main.rs =====
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use)]
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "core/console.rs"]
 pub mod core_console;
 
@@ -73,7 +73,7 @@ pub fn main() {
     let mut anon = Person { surname: None, ..person.clone() };
     greet(&mut console, &anon);
     let mut names = vec!["a".to_string(), "b".to_string()];
-    println(&mut console, &(format!("first: {}", names.first().cloned().unwrap())));
+    println(&mut console, &(format!("first: {}", names.first().unwrap())));
     let mut mut_names = vec!["x".to_string()];
     mut_names.push("y".to_string());
     println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));

@@ -28,7 +28,7 @@ fn first<T>(list: NonEmpty List<T>) -> T {
 }
 
 fn give_back<T>(list: NonEmpty List<T>) -> List<T> {
-    return list
+    return copy(list)
 }
 
 fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
@@ -46,6 +46,8 @@ fn main() [use] {
         // TODO: the empty deduction from `give_back` should make `strings` unusable here?
         let s = strings.remove_first()
     }
+
+    println("First element length: ${strings.first().size()}")
 
     let (a, b) = (1, 2)
     let c = a.add(b)

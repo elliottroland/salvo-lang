@@ -1453,3 +1453,76 @@ fn l7b_once_fns() {
     // run_maybe, once_where_once_ok, plain_where_once_ok are clean.
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
+
+// [readonly-return] L7c: `-> ReadOnly[from: p] T?` marks a derived
+// return — the callee may return projections/elements of the kept
+// parameter `p` without `copy`, and the caller's result fate-links to
+// the argument. Violations: returning an independent value, annotating
+// a moved or unknown parameter; and the caller-side discipline holds —
+// mutating the argument poisons the result, and the borrowed result
+// can never be moved (move-mode refuses borrowed links).
+#[test]
+fn l7c_derived_returns() {
+    let dir = src_dir("l7c_derived");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
+         fn take(p: Person) -> [] None {\n}\n\n\
+         fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {\n    \
+         for person in persons {\n        if person.age >= 18 {\n            return person\n        }\n    }\n    \
+         return None\n}\n\n\
+         fn forwarded(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {\n    \
+         return first(persons)\n}\n\n\
+         fn bad_independent(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {\n    \
+         return Person {name: \"made up\", age: 1}\n}\n\n\
+         fn bad_moved(persons: List<Person>) -> [] ReadOnly[from: persons] Person? {\n    \
+         return None\n}\n\n\
+         fn bad_param(persons: List<Person>) -> [persons] ReadOnly[from: nobody] Person? {\n    \
+         return None\n}\n\n\
+         fn poison_after_mutation() -> Int {\n    \
+         let people = mutable_list(Person {name: \"Ada\", age: 36})\n    \
+         let head = first(people)\n    add(people, Person {name: \"Grace\", age: 45})\n    \
+         if head is Person h {\n        return h.age\n    }\n    return 0\n}\n\n\
+         fn escape_borrowed() {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         let head = first(people)\n    if head is Person h {\n        take(h)\n    }\n}\n\n\
+         fn ok_use() -> Int {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         let head = first(people)\n    if head is Person h {\n        return h.age\n    }\n    \
+         return 0\n}\n\n\
+         fn ok_copy_escape() {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         let head = first(people)\n    if head is Person h {\n        take(copy(h))\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "this function returns `ReadOnly[from: persons]`, so every returned \
+             value must be derived from `persons`"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("`ReadOnly[from: persons]` requires `persons` to be kept"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("`ReadOnly[from: nobody]` names no parameter"),
+        "stderr: {stderr}"
+    );
+    // Mutating the argument poisons the derived result.
+    assert!(
+        stderr.contains(
+            "`head` cannot be used here: it was bound from `people` and shares \
+             its fate, and `people` was mutated after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    // The borrowed result can never be moved; `copy` is the remedy
+    // (ok_copy_escape is clean).
+    assert!(
+        stderr.contains("cannot move `h`: it was bound from `head`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+}

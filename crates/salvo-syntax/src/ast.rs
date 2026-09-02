@@ -139,6 +139,9 @@ pub struct FnDecl {
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T with Linear>` [linear-generics].
     pub generic_with: Vec<(Ident, TypeRef)>,
+    /// `-> ReadOnly[from: param] T`: the returned value is derived from
+    /// (borrows) the named kept parameter [readonly-return].
+    pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
     /// `None` means unspecified (pure); `Some(vec![])` means explicit `[]`.
     pub effects: Option<Vec<EffectRef>>,

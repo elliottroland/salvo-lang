@@ -221,6 +221,9 @@ Conventions:
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+* [readonly-return] Derived returns erase: the result already is the
+  alias on the JVM, and the checker's caller-side links keep it aligned
+  with Rust's borrows.
 * [once-fn] `Once` erases: the parameter emits the ordinary Kotlin
   function type, and the at-most-once protocol is enforced by the
   checker alone.

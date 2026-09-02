@@ -476,9 +476,12 @@ Conventions:
   new variable to its source: they share fate. Links are directed
   (derived → root), transitive (flattened to the ultimate roots at the
   binding), and at whole-variable granularity. Reads never consume and
-  never poison, on any member, at any time. Function results are always
-  independent (a fn returning a projection of a kept parameter must
-  `copy` internally); `copy(...)` produces an unlinked value [copy-fn].
+  never poison, on any member, at any time. Function results are
+  independent — unless the fn declares a derived return
+  (`ReadOnly[from: p]` [readonly-return]), in which case the result
+  links to the argument; a fn returning a projection of a kept
+  parameter *without* the annotation must `copy` internally.
+  `copy(...)` produces an unlinked value [copy-fn].
   * Provenance is static: bare identifiers and field/index/`!` chains
     over one. Values built by calls, literals, operators, or branch
     expressions are independent.
@@ -633,6 +636,35 @@ Conventions:
     (rustc's capture inference already makes consuming closures
     `FnOnce`); Kotlin emits the ordinary function type — the
     multiplicity is protocol-only on the JVM.
+* [readonly-return] `-> [p] ReadOnly[from: p] T` marks a *derived
+  return* (L7c, 2026-09-02; square-bracket surface — user decision:
+  angle brackets read as generics, round brackets collide with
+  qualified groups `Ok (A | B)`, and square brackets are already where
+  annotations name parameters). The fn returns a *borrow* of the kept
+  parameter `p` instead of an independent value — the relaxation of
+  S1a's "results are always independent" rule.
+  * Callee: `p` must be a parameter and *kept* (written or inferred);
+    every returned value must be derived from `p` (its link chain
+    terminates at `p`) or be `None`; returns do not consume. A
+    forwarded derived-return call (`return first(persons)`) validates
+    through the same links.
+  * Caller: the result fate-links to the argument in `p`'s position —
+    the ordinary discipline follows (mutating the argument poisons the
+    result [fate-poison]; the links carry a *borrowed* flag, so
+    move-mode can never take ownership through them
+    [fate-move-mode] — moving the result or its narrowed binding stays
+    an error with the `copy` remedy). The result's *type* is the plain
+    written type: `ReadOnly` never affects overloading.
+  * v1 scope: fn declarations (incl. externals) only; plain `T` and
+    `T?` return shapes; not writable anywhere but return position.
+    Accumulator bodies (`best = person; ...; return best`) are out of
+    scope — reassignable borrowed locals are a recorded refinement.
+  * Backends: Kotlin unchanged (the result is the alias). Rust returns
+    `&T` / `Option<&T>`: lifetime elision covers a single reference
+    parameter; with more, a `'a` is generated mechanically onto the
+    annotated parameter and return — the first deliberate exception to
+    the no-lifetimes invariant. Return values render as borrows; std's
+    `first` is clone-free.
 * [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
   duplicates a value: the argument is kept untouched with all its
   qualifiers (`[value]`), and the result is a fresh value with no fate

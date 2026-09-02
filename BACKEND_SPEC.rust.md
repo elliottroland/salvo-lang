@@ -177,10 +177,15 @@ derives them mechanically:
   (assignment, `++`, `Mut` methods, `&mut` argument positions) is
   otherwise undecidable locally. Reassigned parameters get a `mut`
   binder.
-* **Lifetimes.** No emitted signature *returns* a reference and no
-  emitted struct *stores* one (results are owned; struct fields are
-  owned), so every function is lifetime-elision-friendly and no named
-  lifetimes are ever generated.
+* **Lifetimes.** Struct fields are owned and — with one deliberate
+  exception — results are owned, so functions are
+  lifetime-elision-friendly. The exception [readonly-return]: a
+  derived-return fn returns `&T` / `Option<&T>`; elision covers the
+  single-reference-parameter case, and with more reference parameters
+  a `'a` is generated mechanically onto the annotated parameter and
+  the return. Return values render as borrows (`Some(&place)`, bare
+  for already-`&` bindings, pass-through for forwarded derived
+  calls); std's `first` define is `${list}.first()` — clone-free.
 * **Generic bounds.** Every generic parameter gets a `Clone` bound
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
   type. Structs additionally `#[derive(Clone, Debug)]`.

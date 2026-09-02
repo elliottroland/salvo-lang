@@ -20,6 +20,7 @@ Module {
                         },
                         generics: [],
                         generic_with: [],
+                        derived_return: None,
                         params: [
                             Param {
                                 name: Ident {
@@ -88,6 +89,7 @@ Module {
                 },
                 generics: [],
                 generic_with: [],
+                derived_return: None,
                 params: [
                     Param {
                         name: Ident {

@@ -36,7 +36,7 @@ define fn add<T>(list: Mut List<T>, elem: T) {
 
 define fn first<T>(list: List<T>) -> T? {
     inline: ``
-    ${list}.first().cloned()
+    ${list}.first()
     ``
 }
 

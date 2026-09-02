@@ -31,7 +31,7 @@ pub struct EmittedFile {
 /// mixed, defensive code may be unreachable).
 const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused_mut, \
                            unused_parens, unused_imports, dead_code, unreachable_code, \
-                           unused_variables, path_statements, unused_must_use)]\n";
+                           unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]\n";
 
 /// Emits Rust for every *reachable* module that produces code
 /// [mod-used-only], plus the generated `unions.rs` and the crate-root
@@ -491,6 +491,9 @@ struct Emitter<'p> {
     loop_optional: HashMap<String, bool>,
     loop_id: usize,
     destructure_id: usize,
+    /// The current fn has a derived return (`ReadOnly[from: ...]`
+    /// [readonly-return]): `return` values render as borrows.
+    derived_return_fn: bool,
     taken_names: HashSet<String>,
     generated_imports: BTreeSet<String>,
 }
@@ -528,6 +531,7 @@ impl<'p> Emitter<'p> {
             loop_optional: HashMap::new(),
             loop_id: 0,
             destructure_id: 0,
+            derived_return_fn: false,
             taken_names: HashSet::new(),
             generated_imports: BTreeSet::new(),
         }
@@ -917,6 +921,7 @@ impl<'p> Emitter<'p> {
         let saved_env = std::mem::take(&mut self.effect_env);
         let saved_bindings = std::mem::take(&mut self.bindings);
         let saved_mutated = std::mem::take(&mut self.mutated);
+        let saved_derived = self.derived_return_fn;
         collect_mutated(body, &mut self.mutated);
         let saved_taken = std::mem::take(&mut self.taken_names);
         for p in &f.params {
@@ -961,11 +966,22 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        for p in &f.params {
+        let mut ref_param_count = 0usize;
+        let mut derived_param_idx: Option<usize> = None;
+        for (i, p) in f.params.iter().enumerate() {
             let mode = match style {
                 FnStyle::TopLevel => self.param_mode(fn_key, p),
                 _ => self.default_param_mode(&p.ty, p.variadic),
             };
+            if matches!(mode, ParamMode::Ref | ParamMode::RefMut) {
+                ref_param_count += 1;
+            }
+            if f.derived_return
+                .as_ref()
+                .is_some_and(|d| d.name == p.name.name)
+            {
+                derived_param_idx = Some(i);
+            }
             let kind = match mode {
                 ParamMode::Owned => BindKind::Owned,
                 ParamMode::Ref => BindKind::Ref,
@@ -985,8 +1001,53 @@ impl<'p> Emitter<'p> {
             ));
         }
 
+        // [readonly-return] A derived-return fn returns a borrow of its
+        // annotated parameter: `&T` (plain) or `Option<&T>` (optional).
+        // With a single reference parameter, lifetime elision covers it;
+        // with more, a `'a` is generated mechanically and tags the
+        // annotated parameter and the return.
+        let mut lifetime_generics = String::new();
+        self.derived_return_fn = f.derived_return.is_some();
         let ret = if is_main {
             String::new()
+        } else if f.derived_return.is_some() {
+            let lt = if ref_param_count > 1 {
+                lifetime_generics = "'a".to_string();
+                if let Some(i) = derived_param_idx {
+                    // Retag the annotated parameter's type with 'a.
+                    let idx = if params.len() > f.params.len() {
+                        // Leading self/effect params shift positions.
+                        params.len() - f.params.len() + i
+                    } else {
+                        i
+                    };
+                    if let Some(entry) = params.get_mut(idx) {
+                        *entry = entry
+                            .replacen(": &mut ", ": &'a mut ", 1)
+                            .replacen(": &", ": &'a ", 1);
+                    }
+                }
+                "'a "
+            } else {
+                ""
+            };
+            match f.return_type.as_ref() {
+                Some(Type::Nullable { inner, .. }) => {
+                    format!(" -> Option<&{lt}{}>", self.emit_type(inner))
+                }
+                Some(Type::Named { .. }) | Some(Type::Array { .. })
+                | Some(Type::Tuple { .. }) => {
+                    let ty = self.emit_return_type(f.return_type.as_ref());
+                    format!(" -> &{lt}{}", ty.trim_start_matches(" -> "))
+                }
+                other => {
+                    self.error(format!(
+                        "`ReadOnly[from: ...]` returns support only plain and \
+                         optional types, not `{other:?}`"
+                    ));
+                    self.emit_return_type(f.return_type.as_ref())
+                }
+            }
         } else {
             self.emit_return_type(f.return_type.as_ref())
         };
@@ -1003,6 +1064,14 @@ impl<'p> Emitter<'p> {
             ""
         } else {
             "pub "
+        };
+        let generics = if lifetime_generics.is_empty() {
+            generics
+        } else if generics.is_empty() {
+            format!("<{lifetime_generics}>")
+        } else {
+            // `<T>` -> `<'a, T>`
+            format!("<{lifetime_generics}, {}", &generics[1..])
         };
         let mut out = format!(
             "\n{pad}{vis}fn {name}{generics}({}){ret} {{\n",
@@ -1039,6 +1108,7 @@ impl<'p> Emitter<'p> {
         self.effect_env = saved_env;
         self.bindings = saved_bindings;
         self.mutated = saved_mutated;
+        self.derived_return_fn = saved_derived;
         self.taken_names = saved_taken;
         out
     }
@@ -1505,6 +1575,46 @@ impl<'p> Emitter<'p> {
                     format!("{pad}return __yielded;\n")
                 }
                 (_, Some(v)) => {
+                    // [readonly-return] Derived-return fns return
+                    // borrows: the place is borrowed (bare for
+                    // already-`&` bindings), `Some(...)`-wrapped when
+                    // the checker recorded the optional coercion, and
+                    // `None` passes through.
+                    if self.derived_return_fn
+                        && !matches!(v, Expr::Ident(id) if id.name == "None")
+                    {
+                        // A forwarded derived-return call already
+                        // produces a borrow: pass it through.
+                        let forwarded = matches!(
+                            v,
+                            Expr::Call { span, .. }
+                                if self
+                                    .checked
+                                    .derived_calls
+                                    .contains_key(&(self.file_idx, *span))
+                        );
+                        if forwarded {
+                            let code = self.emit_expr(v);
+                            return format!("{pad}return {code};\n");
+                        }
+                        let wrap = matches!(
+                            self.coercion_of(v.span()),
+                            Some(Coercion::WrapOption { .. })
+                        );
+                        if let Some(borrowed) = self.borrow_place(v) {
+                            let code = if wrap {
+                                format!("Some({borrowed})")
+                            } else {
+                                borrowed
+                            };
+                            return format!("{pad}return {code};\n");
+                        }
+                        self.error(format!(
+                            "a `ReadOnly[from: ...]` return value must be a \
+                             projection or alias of the annotated parameter \
+                             (got `{v:?}`)"
+                        ));
+                    }
                     let v = self.emit_expr(v);
                     format!("{pad}return {v};\n")
                 }
@@ -2049,6 +2159,52 @@ impl<'p> Emitter<'p> {
                 None => None,
             },
             Expr::Field { .. } | Expr::Index { .. } => {
+                Some(format!("&{}", self.emit_place(value)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Like `borrow_value`, but tolerant of a coercion at the *top*
+    /// span (the caller handles it — e.g. the derived-return `Some`
+    /// wrap [readonly-return]); nested places must still be pure.
+    fn borrow_place(&mut self, value: &Expr) -> Option<String> {
+        match value {
+            Expr::Ident(id) => {
+                if id.name == "None"
+                    || self
+                        .checked
+                        .repr_ty
+                        .contains_key(&(self.file_idx, id.span))
+                {
+                    return None;
+                }
+                match self.bindings.get(id.name.as_str()) {
+                    Some(BindKind::Ref) => Some(self.binding_place(&id.name)),
+                    Some(BindKind::RefMut) => {
+                        Some(format!("&*{}", self.binding_place(&id.name)))
+                    }
+                    Some(BindKind::Owned) | Some(BindKind::SelfField) => {
+                        Some(format!("&{}", self.binding_place(&id.name)))
+                    }
+                    None => None,
+                }
+            }
+            Expr::Field { base, span, .. } => {
+                if self
+                    .checked
+                    .field_casts
+                    .contains_key(&(self.file_idx, *span))
+                    || !self.place_is_pure(base)
+                {
+                    return None;
+                }
+                Some(format!("&{}", self.emit_place(value)))
+            }
+            Expr::Index { base, .. } => {
+                if !self.place_is_pure(base) {
+                    return None;
+                }
                 Some(format!("&{}", self.emit_place(value)))
             }
             _ => None,
