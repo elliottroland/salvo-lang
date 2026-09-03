@@ -1057,6 +1057,62 @@ import core.Str // Not strictly necessary -- all of core is imported by default
 
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
 
+### Naming rules
+
+Casing is part of the language, not a convention:
+
+* **Types start with an uppercase letter** — structs, qualifiers, type declarations and aliases, effects, handlers, and generic parameters.
+* **Values do not** — functions, parameters, fields, variables, bindings, and lambda parameters.
+* **Module paths are lowercase.** Since a module path is its file path, that applies to file and directory names too: `Utils.sv` is a compile-time error telling you to rename the file.
+
+This is what lets the compiler tell a type from a value at the start of a dotted name, which the next section relies on.
+
+### Namespaced names
+
+Structs and qualifiers can be declared with a *dot-name* `Ns.Name`, where `Ns` is a struct in the same file. This gives you the wrapper-type pattern — distinct types for the strings and ids hanging off a struct, so that an incomplete refactor is a type error instead of a silently mis-wired value — without nesting declarations:
+
+```
+struct Environment {
+    id: Environment.Id,
+    name: Environment.Name
+}
+
+struct Environment.Id {
+    value: Str
+}
+
+struct Environment.Name {
+    value: Str
+}
+
+// Qualifiers can be namespaced too
+qualifier Environment.Tag of Str
+```
+
+Dot-names work in every type position (annotations, `of` types, `is` checks, `as` constructors, deduction lists) and in struct literals:
+
+```
+let env = Environment {
+    id: Environment.Id {value: "prod"},
+    name: Environment.Name {value: "Production"}
+}
+```
+
+Three rules apply:
+
+* `Ns` must be a struct **in the same file**, and it must not be generic.
+* A dot-name has exactly two segments: `A.B.C` is an error, and a dot-named struct cannot itself be a namespace.
+* Nothing else visible in the file may be called `NsName` — the concatenation. The Rust backend renders `Environment.Id` as `EnvironmentId`, so that spelling has to stay free.
+
+Importing works either way: import the member directly, or import the namespace struct and get its members with it.
+
+```
+import env.types.Environment.Id     // just the member
+import env.types.Environment        // the struct *and* Environment.Id
+```
+
+Backends differ, deliberately. Kotlin emits a nested class, so `Environment.Id` is the same name in the generated code. Rust concatenates, because Rust modules and structs share one namespace and a `mod Environment` next to a `struct Environment` would not compile.
+
 ## Backends
 
 One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between the `internal` and `external` backend layers. The core library uses both of these.

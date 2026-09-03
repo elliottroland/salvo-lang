@@ -71,6 +71,16 @@ Conventions:
 * [type-tuple] Tuples map to native Rust tuples (any size).
 * [type-str] Strings are `String` (owned). Plain string literals emit
   `"...".to_string()`; interpolation emits `format!("{}...", args)`.
+* [name-dot] Dot-names *flatten*: `Environment.Id` emits as
+  `EnvironmentId`, in declarations, references and mangled overload names
+  alike (`rs_ident` is the single funnel, and a dot cannot reach it from
+  any other kind of Salvo name — dots are invalid in Rust identifiers).
+  * A nested `pub mod Environment` was rejected: Rust puts modules and
+    structs in one *type namespace*, so it collides with
+    `pub struct Environment` (E0428 — "`Environment` must be defined only
+    once in the type namespace of this module"), and the namespace struct
+    is required to exist. Flattening is what makes the language-level
+    collision ban load-bearing [name-dot].
 * [type-alias] Aliases expand structurally in the emitter (same
   `subst_ast_type` approach as Kotlin).
 * [qual-erasure] Qualifiers erase from emitted types; what survives is

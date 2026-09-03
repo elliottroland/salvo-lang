@@ -4,7 +4,7 @@ import random.DefaultRandom
 
 qualifier NonEmpty<T> of List<T> with Mut<T> {
     fn qualifies(list: List<T>) -> Bool {
-        return list.size > 0
+        return list.size() > 0
     }
 
     // Refinements allow us to update deductions without having to run the
@@ -36,9 +36,17 @@ fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
     return list.remove_at(0)
 }
 
+handler NonRandom of Random {
+    fn random() -> Double {
+        return 1.0
+    }
+}
+
 fn main() [use] {
     use StdOutConsole
     use DefaultRandom
+
+    let rand = random()
 
     let strings = mutable_list("name", "surname", "something")
     if strings is NonEmpty {
@@ -48,7 +56,7 @@ fn main() [use] {
         let s = strings.remove_first()
     }
 
-    println("First element length: ${strings.first().size()}")
+    // println("First element length: ${strings.first().size()}")
 
     let (a, b) = (1, 2)
     let c = a.add(b)

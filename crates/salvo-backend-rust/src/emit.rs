@@ -427,13 +427,26 @@ const RUST_KEYWORDS: &[&str] = &[
 /// Keywords that cannot be raw identifiers: rename with a trailing `_`.
 const RUST_UNRAW: &[&str] = &["self", "Self", "super", "crate"];
 
+/// Renders a Salvo name as a Rust identifier. Dot-names are *flattened*
+/// (`Environment.Id` → `EnvironmentId`) [name-dot]: Rust puts modules and
+/// structs in one type namespace, so a nested `mod Environment` beside
+/// `struct Environment` is E0428 — concatenation is the only clean
+/// rendering, which is why nothing else in scope may claim that spelling
+/// (enforced in `resolve`). A dot cannot occur in any other Salvo name
+/// that reaches here: dots are invalid in Rust identifiers.
 fn rs_ident(name: &str) -> String {
+    let flat = if name.contains('.') {
+        name.replace('.', "")
+    } else {
+        name.to_string()
+    };
+    let name = flat.as_str();
     if RUST_KEYWORDS.contains(&name) {
         format!("r#{name}")
     } else if RUST_UNRAW.contains(&name) {
         format!("{name}_")
     } else {
-        name.to_string()
+        flat
     }
 }
 
@@ -4331,7 +4344,9 @@ fn qual_suffix(decl: &FnDecl) -> String {
         match &p.ty {
             Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
                 for q in qualifiers {
-                    parts.push(q.name.name.clone());
+                    // Dot-names canonicalize to their flattened spelling:
+                    // a mangled fn name is a single identifier [name-dot].
+                    parts.push(q.name.name.replace('.', ""));
                 }
             }
             _ => {}

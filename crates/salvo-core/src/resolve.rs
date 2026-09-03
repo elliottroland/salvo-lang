@@ -130,13 +130,36 @@ struct ModuleItems<'p> {
 
 impl<'p> ModuleItems<'p> {
     fn has_name(&self, name: &str) -> bool {
-        self.fns.iter().any(|(_, f)| f.name.name == name)
-            || self.structs.iter().any(|(_, s)| s.name.name == name)
-            || self.effects.iter().any(|(_, e)| e.name.name == name)
-            || self.handlers.iter().any(|(_, h)| h.name.name == name)
-            || self.qualifiers.iter().any(|(_, q)| q.name.name == name)
-            || self.type_aliases.iter().any(|(_, t)| t.name.name == name)
-            || self.opaque_types.iter().any(|(_, t)| t.name.name == name)
+        self.name_ref(name).is_some()
+    }
+
+    /// The declaration's own `&'p str` for `name`, so a synthesized
+    /// lookup key (a dot-name assembled from import path segments
+    /// [name-dot]) can be exchanged for one that lives as long as the
+    /// program.
+    fn name_ref(&self, name: &str) -> Option<&'p str> {
+        let hit = |n: &'p str| (n == name).then_some(n);
+        self.fns
+            .iter()
+            .find_map(|(_, f)| hit(f.name.name.as_str()))
+            .or_else(|| self.structs.iter().find_map(|(_, s)| hit(s.name.name.as_str())))
+            .or_else(|| self.effects.iter().find_map(|(_, e)| hit(e.name.name.as_str())))
+            .or_else(|| self.handlers.iter().find_map(|(_, h)| hit(h.name.name.as_str())))
+            .or_else(|| {
+                self.qualifiers
+                    .iter()
+                    .find_map(|(_, q)| hit(q.name.name.as_str()))
+            })
+            .or_else(|| {
+                self.type_aliases
+                    .iter()
+                    .find_map(|(_, t)| hit(t.name.name.as_str()))
+            })
+            .or_else(|| {
+                self.opaque_types
+                    .iter()
+                    .find_map(|(_, t)| hit(t.name.name.as_str()))
+            })
     }
 
     /// `(kind, name, file, span)` of every non-fn item, for collision
@@ -351,6 +374,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             let Item::Import(import) = item else { continue };
             resolve_import(&mut scope, &by_module, import, file_idx, &mut ctx);
         }
+        // [name-dot] Dot-name rules, checked against everything visible
+        // here (own module including its define files, core, imports).
+        check_dot_names(&scope, ast, file, file_idx, &mut errors);
         scopes.push(scope);
     }
 
@@ -428,6 +454,106 @@ impl<'e, 'p> AddCtx<'e, 'p> {
     }
 }
 
+/// Dot-name validation for one file [name-dot]:
+///
+/// * the namespace must be a struct declared in the *same file*, and it
+///   must not be generic (Kotlin nests the member as a plain nested class,
+///   which cannot reference the outer class's type parameters);
+/// * nothing visible here may carry the *concatenated* name, because the
+///   Rust backend flattens `Ns.Name` to `NsName` — and the same
+///   concatenation is what overload mangling embeds
+///   [kt-qual-mangling] [rs-fn-mangling]. Checked against the whole
+///   scope, so an imported `NsName` counts.
+/// * module path segments must be lowercase, so an import path splits
+///   into module prefix and item name unambiguously [name-casing].
+fn check_dot_names(
+    scope: &ModuleScope<'_>,
+    ast: &salvo_syntax::ast::Module,
+    file: &crate::source::SourceFile,
+    file_idx: usize,
+    errors: &mut Vec<FileDiagnostic>,
+) {
+    // Names visible here, excluding fns (which are lowercase, so they can
+    // never spell a concatenated type name).
+    let visible = |name: &str| {
+        scope.structs.contains_key(name)
+            || scope.qualifiers.contains_key(name)
+            || scope.effects.contains_key(name)
+            || scope.handlers.contains_key(name)
+            || scope.type_aliases.contains_key(name)
+            || scope.opaque_types.contains_key(name)
+    };
+    // Structs declared in this file, with their generic arity.
+    let mut local_structs: HashMap<&str, usize> = HashMap::new();
+    for item in &ast.items {
+        if let Item::Struct(s) = item {
+            local_structs.insert(s.name.name.as_str(), s.generics.len());
+        }
+    }
+    let mut dotted: Vec<(&str, Span)> = Vec::new();
+    for item in &ast.items {
+        match item {
+            Item::Struct(s) => dotted.push((s.name.name.as_str(), s.name.span)),
+            Item::Qualifier(q) => dotted.push((q.name.name.as_str(), q.name.span)),
+            _ => continue,
+        }
+    }
+    for (name, span) in dotted {
+        let Some((ns, _member)) = name.split_once('.') else {
+            continue;
+        };
+        match local_structs.get(ns) {
+            None => errors.push(FileDiagnostic::error(
+                file_idx,
+                span,
+                format!(
+                    "`{ns}` in the dot-name `{name}` must be a struct declared in this \
+                     file [name-dot]"
+                ),
+            )),
+            Some(0) => {}
+            Some(_) => errors.push(FileDiagnostic::error(
+                file_idx,
+                span,
+                format!(
+                    "`{ns}` is generic, so it cannot namespace `{name}`: Kotlin emits the \
+                     member as a nested class, which cannot use the outer type parameters \
+                     [name-dot]"
+                ),
+            )),
+        }
+        let concatenated = name.replace('.', "");
+        if visible(&concatenated) {
+            errors.push(FileDiagnostic::error(
+                file_idx,
+                span,
+                format!(
+                    "the dot-name `{name}` collides with `{concatenated}`, which is also \
+                     visible here: the Rust backend flattens dot-names and overload \
+                     mangling uses the same spelling — rename one of them [name-dot]"
+                ),
+            ));
+        }
+    }
+    // [name-casing] Module paths come from file paths [mod-file], so this
+    // is a constraint on file and directory names.
+    if let Some(seg) = file
+        .module
+        .0
+        .iter()
+        .find(|seg| seg.starts_with(|c: char| c.is_uppercase()))
+    {
+        errors.push(FileDiagnostic::error(
+            file_idx,
+            Span::default(),
+            format!(
+                "module path segment `{seg}` must start with a lowercase letter: module \
+                 paths are file paths, so rename the file or directory [name-casing]"
+            ),
+        ));
+    }
+}
+
 /// Adds a module's items to a scope, optionally under a single-name filter
 /// with an alias (for imports). Every inserted name records `module` as an
 /// origin (under its visible name) for reachability [mod-used-only].
@@ -440,8 +566,19 @@ fn add_items<'p>(
     import_span: Option<Span>,
     ctx: &mut AddCtx<'_, 'p>,
 ) {
-    let want = |name: &str| filter.is_none_or(|(n, _)| n == name);
-    let visible_as = |name: &'p str| filter.map_or(name, |(_, alias)| alias);
+    // An unaliased import of a namespace struct also brings its dot-named
+    // members: `import a.b.Environment` makes `Environment.Id` visible
+    // [name-dot-import]. Aliased imports rename exactly one name, so
+    // members do not ride along (there is no sensible partial rename).
+    let want = |name: &str| {
+        filter.is_none_or(|(n, alias)| {
+            name == n || (alias == n && name.len() > n.len() && name.starts_with(n) && name.as_bytes()[n.len()] == b'.')
+        })
+    };
+    let visible_as = |name: &'p str| match filter {
+        Some((n, alias)) if name == n => alias,
+        _ => name,
+    };
     let origin = |name: &'p str, scope: &mut ModuleScope<'p>| {
         let origins = scope.name_origins.entry(name).or_default();
         if !origins.contains(&module) {
@@ -546,8 +683,47 @@ fn resolve_import<'p>(
         ));
         return;
     }
-    let item_name = &import.path.last().unwrap().name;
-    let prefix: Vec<&str> = import.path[..import.path.len() - 1]
+    // Split the path into module prefix and item name. Module segments are
+    // lowercase [name-casing], so *trailing* uppercase segments are the
+    // item: one for a plain name, two for a dot-name `Ns.Name`
+    // [name-dot]. A lowercase last segment is a value (a fn).
+    let trailing_upper = import
+        .path
+        .iter()
+        .rev()
+        .take_while(|seg| seg.name.starts_with(|c: char| c.is_uppercase()))
+        .count();
+    if trailing_upper > 2 {
+        ctx.errors.push(FileDiagnostic::error(
+            file_idx,
+            import.span,
+            "a dot-name has exactly two segments (`module.Ns.Name`) [name-dot]",
+        ));
+        return;
+    }
+    let name_segs = trailing_upper.max(1);
+    if name_segs >= import.path.len() {
+        ctx.errors.push(FileDiagnostic::error(
+            file_idx,
+            import.span,
+            "import path must be `module.item`",
+        ));
+        return;
+    }
+    let split = import.path.len() - name_segs;
+    let item_owned: String = import.path[split..]
+        .iter()
+        .map(|i| i.name.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
+    // Dot-names are stored as one dotted name, so the borrowed key is the
+    // declaration's own `Ident` when there are two segments.
+    let item_name: &str = if name_segs == 1 {
+        &import.path[split].name
+    } else {
+        &item_owned
+    };
+    let prefix: Vec<&str> = import.path[..split]
         .iter()
         .map(|i| i.name.as_str())
         .collect();
@@ -588,13 +764,19 @@ fn resolve_import<'p>(
             );
         }
         1 => {
+            let module = *matches[0];
+            let items = &by_module[module];
+            // Exchange the (possibly synthesized) dotted key for the
+            // declaration's own long-lived name [name-dot].
+            let item_name: &'p str = match items.name_ref(item_name) {
+                Some(n) => n,
+                None => return,
+            };
             let alias: &'p str = import
                 .alias
                 .as_ref()
                 .map(|a| a.name.as_str())
                 .unwrap_or(item_name);
-            let module = *matches[0];
-            let items = &by_module[module];
             add_items(
                 scope,
                 items,

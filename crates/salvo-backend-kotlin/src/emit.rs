@@ -354,7 +354,10 @@ impl<'p> Emitter<'p> {
         let mut body = String::new();
         for item in &module.items {
             match item {
-                Item::Struct(s) => body.push_str(&self.emit_struct(s)),
+                // [name-dot] Dot-named structs are emitted *inside* their
+                // namespace class, not at the top level.
+                Item::Struct(s) if s.name.name.contains('.') => {}
+                Item::Struct(s) => body.push_str(&self.emit_struct_with_members(s, module)),
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
@@ -385,6 +388,38 @@ impl<'p> Emitter<'p> {
 
     // ================= declarations =================
 
+    /// A struct plus the dot-named structs it namespaces, emitted as
+    /// Kotlin *nested* classes [name-dot] [kt-nested-dot-name]. Nested,
+    /// never `inner`: an `inner class` captures an outer instance and
+    /// could not be constructed on its own.
+    fn emit_struct_with_members(&mut self, s: &StructDecl, module: &Module) -> String {
+        let prefix = format!("{}.", s.name.name);
+        let members: Vec<&StructDecl> = module
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Struct(m) if m.name.name.starts_with(&prefix) => Some(m),
+                _ => None,
+            })
+            .collect();
+        let outer = self.emit_struct(s);
+        if members.is_empty() {
+            return outer;
+        }
+        let mut nested = String::new();
+        for m in members {
+            for line in self.emit_struct(m).lines() {
+                if line.is_empty() {
+                    nested.push('\n');
+                } else {
+                    nested.push_str(&format!("    {line}\n"));
+                }
+            }
+        }
+        // `data class X(\n ... )\n` grows a body holding the members.
+        format!("{} {{\n{nested}}}\n", outer.trim_end())
+    }
+
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let is_mut = s
             .auto_qualifiers
@@ -392,7 +427,10 @@ impl<'p> Emitter<'p> {
             .any(|q| q.name.name == "Mut");
         let saved = self.enter_generics(&s.generics);
         let generics = self.emit_generic_params(&s.generics);
-        let mut out = format!("\ndata class {}{generics}(\n", s.name.name);
+        // A dot-named struct is declared with its *member* segment: it is
+        // nested inside its namespace class [name-dot].
+        let declared_name = s.name.name.rsplit('.').next().unwrap_or(&s.name.name);
+        let mut out = format!("\ndata class {declared_name}{generics}(\n");
         for field in &s.fields {
             let kw = if is_mut { "var" } else { "val" };
             let ty = self.emit_type(&field.ty);
@@ -3084,7 +3122,9 @@ fn qual_suffix(decl: &FnDecl) -> String {
         match &p.ty {
             Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
                 for q in qualifiers {
-                    parts.push(q.name.name.clone());
+                    // Dot-names canonicalize to their flattened spelling:
+                    // a mangled fn name is a single identifier [name-dot].
+                    parts.push(q.name.name.replace('.', ""));
                 }
             }
             _ => {}

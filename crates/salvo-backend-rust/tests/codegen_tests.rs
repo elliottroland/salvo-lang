@@ -1867,3 +1867,159 @@ fn rustc_compiles_and_runs_array_std() {
         "size 3 get 5 first 3\niter 3\niter 4\niter 5\nrandom 2 3\n",
     );
 }
+
+// ===== N1: dot-names [name-dot] =====
+
+/// The same namespace-struct program the Kotlin backend nests: Rust
+/// flattens the names instead.
+const DOT_NAMES: &str = r#"
+struct Environment {
+    id: Environment.Id,
+    name: Environment.Name
+}
+
+struct Environment.Id {
+    value: Str
+}
+
+struct Environment.Name {
+    value: Str
+}
+
+qualifier Environment.Tag of Str
+
+fn tag(value: Str) -> Str as Environment.Tag {
+    return value
+}
+
+fn label(t: Str) -> Str {
+    return "plain ${t}"
+}
+
+fn label(t: Environment.Tag Str) -> Str {
+    return "tagged ${t}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole()
+    let env = Environment {
+        id: Environment.Id {value: "prod"},
+        name: Environment.Name {value: "Production"}
+    }
+    println("${env.id.value} / ${env.name.value}")
+    println(label(tag("t1")))
+    println(label("t2"))
+}
+"#;
+
+// [name-dot] [rs-fn-mangling] Rust concatenates a dot-name
+// (`Environment.Id` → `EnvironmentId`): modules and structs share one
+// type namespace, so a nested `mod Environment` beside
+// `struct Environment` would be E0428. Mangled overload names use the
+// same flat spelling.
+#[test]
+fn dot_names_flatten() {
+    let program = build_program(&[("main.sv", DOT_NAMES, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains("pub struct EnvironmentId {")
+            && main.content.contains("pub struct EnvironmentName {"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("pub id: EnvironmentId,"),
+        "generated:\n{}",
+        main.content
+    );
+    // No dots survive in emitted Rust identifiers.
+    assert!(
+        !main.content.contains("Environment.Id"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("pub fn label__EnvironmentTag("),
+        "generated:\n{}",
+        main.content
+    );
+    run_rust_files(&files, "dot_names", "prod / Production\ntagged t1\nplain t2\n");
+}
+
+// [name-dot] [type-union] [is-narrowing] Dot-named types as union arms:
+// arm identity, `when` narrowing, a dot-named predicate-free qualifier in
+// a nullable union, and `canbe Mut` on a dot-named struct.
+const DOT_NAME_UNIONS: &str = r#"
+struct Environment.Id canbe Mut {
+    value: Str
+}
+
+struct Environment.Name {
+    value: Str
+}
+
+struct Environment {
+    id: Environment.Id
+}
+
+qualifier Environment.Tag of Str
+
+fn tag(v: Str) -> Str as Environment.Tag {
+    return v
+}
+
+fn pick(flag: Bool) -> Environment.Id | Environment.Name {
+    if flag {
+        return Environment.Id {value: "id"}
+    }
+    return Environment.Name {value: "name"}
+}
+
+fn show(x: Environment.Id | Environment.Name) -> Str {
+    when x {
+        is Environment.Id {
+            return "id: ${x.value}"
+        }
+        is Environment.Name {
+            return "name: ${x.value}"
+        }
+    }
+}
+
+fn maybe(t: Environment.Tag Str | None) -> Str {
+    if t is Environment.Tag {
+        return "tagged ${t}"
+    }
+    return "none"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole()
+    println(show(pick(true)))
+    println(show(pick(false)))
+    let m = Mut Environment.Id {value: "before"}
+    m.value = "after"
+    println(m.value)
+    println(maybe(tag("x")))
+    println(maybe(None))
+}
+"#;
+
+#[test]
+fn dot_names_in_unions_and_narrowing() {
+    let program = build_program(&[("main.sv", DOT_NAME_UNIONS, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_rust_files(
+        &files,
+        "dot_name_unions",
+        "id: id\nname: name\nafter\ntagged x\nnone\n",
+    );
+}

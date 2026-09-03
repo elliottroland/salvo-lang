@@ -207,3 +207,103 @@ fn canbe_on_a_non_fn_type_parameter_is_an_error() {
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+// --- Names: casing and dot-names [name-casing] [name-dot] ---
+
+fn errors_of(source: &str) -> Vec<String> {
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+// [name-dot] A struct or qualifier may be declared `Ns.Name`, and the pair
+// is kept as one dotted name.
+#[test]
+fn dot_names_parse_in_declarations_and_types() {
+    let source = "struct Environment {\n    id: Environment.Id\n}\n\n\
+                  struct Environment.Id {\n    value: Str\n}\n\n\
+                  qualifier Environment.Tag of Str\n\n\
+                  fn tag(v: Str) -> Str as Environment.Tag {\n    return v\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let names: Vec<&str> = module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            salvo_syntax::ast::Item::Struct(s) => Some(s.name.name.as_str()),
+            salvo_syntax::ast::Item::Qualifier(q) => Some(q.name.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec!["Environment", "Environment.Id", "Environment.Tag"]
+    );
+}
+
+// [name-dot] A dot-name in expression position is a struct literal, while
+// a lowercase head stays a field read or dot-call — that is what the
+// casing rule buys.
+#[test]
+fn dot_name_struct_literal_is_not_a_field_read() {
+    let source = "fn f() -> None {\n    let a = Environment.Id {value: \"x\"}\n    \
+                  let b = a.value\n    let c = a.value.size()\n}\n";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+// [name-dot] Names cap at two segments.
+#[test]
+fn three_segment_dot_names_are_rejected() {
+    let errors = errors_of("struct A.B.C {\n    v: Str\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("exactly two segments")),
+        "got {errors:?}"
+    );
+}
+
+// [name-casing] Types are uppercase, values are not.
+#[test]
+fn casing_rule_is_enforced_on_declarations() {
+    for (source, needle) in [
+        ("struct thing {\n    v: Str\n}\n", "struct names must start"),
+        ("qualifier tag of Str\n", "qualifier names must start"),
+        ("type alias = Str\n", "type names must start"),
+        ("effect logger {\n    fn log(m: Str) -> None\n}\n", "effect names must start"),
+        ("fn Foo() -> None {\n}\n", "fn names must not start"),
+        ("fn f(Bad: Str) -> None {\n}\n", "parameter names must not start"),
+        ("struct S {\n    Value: Str\n}\n", "field names must not start"),
+        ("fn f() -> None {\n    let Bad = 1\n}\n", "binding names must not start"),
+        ("fn f() -> None {\n    for Item in xs {\n    }\n}\n", "binding names must not start"),
+        ("fn f() -> None {\n    let g = X -> 1\n}\n", "must not start"),
+    ] {
+        let errors = errors_of(source);
+        assert!(
+            errors.iter().any(|m| m.contains(needle)),
+            "expected {needle:?} for {source:?}, got {errors:?}"
+        );
+    }
+}
+
+// [name-casing] Generic parameters are type names.
+#[test]
+fn generic_parameters_must_be_uppercase() {
+    let errors = errors_of("fn f<t>(v: t) -> t {\n    return v\n}\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("generic parameter names must start")),
+        "got {errors:?}"
+    );
+}

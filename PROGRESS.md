@@ -90,6 +90,19 @@ transitional error was removed on the user's call, so a plain parse
 error is the default. Recorded as an invariant in AGENTS.md with a step
 in the task workflow.
 
+**Dot-names landed 2026-09-03 (roadmap N1).** Structs and qualifiers can
+be declared `Ns.Name` where `Ns` is a struct in the same file
+([name-dot]), giving the Kotlin wrapper-type idiom (`Environment.Id`)
+without nested declarations — Kotlin emits a nested class, Rust flattens
+to `EnvironmentId`. Casing became a language rule ([name-casing]): types
+uppercase, values lowercase, module paths lowercase (so an uppercase
+`.sv` file or directory name is a compile-time error). That rule is what
+makes `Environment.Id { … }` decidable against `person.name`, and it
+retired the parser's old "lowercase after `is` means a binding"
+heuristic. Nothing visible may carry the concatenated spelling, checked
+scope-wide because Rust flattening and overload mangling share it. No
+existing Salvo source violated the casing rule.
+
 **`canbe` replaces `with` at opt-in sites (user decision 2026-09-03).**
 Auto-qualifiers on struct and type declarations and the per-type-parameter
 linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
@@ -1545,6 +1558,141 @@ arm, and only an explicitly parenthesized group can be qualified
   2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
   in practice.
 
+### D5 — Qualifier subjects: state vs provenance (user decisions 2026-09-03)
+
+The predicate/constructive split [qual-predicate] [qual-constructive] is
+an *evidence* axis — how a value acquires a fact. It says nothing about
+what the fact is *about*, which is why `NonEmpty` is legitimately both
+(one state claim, two evidence routes [qual-ctor-predicate]). Three
+independent axes were identified:
+
+| Axis | Values | Status |
+|---|---|---|
+| Evidence | predicate (runtime `qualifies`) / constructive (mint-only) | in the spec |
+| **Subject** | **state (contents) / provenance (the handle)** | **D5** |
+| Authority | user-declarable / compiler intrinsic | implicit |
+
+One combination is impossible and explains the shape of the intrinsics:
+a **predicate capability cannot exist** — no inspection of the bits
+reveals whether you are *permitted* to write, so `Mut` has no
+`qualifies` and never could. Capability/provenance implies constructive;
+constructive does not imply capability (`Sorted` minted by `sort()` is
+mint-only *state*).
+
+Decided (user, 2026-09-03):
+
+1. **Qualifier declarations gain a subject axis**: *state* (default,
+   today's semantics) and *provenance*. Option B of the explored set.
+2. **Provenance is a content-independent claim about where the handle
+   came from** — mint-only (no `qualifies` body; `is Q` on a non-union
+   subject stays a compile error, as [qual-constructive] already says).
+   The payoff: a provenance tag **survives an unlisted mutation**.
+   D1's stripping rule is sound only for claims about contents —
+   [deduce-syntax] says so in as many words ("mutation can invalidate a
+   caller's *state* predicates") — so exempting provenance needs no new
+   soundness argument. Without this, `Authenticated Request` loses its
+   tag to any logger declaring `[req: Mut]`, and D3 refinements would be
+   the only escape: per-qualifier-per-function boilerplate for a fact
+   that is blanket-true.
+3. **Provenance is droppable** (forgetting provenance is safe) and
+   **survives being stored into another value**.
+4. **Provenance composes without a `with` declaration**, mirroring the
+   `Mut` auto-qualifier [type-canbe-mut]: it is orthogonal to every
+   claim about contents. Tags stack freely, including several over one
+   base (`Authenticated EnvironmentId Str`). `with` [qual-with] keeps
+   its original job — two *state* claims co-applying, where explicit
+   compatibility is the whole point. Without this rule
+   `Ok EnvironmentId Str` would be inexpressible (per-tag
+   `qualifier Ok<T> of T with EnvironmentId` does not scale, and
+   `Ok (EnvironmentId Str)` is the nested-qualified case [qual-generic]
+   calls discouraged) — a newtype that cannot be returned in a `Result`
+   is half a newtype.
+5. **Hard capabilities stay compiler intrinsics** (`Mut`, `Linear`,
+   `Once`, `ReadOnly[from: p]`). Each needs something no user can write:
+   a per-backend representation choice (`Mut` is *not* erased —
+   `MutableList`, `&mut`), a rule in the flow analysis, a non-standard
+   subtyping direction (`Once` inverts it), or a restricted syntactic
+   position (`Linear` never at a use site; `ReadOnly` return-only).
+   User-authored versions would need a metalanguage for checker rules —
+   rejected as out of proportion to Simplicity/Verifiability.
+6. **Vocabulary.** What users declare is *state* or *provenance*. What
+   the compiler owns are *permissions* and *obligations*, and the
+   sub-rule is **permissions are droppable, obligations are not**:
+   `Mut Person <: Person` (`map` returns `List<T>` while knowing
+   `Mut List<T>` internally), while `Once` may never be dropped and
+   `Linear` cannot be written at all.
+
+**Motivating example (record this one — it is more legible than
+`Authenticated`): the wrapper/newtype pattern.** The Kotlin habit of
+`data class Environment(val id: Id)` with a nested
+`data class Id(val value: String)` exists so that an incomplete refactor
+is a type error instead of a silently mis-wired `String`. As a Salvo
+provenance qualifier (`qualifier EnvironmentId of Str` plus a
+constructor), it is content-independent (any string can be an id),
+mint-only, and not runtime-testable — and it delivers the protection,
+because a bare `Str` does not subtype `EnvironmentId Str`: swapping two
+tagged arguments fails to compile in both positions. Only widening is
+open, which is the approved droppability, and is the same hole Kotlin
+has whenever the target parameter is `String`.
+
+Two properties of the erased design worth knowing before revisiting it:
+
+- **In union position the tag is reified.** `Ok Str | Err Str` already
+  works — positional wrappers give arms a physical identity even when
+  they erase to the same type, and `is Err Str` matches precisely
+  [is-precise]. So `EnvironmentId Str | DeploymentId Str` discriminates
+  at runtime; erasure applies to a value in a parameter, not to a value
+  in a union.
+- **What erasure actually costs** is identity, not usability: two tags
+  over `"prod"` compare equal and collide as keys in one map. Display,
+  interpolation, base-type operations and (static) overloading all work
+  for free — the `toString` override the Kotlin pattern needs exists
+  only to undo the boxing, which Salvo never does.
+
+7. **Provenance stays erased** (user decision 2026-09-03, D5a settled):
+   uniform with [qual-erasure], so the backends are untouched by D5.
+   Reification (a wrapper type per tag per backend) was declined: it
+   needs wrap/unwrap insertion at every widening site, double wrapping
+   inside unions, and messier interop for std fns taking `Str`, while
+   the only benefit — distinct equality and map keys — is already
+   reachable with a one-field struct, which *is* the nominal flavor of
+   this pattern and needs no new feature. The decisive cost is two
+   lowering models for one concept, doubling the checker/emitter
+   agreement surface. Kotlin's own tool for this job
+   (`@JvmInline value class`) is likewise unboxed except in
+   generic/nullable/collection positions, so the erased design is the
+   idiomatic trade, not an exotic one.
+Namespacing (the former D5b) outgrew this section and is now its own
+roadmap item, **N1** — dot-names apply to structs as well as qualifiers,
+so it is a naming feature independent of the subject axis.
+
+Implementation sketch (no backend work — provenance is erased, so
+emitters are untouched under D5a-as-recommended):
+
+- `QualifierDecl` gains the subject kind (parser + AST); the checker's
+  `validate_quals` enforces the provenance legality rules (no
+  `qualifies` body, no `with` needed, `is` on a non-union subject
+  rejected — the last one is already [qual-constructive] behavior).
+- The removal-set computation in the deduction machinery skips
+  provenance tags when a call strips state qualifiers; the *contagious*
+  exhaustiveness rule [deduce-syntax] narrows accordingly.
+- Stacking validation stops requiring pairwise `with` when either side
+  is provenance.
+
+**Future intrinsic capabilities (watch list, in order of how soon they
+force themselves on us).** `Sendable`/thread-safety the moment
+concurrency lands — structurally inferred, trusted-by-audit for
+externals (the `canbe Linear` pattern), and asymmetric between backends,
+so it cannot be user-authored. Then `Uniq`/`Shared` if sharing arrives
+(`Uniq` is the precondition for in-place mutation of a shared type),
+`Local`/`Escaping` (the conservative refusal of escaping closures
+becomes a contract), `Init` for two-phase initialization
+(`MaybeUninit`/`lateinit`), and `Const` if compile-time evaluation
+lands. Note that `Uniq` and `Local` are facts the fate analysis
+*already computes*: they are the user-facing side of the recorded
+"internal qualifier unification" leftover, which is the strongest reason
+to set the vocabulary up deliberately now.
+
 ### Related, independent: `!is` in expressions
 
 Negated checks (`if x !is Str { … }`) — sugar over `!(x is Str)` with the
@@ -1568,6 +1716,134 @@ value-endings, or `names.first()!is Str` stays ambiguous — and
 This keeps `x!.field`, `x!)`, `x!,` legal (the following token cannot
 start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
 (assert then test) and `x !is T` (negated test) as the two spellings.
+
+## Roadmap: names and namespacing
+
+### N1 — Dot-names for structs and qualifiers ✅ Done 2026-09-03
+
+Motivated by the wrapper/newtype pattern (see D5): the Kotlin habit of
+nesting `Id` inside `Environment` so signatures can demand
+`Environment.Id`, without Salvo adopting nested *declarations* — the
+user prefers flat code, so the namespace is in the *name*, not the
+layout.
+
+Proposed surface: a struct or qualifier may be declared as
+`<ns>.<name>`, where `<ns>` names a struct in the same file.
+`<ns>` must be a struct in that file, and no name in that file may be
+`<ns><name>` when a dot-name with that `<ns>` exists (the Rust
+flattening would collide). Backends: Kotlin nests the type inside
+`<ns>`'s class; Rust concatenates (`<ns><name>`), since Rust modules and
+structs do not relate the way Kotlin classes do. Qualifiers are erased,
+so for them the dot is compile-time only on both backends — which is why
+qualifiers are the easy half.
+
+Import disambiguation rests on a new casing rule: modules always start
+lowercase; types, structs and qualifiers always start uppercase. That
+turns `import a.b.Environment.Id` into a decidable split (leading
+lowercase segments are the module path, trailing uppercase segments the
+item name) where today the split is purely positional — `resolve_import`
+takes the *last* segment as the item name and everything before it as
+the module prefix.
+
+Decided in review (user decisions 2026-09-03):
+
+- **N1a — the casing rule covers values too.** An uppercase-initial
+  *head* identifier starts a *type path*; variables, parameters, fields
+  and fn names start lowercase. Needed because in expression position
+  `Environment.Id { value: "x" }` is otherwise indistinguishable from a
+  field access on a variable named `Environment` (or a dot-notation
+  call). Side benefit: `parse_is_check` currently guesses "lowercase
+  means a binding" by convention (the `is Str surname` form) — the rule
+  makes that principled.
+- **N1b — uppercase module segments are a compile-time error, reported
+  at source discovery.** Module paths *are* file paths [mod-file], so
+  the rule reaches into the filesystem: `src/Utils.sv` stops being a
+  legal program, and the diagnostic must name the file rather than
+  surfacing later as a baffling unresolved import.
+- **N1c — importing `Ns` brings `Ns.X` into scope.** Precedent:
+  importing an *effect* brings its members (`ModuleScope` maps members
+  to the owning effect). Dot-names carry their namespace at every use
+  site, so auto-importing them cannot introduce an ambiguity — and
+  without it every newtype costs an import line.
+- The **collision ban is module-wide**, not file-wide: a module is all
+  of its files, including backend define files (`list.sv` +
+  `list.kotlin.sv`) [mod-visibility].
+- The **collision ban also covers mangled names and imported names.**
+  Overload mangling embeds qualifier names (`full_name__Surname`
+  [kt-qual-mangling] [rs-fn-mangling]), so a dot-name must canonicalize
+  its dot, and the resulting suffix can collide with a plain qualifier
+  of the concatenated name imported from another module — which a
+  file-scoped ban never sees. No encoding escapes this (Rust identifiers
+  are `[A-Za-z0-9_]`, so every encoding is also a legal name), which is
+  why a ban is the right mechanism; it just has to be scope-wide and
+  applied to mangled forms.
+- **Kotlin emits a *nested* class, never `inner`.** An `inner class`
+  captures an outer instance and cannot be constructed without one.
+  Consequence: a nested class of a *generic* struct cannot reference the
+  outer type parameters (only `inner` can), so either `<ns>` must be
+  non-generic or the member may not mention the outer generics.
+- **Rust concatenates (`<ns><name>`) — the nested-module alternative is
+  rejected.** Rust puts modules and structs in one *type namespace*, so
+  `pub mod Environment` collides with `pub struct Environment`
+  (E0428, verified with rustc: "`Environment` must be defined only once
+  in the type namespace of this module") — and since `<ns>` is required
+  to be a struct in the same file, that collision is guaranteed, not
+  incidental. A mangled module (`Environment__ns::Id`) compiles but
+  reads worse than the flat name; a lowercase module (`environment::Id`)
+  also compiles but impersonates a Salvo module and adds a collision
+  surface against real ones; Rust allows no item declarations in `impl`
+  blocks and inherent associated types are unstable. Flattening is
+  therefore the only clean rendering, which is what makes the collision
+  ban load-bearing rather than a nuisance.
+- Minor, but pin them: names cap at two segments (no `A.B.C`, and a
+  dot-named struct may not itself be an `<ns>`); and `ty_base_name` /
+  `type_base_name` plus the string-keyed define-template environments
+  must agree on the canonical spelling of a dot-name — the documented
+  "touch one, touch all three" trap.
+
+Independent of D5: dot-names work the same for state qualifiers, and
+apply to structs too, so this is a naming feature rather than part of the
+subject axis.
+
+What landed (rules [name-casing] [name-dot] [name-dot-import]
+[kt-nested-dot-name]):
+
+- **Parser**: `ident_decl_dotted` for struct/qualifier declarations and
+  `type_ref_name` for every type position (annotations, `of` types, `is`
+  checks, `as Q`, `canbe`, deduction lists, struct literals). A dot is
+  only taken when *both* segments are uppercase, so `person.name` and
+  `list.size()` are untouched. The name is carried as one dotted string —
+  `Ident { name: "Environment.Id" }` — which is what keeps scope keys,
+  checker types and the emitters' `ty_base_name`/`type_base_name`
+  conventions in agreement without a second representation.
+- **Casing rule**: `ident_type` / `ident_value` at every declaration site
+  (structs, qualifiers, types, effects, handlers, generic parameters;
+  fns, parameters, fields, `let`/`for`/destructuring bindings, lambda
+  parameters). No existing Salvo source violated it — std and the
+  corpora were already consistent.
+- **Resolve**: casing-aware import splitting (trailing uppercase segments
+  are the item, so `import env.types.Environment.Id` works while
+  `import core.list.size` keeps its old positional meaning); an unaliased
+  namespace import brings dot-named members (`want` matches the `Ns.`
+  prefix); `ModuleItems::name_ref` exchanges a synthesized dotted lookup
+  key for the declaration's own `&'p str`; `check_dot_names` enforces the
+  same-file non-generic namespace, the scope-wide concatenation ban, and
+  module-path casing.
+- **Kotlin**: `emit_struct_with_members` nests members inside the
+  namespace class (declared under their member segment, referenced with
+  the dotted name); `qual_suffix` flattens dots so mangled overloads stay
+  single identifiers (`label__EnvironmentTag`).
+- **Rust**: `rs_ident` flattens dots — one funnel covers declarations,
+  references and mangling, and no other Salvo name can carry a dot
+  because dots are invalid in Rust identifiers.
+- Verified end to end on both backends with two programs — a namespace
+  struct with two members plus a dot-named qualifier driving an overload,
+  and dot-named types as *union arms* (`when` narrowing, a dot-named
+  qualifier in a nullable union, `canbe Mut` on a dot-named struct):
+  identical output under `kotlinc` and `rustc`. Union arm identity needed
+  no special handling — the wrapper/enum machinery keys off arm position,
+  and the flattened Rust names fall out of `rs_ident`.
+
 
 
 Ownership-arc remainders (each recorded in its milestone section and/or
@@ -1650,9 +1926,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 247)
+## Test inventory (all green: 263)
 
-- `salvo-core`: 40 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 47 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
@@ -1683,7 +1959,12 @@ spec rule; consolidated here for findability):
   [interp-no-none]: possibly-`None` operands rejected for arithmetic,
   ordering, and equality — and `None` itself — while narrowed/asserted
   operands pass; interpolating an optional or a struct field rejected,
-  the `is T name` binding and `!` forms accepted).
+  the `is T name` binding and `!` forms accepted) + 7 name tests
+  (`tests/name_tests.rs` [name-dot] [name-dot-import] [name-casing]:
+  dot-names resolve, the namespace must be a same-file non-generic
+  struct, the concatenated-name ban fires for own-module *and* imported
+  names, importing a namespace brings its members and a member imports
+  directly, an uppercase module path is an error naming the file).
 - `salvo-cli`: 52 - 44 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -1788,14 +2069,18 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 23 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 28 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
-  and 3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
+  3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
   on an `external type`, `<T canbe Linear>` on a fn, and `canbe` on a
-  non-fn type parameter rejected [linear-generics]).
-- `salvo-backend-kotlin`: 82 - golden snapshots of the M2 demo, the M3
+  non-fn type parameter rejected [linear-generics]), and 5 name tests
+  ([name-dot] [name-casing]: dot-names in declarations and type
+  positions, a dot-name struct literal distinguished from a field read
+  and a dot-call, three-segment names rejected, the casing rule enforced
+  across ten declaration forms, generic parameters uppercase).
+- `salvo-backend-kotlin`: 84 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1850,7 +2135,7 @@ spec rule; consolidated here for findability):
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 50 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 52 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -2378,3 +2663,33 @@ snapshot diffs.
   with Mut<T>` in `experiments/` — was the *other* meaning of `with`
   ([qual-with]) and had to stay. Grep with context, exclude the
   exceptions explicitly, then re-grep for leftovers.
+- (N1) **Rust puts modules and structs in one type namespace.** The
+  attractive idea of emitting a dot-name as a real nested module
+  (`pub mod Environment { pub struct Id }`) dies on E0428 the moment the
+  namespace struct exists — which the rule requires. Verified with rustc
+  before writing any emitter code; a lowercase module (`environment::Id`)
+  does compile but impersonates a Salvo module. Flattening plus a
+  language-level collision ban was the answer.
+- (N1) **One name representation beats two.** Carrying a dot-name as a
+  single dotted string in `Ident.name` meant scope keys, checker types,
+  `ty_base_name`/`type_base_name` and define-template environments needed
+  *no* changes — the "touch one, touch all three" trap never fired.
+  Translation happens where a Salvo name becomes target syntax: Kotlin
+  renders it verbatim (nested access is spelled the same), Rust flattens
+  in `rs_ident`, which is the single funnel for all 56 identifier
+  renderings. The safety argument for that: a dot is invalid in a Rust
+  identifier, so any dotted string reaching `rs_ident` can only be a
+  dot-name.
+- (N1) **A casing rule pays for itself.** Making types-uppercase /
+  values-lowercase normative was needed for dotted *expressions*
+  (`Environment.Id { … }` vs `person.name`), but it also turned an
+  existing heuristic into a consequence: `parse_is_check` had been
+  guessing that a lowercase word after `is` was a binding. Rules that
+  retire guesses are cheaper than they look — and no existing source
+  violated it, so the sweep cost nothing.
+- (N1) Import paths split *positionally* (last segment = item), so
+  two-segment item names needed the split to become casing-aware:
+  trailing uppercase segments are the item, and a lowercase last segment
+  stays a value (`import core.list.size`). The synthesized dotted key is
+  short-lived, so `ModuleItems::name_ref` exchanges it for the
+  declaration's own `&'p str` before it enters the scope maps.

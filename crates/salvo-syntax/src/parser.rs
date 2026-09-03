@@ -106,6 +106,70 @@ impl<'s> Parser<'s> {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
+    /// An identifier that must name a *type* — struct, qualifier, type,
+    /// effect, handler, generic parameter — and therefore starts with an
+    /// uppercase letter [name-casing].
+    fn ident_type(&mut self, what: &str) -> Option<Ident> {
+        let id = self.ident()?;
+        if !id.name.starts_with(|c: char| c.is_uppercase()) {
+            self.error(
+                format!("{what} names must start with an uppercase letter [name-casing]"),
+                id.span,
+            );
+        }
+        Some(id)
+    }
+
+    /// An identifier that must name a *value* — fn, parameter, field,
+    /// variable — and therefore does not start with an uppercase letter
+    /// [name-casing]. Values must stay distinguishable from type paths:
+    /// `Environment.Id { … }` is a struct literal, `person.name` a field
+    /// read [name-dot].
+    fn ident_value(&mut self, what: &str) -> Option<Ident> {
+        let id = self.ident()?;
+        if id.name.starts_with(|c: char| c.is_uppercase()) {
+            self.error(
+                format!("{what} names must not start with an uppercase letter [name-casing]"),
+                id.span,
+            );
+        }
+        Some(id)
+    }
+
+    /// The name of a struct or qualifier declaration: a plain `Name` or a
+    /// dot-name `Ns.Name` [name-dot]. Both segments are type names, and
+    /// the pair is kept as one dotted name — the key everything else uses.
+    fn ident_decl_dotted(&mut self, what: &str) -> Option<Ident> {
+        let head = self.ident_type(what)?;
+        if !self.at(&TokenKind::Dot) || !self.same_line() {
+            return Some(head);
+        }
+        if !matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+        {
+            return Some(head);
+        }
+        self.bump();
+        let tail = self.ident_type(what)?;
+        let mut span = head.span.to(tail.span);
+        // Names cap at two segments; consume any extra so the declaration
+        // still parses [name-dot].
+        while self.at(&TokenKind::Dot)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+        {
+            self.bump();
+            let extra = self.ident()?;
+            span = span.to(extra.span);
+            self.error(
+                "a dot-name has exactly two segments (`Ns.Name`) [name-dot]",
+                span,
+            );
+        }
+        Some(Ident {
+            name: format!("{}.{}", head.name, tail.name),
+            span,
+        })
+    }
+
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             pos: self.pos,
@@ -269,7 +333,7 @@ impl<'s> Parser<'s> {
 
     fn parse_type_decl(&mut self, backing: Option<BackingMod>) -> Option<TypeDecl> {
         let start = self.expect(&TokenKind::KwType)?.span;
-        let name = self.ident()?;
+        let name = self.ident_type("type")?;
         let generics = self.parse_generics();
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
@@ -352,7 +416,7 @@ impl<'s> Parser<'s> {
                 if self.eat(&TokenKind::Gt).is_some() || self.at_eof() {
                     break;
                 }
-                match self.ident() {
+                match self.ident_type("generic parameter") {
                     Some(id) => {
                         if self.eat(&TokenKind::KwCanbe).is_some() {
                             if let Some(q) = self.parse_type_ref() {
@@ -380,7 +444,7 @@ impl<'s> Parser<'s> {
 
     fn parse_struct(&mut self) -> Option<StructDecl> {
         let start = self.expect(&TokenKind::KwStruct)?.span;
-        let name = self.ident()?;
+        let name = self.ident_decl_dotted("struct")?;
         let generics = self.parse_generics();
         // `canbe Mut` — auto-qualifiers the struct opts into
         // [struct-mut] [canbe-optin].
@@ -411,7 +475,7 @@ impl<'s> Parser<'s> {
 
     /// `name: Type (= default)?`
     fn parse_field_decl(&mut self) -> Option<FieldDecl> {
-        let name = self.ident()?;
+        let name = self.ident_value("field")?;
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
         let default = if self.eat(&TokenKind::Eq).is_some() {
@@ -434,7 +498,7 @@ impl<'s> Parser<'s> {
 
     fn parse_qualifier(&mut self, backing: Option<BackingMod>) -> Option<QualifierDecl> {
         let start = self.expect(&TokenKind::KwQualifier)?.span;
-        let name = self.ident()?;
+        let name = self.ident_decl_dotted("qualifier")?;
         let generics = self.parse_generics();
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
@@ -479,7 +543,7 @@ impl<'s> Parser<'s> {
 
     fn parse_effect(&mut self) -> Option<EffectDecl> {
         let start = self.expect(&TokenKind::KwEffect)?.span;
-        let name = self.ident()?;
+        let name = self.ident_type("effect")?;
         let generics = self.parse_generics();
         self.expect(&TokenKind::LBrace)?;
         let mut fns = Vec::new();
@@ -497,7 +561,7 @@ impl<'s> Parser<'s> {
 
     fn parse_handler(&mut self, backing: Option<BackingMod>) -> Option<HandlerDecl> {
         let start = self.expect(&TokenKind::KwHandler)?.span;
-        let name = self.ident()?;
+        let name = self.ident_type("handler")?;
         let generics = self.parse_generics();
         let mut params = Vec::new();
         if self.at(&TokenKind::LParen) {
@@ -536,7 +600,7 @@ impl<'s> Parser<'s> {
 
     fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
-        let name = self.ident()?;
+        let name = self.ident_value("fn")?;
         let (generics, generic_canbe) = self.parse_generics_canbe();
         let params = self.parse_params()?;
 
@@ -601,7 +665,7 @@ impl<'s> Parser<'s> {
         let mut params = Vec::new();
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
             let variadic = self.eat(&TokenKind::Ellipsis).is_some();
-            let Some(name) = self.ident() else {
+            let Some(name) = self.ident_value("parameter") else {
                 self.group_depth -= 1;
                 return None;
             };
@@ -819,7 +883,7 @@ impl<'s> Parser<'s> {
     /// Parses a fn signature without a body (for `define fn`).
     fn parse_fn_signature_only(&mut self) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
-        let name = self.ident()?;
+        let name = self.ident_value("fn")?;
         let (generics, generic_canbe) = self.parse_generics_canbe();
         let params = self.parse_params()?;
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
@@ -1065,8 +1129,33 @@ impl<'s> Parser<'s> {
     }
 
     /// `Name` or `Name<T, U>`.
+    /// The name in a type reference: `Name`, or a dot-name `Ns.Name`
+    /// [name-dot]. The dot is only taken when *both* segments are type
+    /// names, so `person.name` (a field read) and `list.size()` (a
+    /// dot-call) are untouched — the casing rule [name-casing] is what
+    /// makes that decidable.
+    fn type_ref_name(&mut self) -> Option<Ident> {
+        let head = self.ident()?;
+        if !head.name.starts_with(|c: char| c.is_uppercase()) {
+            return Some(head);
+        }
+        if !self.at(&TokenKind::Dot) || !self.same_line() {
+            return Some(head);
+        }
+        if !matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+        {
+            return Some(head);
+        }
+        self.bump();
+        let tail = self.ident()?;
+        Some(Ident {
+            name: format!("{}.{}", head.name, tail.name),
+            span: head.span.to(tail.span),
+        })
+    }
+
     fn parse_type_ref(&mut self) -> Option<TypeRef> {
-        let name = self.ident()?;
+        let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
         if self.at(&TokenKind::Lt) {
@@ -1258,12 +1347,12 @@ impl<'s> Parser<'s> {
                 self.group_depth += 1;
                 let mut fields = Vec::new();
                 while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-                    let Some(field) = self.ident() else {
+                    let Some(field) = self.ident_value("field") else {
                         self.group_depth -= 1;
                         return None;
                     };
                     let binding = if self.eat(&TokenKind::Colon).is_some() {
-                        let Some(b) = self.ident() else {
+                        let Some(b) = self.ident_value("binding") else {
                             self.group_depth -= 1;
                             return None;
                         };
@@ -1288,7 +1377,7 @@ impl<'s> Parser<'s> {
                     span: start.to(end),
                 })
             }
-            _ => self.ident().map(Pattern::Ident),
+            _ => self.ident_value("binding").map(Pattern::Ident),
         }
     }
 
@@ -1309,7 +1398,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_lambda_from_ident(&mut self) -> Option<Expr> {
-        let name = self.ident()?;
+        let name = self.ident_value("lambda parameter")?;
         let start = name.span;
         self.expect(&TokenKind::Arrow)?;
         let param = LambdaParam {
@@ -1338,7 +1427,11 @@ impl<'s> Parser<'s> {
         let mut params = Vec::new();
         let mut ok = true;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
-            let Some(name) = (if self.at_ident() { self.ident() } else { None }) else {
+            let Some(name) = (if self.at_ident() {
+                self.ident_value("lambda parameter")
+            } else {
+                None
+            }) else {
                 ok = false;
                 break;
             };

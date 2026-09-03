@@ -148,6 +148,21 @@ Conventions:
     the `Mut List` → `MutableList` mapping naturally avoids false
     collisions. Unchecked (arity-fallback) calls to a mangled overload
     would emit the base name — known leftover.
+* [kt-nested-dot-name] A dot-named struct [name-dot] emits as a Kotlin
+  **nested** class inside its namespace class — never `inner`, which
+  would capture an outer instance and could not be constructed on its
+  own. The namespace class grows a body holding its members; the member
+  is declared under its own segment (`data class Id(...)`) while every
+  *reference* keeps the dotted spelling (`Environment.Id`), which is
+  valid Kotlin nested access and needs no import beyond the module
+  wildcard [kt-imports].
+  * Because the member is a plain nested class, the namespace struct must
+    not be generic (enforced in `resolve`): a nested class cannot use the
+    outer class's type parameters.
+  * Dot-named *qualifiers* emit nothing (qualifiers erase
+    [qual-erasure]); they only reach output through mangling, where the
+    dot canonicalizes to the flat spelling
+    (`label__EnvironmentTag`) [kt-qual-mangling].
 * [is-qualifies] Each predicate qualifier's `qualifies` fn emits as a
   top-level `fun Q_qualifies(...)`; a predicate `is` check becomes a call
   (multiple qualifiers `&&`-chain).

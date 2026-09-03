@@ -931,6 +931,57 @@ Conventions:
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
+* [name-casing] Casing is a *rule*, not a convention (N1a, user decision
+  2026-09-03): names of types — structs, qualifiers, type declarations
+  and aliases, effects, handlers, generic parameters — start with an
+  uppercase letter; names of values — fns, parameters, fields,
+  variables, bindings, lambda parameters — do not. Module path segments
+  are lowercase, and since a module path *is* a file path [mod-file],
+  that constrains file and directory names (`src/Utils.sv` is an error
+  naming the file).
+  * What the rule buys: an uppercase-initial head identifier always
+    starts a *type path*, which is what makes `Environment.Id { … }` (a
+    struct literal) decidable against `person.name` (a field read) and
+    `list.size()` (a dot-call) [name-dot]. It also turns the parser's
+    old "a lowercase word after `is` is a binding" heuristic
+    (`is Str surname`) into a consequence of the rule.
+  * Enforced at declaration sites in the parser (`ident_type` /
+    `ident_value`); module paths in `resolve`.
+* [name-dot] A struct or qualifier may be declared with a *dot-name*
+  `Ns.Name` (N1, user decisions 2026-09-03), giving the Kotlin
+  wrapper-type idiom (`Environment.Id`) without nested declarations.
+  Dot-names are legal in every type position: annotations, `of` types,
+  `is` checks, `as Q` constructors, `canbe` clauses, deduction lists,
+  struct literals.
+  * `Ns` must be a struct declared in the **same file**, and must not be
+    generic — Kotlin emits the member as a *nested* class, which cannot
+    reference the outer class's type parameters
+    [kt-nested-dot-name].
+  * Exactly two segments: `A.B.C` is an error, and a dot-name cannot
+    itself be a namespace.
+  * **Collision ban:** nothing visible in the file may carry the
+    *concatenated* spelling (`EnvironmentId` beside `Environment.Id`).
+    The Rust backend flattens dot-names, and overload mangling embeds the
+    same spelling [rs-fn-mangling] [kt-qual-mangling], so the ban is
+    checked against the whole scope — own module (all its files),
+    `core.*`, and imports — not just the declaring file. No encoding
+    escapes this: Rust identifiers are `[A-Za-z0-9_]`, so every encoding
+    is also a legal name.
+  * The name is carried as *one dotted string*, so scope keys, checker
+    types, `ty_base_name` / `type_base_name` and define-template
+    environments agree by construction. Backends translate at the point
+    a Salvo name becomes target syntax: Kotlin renders it verbatim (a
+    valid nested reference), Rust flattens it in `rs_ident`.
+* [name-dot-import] `import path.Ns.Name` imports a dot-named item; the
+  path splits by casing — trailing uppercase segments are the item name
+  (two of them for a dot-name), everything before is the module prefix,
+  and a lowercase last segment is a value (a fn), as before
+  [mod-import].
+  * Importing the namespace struct also brings its dot-named members
+    (`import a.b.Environment` makes `Environment.Id` visible), following
+    the precedent that importing an effect brings its members. Members
+    ride along only on an *unaliased* import: an alias renames exactly
+    one name, and a partial rename would have no sensible spelling.
 * [mod-collision] Non-fn name collisions are errors, not last-win —
   same-name fns form overload sets and are exempt. Reported: a same-kind
   same-name duplicate within one module; the same name declared in two
