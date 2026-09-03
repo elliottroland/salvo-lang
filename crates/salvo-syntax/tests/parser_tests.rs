@@ -194,27 +194,6 @@ fn canbe_opts_a_type_parameter_in() {
     assert_eq!(f.generic_canbe[0].1.name.name, "Linear");
 }
 
-// [canbe-optin] `with` at an opt-in site names the replacement and keeps
-// parsing (it used to be the spelling of `canbe`).
-#[test]
-fn with_at_a_canbe_site_reports_the_rename() {
-    for source in [
-        "struct Person with Mut {\n    name: Str\n}\n",
-        "external type List<T> with Mut\n",
-        "fn hold<T with Linear>(value: T) -> T {\n    return value\n}\n",
-    ] {
-        let (module, diagnostics) = salvo_syntax::parse_module(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|d| d.is_error() && d.message.contains("write `canbe`")),
-            "expected a rename error for {source:?}, got {:?}",
-            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-        );
-        assert_eq!(module.items.len(), 1, "declaration should still parse");
-    }
-}
-
 // [canbe-optin] [linear-generics] The clause is fn-only for now.
 #[test]
 fn canbe_on_a_non_fn_type_parameter_is_an_error() {

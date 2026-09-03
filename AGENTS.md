@@ -118,6 +118,30 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
   Record the outcome in PROGRESS.md as a user decision (there is
   precedent — see the decision log). Analysis engineering under decisions
   already made does not need re-approval.
+- **Backwards compatibility is not a requirement** (user decision
+  2026-09-03). Salvo is experimental and its features are still being
+  worked out; compatibility shims would get in the way. So:
+  - Change the syntax or the rules outright — no deprecation periods, no
+    dual-accepting grammars, no version gates. The old spelling simply
+    stops being the language.
+  - **Rewrite every affected example** in the same change: `std/`,
+    `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
+    LANGUAGE.md / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets, README,
+    and the syntax references in PROGRESS.md (it is the handoff document,
+    not a historical archive — record the change in the decision log
+    instead of leaving stale syntax in prose).
+  - **Flag what you cannot rewrite confidently.** Anything whose intent
+    is ambiguous under the new rules, sketches of unimplemented features
+    (`experiments/`), or a site that *looks* like the changed construct
+    but might be a different one: list it for the user to update by
+    hand rather than guessing. Precedent: the `with` → `canbe` rename
+    left `experiments/refinements.sv` alone because its `with` was the
+    qualifier-compatibility clause, not an opt-in.
+  - A transitional *error* naming the replacement is permitted but not
+    expected (it is a diagnostic, not compatibility); still accepting the
+    old form never is. Precedent: the `with` → `canbe` rename shipped
+    without one — the user had it removed, since nothing outside this
+    repository writes Salvo yet. Default to a plain parse error.
 - **Never emit silently wrong code.** Unsupported constructs must produce a
   codegen/checker *error*, not incorrect output ([backend-never-wrong];
   the remaining deliberate cuts are listed in PROGRESS.md's history).
@@ -154,7 +178,11 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 4. Implement across the pipeline in order: syntax → resolve/types/check →
    emit. Add or extend tests at each layer you touch, tagged with the rule
    labels they verify.
-5. `cargo build` (warning-free) + `cargo test`; run kotlinc/rustc e2e tests if
+5. If the change alters syntax or rules, sweep the repo for every
+   affected example and rewrite it (no compatibility shims — see the
+   invariant); keep a list of sites you deliberately left alone and
+   report them to the user at the end.
+6. `cargo build` (warning-free) + `cargo test`; run kotlinc/rustc e2e tests if
    available.
-6. Update PROGRESS.md with what changed, decisions made, and new gotchas;
+7. Update PROGRESS.md with what changed, decisions made, and new gotchas;
    update/add the spec rules for any feature-level change.

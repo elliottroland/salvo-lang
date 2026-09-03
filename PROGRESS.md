@@ -70,6 +70,26 @@ New roadmap sections: **E1** effect-to-effect dependencies (the effect
 declares them, handlers mirror exactly) and **E2** heuristics for
 validating external declarations against their define templates.
 
+**Backwards compatibility is not a requirement (user decision
+2026-09-03).** The language is experimental and its features are still
+being worked out, so compatibility machinery would only get in the way:
+syntax and rules change outright, with no deprecation periods, no
+grammars that accept both spellings, and no version gates. The
+obligation that replaces it is a *sweep*: every affected example gets
+rewritten in the same change (`std/`, test corpora, inline `.sv` sources
+in Rust tests, the spec documents, README, and the syntax references in
+this file — it is a handoff document, not an archive, so stale syntax in
+prose is a bug and the change belongs in this decision log instead).
+Anything that cannot be rewritten confidently — ambiguous intent under
+the new rules, `experiments/` sketches of unimplemented features, or a
+site that merely *looks* like the changed construct — is flagged for the
+user to update by hand. A transitional *error* naming the replacement is
+permitted but not expected (it is a diagnostic, not compatibility);
+still accepting the old form never is — and the `canbe` rename's own
+transitional error was removed on the user's call, so a plain parse
+error is the default. Recorded as an invariant in AGENTS.md with a step
+in the task workflow.
+
 **`canbe` replaces `with` at opt-in sites (user decision 2026-09-03).**
 Auto-qualifiers on struct and type declarations and the per-type-parameter
 linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
@@ -78,10 +98,12 @@ linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
 actually carries [canbe-optin]. `with` keeps exactly one job: qualifier
 *compatibility* (`qualifier Old of Person with Surname` [qual-with]) —
 co-application of two qualifiers, which `canbe` would misdescribe; no
-better word was found, so the overload is gone but `with` stays. A `with`
-at a `canbe` site is a rename diagnostic that still parses the
-declaration (`Parser::eat_canbe`). Labels renamed with the syntax:
-`[type-with-mut]` → `[type-canbe-mut]`, `[linear-with]` →
+better word was found, so the overload is gone but `with` stays. The two
+clauses are simply independent syntax now — a transitional rename
+diagnostic (and the test pinning it) was implemented and then removed on
+the user's call, since nothing outside this repository writes Salvo yet.
+Labels renamed with the
+syntax: `[type-with-mut]` → `[type-canbe-mut]`, `[linear-with]` →
 `[linear-canbe]`; AST field `FnDecl.generic_with` → `generic_canbe`
 (uniform snapshot churn). The same analysis produced roadmap **D4**:
 `is` on a union subject always means arm identity, so a *predicate*
@@ -1628,7 +1650,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 248)
+## Test inventory (all green: 247)
 
 - `salvo-core`: 40 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1766,14 +1788,13 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 24 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 23 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
-  and 4 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
-  on an `external type`, `<T canbe Linear>` on a fn, `with` at any of
-  those sites reporting the rename while still parsing the declaration,
-  and `canbe` on a non-fn type parameter rejected [linear-generics]).
+  and 3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
+  on an `external type`, `<T canbe Linear>` on a fn, and `canbe` on a
+  non-fn type parameter rejected [linear-generics]).
 - `salvo-backend-kotlin`: 82 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;

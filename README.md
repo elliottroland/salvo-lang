@@ -118,7 +118,11 @@ fn main() [use] {
 
 ## Status
 
-Work in progress. Both backends work end-to-end, verified by compiling and
+Work in progress, and deliberately unstable: the language is
+experimental, so syntax and rules change without backwards-compatibility
+guarantees — no deprecation periods, no dual-accepting grammars. Examples
+in the repository and the specs are rewritten whenever a rule changes.
+Both backends work end-to-end, verified by compiling and
 running the output with `kotlinc` and `rustc`: the Rust backend derives
 ownership mechanically — deductions decide whether parameters are moved or
 borrowed (`&`/`&mut` via `Mut`), unions become enums, and effects become

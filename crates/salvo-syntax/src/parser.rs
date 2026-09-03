@@ -106,24 +106,6 @@ impl<'s> Parser<'s> {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
-    /// Eats the `canbe` opt-in keyword [canbe-optin]. `with` used to spell
-    /// this; when it shows up here it is consumed with a rename diagnostic
-    /// so the rest of the declaration still parses.
-    fn eat_canbe(&mut self) -> bool {
-        if self.eat(&TokenKind::KwCanbe).is_some() {
-            return true;
-        }
-        if let Some(tok) = self.eat(&TokenKind::KwWith) {
-            self.error(
-                "`with` no longer opts a declaration into a qualifier: write `canbe` \
-                 (`with` now only declares qualifier compatibility)",
-                tok.span,
-            );
-            return true;
-        }
-        false
-    }
-
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             pos: self.pos,
@@ -292,7 +274,7 @@ impl<'s> Parser<'s> {
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
-        if self.eat_canbe() {
+        if self.eat(&TokenKind::KwCanbe).is_some() {
             loop {
                 auto_qualifiers.push(self.parse_type_ref()?);
                 if self.eat(&TokenKind::Comma).is_none() {
@@ -372,7 +354,7 @@ impl<'s> Parser<'s> {
                 }
                 match self.ident() {
                     Some(id) => {
-                        if self.eat_canbe() {
+                        if self.eat(&TokenKind::KwCanbe).is_some() {
                             if let Some(q) = self.parse_type_ref() {
                                 canbe.push((id.clone(), q));
                             }
@@ -403,7 +385,7 @@ impl<'s> Parser<'s> {
         // `canbe Mut` — auto-qualifiers the struct opts into
         // [struct-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
-        if self.eat_canbe() {
+        if self.eat(&TokenKind::KwCanbe).is_some() {
             loop {
                 auto_qualifiers.push(self.parse_type_ref()?);
                 if self.eat(&TokenKind::Comma).is_none() {

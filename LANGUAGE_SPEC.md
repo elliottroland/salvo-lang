@@ -168,14 +168,11 @@ Conventions:
   `external type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
   canbe Linear` [linear-canbe]) and per-type-parameter opt-ins on fns
   (`fn hold<T canbe Linear>` [linear-generics]).
-  * `canbe` is *not* `with`: `canbe` grants a qualifier to one
-    declaration ("this may be Mut"), while `with` declares that two
-    qualifiers may co-apply to one type ("Old may stack with Surname",
-    [qual-with]). They are separate keywords and never interchangeable.
-  * Parsed by `Parser::eat_canbe`; a `with` at a `canbe` site is
-    consumed with a rename diagnostic so the declaration still parses
-    (user decision 2026-09-03: `with` → `canbe` at opt-in sites,
-    `with` kept for qualifier compatibility).
+  * `canbe` and `with` are unrelated clauses: `canbe` grants a qualifier
+    to one declaration ("this may be Mut"), while `with` declares that
+    two qualifiers may co-apply to one type ("Old may stack with
+    Surname", [qual-with]). Separate keywords (`TokenKind::KwCanbe`),
+    accepted at disjoint positions (user decision 2026-09-03).
 * [qual-with] Two qualifiers may stack on one type only if one declares
   `with` the other; the `Mut` auto-qualifier composes with everything
   [type-canbe-mut].
