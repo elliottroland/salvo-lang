@@ -28,15 +28,7 @@ pub fn println(console: &mut dyn Console, message: &String) {
     console.print(&("\n".to_string()));
 }
 
-// ===== main.rs =====
-#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
-#[path = "unions.rs"]
-pub mod unions;
-#[path = "core/console.rs"]
-pub mod core_console;
-
-use crate::core_console::*;
-use crate::unions::*;
+// ===== core/result.rs =====
 
 pub fn ok<T: Clone>(value: T) -> T {
     return value;
@@ -45,6 +37,19 @@ pub fn ok<T: Clone>(value: T) -> T {
 pub fn err<T: Clone>(value: T) -> T {
     return value;
 }
+
+// ===== main.rs =====
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
+#[path = "unions.rs"]
+pub mod unions;
+#[path = "core/console.rs"]
+pub mod core_console;
+#[path = "core/result.rs"]
+pub mod core_result;
+
+use crate::core_console::*;
+use crate::core_result::*;
+use crate::unions::*;
 
 pub fn parse_age(input: i32) -> Union2<i32, String> {
     if input >= 0 {

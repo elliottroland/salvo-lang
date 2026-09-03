@@ -20,11 +20,23 @@ fun println(console: Console, message: String) {
     console.print("\n")
 }
 
+// ===== core/result.kt =====
+package salvo.core.result
+
+fun<T> ok(value: T): T {
+    return value
+}
+
+fun<T> err(value: T): T {
+    return value
+}
+
 // ===== main.kt =====
 package salvo.main
 
 import salvo.*
 import salvo.core.console.*
+import salvo.core.result.*
 
 data class Person(
     val name: String,
@@ -38,14 +50,6 @@ fun Surname_qualifies(person: Person): Boolean {
 
 fun Positive_qualifies(int: Int): Boolean {
     return int > 0
-}
-
-fun<T> ok(value: T): T {
-    return value
-}
-
-fun<T> err(value: T): T {
-    return value
 }
 
 fun full_name(person: Person): String {

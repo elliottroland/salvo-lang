@@ -134,17 +134,6 @@ fn missing_effect_handler_is_an_error() {
 /// precise `is Err Str` checks, and flow narrowing. `ok`/`err` are
 /// constructive-qualifier constructor functions (`-> T as Ok`).
 const UNIONS_DEMO: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 fn parse_age(input: Int) -> Ok Int | Err Str {
     if input >= 0 {
         return ok(input)
@@ -339,17 +328,6 @@ qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
-}
-
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
 }
 
 fn full_name(person: Person) -> Str {
@@ -943,17 +921,6 @@ fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expe
 /// in value and statement position, bare `break` (optional value), and a
 /// union-typed loop value re-wrapped to the declared type [while-value].
 const LOOPS: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 fn range(start: Int, end: Int) -> Iter<Int> {
     let i = start
     while i++ < end {
@@ -1529,17 +1496,6 @@ fn numeric_literal_suffixes_emit_kotlin_suffixes() {
 #[test]
 fn union_arm_arguments_wrap_at_call_sites() {
     let src = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 fn describe(v: Ok Str | Err Str) -> Str {
     when v {
         is Ok {
@@ -2155,17 +2111,6 @@ fn kotlinc_compiles_and_runs_iterator_return() {
 // `when` still requires a variable subject [when-union-subject].
 
 const FIELD_IS_DEMO: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 struct Holder {
     result: Ok Int | Err Str
 }

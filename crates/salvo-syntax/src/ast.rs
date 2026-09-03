@@ -55,6 +55,9 @@ pub struct ImportDecl {
 /// `type Result<S, T> = Ok S | Err T`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
@@ -69,6 +72,9 @@ pub struct TypeDecl {
 /// `struct Person canbe Mut { name: Str, ... }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Auto-qualifiers, e.g. `canbe Mut`.
@@ -80,6 +86,9 @@ pub struct StructDecl {
 /// A struct field, optionally with a default value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub name: Ident,
     pub ty: Type,
     pub default: Option<Expr>,
@@ -107,6 +116,9 @@ pub enum QualSubject {
 /// `qualifier Name<G> of Type with Other { field-overrides fns }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct QualifierDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub backing: Option<BackingMod>,
     /// State (default) or provenance [qual-subject].
     pub subject: QualSubject,
@@ -127,6 +139,9 @@ pub struct QualifierDecl {
 /// `effect Console { fn println(...) }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub name: Ident,
     pub generics: Vec<Ident>,
     pub fns: Vec<FnDecl>,
@@ -137,6 +152,9 @@ pub struct EffectDecl {
 /// or `external handler StdOutConsole of Console`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HandlerDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
@@ -154,6 +172,9 @@ pub struct HandlerDecl {
 /// `fn name<G>(params) [effects] -> [deductions] return_type (as Qualifier)? { body }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct FnDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,

@@ -309,7 +309,7 @@ qualifier FirstStr<T> of Pair<Str, T>
 qualifier Ints of Pair<Int, Int>
 ```
 
-Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust:
+Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
 
 ```
 qualifier Ok<T> of T
@@ -1038,6 +1038,8 @@ fn parse_age(input: Int) -> Ok Int | Err Str {
 }
 ```
 
+These four declarations are `core.result`, which is implicitly visible like the rest of `core`, so real code writes only the last function. They are shown here because there is nothing privileged about them: a domain-specific pair of tags is declared exactly the same way.
+
 Constructive qualifiers can also be entirely handled by the backend implementation. We will discuss this more in the section on backends.
 
 ### State and provenance
@@ -1090,6 +1092,18 @@ import core.Str // Not strictly necessary -- all of core is imported by default
 ```
 
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
+
+Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `internal`/`external type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.
+
+This matters most for qualifiers, because a qualifier and a base type sit next to each other in the same syntax. `Ok Int` with no `Ok` in scope is not a type built from an unknown claim — it is a typo or a missing import, and it would otherwise fail much later and much less obviously, as a check that "can never succeed" against arms tagged with a qualifier the compiler never heard of. A name that *does* exist but in the other namespace says so, since no import can fix it:
+
+```
+qualifier Tag of Int
+
+fn f(x: Tag) -> Int { ... }  // error: unknown type `Tag` (`Tag` is a qualifier, not a type)
+```
+
+Note that this is about *written names*, not about types the compiler cannot work out: an unknown field or method on an interop value still passes through unchecked.
 
 ### Naming rules
 
@@ -1146,6 +1160,44 @@ import env.types.Environment        // the struct *and* Environment.Id
 ```
 
 Backends differ, deliberately. Kotlin emits a nested class, so `Environment.Id` is the same name in the generated code. Rust concatenates, because Rust modules and structs share one namespace and a `mod Environment` next to a `struct Environment` would not compile.
+
+### Documentation comments
+
+Salvo has no separate doc-comment syntax. A `//` comment block sitting directly above a declaration *is* that declaration's documentation: the comment on the line immediately above it, plus every consecutive comment line above that. One blank line ends the block, which is how you keep an unrelated remark unrelated. A comment sharing its line with code documents nothing.
+
+Docs are **markdown**. The `//` and one following space come off; everything after that is passed through, so emphasis, inline code, lists and fenced blocks work as written, and a bare `//` line is a paragraph break.
+
+`[symbol]` in a doc comment references a name: a parameter, generic or field of the declaration being documented, or a type, qualifier, effect, handler or function declared in the program. A reference that resolves becomes a link to the declaration; one that does not is left exactly as written, so brackets in prose are safe.
+
+Structs document their fields individually — the comment above a field belongs to that field, and tooling shows the struct's own docs followed by a list of its fields. The same goes for anything else declared inside a declaration: an effect's or handler's member functions, and a handler's state.
+
+```
+// A person we know about.
+//
+// Only [name] is required; [surname] may be absent, and a
+// [Person] is never partially built.
+struct Person {
+    // Their given name.
+    name: Str,
+    // Their family name, when we know it.
+    //
+    // Absent for people who go by one name.
+    surname: Str? = None,
+    age: Int
+}
+
+// Describes a [person] in one line.
+//
+// Reads [Person]'s fields directly:
+//
+// - `name` always
+// - `surname` when present
+fn describe(person: Person) -> Str {
+    return person.name
+}
+```
+
+The language server shows these on hover — for a declaration, for a *use* of it, and for anything nested inside one: hovering a field, wherever it is written, shows that field's own documentation and says which struct declares it. It also shows a variable's type as it is *known at the position you hover* — narrowed by any `is` test or `when` arm you are inside, qualifiers included, with the declared type named below when the two differ.
 
 ## Backends
 

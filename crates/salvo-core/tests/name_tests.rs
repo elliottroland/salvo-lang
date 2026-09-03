@@ -1,10 +1,11 @@
-//! Name rules [name-casing] [name-dot]: dot-named structs and qualifiers,
-//! the namespace constraints, the collision ban that keeps Rust's flattened
-//! spelling unambiguous, and module-path casing.
+//! Name rules [name-casing] [name-dot] [name-resolve]: dot-named structs
+//! and qualifiers, the namespace constraints, the collision ban that keeps
+//! Rust's flattened spelling unambiguous, module-path casing, and written
+//! names in type positions resolving to declarations.
 
 use std::path::Path;
 
-use salvo_core::{resolve, Program, SourceSet};
+use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
 /// Parses + resolves a multi-file program (no std) and returns the
 /// resolver's diagnostics as rendered messages.
@@ -32,6 +33,43 @@ fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
         .map(|d| d.message.clone())
         .collect()
 }
+
+/// Parses + resolves + checks a multi-file program (no std) and returns
+/// the checker's structured diagnostics.
+fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
+    let mut sources = SourceSet::default();
+    for (name, src) in files {
+        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
+        sources.add(*name, module, kind, src.to_string(), false);
+    }
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    check_program(&program, &resolution, &symbols).errors
+}
+
+/// The checker's error messages for a single-file program (no std). Every
+/// source needs its own `internal type` declarations: without std even
+/// `Int` is undeclared [name-resolve].
+fn messages(src: &str) -> Vec<String> {
+    check_errors(&[("main.sv", src)])
+        .iter()
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+const TYPES: &str = "internal type Int\ninternal type Str\ninternal type Bool\n";
 
 // [name-dot] A dot-name resolves as one dotted name, and the namespace
 // struct in the same file satisfies the rule.
@@ -128,5 +166,178 @@ fn uppercase_module_path_is_an_error() {
             .iter()
             .any(|m| m.contains("must start with a lowercase letter")),
         "got {errors:?}"
+    );
+}
+
+// ===== [name-resolve] written names in type positions =====
+
+// [name-resolve] An undeclared qualifier in an `is` check is reported as
+// the unresolved name it is — not as the arm mismatch it causes. Before
+// this rule the same program said "this check can never succeed" (the
+// name was silently treated as a base type, which no arm matched) and
+// then cascaded a bogus consumed-value error on the subject.
+#[test]
+fn unknown_name_in_an_is_check_is_reported_once() {
+    let src = format!(
+        "{TYPES}\nqualifier Ok<T> of T\n\n\
+         fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
+         fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
+         fn g() -> Int {{\n    let v = f()\n    if v is Err {{\n    }}\n    return 1\n}}\n"
+    );
+    let messages = messages(&src);
+    assert!(
+        messages
+            .iter()
+            .any(|m| m == "unknown type or qualifier `Err`"),
+        "got {messages:?}"
+    );
+    assert!(
+        !messages.iter().any(|m| m.contains("can never succeed")),
+        "the arm mismatch must not be reported on top: {messages:?}"
+    );
+    // Exactly one error: the unresolved name in the `is` check. The
+    // return type mentions `Err` too, and that site reports it as an
+    // unknown qualifier.
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("can never") || m.contains("consumed"))
+            .count(),
+        0,
+        "got {messages:?}"
+    );
+}
+
+// [name-resolve] A `when` branch naming something unresolved reports the
+// name; the arms it fails to match must not also surface as a
+// non-exhaustive `when`.
+#[test]
+fn unknown_name_in_a_when_branch_does_not_cascade() {
+    let src = format!(
+        "{TYPES}\nqualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
+         fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
+         fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
+         fn g() -> Int {{\n    let v = f()\n    when v {{\n        \
+         is Ok {{\n            1\n        }}\n        \
+         is Nope {{\n            2\n        }}\n    }}\n    return 1\n}}\n"
+    );
+    let messages = messages(&src);
+    assert!(
+        messages
+            .iter()
+            .any(|m| m == "unknown type or qualifier `Nope`"),
+        "got {messages:?}"
+    );
+    assert!(
+        !messages.iter().any(|m| m.contains("non-exhaustive")),
+        "got {messages:?}"
+    );
+    assert!(
+        !messages.iter().any(|m| m.contains("matches no remaining")),
+        "got {messages:?}"
+    );
+}
+
+// [name-resolve] Undeclared base types and qualifiers are reported at
+// every declaration site: fn signatures, struct fields, `let`
+// annotations, type aliases, effect members.
+#[test]
+fn unknown_names_are_reported_at_declaration_sites() {
+    let cases = [
+        ("fn f(x: Nope) -> Int {\n    return 1\n}\n", "unknown type `Nope`"),
+        ("fn f() -> Nope {\n    return 1\n}\n", "unknown type `Nope`"),
+        ("fn f(x: Bogus Int) -> Int {\n    return 1\n}\n", "unknown qualifier `Bogus`"),
+        ("struct S {\n    field: Nope\n}\n", "unknown type `Nope`"),
+        ("struct S {\n    field: Bogus Int\n}\n", "unknown qualifier `Bogus`"),
+        (
+            "fn f() -> Int {\n    let x: Nope = 1\n    return 1\n}\n",
+            "unknown type `Nope`",
+        ),
+        ("type Alias = Nope | Int\n", "unknown type `Nope`"),
+        (
+            "effect E {\n    fn member(x: Nope) -> Int\n}\n",
+            "unknown type `Nope`",
+        ),
+        (
+            "qualifier Q of Nope\n",
+            "unknown type `Nope`",
+        ),
+        (
+            "qualifier Q of Int with Nope\n",
+            "unknown qualifier `Nope`",
+        ),
+    ];
+    for (body, want) in cases {
+        let src = format!("{TYPES}\n{body}");
+        let messages = messages(&src);
+        assert!(
+            messages.iter().any(|m| m == want),
+            "`{body}` should report `{want}`, got {messages:?}"
+        );
+    }
+}
+
+// [name-resolve] A name that exists in the *other* namespace is a
+// position mistake: say so rather than suggesting an import that cannot
+// help.
+#[test]
+fn a_name_in_the_wrong_namespace_says_so() {
+    let src = format!("{TYPES}\nqualifier Tag of Int\n\nfn f(x: Tag) -> Int {{\n    return 1\n}}\n");
+    let as_type = messages(&src);
+    assert!(
+        as_type
+            .iter()
+            .any(|m| m == "unknown type `Tag` (`Tag` is a qualifier, not a type)"),
+        "got {as_type:?}"
+    );
+
+    let src = format!("{TYPES}\nstruct S {{\n    v: Int\n}}\n\nfn f(x: S Int) -> Int {{\n    return 1\n}}\n");
+    let as_qual = messages(&src);
+    assert!(
+        as_qual
+            .iter()
+            .any(|m| m == "unknown qualifier `S` (`S` is a type, not a qualifier)"),
+        "got {as_qual:?}"
+    );
+}
+
+// [name-resolve] [diag-import-suggest] Unresolved type names carry the
+// modules that declare them, like every other unresolved-name
+// diagnostic.
+#[test]
+fn unknown_type_names_suggest_imports() {
+    let lib = "struct Widget {\n    v: Str\n}\n";
+    let main = "fn f(w: Widget) -> Str {\n    return w.v\n}\n";
+    let errors = check_errors(&[("lib.sv", lib), ("main.sv", main)]);
+    let diag = errors
+        .iter()
+        .find(|d| d.message == "unknown type `Widget`")
+        .unwrap_or_else(|| panic!("got {errors:?}"));
+    assert_eq!(diag.suggested_imports, vec!["lib.Widget".to_string()]);
+}
+
+// [name-resolve] The compiler's intrinsic qualifiers have no declaration
+// to find, so they must not be reported as unknown; their own rules
+// still apply.
+#[test]
+fn intrinsic_qualifiers_are_known_names() {
+    let src = format!(
+        "{TYPES}\ninternal type Store<T> canbe Mut\n\n\
+         fn f(s: Mut Store<Int>) -> Int {{\n    return 1\n}}\n"
+    );
+    assert!(messages(&src).is_empty(), "got {:?}", messages(&src));
+}
+
+// [canbe-optin] `canbe` grants one of the compiler's own qualifiers; a
+// user qualifier there is a confusion with `with` [qual-with].
+#[test]
+fn canbe_only_accepts_the_intrinsic_qualifiers() {
+    let src = format!("{TYPES}\nqualifier Tag of Int\n\nstruct S canbe Tag {{\n    v: Int\n}}\n");
+    let messages = messages(&src);
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only `Mut` and `Linear` can be opted into with `canbe`")),
+        "got {messages:?}"
     );
 }

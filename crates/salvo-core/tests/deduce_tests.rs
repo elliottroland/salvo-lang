@@ -79,6 +79,7 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 }
 
 const QUALIFIED_LISTS: &str = r#"
+internal type Int
 internal type List<T>
 
 qualifier A<T> of List<T>

@@ -6,6 +6,11 @@ Module {
     items: [
         Type(
             TypeDecl {
+                docs: [
+                    "`canbe Mut` opts List into the language-level Mut auto-qualifier",
+                    "[type-canbe-mut]: backends may map `Mut List<T>` to a different native",
+                    "type (see the `Mut inline:` define section).",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -35,6 +40,10 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Constructor. The elements are stored in the new list, so they are moved",
+                    "(an empty deduction list moves every parameter) [decl-explicit].",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -127,6 +136,9 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Mutable constructor",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -228,6 +240,9 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Possibly gets the element at the given index if the list is long enough",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -341,6 +356,11 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Adds an element to the list. The list takes ownership of `elem`, so it",
+                    "is moved; the list itself is mutated, which is why its surviving",
+                    "qualifiers are listed exhaustively [deduce-syntax].",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -478,6 +498,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -569,6 +590,9 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Returns the number of elements in the list",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -667,6 +691,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),

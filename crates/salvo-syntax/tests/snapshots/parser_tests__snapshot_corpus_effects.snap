@@ -6,6 +6,7 @@ Module {
     items: [
         Effect(
             EffectDecl {
+                docs: [],
                 name: Ident {
                     name: "Random",
                     span: 7..13,
@@ -18,6 +19,7 @@ Module {
                 ],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "next_random",
@@ -54,6 +56,7 @@ Module {
         ),
         Effect(
             EffectDecl {
+                docs: [],
                 name: Ident {
                     name: "Console",
                     span: 58..65,
@@ -61,6 +64,7 @@ Module {
                 generics: [],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "println",
@@ -126,6 +130,7 @@ Module {
         ),
         Handler(
             HandlerDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "CyclicRandom",
@@ -186,6 +191,7 @@ Module {
                 },
                 state: [
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "i",
                             span: 174..175,
@@ -213,6 +219,7 @@ Module {
                 ],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "next_random",
@@ -319,6 +326,7 @@ Module {
         ),
         Handler(
             HandlerDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -346,6 +354,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "main",
@@ -452,6 +461,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "age_prediction",

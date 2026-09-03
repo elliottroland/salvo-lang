@@ -63,6 +63,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "list",
@@ -160,6 +161,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "mutable_list",
@@ -266,6 +268,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "get",
@@ -388,6 +391,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "add",
@@ -504,6 +508,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "first",
@@ -598,6 +603,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "size",
@@ -689,6 +695,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "iter",

@@ -56,19 +56,8 @@ struct Person {
     age: Int
 }
 
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-// `-> T as Ok` marks a constructor function: the returned value gains
-// the qualifier by construction, and callers see `Ok T`.
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
+// `Ok`/`Err` and their constructors come from `core.result`; declaring
+// your own pair of tags takes the same four lines.
 fn check_age(person: Person) -> Ok Int | Err Str {
     if person.age >= 0 {
         return ok(person.age)
@@ -119,6 +108,11 @@ fn main() [use] {
   does to its parameters — the ownership contract for the Rust backend.
 - **Interop**: `external`/`define` blocks map std functions onto native code
   per backend.
+- **Documentation**: the `//` comment block above a declaration is its
+  documentation — markdown, with `[symbol]` references to parameters,
+  fields and types; struct fields, effect and handler members are
+  documented individually. The language server shows these on hover,
+  alongside a variable's type as narrowed at the cursor.
 
 ## Status
 

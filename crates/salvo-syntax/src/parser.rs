@@ -12,9 +12,12 @@
 //!   this to distinguish the checked type from an optional binding
 //!   (`if x is Str s`) [is-binding].
 
+use std::collections::HashMap;
+
 use crate::ast::*;
 use crate::diag::Diagnostic;
 use crate::lexer;
+use crate::lexer::Comment;
 use crate::span::Span;
 use crate::token::{StrPart, Token, TokenKind};
 
@@ -24,6 +27,11 @@ pub struct Parser<'s> {
     tokens: Vec<Token>,
     pos: usize,
     diagnostics: Vec<Diagnostic>,
+    /// Own-line `//` comments by the line they sit on [doc-comment],
+    /// used to attach the run above a declaration as its docs.
+    comments: HashMap<u32, String>,
+    /// Byte offset of the start of each line, for offset -> line lookup.
+    line_starts: Vec<u32>,
     /// Depth of explicit grouping (parens/brackets); newlines are ignored
     /// inside groups.
     group_depth: u32,
@@ -38,12 +46,30 @@ struct Snapshot {
 }
 
 impl<'s> Parser<'s> {
-    pub fn new(source: &'s str, tokens: Vec<Token>) -> Self {
+    pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
+        let mut line_starts = vec![0u32];
+        line_starts.extend(
+            source
+                .char_indices()
+                .filter(|&(_, c)| c == '\n')
+                .map(|(i, _)| i as u32 + 1),
+        );
+        let line_of = |offset: u32| match line_starts.binary_search(&offset) {
+            Ok(line) => line,
+            Err(next) => next - 1,
+        };
+        let comments = comments
+            .into_iter()
+            .filter(|c| c.own_line)
+            .map(|c| (line_of(c.span.start) as u32, c.text))
+            .collect();
         Parser {
             source,
             tokens,
             pos: 0,
             diagnostics: Vec::new(),
+            comments,
+            line_starts,
             group_depth: 0,
             no_struct: false,
         }
@@ -51,6 +77,40 @@ impl<'s> Parser<'s> {
 
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.diagnostics
+    }
+
+    // --- Doc comments ---
+
+    /// The line a byte offset falls on (0-based).
+    fn line_of(&self, offset: u32) -> u32 {
+        match self.line_starts.binary_search(&offset) {
+            Ok(line) => line as u32,
+            Err(next) => next as u32 - 1,
+        }
+    }
+
+    /// The doc comment of the declaration starting at `offset`
+    /// [doc-comment]: the maximal run of own-line `//` comments on the
+    /// lines *immediately* above it. One blank line — or any code — ends
+    /// the run, which is what makes an unrelated comment earlier in the
+    /// file stay unrelated.
+    fn docs_before(&self, offset: u32) -> Vec<String> {
+        let mut line = self.line_of(offset);
+        let mut docs = Vec::new();
+        while line > 0 {
+            line -= 1;
+            match self.comments.get(&line) {
+                Some(text) => docs.push(text.clone()),
+                None => break,
+            }
+        }
+        docs.reverse();
+        docs
+    }
+
+    /// The docs of the declaration the parser is positioned at.
+    fn docs_here(&self) -> Vec<String> {
+        self.docs_before(self.peek().span.start)
     }
 
     // --- Token helpers ---
@@ -351,6 +411,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_type_decl(&mut self, backing: Option<BackingMod>) -> Option<TypeDecl> {
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident_type("type")?;
         let generics = self.parse_generics();
@@ -376,6 +437,7 @@ impl<'s> Parser<'s> {
             .or_else(|| auto_qualifiers.last().map(|q| q.span))
             .unwrap_or(name.span);
         Some(TypeDecl {
+            docs,
             backing,
             name,
             generics,
@@ -462,6 +524,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_struct(&mut self) -> Option<StructDecl> {
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwStruct)?.span;
         let name = self.ident_decl_dotted("struct")?;
         let generics = self.parse_generics();
@@ -484,6 +547,7 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(StructDecl {
+            docs,
             name,
             generics,
             auto_qualifiers,
@@ -494,6 +558,7 @@ impl<'s> Parser<'s> {
 
     /// `name: Type (= default)?`
     fn parse_field_decl(&mut self) -> Option<FieldDecl> {
+        let docs = self.docs_here();
         let name = self.ident_value("field")?;
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
@@ -508,6 +573,7 @@ impl<'s> Parser<'s> {
             .unwrap_or_else(|| ty.span());
         let span = name.span.to(end);
         Some(FieldDecl {
+            docs,
             name,
             ty,
             default,
@@ -520,6 +586,7 @@ impl<'s> Parser<'s> {
         backing: Option<BackingMod>,
         subject: QualSubject,
     ) -> Option<QualifierDecl> {
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwQualifier)?.span;
         let name = self.ident_decl_dotted("qualifier")?;
         let generics = self.parse_generics();
@@ -552,6 +619,7 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::RBrace)?.span;
         }
         Some(QualifierDecl {
+            docs,
             backing,
             subject,
             name,
@@ -566,6 +634,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_effect(&mut self) -> Option<EffectDecl> {
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
         let generics = self.parse_generics();
@@ -576,6 +645,7 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(EffectDecl {
+            docs,
             name,
             generics,
             fns,
@@ -584,6 +654,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_handler(&mut self, backing: Option<BackingMod>) -> Option<HandlerDecl> {
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwHandler)?.span;
         let name = self.ident_type("handler")?;
         let generics = self.parse_generics();
@@ -609,6 +680,7 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::RBrace)?.span;
         }
         Some(HandlerDecl {
+            docs,
             backing,
             name,
             generics,
@@ -623,6 +695,10 @@ impl<'s> Parser<'s> {
     // --- Functions ---
 
     fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
+        // The docs sit above the whole declaration; `external`/`internal`
+        // is on the same line as `fn`, so the line lookup finds them
+        // whether or not the modifier was already consumed [doc-comment].
+        let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident_value("fn")?;
         let (generics, generic_canbe) = self.parse_generics_canbe();
@@ -668,6 +744,7 @@ impl<'s> Parser<'s> {
             .or_else(|| return_type.as_ref().map(|t| t.span()))
             .unwrap_or(name.span);
         Some(FnDecl {
+            docs,
             backing,
             name,
             generics,
@@ -928,6 +1005,7 @@ impl<'s> Parser<'s> {
         }
         let end = return_type.as_ref().map(|t| t.span()).unwrap_or(name.span);
         Some(FnDecl {
+            docs: Vec::new(),
             backing: None,
             name,
             generics,
@@ -2340,7 +2418,9 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
     for d in &mut diagnostics {
         d.span = Span::new(d.span.start + offset, d.span.end + offset);
     }
-    let mut parser = Parser::new(source, tokens);
+    // Interpolations hold expressions, never declarations, so they carry
+    // no docs.
+    let mut parser = Parser::new(source, tokens, Vec::new());
     let expr = parser.parse_expr().unwrap_or(Expr::Error {
         span: Span::new(offset, offset + source.len() as u32),
     });

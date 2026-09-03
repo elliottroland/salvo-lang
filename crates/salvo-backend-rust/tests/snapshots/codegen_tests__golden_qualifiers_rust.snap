@@ -28,14 +28,27 @@ pub fn println(console: &mut dyn Console, message: &String) {
     console.print(&("\n".to_string()));
 }
 
+// ===== core/result.rs =====
+
+pub fn ok<T: Clone>(value: T) -> T {
+    return value;
+}
+
+pub fn err<T: Clone>(value: T) -> T {
+    return value;
+}
+
 // ===== main.rs =====
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/result.rs"]
+pub mod core_result;
 
 use crate::core_console::*;
+use crate::core_result::*;
 use crate::unions::*;
 
 #[derive(Clone, Debug)]
@@ -51,14 +64,6 @@ pub fn Surname_qualifies(person: &Person) -> bool {
 
 pub fn Positive_qualifies(int: i32) -> bool {
     return int > 0;
-}
-
-pub fn ok<T: Clone>(value: T) -> T {
-    return value;
-}
-
-pub fn err<T: Clone>(value: T) -> T {
-    return value;
 }
 
 pub fn full_name(person: &Person) -> String {

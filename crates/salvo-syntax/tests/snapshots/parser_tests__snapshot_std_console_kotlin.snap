@@ -25,6 +25,7 @@ Module {
                 fns: [
                     DefineFn {
                         sig: FnDecl {
+                            docs: [],
                             backing: None,
                             name: Ident {
                                 name: "print",

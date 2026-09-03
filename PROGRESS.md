@@ -1,6 +1,6 @@
 # Salvo Compiler — Progress & Plan
 
-Status snapshot as of 2026-09-02: both backends (Kotlin, Rust) work
+Status snapshot as of 2026-09-03: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
 ownership analysis (use-after-consume from declared *and* inferred
@@ -313,6 +313,122 @@ that still shape the code, and where to look for the mechanics.
   interpolated `${person.surname}` after `person.surname is Str`,
   relying on field narrowing Salvo does not do — all now use the
   spec's own `is Str surname` binding idiom.
+- **Doc comments and richer hover (user request 2026-09-03)** —
+  `[doc-comment]`, `[doc-markdown]`, `[doc-symbol-ref]`,
+  `[doc-struct-fields]`, `[doc-hover-narrowed]`. A declaration's docs are
+  the run of own-line `//` comments *directly* above it — no `///`, no
+  attribute, no separate syntax; one blank line ends the run. Decisions
+  made along the way, all reversible:
+  - **Comments are collected, not tokenized.** The lexer already knew
+    exactly what a comment was and threw it away; it now records
+    `LexResult::comments` (span, text, `own_line`) and the parser attaches
+    the block above each declaration *by line number*. Keeping comments
+    out of the token stream means the grammar is untouched — no skip logic
+    in a hundred parse functions. `own_line` is what makes
+    `a: Int, // note` document nothing.
+  - **Docs live on the AST** (`docs: Vec<String>` on fn, struct, field,
+    qualifier, effect, handler and type declarations), which is what the
+    parser snapshots now show. The alternative — extracting them textually
+    in the LSP — would misread a `//` inside a string literal on the
+    preceding line.
+  - **Hover is markdown throughout** (`MarkupContent`, not the deprecated
+    `MarkedString`): a fenced `salvo` block with the signature or type,
+    then doc sections separated by rules. The `ReadOnly` presentation
+    moved into the same shape.
+  - **`[symbol]` resolves locally first**, then against any declaration in
+    the program, and renders as a *link* to the declaration; unresolved
+    references are left verbatim so bracketed prose is never mangled.
+    Deliberate simplification: the search is name-based over the AST
+    rather than import-visibility-exact, which [mod-collision] makes
+    almost always equivalent — `Resolution` borrows `Program`, so the
+    analysis result cannot carry it.
+  - **Hover now answers on declarations, not just uses.** Declared names
+    (parameters, handler state, `let` patterns, `is`/`for` bindings) record
+    their type in `expr_ty` at their own name span. Before this, hovering
+    the `items` in `fn f(items: Mut List<Int>)` said nothing.
+  - **The narrowed/declared pair needed no new table**: `Checked::repr_ty`
+    already held the declared type for narrowed identifier uses (the
+    emitters' re-wrapping fact), which is exactly the "declared as X"
+    line. Hovering inside `if items is NonEmpty` shows
+    `Mut NonEmpty List<Int>` over `Mut List<Int>`.
+  - Struct hover lists *every* field with type and default-as-written, not
+    only documented ones, so it shows the shape of the struct.
+  - **Follow-up, same day: fields and members hover too.** The two gaps
+    left above are closed. Hover (and go-to-definition) now reach *nested*
+    declarations through one search over a module's items (`decl_at`,
+    matching by name span): struct fields, handler state fields, qualifier
+    field overrides, and the member fns of effects, handlers and
+    qualifiers. Each renders its own declaration line, its docs, and what
+    declares it ("Field of struct `Person`.", "Member of effect `Log`.").
+    - Field *accesses* needed a new table: `Checked::field_refs` maps the
+      field-name span in `base.field` to the field's declaration, built
+      from the struct's `DefSite` (for the file) plus the `FieldDecl`'s own
+      name span. It feeds go-to-definition as well, which fields never
+      had. It points at the struct's field even under a qualifier field
+      override — the override refines the field, it does not replace it.
+    - `fn_signature` split into `fn_decl_signature(decl, inferred)` so
+      members can render from the declaration; they have no `FnKey`, so
+      they show their *declared* deduction list, which [decl-explicit]
+      requires of them anyway.
+    - A nested declaration's docs see its owner's names (`own_names`), so a
+      handler member can write `[count]` for the handler's state
+      [doc-symbol-ref].
+    - Fallout worth noting: the feature immediately caught a real
+      mis-attachment in `std/core/result.sv`, where an edit had turned the
+      blank line between the module header and the qualifier's docs into a
+      `//` line — so the whole header had become `qualifier Ok`'s
+      documentation. Every std file's attachment was then checked.
+- **Written names in type positions must resolve; `Ok`/`Err` move into
+  std (user decisions 2026-09-03)** — `[name-resolve]`,
+  `[qual-result-tags]`. Found through a TODO in
+  `experiments/refinements.sv`: `if n is Ok` on `Ok Int | Err Str | None`
+  reported "this check can never succeed", and the real problem was that
+  `Ok` was never declared. Nothing checked qualifier or type *names*, so
+  `Ok Int` in the return type quietly became a qualified type with an
+  unheard-of qualifier, while `parse_check` — asking `is_qualifier`,
+  getting no — read the same `Ok` as a *base type* that no arm matched.
+  Then the empty match set narrowed the subject to `Nothing` and a bogus
+  "consumed (moved)" error landed on the next use. Three errors' worth of
+  noise, none of them the missing declaration.
+  - The checker now rejects any written name in a type position that
+    resolves to nothing, in either namespace (base types vs qualifiers),
+    with import suggestions [diag-import-suggest] and a wording hint when
+    the name exists in the *other* namespace. Reported from
+    `validate_type` / `validate_quals` / `parse_check` at declaration
+    sites, which is where [qual-of] already put applicability checking —
+    lowering runs repeatedly and stays silent.
+  - This narrows [type-unknown-lenient]: leniency is about types the
+    checker cannot *infer* (interop fields, methods, expressions), not
+    about names the author wrote. Reaching an interop type still means
+    declaring it `external type`, which is what makes its members lenient.
+  - An unresolved `is`/`when` check marks the pattern and suppresses every
+    verdict that follows from the failed match — "can never succeed", "no
+    remaining union arm", non-exhaustiveness, the `Nothing` cascade. One
+    error per mistake.
+  - Wiring the check up exposed genuinely missing declaration sites:
+    struct fields, type-alias targets, effect-member signatures, handler
+    ctor params and state fields were never validated at all (the
+    [qual-of] rule *claimed* struct fields were). `canbe` clauses now
+    reject user qualifiers, which is the `with` confusion [canbe-optin]
+    already warns about.
+  - Two real bugs fell out: `core.string`'s `char_at(index: Positive Int)`
+    used an undeclared qualifier lifted from a LANGUAGE.md example — no
+    caller could ever have satisfied it — now plain `Int`; and four
+    std-less test preludes never declared `Int`/`Str`.
+  - `Ok`/`Err`/`ok`/`err` now live in **`core.result`**, not
+    `core.basic` (the user's initial suggestion; deviation raised and
+    approved on the dead-code grounds): `core.basic` declares `Int`, so
+    every program reaches it, and putting code there emits a dead
+    `core/basic.{kt,rs}` into
+    every output [mod-used-only]. Deliberately no `Result` alias — the
+    union *is* the result. Every demo that hand-rolled the tags now uses
+    std's, which is also what verifies the module end-to-end (the unions,
+    qualifiers, and loops demos compile and run under `kotlinc`/`rustc`
+    with `ok`/`err` imported from `salvo.core.result`).
+    `crates/salvo-syntax/tests/corpus/qualifiers.sv` deliberately keeps
+    its own `Ok`/`Err` and `type Result<S, T>` (user decision): it is a
+    *parser* corpus — it also names an undeclared `Person` and `Pair` —
+    so std's tags would buy it nothing.
 - **Arrays get a std function surface (user decision 2026-09-02)** —
   `[type-array]`. Arrays already had literals, indexing, and native
   `for` iteration on both backends; only functions were missing, which
@@ -335,9 +451,13 @@ that still shape the code, and where to look for the mechanics.
 - **`salvo lsp` [cli-lsp]**: LSP over stdio (`lsp-server`/`lsp-types`,
   sync); no incremental state — every document event re-runs
   whole-workspace analysis with open buffers as an overlay. Diagnostics
-  (with clearing publishes), expression-type hover, fn-signature hover
-  with effective (inferred) deductions [fn-ref-table], and import-fix
-  code actions [diag-import-suggest].
+  (with clearing publishes), markdown hover [doc-markdown] — doc comments
+  for fns and structs (with a per-field section) [doc-comment]
+  [doc-struct-fields], `[symbol]` references linked to their declarations
+  [doc-symbol-ref], fn signatures with effective (inferred) deductions
+  [fn-ref-table], and a variable's flow-narrowed type
+  [doc-hover-narrowed] — and import-fix code actions
+  [diag-import-suggest].
 - **VS Code extension + `salvo lang tm-grammar` [cli-lang]**: `vscode/`
   bundles a grammar *generated by the compiler* from the lexer's keyword
   table (tests fail if the checked-in grammar or keyword categories
@@ -1933,7 +2053,11 @@ spec rule; consolidated here for findability):
   customer needs it. L5 field-disjoint precision likewise only if
   whole-variable granularity pinches.
 
-- `salvo lsp`: go-to-definition landed [lsp-definition]. Still open:
+- `salvo lsp`: go-to-definition [lsp-definition] and doc-comment hover
+  [doc-comment] landed, including nested declarations — struct fields,
+  handler state, effect/handler/qualifier members. Still open: `[symbol]`
+  resolution is name-based over the AST rather than
+  import-visibility-exact [doc-symbol-ref]. Also still open:
   incremental analysis if workspaces outgrow
   re-check-everything-per-keystroke, and a `positionEncoding` negotiation
   for UTF-8-native clients. Signature *hover* still covers fn decls only
@@ -1976,9 +2100,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 273)
+## Test inventory (all green: 290)
 
-- `salvo-core`: 53 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 60 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
@@ -2014,13 +2138,22 @@ spec rule; consolidated here for findability):
   dot-names resolve, the namespace must be a same-file non-generic
   struct, the concatenated-name ban fires for own-module *and* imported
   names, importing a namespace brings its members and a member imports
-  directly, an uppercase module path is an error naming the file) + 6
+  directly, an uppercase module path is an error naming the file; and
+  7 `[name-resolve]` tests: an undeclared qualifier in an `is` check
+  reported as the unresolved name with no "can never succeed" and no
+  consumed-value cascade, an unresolved `when` branch not reported as
+  non-exhaustive, unknown base types and qualifiers reported at ten
+  declaration sites (params, returns, struct fields, `let`, aliases,
+  effect members, `of`, `with`), the wrong-namespace wording hint both
+  ways, import suggestions on an unknown type [diag-import-suggest], the
+  intrinsic qualifiers staying known names, and `canbe` refusing a user
+  qualifier [canbe-optin]) + 6
   subject tests (`tests/subject_tests.rs` [qual-subject]: a mutating call
   strips a state qualifier but not a provenance one, provenance composes
   without `with` while two state claims still need it, a provenance body
   is rejected, `is` on a non-union provenance value is rejected,
   provenance is droppable and survives being stored in a struct field).
-- `salvo-cli`: 52 - 44 `analyze` integration tests running the built
+- `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -2045,6 +2178,10 @@ spec rule; consolidated here for findability):
   bodyless `Mut` parameter refusing the delta form, a mutating body
   refusing keep-all, mixed polarities, `+Qual`, and non-`Nothing` types),
   union-arm arguments resolving against union params [type-union],
+  std's result tags working with no local declarations
+  (`Ok Int | Err Str | None` narrowed by `when`, [qual-result-tags]) and
+  an undeclared qualifier reporting the *name* rather than the arm
+  mismatch it causes [name-resolve],
   the shared-fate matrix (derived variables read-only for
   moves/mutations/returns with the `copy` remedy [fate-derived-readonly],
   root mutation/move/reassignment poisoning derived variables with
@@ -2120,12 +2257,27 @@ spec rule; consolidated here for findability):
   round-trip [diag-import-suggest]; go-to-definition for a call-site
   callee, a cross-file struct, an effect member, a handler in `use`, and
   an effect in `of`, plus a no-name position yielding nothing
-  [lsp-definition]) + 3 grammar tests
+  [lsp-definition]; and doc-comment hover [doc-comment]: fn docs after the
+  signature block, markdown verbatim, a resolvable `[symbol]` becoming a
+  link while an unresolvable one stays literal [doc-symbol-ref], struct
+  docs with the blank-line-separated comment above them excluded and a
+  **Fields** section listing typed/defaulted fields with their own docs
+  [doc-struct-fields], the same docs at a *use* of the struct name, and a
+  variable hovering as its narrowed type with the declared type named
+  below — and as its plain declared type on the parameter itself
+  [doc-hover-narrowed]; and nested-declaration hover: a struct field at its
+  declaration and at an access (identical contents, via
+  `Checked::field_refs`) with its default as written and its owner named,
+  an effect member at its declaration and at a call, handler state, and a
+  handler member whose `[symbol]` references reach the handler's own state
+  — plus go-to-definition on a field access [lsp-definition])
+  + 3 grammar tests
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 30 - std + LANGUAGE.md-corpus parse-clean assertions with
-  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests,
+- `salvo-syntax`: 36 - std + LANGUAGE.md-corpus parse-clean assertions with
+  insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
+  error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
   3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
@@ -2134,7 +2286,12 @@ spec rule; consolidated here for findability):
   ([name-dot] [name-casing]: dot-names in declarations and type
   positions, a dot-name struct literal distinguished from a field read
   and a dot-call, three-segment names rejected, the casing rule enforced
-  across ten declaration forms, generic parameters uppercase), and 2
+  across ten declaration forms, generic parameters uppercase), 5 doc-comment
+  tests ([doc-comment] [doc-struct-fields]: the block directly above a
+  declaration with a blank line ending it and a bare `//` kept, trailing
+  comments documenting nothing, struct and field docs captured separately,
+  docs surviving `external`/`internal`/`provenance` modifiers, and
+  indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
   `provenance` must precede `qualifier`).
@@ -2242,6 +2399,67 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- Trivia the lexer discards is expensive to get back. Comments were
+  dropped outright, and the cheap-looking recovery — re-scan the text
+  above a declaration in the LSP — would misread a `//` inside a string
+  literal. Collecting them at the one place that already knows what a
+  comment is (`LexResult::comments`) cost less than the workaround and is
+  correct by construction. The trick that kept it small: comments stay
+  *out* of the token stream, so no parse function had to learn to skip
+  them; the parser matches them to declarations by line number.
+- Look for the fact you need before adding a table. The
+  narrowed-vs-declared hover line wanted "the declared type of a narrowed
+  identifier use" — which `Checked::repr_ty` had been recording all along
+  for the emitters' re-wrapping. A second table would have been a second
+  thing to keep in sync.
+- Declaration *names* are not expressions, and tooling does not care.
+  Hover, which reads `expr_ty`, said nothing on the `items` in
+  `fn f(items: List<Int>)` or on the `x` in `let x = …`. Recording a type
+  at binding-name spans (in `declare_var`, the single funnel) fixed
+  parameters, `let`, `is` and `for` bindings at once — with
+  `entry().or_insert` so a more specific entry from an earlier pass wins.
+
+- A misleading diagnostic is usually a *missing* one further up. `if n is
+  Ok` reporting "this check can never succeed" was correct on its own
+  terms — no arm matched — but the arm never matched because `Ok` was
+  undeclared and nothing said so. When a diagnostic is technically true
+  and practically useless, look for the check that should have fired
+  first, rather than softening the message.
+- Two namespaces sharing one syntax need explicit resolution rules.
+  `Ok Int` is a qualifier and a base type side by side, and the checker
+  had two independent guesses about which was which: `lower_quals` took
+  any name as a qualifier, `parse_check` asked `is_qualifier` and fell
+  back to *base type*. Same source token, opposite classification, no
+  error either way. Any position where a name's meaning depends on which
+  table it is in should reject "in neither".
+- Cascade suppression needs a flag, not a heuristic. Once an `is` check
+  names something unresolved, four downstream verdicts become garbage
+  (can-never-succeed, no-remaining-arm, non-exhaustive, and the
+  `Nothing`-narrowing that poisons the subject). Carrying an `unresolved`
+  bit on the parsed pattern kills all four at once; trying to recognize
+  the situation at each site would have missed some.
+- Where a *lenient* checker draws the line matters more than how lenient
+  it is. [type-unknown-lenient] read as "unknown names pass through",
+  which is what let undeclared qualifiers survive; the useful reading is
+  "types I cannot *infer* pass through". Interop needs the second, not
+  the first — you reach a foreign type by declaring it.
+- Validation that runs only at "declaration sites" needs its site list
+  audited when it grows. `[qual-of]` documented struct fields as a
+  declaration site; `validate_type` was never called on them, and the
+  same held for type-alias targets, effect-member signatures, and handler
+  state. Nothing failed, because the only check there was
+  applicability — which silently skips undeclared qualifiers.
+- std is checked by the same rules as user code, so an aspirational
+  signature there rots quietly: `char_at(index: Positive Int)` had been
+  copied out of a LANGUAGE.md example with no `Positive` qualifier
+  anywhere, and no call could have satisfied it if there had been one.
+- Where a std declaration *lives* is a code-size decision, not just
+  taste. `ok`/`err` in `core.basic` would have emitted a dead
+  `core/basic.{kt,rs}` into every program, because `core.basic` declares
+  `Int` and [mod-used-only] reachability is name-based: every file
+  reaches it. Put anything that *emits code* in a module whose names only
+  its users mention.
 
 - (sweep) Four "known leftovers" were already fixed by earlier work and
   only *looked* open because nothing tested them (field-subject `is`

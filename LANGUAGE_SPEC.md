@@ -95,9 +95,13 @@ Conventions:
 * [type-unknown-lenient] Anything the checker cannot type is `Ty::Unknown`,
   compatible in both directions, and never an error by itself.
   * This is the backbone of backend interop: unknown
-    names/fields/methods pass through to the backend untouched, and
+    fields/methods/expressions pass through to the backend untouched, and
     unchecked code must not cascade errors. Coercions/unwraps fire only
     where checker side tables say so.
+  * Leniency covers *inferred* types, not *written names*: a name in a
+    type position must resolve [name-resolve]. Interop types are reached
+    by declaring them (`external type`), which is what makes their
+    members lenient in the first place.
 
 ## Variables and scoping
 
@@ -173,6 +177,10 @@ Conventions:
     two qualifiers may co-apply to one type ("Old may stack with
     Surname", [qual-with]). Separate keywords (`TokenKind::KwCanbe`),
     accepted at disjoint positions (user decision 2026-09-03).
+  * Only the compiler's own qualifiers can be opted into: `Mut` and
+    `Linear` on declarations, `Linear` on type parameters. A user
+    qualifier in a `canbe` clause is the `with` confusion above, and is
+    rejected as such.
 * [qual-with] Two qualifiers may stack on one type only if one declares
   `with` the other; the `Mut` auto-qualifier composes with everything
   [type-canbe-mut].
@@ -273,6 +281,19 @@ Conventions:
     (`fn ok<T>(value: T) -> T as Ok`).
 * [qual-ctor-same-file] Constructor functions must be declared in the same
   file as their qualifier.
+* [qual-result-tags] std ships the result tags in `core.result`:
+  `qualifier Ok<T> of T`, `qualifier Err<T> of T`, and their constructors
+  `ok`/`err` (2026-09-03), so `-> Ok Int | Err Str` needs no local
+  declarations. Nothing about them is intrinsic — they are ordinary
+  constructive qualifiers, erased like all others [qual-erasure], and a
+  file may still declare its own.
+  * Own module rather than part of `core.basic`: `core.basic` declares
+    `Int`, so every program reaches it, and `ok`/`err` living there would
+    emit a dead `core/basic.{kt,rs}` into every output
+    [mod-used-only]. `core.result` is reached only by programs that
+    mention its names.
+  * There is no `Result` type: the union *is* the result. A `type
+    Result<T, E> = Ok T | Err E` alias would only hide the arms.
 * [qual-ctor-simple] Constructor return types must be simple (no
   union/tuple); the constructed qualifier must satisfy the `of` type.
 * [qual-ctor-predicate] Predicate qualifiers may have constructor
@@ -986,6 +1007,38 @@ Conventions:
     (`is Str surname`) into a consequence of the rule.
   * Enforced at declaration sites in the parser (`ident_type` /
     `ident_value`); module paths in `resolve`.
+* [name-resolve] Every name written in a *type position* must resolve to a
+  declaration visible under [mod-visibility]; an unresolved name is an
+  error naming it, with import suggestions [diag-import-suggest]
+  (2026-09-03).
+  * Two namespaces, checked separately. Base types: structs, type
+    aliases, `internal`/`external type`s, effects (effect lists are
+    written as type refs), plus generic parameters in scope and the
+    language-level `None`, which has no declaration. Qualifiers:
+    declared qualifiers plus the compiler's intrinsic `Mut`, `Linear`,
+    `Once` (`ReadOnly` is parsed as part of the return annotation, never
+    as a type ref).
+  * A name found in the *other* namespace gets a wording hint instead of
+    an import suggestion (`unknown type `Tag` (`Tag` is a qualifier, not
+    a type)`) — no import fixes a position mistake.
+  * Positions covered: fn params and return types, `let` annotations,
+    struct fields, handler ctor params and state fields, effect-member
+    signatures, type-alias targets, qualifier `of` types and field
+    overrides, `with` [qual-with] and `canbe` [canbe-optin] clauses,
+    array-init element types, and `is` / `when` checks. Reported from
+    `validate_type` / `validate_quals` / `parse_check` at *declaration
+    sites*, not during type lowering, which runs repeatedly (same
+    discipline as [qual-of]).
+  * In an `is` / `when` check either namespace is admissible in the last
+    position, so the message is `unknown type or qualifier`. An
+    unresolved check marks the pattern and suppresses the match-arm
+    verdicts that follow from it — "this check can never succeed", "this
+    `when` branch matches no remaining union arm", non-exhaustiveness,
+    and the `Nothing`-narrowing cascade onto the subject. Motivation:
+    with `Ok` undeclared, `if v is Ok` on `Ok Int | Err Str` used to
+    report only the arm mismatch (the name was silently read as a base
+    type) plus a bogus consumed-value error, and never the missing
+    declaration.
 * [name-dot] A struct or qualifier may be declared with a *dot-name*
   `Ns.Name` (N1, user decisions 2026-09-03), giving the Kotlin
   wrapper-type idiom (`Environment.Id`) without nested declarations.
@@ -1110,6 +1163,29 @@ Conventions:
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
 
+## Comments and documentation
+
+* [doc-comment] A declaration's *documentation* is the run of `//` comment
+  lines directly above it (2026-09-03): the comment on the line
+  immediately before the declaration, plus every consecutive comment line
+  above that. One blank line ends the run, so an unrelated comment earlier
+  in the file stays unrelated. There is no separate doc-comment syntax —
+  a comment above a declaration *is* its documentation.
+  * A comment sharing its line with code (`a: Int, // note`) documents
+    nothing: it is neither the previous declaration's docs nor the next
+    one's.
+  * A bare `//` line inside the run is kept, as an empty line — that is
+    the paragraph break of [doc-markdown], not a separator.
+  * The `//` and one following space are stripped; further indentation
+    survives (markdown nesting needs it).
+  * Carried on the AST (`docs: Vec<String>`) for fns, structs, struct
+    fields, qualifiers, effects, handlers, and type declarations.
+    Comments are not tokens: the lexer collects them separately
+    (`LexResult::comments`) and the parser attaches the block above each
+    declaration by line number.
+  * Backing modifiers do not interfere: `external`, `internal` and
+    `provenance` sit on the declaration's own line.
+
 ## Tooling
 
 * [diag-structured] The resolver, checker, and deduction pass report
@@ -1178,24 +1254,78 @@ Conventions:
     whose diagnostics disappeared get an explicit clearing publish.
     Diagnostics are published against the URI the client opened the
     document under (clients compare URIs exactly).
-  * Hover returns the checker's type (`Checked::expr_ty`) for the
-    smallest expression under the cursor; `Unknown`-typed expressions
-    yield no hover. On a fn *name* it instead returns the full
-    source-like signature ([fn-ref-table]). A fate-linked (derived)
-    variable hovers as `ReadOnly T` — a bare compiler qualifier on the
-    type line — with the qualifier's parameters (the roots it shares
-    fate with and their binding sites, plus the `copy` remedy) as
-    detail below (progressive disclosure, user decision 2026-09-02)
-    [fate-link].
+  * Hover contents are markdown [doc-markdown]: a fenced `salvo` code
+    block with the declaration or type, then the doc sections below,
+    separated by rules.
+  * Hover answers, in order: a fn *name* — the full source-like signature
+    ([fn-ref-table]) plus its docs; any other *declared name*, at its
+    declaration or at a reference to it [lsp-definition] — its declaration
+    line plus its docs; otherwise the checker's type
+    (`Checked::expr_ty`) for the smallest expression under the cursor.
+    `Unknown`-typed expressions yield no hover.
+  * "Declared name" reaches *nested* declarations, not only top-level ones
+    (2026-09-03): struct fields, handler state fields, qualifier field
+    overrides, and the member fns of effects, handlers and qualifiers. One
+    search over the module's items (`decl_at`) locates them by name span,
+    so hover and go-to-definition agree.
+    * A struct adds a **Fields** section [doc-struct-fields].
+    * A field renders as `name: Type = default` and names what declares
+      it ("Field of struct `Person`."). Reached at a *use* through
+      `Checked::field_refs`.
+    * A member fn renders its signature from the declaration and names its
+      owner ("Member of effect `Log`."). Members have no `FnKey`, so no
+      *inferred* deductions are shown — the declared list is
+      [decl-explicit], which members must write anyway.
+  * A fate-linked (derived) variable hovers as `ReadOnly T` — a bare
+    compiler qualifier on the type line — with the qualifier's parameters
+    (the roots it shares fate with and their binding sites, plus the
+    `copy` remedy) as detail below (progressive disclosure, user decision
+    2026-09-02) [fate-link].
   * `textDocument/codeAction` serves import quickfixes from the
     suggestions on published diagnostics [diag-import-suggest].
+* [doc-markdown] Doc comments are markdown and pass through verbatim: the
+  lines are already stripped of `//`, so emphasis, inline code, lists and
+  code fences work as written, and a bare `//` line is a paragraph break
+  [doc-comment].
+* [doc-symbol-ref] `[symbol]` inside a doc comment references a name: the
+  documented declaration's own names first (a fn's parameters and
+  generics; a struct's fields and generics; a qualifier's, effect's or
+  handler's members and state), then a type/qualifier/effect/handler/fn
+  declared in the program, the declaring file first.
+  * A *nested* declaration also sees its owner's names, so a handler
+    member's docs can reference the handler's state and its sibling
+    members.
+  * A reference that resolves renders as a markdown link to the
+    declaration (inline code when the declaration has no addressable
+    location, as in the embedded std); one that does not resolve is left
+    exactly as written, so ordinary prose in brackets is never mangled.
+  * Markdown links (`[text](url)`) and inline code spans are skipped, so
+    `` `[a, b]` `` stays literal.
+* [doc-struct-fields] A struct's hover lists every field in declaration
+  order with its type and its default as written, and appends each
+  field's own doc comment [doc-comment]. Undocumented fields are listed
+  too — the section shows the shape of the struct, not only its annotated
+  part.
+* [doc-hover-narrowed] A variable hovers as the type *known at that
+  position* — the flow-narrowed type, qualifiers included — with the
+  declared type named below it when narrowing changed it (`Checked::repr_ty`
+  holds it) [is-narrowing].
+  * Declared *names* are hovered like the variables they introduce:
+    parameters, handler state fields, `let` patterns and `is`/`for`
+    bindings all record their type in `Checked::expr_ty` at their own
+    name span, so hover answers on the declaration and not only on uses.
 * [lsp-definition] `textDocument/definition` jumps from a name to its
   declaration's *identifier*. Fn names resolve through
   `Checked::fn_refs` (overload-precise, so a call site lands on the
   overload the checker picked); every other name — struct, effect,
   handler, qualifier, type alias, opaque type, effect member — through
   `Checked::def_refs`, fed by `ModuleScope::def_sites` (visible name ->
-  declaring file + identifier span, alias-aware).
+  declaring file + identifier span, alias-aware); *field* accesses through
+  `Checked::field_refs`, keyed by the field-name span in `base.field`
+  (2026-09-03).
+  * A field resolves to the struct's own declaration even when a predicate
+    qualifier overrides its type [qual-field-override]: the override
+    refines the field, it does not replace the declaration.
   * The smallest name span containing the cursor wins; a type-alias use
     jumps to the alias declaration, not through to its target.
   * Declarations in the embedded std have no on-disk URI and yield no

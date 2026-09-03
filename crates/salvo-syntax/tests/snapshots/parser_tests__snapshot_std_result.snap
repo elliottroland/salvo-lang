@@ -1,0 +1,291 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"result.sv\"))"
+---
+Module {
+    items: [
+        Qualifier(
+            QualifierDecl {
+                docs: [
+                    "[qual-constructive] Both tags are constructive: a plain value never",
+                    "subtypes `Ok T`, it gains the tag by going through the constructor",
+                    "below — which must live in this file [qual-ctor-same-file]. Erased in",
+                    "generated code [qual-erasure]: the union wrapper carries the arm, the",
+                    "qualifier only decides which one.",
+                ],
+                backing: None,
+                subject: State,
+                name: Ident {
+                    name: "Ok",
+                    span: 805..807,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 808..809,
+                    },
+                ],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "T",
+                            span: 814..815,
+                        },
+                        args: [],
+                        span: 814..815,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [],
+                has_body: false,
+                span: 795..815,
+            },
+        ),
+        Qualifier(
+            QualifierDecl {
+                docs: [],
+                backing: None,
+                subject: State,
+                name: Ident {
+                    name: "Err",
+                    span: 826..829,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 830..831,
+                    },
+                ],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "T",
+                            span: 836..837,
+                        },
+                        args: [],
+                        span: 836..837,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [],
+                has_body: false,
+                span: 816..837,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[qual-ctor-fn] Tags a value as the success arm of a result union. The",
+                    "value is moved into the result, so nothing is kept ([] deductions);",
+                    "linear values may be tagged, since the obligation travels with them",
+                    "[linear-generics].",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "ok",
+                    span: 1079..1081,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1082..1083,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1082..1083,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "Linear",
+                                span: 1090..1096,
+                            },
+                            args: [],
+                            span: 1090..1096,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1098..1103,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1105..1106,
+                                },
+                                args: [],
+                                span: 1105..1106,
+                            },
+                        },
+                        variadic: false,
+                        span: 1098..1106,
+                    },
+                ],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1117..1118,
+                            },
+                            args: [],
+                            span: 1117..1118,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Ok",
+                            span: 1122..1124,
+                        },
+                        args: [],
+                        span: 1122..1124,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    Ident(
+                                        Ident {
+                                            name: "value",
+                                            span: 1138..1143,
+                                        },
+                                    ),
+                                ),
+                                span: 1131..1143,
+                            },
+                        ],
+                        span: 1125..1145,
+                    },
+                ),
+                span: 1076..1145,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[qual-ctor-fn] Tags a value as the failure arm of a result union.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "err",
+                    span: 1219..1222,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1223..1224,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1223..1224,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "Linear",
+                                span: 1231..1237,
+                            },
+                            args: [],
+                            span: 1231..1237,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1239..1244,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1246..1247,
+                                },
+                                args: [],
+                                span: 1246..1247,
+                            },
+                        },
+                        variadic: false,
+                        span: 1239..1247,
+                    },
+                ],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1258..1259,
+                            },
+                            args: [],
+                            span: 1258..1259,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Err",
+                            span: 1263..1266,
+                        },
+                        args: [],
+                        span: 1263..1266,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    Ident(
+                                        Ident {
+                                            name: "value",
+                                            span: 1280..1285,
+                                        },
+                                    ),
+                                ),
+                                span: 1273..1285,
+                            },
+                        ],
+                        span: 1267..1287,
+                    },
+                ),
+                span: 1216..1287,
+            },
+        ),
+    ],
+}

@@ -6,6 +6,7 @@ Module {
     items: [
         Struct(
             StructDecl {
+                docs: [],
                 name: Ident {
                     name: "Person",
                     span: 7..13,
@@ -23,6 +24,7 @@ Module {
                 ],
                 fields: [
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "name",
                             span: 30..34,
@@ -42,6 +44,7 @@ Module {
                         span: 30..39,
                     },
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "surname",
                             span: 45..52,
@@ -71,6 +74,7 @@ Module {
                         span: 45..65,
                     },
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "age",
                             span: 71..74,
@@ -95,6 +99,7 @@ Module {
         ),
         Struct(
             StructDecl {
+                docs: [],
                 name: Ident {
                     name: "Pair",
                     span: 90..94,
@@ -112,6 +117,7 @@ Module {
                 auto_qualifiers: [],
                 fields: [
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "first",
                             span: 107..112,
@@ -131,6 +137,7 @@ Module {
                         span: 107..115,
                     },
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "second",
                             span: 121..127,
@@ -155,6 +162,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "build",
@@ -579,6 +587,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "mutate",
@@ -657,6 +666,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "interpolate",

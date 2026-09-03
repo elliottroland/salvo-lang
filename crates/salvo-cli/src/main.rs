@@ -8,6 +8,7 @@
 //! ```
 
 mod analysis;
+mod docs;
 mod lang;
 mod lsp;
 

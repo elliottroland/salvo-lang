@@ -20,11 +20,8 @@ fun println(console: Console, message: String) {
     console.print("\n")
 }
 
-// ===== main.kt =====
-package salvo.main
-
-import salvo.*
-import salvo.core.console.*
+// ===== core/result.kt =====
+package salvo.core.result
 
 fun<T> ok(value: T): T {
     return value
@@ -33,6 +30,13 @@ fun<T> ok(value: T): T {
 fun<T> err(value: T): T {
     return value
 }
+
+// ===== main.kt =====
+package salvo.main
+
+import salvo.*
+import salvo.core.console.*
+import salvo.core.result.*
 
 fun parse_age(input: Int): Union2<Int, String> {
     if (input >= 0) {

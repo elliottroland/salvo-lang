@@ -79,6 +79,7 @@ Module {
         ),
         Type(
             TypeDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -99,6 +100,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -168,6 +170,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -251,6 +254,10 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "[internal-fn] A compiler-intrinsic fn: declared for its signature and",
+                    "deduction; each backend lowers calls to it directly (no define files).",
+                ],
                 backing: Some(
                     Internal,
                 ),

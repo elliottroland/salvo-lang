@@ -207,17 +207,6 @@ fn rustc_compiles_and_runs_demo() {
 // ===== unions =====
 
 const UNIONS_DEMO: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 fn parse_age(input: Int) -> Ok Int | Err Str {
     if input >= 0 {
         return ok(input)
@@ -341,17 +330,6 @@ qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
-}
-
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
 }
 
 fn full_name(person: Person) -> Str {
@@ -543,17 +521,6 @@ fn rustc_compiles_and_runs_effects() {
 // ===== loops as values =====
 
 const LOOPS: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 fn range(start: Int, end: Int) -> Iter<Int> {
     let i = start
     while i++ < end {
@@ -1491,17 +1458,6 @@ fn rustc_compiles_and_runs_fn_contracts() {
 // checker's is_tests lowering.
 
 const FIELD_IS_DEMO: &str = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
-
-fn ok<T>(value: T) -> T as Ok {
-    return value
-}
-
-fn err<T>(value: T) -> T as Err {
-    return value
-}
-
 struct Holder {
     result: Ok Int | Err Str
 }

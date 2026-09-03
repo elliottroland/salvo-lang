@@ -16,9 +16,9 @@ pub use span::Span;
 /// collected along the way. The parse is considered failed if any diagnostic
 /// is an error.
 pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
-    let tokens = lexer::lex(source);
-    let mut diagnostics = tokens.diagnostics;
-    let mut parser = parser::Parser::new(source, tokens.tokens);
+    let lexed = lexer::lex(source);
+    let mut diagnostics = lexed.diagnostics;
+    let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
     let module = parser.parse_module();
     diagnostics.extend(parser.into_diagnostics());
     (module, diagnostics)

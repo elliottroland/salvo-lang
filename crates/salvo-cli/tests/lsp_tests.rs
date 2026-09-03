@@ -192,9 +192,16 @@ fn diagnostics_hover_and_shutdown() {
         }),
     );
     let response = expect_response(&lsp.rx, 2);
+    // [doc-markdown] Hover contents are markdown: a `salvo` code block
+    // with the type, and doc sections below when there are any.
+    assert_eq!(
+        response["result"]["contents"]["kind"].as_str(),
+        Some("markdown"),
+        "unexpected hover: {response}"
+    );
     assert_eq!(
         response["result"]["contents"]["value"].as_str(),
-        Some("Int"),
+        Some("```salvo\nInt\n```"),
         "unexpected hover: {response}"
     );
 
@@ -230,7 +237,7 @@ fn diagnostics_hover_and_shutdown() {
     let response = expect_response(&lsp.rx, 4);
     assert_eq!(
         response["result"]["contents"]["value"].as_str(),
-        Some("fn scale(x: Int, factor: Int) -> [factor] Int"),
+        Some("```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```"),
         "unexpected hover: {response}"
     );
 
@@ -248,7 +255,7 @@ fn diagnostics_hover_and_shutdown() {
     let response = expect_response(&lsp.rx, 5);
     assert_eq!(
         response["result"]["contents"]["value"].as_str(),
-        Some("fn scale(x: Int, factor: Int) -> [factor] Int"),
+        Some("```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```"),
         "unexpected hover: {response}"
     );
 
@@ -281,20 +288,18 @@ fn diagnostics_hover_and_shutdown() {
         }),
     );
     let response = expect_response(&lsp.rx, 6);
-    let contents = response["result"]["contents"]
-        .as_array()
-        .unwrap_or_else(|| panic!("hover contents not an array: {response}"));
-    assert_eq!(
-        contents[0]["value"].as_str(),
-        Some("ReadOnly Str"),
-        "unexpected hover type line: {response}"
-    );
-    let detail = contents[1].as_str().unwrap();
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
     assert!(
-        detail.contains("Compiler qualifier `ReadOnly`")
-            && detail.contains("shares fate with `xs` (bound at 6:")
-            && detail.contains("`copy(...)`"),
-        "unexpected hover detail: {detail}"
+        value.starts_with("```salvo\nReadOnly Str\n```"),
+        "unexpected hover type line: {value}"
+    );
+    assert!(
+        value.contains("Compiler qualifier `ReadOnly`")
+            && value.contains("shares fate with `xs` (bound at 6:")
+            && value.contains("`copy(...)`"),
+        "unexpected hover detail: {value}"
     );
 
     // Clean shutdown.
@@ -526,4 +531,292 @@ fn definition(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32) -> V
     let result = response["result"].clone();
     assert!(!result.is_null(), "no definition returned: {response}");
     result
+}
+
+/// Requests a hover and returns its markdown value.
+fn hover(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32) -> String {
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": line, "character": character}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, id);
+    response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no hover markdown: {response}"))
+        .to_string()
+}
+
+/// Doc comments in hover [doc-comment] [doc-markdown] [doc-symbol-ref]
+/// [doc-struct-fields] [doc-hover-narrowed]: fn docs, struct docs with a
+/// per-field section, `[symbol]` references, and a variable's type as
+/// narrowed at the hovered position.
+#[test]
+fn hover_renders_doc_comments() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_docs");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+// An unrelated comment, separated by a blank line.
+
+// A person we know about.
+//
+// Only [name] is required; [surname] may be absent.
+struct Person {
+    // Their given name.
+    name: Str,
+    surname: Str? = None,
+    age: Int
+}
+
+// Describes a [person].
+//
+// Markdown works: *emphasis* and `code`. [Nonexistent] stays literal.
+fn describe(person: Person) -> Str {
+    return person.name
+}
+
+fn narrow(value: Int | Str) -> Str {
+    if value is Str {
+        return value
+    }
+    return \"other\"
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // [doc-comment] A fn's docs are the block directly above it; the
+    // signature stays the code block and the docs follow.
+    let value = hover(&mut lsp, 20, &uri, 15, 5);
+    assert!(
+        value.starts_with("```salvo\nfn describe(person: Person) -> [person] Str\n```"),
+        "unexpected fn hover: {value}"
+    );
+    assert!(value.contains("Describes a"), "unexpected fn hover: {value}");
+    // [doc-markdown] Markdown passes through verbatim.
+    assert!(
+        value.contains("*emphasis* and `code`"),
+        "unexpected fn hover: {value}"
+    );
+    // [doc-symbol-ref] A resolvable reference becomes a link to the
+    // declaration; an unresolvable one is left exactly as written.
+    assert!(
+        value.contains("[`person`](file://") && value.contains("#L16,13"),
+        "unexpected fn hover: {value}"
+    );
+    assert!(
+        value.contains("[Nonexistent] stays literal"),
+        "unexpected fn hover: {value}"
+    );
+
+    // [doc-comment] The blank line above "A person we know about." ends
+    // the block, so the unrelated first comment is not part of it.
+    let value = hover(&mut lsp, 21, &uri, 5, 8);
+    assert!(
+        value.starts_with("```salvo\nstruct Person\n```"),
+        "unexpected struct hover: {value}"
+    );
+    assert!(
+        value.contains("A person we know about."),
+        "unexpected struct hover: {value}"
+    );
+    assert!(
+        !value.contains("An unrelated comment"),
+        "unrelated comment leaked into the docs: {value}"
+    );
+    // [doc-struct-fields] Every field is listed with its type and default;
+    // documented ones carry their own comment.
+    assert!(
+        value.contains("**Fields**")
+            && value.contains("- `name: Str` — Their given name.")
+            && value.contains("- `surname: Str? = None`")
+            && value.contains("- `age: Int`"),
+        "unexpected field section: {value}"
+    );
+
+    // Hovering a *use* of the struct name gives the same docs.
+    let at_use = hover(&mut lsp, 22, &uri, 15, 22);
+    assert!(
+        at_use.contains("A person we know about.") && at_use.contains("**Fields**"),
+        "unexpected struct-use hover: {at_use}"
+    );
+
+    // [doc-hover-narrowed] A variable hovers as the type known at that
+    // position, with the declared type when narrowing changed it.
+    let value = hover(&mut lsp, 23, &uri, 21, 16);
+    assert!(
+        value.starts_with("```salvo\nStr\n```"),
+        "unexpected narrowed hover: {value}"
+    );
+    assert!(
+        value.contains("Declared as `Int | Str`"),
+        "unexpected narrowed hover: {value}"
+    );
+    // ...and on the parameter's own declaration, with no narrowing note.
+    let value = hover(&mut lsp, 24, &uri, 19, 12);
+    assert_eq!(
+        value, "```salvo\nInt | Str\n```",
+        "unexpected parameter hover: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// Docs on *nested* declarations [doc-comment]: struct fields (at the
+/// declaration and at an access), effect members (at the declaration and
+/// at a call), handler state and handler members. Each says what declares
+/// it, and `[symbol]` reaches the owner's own names [doc-symbol-ref].
+#[test]
+fn hover_reaches_fields_and_members() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_members");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+struct Person {
+    // Their given name.
+    //
+    // Never absent: a [Person] without one cannot be built.
+    name: Str,
+    age: Int = 0
+}
+
+// Somewhere to write text.
+effect Log {
+    // Writes one line.
+    //
+    // The [line] is consumed.
+    fn write(line: Str) -> [line] None
+}
+
+handler StdLog of Log {
+    // How many lines we have written.
+    count: Int = 0
+
+    // Writes [line] and bumps [count].
+    fn write(line: Str) -> None {
+    }
+}
+
+fn f(p: Person) [Log] {
+    write(p.name)
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // A field at its declaration: its own line, its docs, and its owner.
+    let at_decl = hover(&mut lsp, 30, &uri, 4, 5);
+    assert!(
+        at_decl.starts_with("```salvo\nname: Str\n```"),
+        "unexpected field hover: {at_decl}"
+    );
+    assert!(
+        at_decl.contains("Their given name.")
+            && at_decl.contains("[`Person`](file://")
+            && at_decl.contains("Field of struct `Person`."),
+        "unexpected field hover: {at_decl}"
+    );
+    // The same docs at a field *access* — `Checked::field_refs`.
+    let at_use = hover(&mut lsp, 31, &uri, 26, 12);
+    assert_eq!(at_use, at_decl, "field access hover differs: {at_use}");
+    // A field's default renders as written.
+    let defaulted = hover(&mut lsp, 32, &uri, 5, 5);
+    assert!(
+        defaulted.starts_with("```salvo\nage: Int = 0\n```"),
+        "unexpected field hover: {defaulted}"
+    );
+
+    // An effect member at its declaration, with its declared deductions
+    // (members have no `FnKey`, so nothing is inferred for them).
+    let at_decl = hover(&mut lsp, 33, &uri, 13, 8);
+    assert!(
+        at_decl.starts_with("```salvo\nfn write(line: Str) -> [line] None\n```"),
+        "unexpected member hover: {at_decl}"
+    );
+    assert!(
+        at_decl.contains("Writes one line.")
+            && at_decl.contains("[`line`](file://")
+            && at_decl.contains("Member of effect `Log`."),
+        "unexpected member hover: {at_decl}"
+    );
+    // ...and at a call site, which resolves through `def_refs`.
+    let at_call = hover(&mut lsp, 34, &uri, 26, 4);
+    assert_eq!(at_call, at_decl, "member call hover differs: {at_call}");
+
+    // Handler state and handler members, with `[symbol]` reaching the
+    // handler's own names.
+    let state = hover(&mut lsp, 35, &uri, 18, 4);
+    assert!(
+        state.starts_with("```salvo\ncount: Int = 0\n```")
+            && state.contains("How many lines we have written.")
+            && state.contains("Field of handler `StdLog` (state)."),
+        "unexpected state hover: {state}"
+    );
+    let member = hover(&mut lsp, 36, &uri, 21, 8);
+    assert!(
+        member.starts_with("```salvo\nfn write(line: Str) -> None\n```")
+            && member.contains("[`line`](file://")
+            && member.contains("[`count`](file://")
+            && member.contains("Member of handler `StdLog`."),
+        "unexpected handler member hover: {member}"
+    );
+
+    // [lsp-definition] A field access also navigates to its declaration.
+    let location = definition(&mut lsp, 37, &uri, 26, 12);
+    assert_eq!(location["range"]["start"]["line"], json!(4));
+    assert_eq!(location["range"]["start"]["character"], json!(4));
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
 }

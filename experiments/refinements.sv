@@ -1,4 +1,3 @@
-import core.list as init_list
 import random.Random
 import random.DefaultRandom
 
@@ -12,9 +11,29 @@ qualifier NonEmpty<T> of List<T> with Mut<T> {
     // refn add(list: Mut List<T>, elem: T) -> [list: Mut NonEmpty] None
 }
 
+qualifier Positive of Int {
+    fn qualifies(int: Int) -> Bool {
+        return int > 0
+    }
+}
+
+provenance qualifier Limited<T> of T
+
+// Represents an individual person uniquely picked out by their [id_number]
+struct Person {
+    id_number: Str,
+    // The first name of the person
+    name: Str,
+    // The last name of the person, if we know it
+    surname: Str? = None,
+    // The age of the person
+    age: Int
+}
+
 // Predicate qualifiers support constructor functions like constructive
 // qualifiers do; the same restriction applies: constructors must live in
 // the same file as the qualifier definition.
+// Because [first] is given, we know that the result will be non-empty.
 fn list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
     return init_list(first, ...rest)
 }
@@ -36,26 +55,41 @@ fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
     return list.remove_at(0)
 }
 
+provenance qualifier T of Int
+
 handler NonRandom of Random {
     fn random() -> Double {
         return 1.0
     }
 }
 
+struct FileHandle canbe Linear {
+    fd: Int
+}
+
 fn main() [use] {
     use StdOutConsole
     use DefaultRandom
 
-    let n = try_get_number()
-    if n is Ok {
+    let number = 10
+    let person = Person { id_number: "1231232", name: "Roland", age: number }
+    let person2 = Person { ...person, id_number: "34578346584" }
+    let { id_number } = person
 
+    let fh = get_fh()
+
+    let n = try_get_number()
+    let message = when n {
+        is Ok { "the number: ${n}" }
+        is Err { "an error: ${n}" }
+        is Bool { "a boolean: ${n}" }
+        is None { "something else? " }
     }
 
     let strings = mutable_list("name", "surname", "something")
     if strings is NonEmpty {
         println("First element length: ${strings.first().size()}")
         give_back(strings)
-        // TODO: the empty deduction from `give_back` should make `strings` unusable here?
         let s = strings.remove_first()
     }
 
@@ -63,6 +97,10 @@ fn main() [use] {
 
     let (a, b) = (1, 2)
     let c = a.add(b)
+}
+
+fn get_fh() -> FileHandle {
+    return FileHandle { fd: 10 }
 }
 
 fn add(a: Int, b: Int) -> [] Int {
@@ -77,7 +115,7 @@ fn make_random() [Random, Console] -> Int {
     return 1
 }
 
-fn try_get_number() [Random] -> Ok Int | Err Str | None {
+fn try_get_number() [Random] -> Ok Int | Err Str | Bool | None {
     if random() < 0 {
         return ok(1)
     } else {

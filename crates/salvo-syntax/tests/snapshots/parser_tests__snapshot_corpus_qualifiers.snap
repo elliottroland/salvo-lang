@@ -6,6 +6,7 @@ Module {
     items: [
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -42,6 +43,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -78,6 +80,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -110,6 +113,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -142,6 +146,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -201,6 +206,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -256,6 +262,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -306,6 +313,7 @@ Module {
         ),
         Type(
             TypeDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "Result",
@@ -374,6 +382,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -396,6 +405,7 @@ Module {
                 field_overrides: [],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "qualifies",
@@ -477,6 +487,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -508,6 +519,7 @@ Module {
                 field_overrides: [],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "qualifies",
@@ -589,6 +601,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -610,6 +623,7 @@ Module {
                 with: [],
                 field_overrides: [
                     FieldDecl {
+                        docs: [],
                         name: Ident {
                             name: "surname",
                             span: 515..522,
@@ -631,6 +645,7 @@ Module {
                 ],
                 fns: [
                     FnDecl {
+                        docs: [],
                         backing: None,
                         name: Ident {
                             name: "qualifies",
@@ -724,6 +739,7 @@ Module {
         ),
         Qualifier(
             QualifierDecl {
+                docs: [],
                 backing: None,
                 subject: State,
                 name: Ident {
@@ -751,6 +767,10 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Constructor function: `-> Int as RandomPositive` marks it; return points",
+                    "return plain Int values which gain the qualifier by construction.",
+                ],
                 backing: None,
                 name: Ident {
                     name: "random_positive_int",
@@ -900,6 +920,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "checks",

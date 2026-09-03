@@ -6,6 +6,7 @@ Module {
     items: [
         Type(
             TypeDecl {
+                docs: [],
                 backing: Some(
                     Internal,
                 ),
@@ -21,6 +22,9 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Returns the number of characters in the string",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -87,6 +91,10 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [
+                    "Returns the character at the given index, or null if it is beyond the length",
+                    "of the string.",
+                ],
                 backing: Some(
                     External,
                 ),
@@ -123,27 +131,18 @@ Module {
                             span: 241..246,
                         },
                         ty: Named {
-                            qualifiers: [
-                                TypeRef {
-                                    name: Ident {
-                                        name: "Positive",
-                                        span: 248..256,
-                                    },
-                                    args: [],
-                                    span: 248..256,
-                                },
-                            ],
+                            qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Int",
-                                    span: 257..260,
+                                    span: 248..251,
                                 },
                                 args: [],
-                                span: 257..260,
+                                span: 248..251,
                             },
                         },
                         variadic: false,
-                        span: 241..260,
+                        span: 241..251,
                     },
                 ],
                 effects: Some(
@@ -154,18 +153,18 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "str",
-                                span: 269..272,
+                                span: 260..263,
                             },
                             kind: KeepAll,
-                            span: 269..272,
+                            span: 260..263,
                         },
                         Deduction {
                             param: Ident {
                                 name: "index",
-                                span: 274..279,
+                                span: 265..270,
                             },
                             kind: KeepAll,
-                            span: 274..279,
+                            span: 265..270,
                         },
                     ],
                 ),
@@ -176,18 +175,18 @@ Module {
                             base: TypeRef {
                                 name: Ident {
                                     name: "Char",
-                                    span: 281..285,
+                                    span: 272..276,
                                 },
                                 args: [],
-                                span: 281..285,
+                                span: 272..276,
                             },
                         },
-                        span: 281..286,
+                        span: 272..277,
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 220..286,
+                span: 220..277,
             },
         ),
     ],

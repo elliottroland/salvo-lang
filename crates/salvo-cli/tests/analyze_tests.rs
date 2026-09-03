@@ -480,10 +480,8 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
 #[test]
 fn when_branches_merge_consumption() {
     let dir = src_dir("consume_when");
-    let prelude = "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
-         fn ok<T>(value: T) -> T as Ok {\n    return value\n}\n\n\
-         fn err<T>(value: T) -> T as Err {\n    return value\n}\n\n\
-         fn consume(v: Ok Str) -> [] None {\n}\n\n";
+    // `Ok`/`Err` and their constructors come from `core.result`.
+    let prelude = "fn consume(v: Ok Str) -> [] None {\n}\n\n";
 
     // Consumed in one fall-through arm -> unusable after the `when`.
     fs::write(
@@ -632,10 +630,7 @@ fn union_arm_arguments_resolve_against_union_params() {
     let dir = src_dir("union_arm_arg");
     fs::write(
         dir.join("main.sv"),
-        "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
-         fn ok<T>(value: T) -> T as Ok {\n    return value\n}\n\n\
-         fn err<T>(value: T) -> T as Err {\n    return value\n}\n\n\
-         fn describe(v: Ok Str | Err Str) -> Str {\n    when v {\n        is Ok {\n            return \"ok\"\n        }\n        is Err {\n            return \"err\"\n        }\n    }\n}\n\n\
+        "fn describe(v: Ok Str | Err Str) -> Str {\n    when v {\n        is Ok {\n            return \"ok\"\n        }\n        is Err {\n            return \"err\"\n        }\n    }\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    println(describe(ok(\"x\")))\n}\n",
     )
     .unwrap();
@@ -645,8 +640,60 @@ fn union_arm_arguments_resolve_against_union_params() {
     assert!(stderr.contains("no errors"), "stderr: {stderr}");
 }
 
-// ===== Shared fate [fate-link] [fate-poison] [fate-derived-readonly] =====
+// [qual-result-tags] [qual-ctor-fn] `core.result` supplies the result tags: a program can
+// write `Ok Int | Err Str` and call `ok`/`err` without declaring anything,
+// and `is`/`when` narrow the arms as they do for local qualifiers.
+#[test]
+fn std_supplies_the_result_tags() {
+    let dir = src_dir("std_result");
+    fs::write(
+        dir.join("main.sv"),
+        "fn parse_age(input: Int) -> Ok Int | Err Str | None {\n    \
+         if input >= 0 {\n        return ok(input)\n    }\n    \
+         return err(\"negative age\")\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let result = parse_age(36)\n    \
+         when result {\n        is Ok {\n            println(\"age ${result}\")\n        }\n        \
+         is Err {\n            println(\"error: ${result}\")\n        }\n        \
+         is None {\n            println(\"none\")\n        }\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("no errors"), "stderr: {stderr}");
+}
 
+// [name-resolve] An undeclared qualifier is reported as the unresolved
+// name it is. Regression: `is Ok` with no `Ok` in scope used to report
+// "this check can never succeed" (the name was read as a base type that
+// no union arm matched) and then cascade onto the subject.
+#[test]
+fn undeclared_qualifier_reports_the_name() {
+    let dir = src_dir("unknown_qual");
+    fs::write(
+        dir.join("main.sv"),
+        "fn f() -> Yes Int | No Str {\n    return 1\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole\n    \
+         let v = f()\n    if v is Yes {\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(stderr.contains("unknown qualifier `Yes`"), "stderr: {stderr}");
+    assert!(stderr.contains("unknown qualifier `No`"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("unknown type or qualifier `Yes`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("can never succeed"),
+        "stderr: {stderr}"
+    );
+}
+
+// ===== Shared fate [fate-link] [fate-poison] [fate-derived-readonly] =====
 // [fate-derived-readonly] A fate-linked (derived) variable is read-only:
 // moving it (consuming call, `return`) or mutating it (`Mut` argument)
 // errors at the site with `copy` as the remedy. Reads stay legal.

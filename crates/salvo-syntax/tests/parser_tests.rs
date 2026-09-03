@@ -67,6 +67,11 @@ fn snapshot_std_string() {
 }
 
 #[test]
+fn snapshot_std_result() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("result.sv")));
+}
+
+#[test]
 fn snapshot_std_string_kotlin() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("string.kotlin.sv")));
 }
@@ -346,5 +351,159 @@ fn provenance_must_precede_a_qualifier() {
             .iter()
             .any(|m| m.contains("expected `qualifier` after `provenance`")),
         "got {errors:?}"
+    );
+}
+
+// ===== Doc comments [doc-comment] =====
+
+/// The docs of every top-level fn and struct (with its fields) in `src`.
+fn docs_of(src: &str) -> Vec<(String, Vec<String>)> {
+    use salvo_syntax::ast::Item;
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse errors: {errors:?}");
+    let mut out = Vec::new();
+    for item in &module.items {
+        match item {
+            Item::Fn(f) => out.push((f.name.name.clone(), f.docs.clone())),
+            Item::Struct(s) => {
+                out.push((s.name.name.clone(), s.docs.clone()));
+                for field in &s.fields {
+                    out.push((
+                        format!("{}.{}", s.name.name, field.name.name),
+                        field.docs.clone(),
+                    ));
+                }
+            }
+            Item::Qualifier(q) => out.push((q.name.name.clone(), q.docs.clone())),
+            Item::Effect(e) => out.push((e.name.name.clone(), e.docs.clone())),
+            Item::Handler(h) => out.push((h.name.name.clone(), h.docs.clone())),
+            Item::Type(t) => out.push((t.name.name.clone(), t.docs.clone())),
+            _ => {}
+        }
+    }
+    out
+}
+
+// [doc-comment] A declaration's docs are the run of own-line `//` comments
+// directly above it: one blank line ends the run, so an unrelated comment
+// earlier in the file stays unrelated. A `//` line inside the run is kept
+// (it is a markdown paragraph break, not a separator).
+#[test]
+fn docs_are_the_comment_block_directly_above() {
+    let docs = docs_of(
+        "// Unrelated.\n\
+         \n\
+         // First line.\n\
+         //\n\
+         // Third line.\n\
+         fn documented() -> Int {\n    return 1\n}\n\
+         \n\
+         // Detached by a blank line.\n\
+         \n\
+         fn undocumented() -> Int {\n    return 1\n}\n",
+    );
+    assert_eq!(
+        docs,
+        vec![
+            (
+                "documented".to_string(),
+                vec![
+                    "First line.".to_string(),
+                    String::new(),
+                    "Third line.".to_string()
+                ]
+            ),
+            ("undocumented".to_string(), Vec::new()),
+        ]
+    );
+}
+
+// [doc-comment] A trailing comment documents nothing: it shares its line
+// with code, so it is neither the previous declaration's docs nor the next
+// one's.
+#[test]
+fn trailing_comments_are_not_docs() {
+    let docs = docs_of(
+        "struct S {\n    \
+             a: Int, // the first\n    \
+             b: Int\n\
+         } // not docs either\n\
+         fn f() -> Int {\n    return 1\n}\n",
+    );
+    assert_eq!(
+        docs,
+        vec![
+            ("S".to_string(), Vec::new()),
+            ("S.a".to_string(), Vec::new()),
+            ("S.b".to_string(), Vec::new()),
+            ("f".to_string(), Vec::new()),
+        ]
+    );
+}
+
+// [doc-struct-fields] Struct docs and field docs are captured separately,
+// each from the block above its own declaration.
+#[test]
+fn struct_and_field_docs_are_separate() {
+    let docs = docs_of(
+        "// The struct.\n\
+         struct S {\n    \
+             // The field.\n    \
+             a: Int,\n    \
+             b: Int\n\
+         }\n",
+    );
+    assert_eq!(
+        docs,
+        vec![
+            ("S".to_string(), vec!["The struct.".to_string()]),
+            ("S.a".to_string(), vec!["The field.".to_string()]),
+            ("S.b".to_string(), Vec::new()),
+        ]
+    );
+}
+
+// [doc-comment] A backing modifier (`external`, `internal`, `provenance`)
+// sits on the declaration's own line, so the block above it still counts.
+#[test]
+fn docs_survive_declaration_modifiers() {
+    let docs = docs_of(
+        "// An external fn.\n\
+         external fn e(x: Int) [] -> [] Int\n\
+         \n\
+         // A provenance qualifier.\n\
+         provenance qualifier P of Int\n\
+         \n\
+         // An external type.\n\
+         external type T\n",
+    );
+    assert_eq!(
+        docs,
+        vec![
+            ("e".to_string(), vec!["An external fn.".to_string()]),
+            ("P".to_string(), vec!["A provenance qualifier.".to_string()]),
+            ("T".to_string(), vec!["An external type.".to_string()]),
+        ]
+    );
+}
+
+// [doc-comment] Indentation inside a comment is kept (markdown nesting
+// needs it) but the `//` and one following space are not.
+#[test]
+fn docs_keep_indentation_after_the_marker() {
+    let docs = docs_of(
+        "// - one\n\
+         //   - nested\n\
+         //no space\n\
+         fn f() -> Int {\n    return 1\n}\n",
+    );
+    assert_eq!(
+        docs[0].1,
+        vec![
+            "- one".to_string(),
+            "  - nested".to_string(),
+            "no space".to_string()
+        ]
     );
 }

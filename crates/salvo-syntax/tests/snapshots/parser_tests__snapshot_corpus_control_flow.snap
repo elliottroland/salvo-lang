@@ -6,6 +6,7 @@ Module {
     items: [
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "full_name",
@@ -175,6 +176,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "union_moves",
@@ -377,6 +379,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "describe",
@@ -609,6 +612,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "precise_checks",
@@ -842,6 +846,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "last_number",
@@ -1012,6 +1017,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "count",
@@ -1173,6 +1179,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "full_name_expr",

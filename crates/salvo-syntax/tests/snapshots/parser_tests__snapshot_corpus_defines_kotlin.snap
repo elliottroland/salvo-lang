@@ -54,6 +54,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "complicated_func",
@@ -157,6 +158,7 @@ Module {
         DefineFn(
             DefineFn {
                 sig: FnDecl {
+                    docs: [],
                     backing: None,
                     name: Ident {
                         name: "list",
@@ -272,6 +274,7 @@ Module {
                 fns: [
                     DefineFn {
                         sig: FnDecl {
+                            docs: [],
                             backing: None,
                             name: Ident {
                                 name: "print",

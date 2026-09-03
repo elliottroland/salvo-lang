@@ -7,6 +7,24 @@ use crate::token::{StrPart, Token, TokenKind};
 pub struct LexResult {
     pub tokens: Vec<Token>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Every `//` comment in source order [doc-comment]. Comments are not
+    /// tokens (the grammar never sees them); they are collected here so
+    /// the parser can attach the run above a declaration as its docs.
+    pub comments: Vec<Comment>,
+}
+
+/// One `//` comment line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Comment {
+    /// Spans the `//` through the end of the line (excluding the newline).
+    pub span: Span,
+    /// The text after `//`, with a single leading space removed so that
+    /// `// text` and `//text` read alike; further indentation is kept for
+    /// markdown [doc-markdown].
+    pub text: String,
+    /// Whether only whitespace precedes the `//` on its line. A trailing
+    /// comment (`let x = 1 // note`) documents nothing.
+    pub own_line: bool,
 }
 
 /// Lex a full source file into tokens. Never fails: unknown characters are
@@ -22,6 +40,7 @@ struct Lexer<'s> {
     pos: usize,
     tokens: Vec<Token>,
     diagnostics: Vec<Diagnostic>,
+    comments: Vec<Comment>,
     newline_pending: bool,
 }
 
@@ -33,6 +52,7 @@ impl<'s> Lexer<'s> {
             pos: 0,
             tokens: Vec::new(),
             diagnostics: Vec::new(),
+            comments: Vec::new(),
             newline_pending: false,
         }
     }
@@ -55,6 +75,7 @@ impl<'s> Lexer<'s> {
                         }
                         self.bump();
                     }
+                    self.push_comment(start);
                 }
                 '`' if self.peek_at(1) == Some('`') => self.template(start),
                 '"' => self.string(start),
@@ -69,6 +90,7 @@ impl<'s> Lexer<'s> {
         LexResult {
             tokens: self.tokens,
             diagnostics: self.diagnostics,
+            comments: self.comments,
         }
     }
 
@@ -114,6 +136,25 @@ impl<'s> Lexer<'s> {
 
     fn error(&mut self, message: impl Into<String>, span: Span) {
         self.diagnostics.push(Diagnostic::error(message, span));
+    }
+
+    /// Records the `//` comment running from `start` to the current
+    /// position [doc-comment].
+    fn push_comment(&mut self, start: u32) {
+        let span = Span::new(start, self.offset());
+        let raw = &self.source[(start as usize + 2)..span.end as usize];
+        let text = raw.strip_prefix(' ').unwrap_or(raw).to_string();
+        let line_start = self.source[..start as usize]
+            .rfind('\n')
+            .map_or(0, |i| i + 1);
+        let own_line = self.source[line_start..start as usize]
+            .chars()
+            .all(char::is_whitespace);
+        self.comments.push(Comment {
+            span,
+            text,
+            own_line,
+        });
     }
 
     // --- Token scanners ---

@@ -6,6 +6,7 @@ Module {
     items: [
         Effect(
             EffectDecl {
+                docs: [],
                 name: Ident {
                     name: "Console",
                     span: 7..14,
@@ -13,6 +14,9 @@ Module {
                 generics: [],
                 fns: [
                     FnDecl {
+                        docs: [
+                            "Prints to the console without emitting a newline",
+                        ],
                         backing: None,
                         name: Ident {
                             name: "print",
@@ -78,6 +82,7 @@ Module {
         ),
         Handler(
             HandlerDecl {
+                docs: [],
                 backing: Some(
                     External,
                 ),
@@ -105,6 +110,7 @@ Module {
         ),
         Fn(
             FnDecl {
+                docs: [],
                 backing: None,
                 name: Ident {
                     name: "println",

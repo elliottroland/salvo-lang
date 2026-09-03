@@ -31,8 +31,8 @@ use lsp_types::{
     CodeActionProviderCapability, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, LanguageString,
-    Location, MarkedString, OneOf, Position, PublishDiagnosticsParams, Range,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
+    Location, MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range,
     ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
     WorkspaceEdit,
 };
@@ -40,11 +40,12 @@ use lsp_types::{
 use salvo_core::{
     Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, QualEffect, Ty,
 };
-use salvo_syntax::ast::{DeductionKind, Item};
+use salvo_syntax::ast::{BackingMod, DeductionKind, FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
 use crate::analysis::{analyze_sources, Analysis};
+use crate::docs;
 
 /// Runs the server until the client disconnects or asks for shutdown.
 /// `filter`/`native_ext` select a backend's define files, exactly like
@@ -285,16 +286,23 @@ impl Server<'_> {
         Ok(())
     }
 
-    /// Hover contents for the position: a fn's full signature when the
-    /// cursor is on a fn name ([fn-ref-table] — declaration, callee, or
-    /// fn-by-name reference), otherwise the checker's type for the
-    /// smallest expression under the cursor (`Checked::expr_ty`); `None`
-    /// on unknown types or positions without a typed expression.
+    /// Hover contents for the position, as markdown: a `salvo` code block
+    /// with the declaration or type, plus the doc comment of the
+    /// declaration under the cursor [doc-comment].
+    ///
+    /// * a fn name — the full signature with inferred deductions
+    ///   ([fn-ref-table]) and its docs;
+    /// * any other declared name — its declaration line and docs, with a
+    ///   **Fields** section for a struct [doc-struct-fields];
+    /// * anything else — the checker's type for the smallest expression
+    ///   under the cursor (`Checked::expr_ty`), which for a variable is
+    ///   the type *known at that point*, qualifiers included
+    ///   [doc-hover-narrowed].
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
         let doc = &params.text_document_position_params;
         let path = file_path(&doc.text_document.uri)?;
         let analysis = self.analyze()?;
-        let checked = analysis.checked?;
+        let checked = analysis.checked.as_ref()?;
 
         let file_idx = analysis
             .program
@@ -303,6 +311,7 @@ impl Server<'_> {
             .position(|f| !f.is_std && self.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
+        let link = self.doc_linker(&analysis.program);
 
         // A fn name under the cursor hovers as the full signature,
         // including inferred deductions [fn-ref-table].
@@ -320,16 +329,32 @@ impl Server<'_> {
         }
         if let Some((span, key)) = best_ref {
             if let Some(signature) = fn_signature(&analysis.program, &checked, key) {
-                return Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::LanguageString(
-                        LanguageString {
-                            language: "salvo".to_string(),
-                            value: signature,
-                        },
-                    )),
-                    range: Some(span_to_range(content, span)),
+                let decl = match analysis.program.modules[key.file].items.get(key.item) {
+                    Some(Item::Fn(decl)) => Some(decl),
+                    _ => None,
+                };
+                let docs = decl.and_then(|decl| {
+                    let source = &analysis.program.files.get(key.file)?.content;
+                    let scope = docs::fn_scope(
+                        decl,
+                        key.file,
+                        source,
+                        &analysis.program.modules,
+                        &link,
+                    );
+                    docs::render(&decl.docs, &scope)
                 });
+                return Some(markdown_hover(
+                    docs::hover_markdown(&signature, &[docs]),
+                    span_to_range(content, span),
+                ));
             }
+        }
+
+        // Any other declared name: the declaration under the cursor, or
+        // the declaration a name refers to [lsp-definition].
+        if let Some(hover) = self.declaration_hover(&analysis, &checked, file_idx, offset, &link) {
+            return Some(hover);
         }
 
         let mut best: Option<(Span, &Ty)> = None;
@@ -369,24 +394,209 @@ impl Server<'_> {
                  independent value.",
                 roots.join(", ")
             );
-            return Some(Hover {
-                contents: HoverContents::Array(vec![
-                    MarkedString::LanguageString(LanguageString {
-                        language: "salvo".to_string(),
-                        value: format!("ReadOnly {ty}"),
-                    }),
-                    MarkedString::String(detail),
-                ]),
-                range: Some(span_to_range(content, span)),
-            });
+            return Some(markdown_hover(
+                docs::hover_markdown(&format!("ReadOnly {ty}"), &[Some(detail)]),
+                span_to_range(content, span),
+            ));
         }
-        Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
-                language: "salvo".to_string(),
-                value: ty.to_string(),
-            })),
-            range: Some(span_to_range(content, span)),
-        })
+        // The variable's type as narrowed at this position, with its
+        // qualifiers; `repr_ty` holds the declared type whenever flow
+        // analysis narrowed it, which is the fact worth showing next to
+        // it [doc-hover-narrowed].
+        let declared = checked
+            .repr_ty
+            .get(&(file_idx, span))
+            .filter(|d| **d != *ty)
+            .map(|d| {
+                format!(
+                    "Declared as `{d}` — narrowed here by an `is` test or a `when` arm.",
+                )
+            });
+        Some(markdown_hover(
+            docs::hover_markdown(&ty.to_string(), &[declared]),
+            span_to_range(content, span),
+        ))
+    }
+
+    /// A markdown link target for a definition site, or `None` for the
+    /// embedded std (not on disk, so nothing to link to).
+    fn doc_linker<'a>(
+        &'a self,
+        program: &'a Program,
+    ) -> impl Fn(usize, Span) -> Option<String> + 'a {
+        move |file: usize, span: Span| {
+            let target = program.files.get(file)?;
+            if target.is_std {
+                return None;
+            }
+            let target_path = self.root.join(&target.name);
+            let uri = match self.doc_uris.get(&target_path) {
+                Some(uri) => uri.clone(),
+                None => Url::from_file_path(&target_path).ok()?,
+            };
+            let pos = span_to_range(&target.content, span).start;
+            Some(format!("{uri}#L{},{}", pos.line + 1, pos.character + 1))
+        }
+    }
+
+    /// Hover for a declared name: the declaration the cursor sits on, or
+    /// the one a reference points at [lsp-definition]. Structs add a
+    /// **Fields** section [doc-struct-fields].
+    fn declaration_hover(
+        &self,
+        analysis: &Analysis,
+        checked: &Checked,
+        file_idx: usize,
+        offset: u32,
+        link: &dyn Fn(usize, Span) -> Option<String>,
+    ) -> Option<Hover> {
+        let content = &analysis.program.files[file_idx].content;
+        // The name the cursor is on: a reference to a declaration
+        // (`def_refs`) or to a field (`field_refs`), else a declaration's
+        // own name span in this file.
+        let mut site: Option<(Span, DefSite)> = None;
+        for ((file, span), target) in checked.def_refs.iter().chain(&checked.field_refs) {
+            if *file != file_idx {
+                continue;
+            }
+            if span.start <= offset
+                && offset < span.end
+                && site.is_none_or(|(b, _)| span.len() < b.len())
+            {
+                site = Some((*span, *target));
+            }
+        }
+        let (span, target) = match site {
+            Some(found) => found,
+            None => {
+                let items = &analysis.program.modules.get(file_idx)?.items;
+                let hit = |s: Span| s.start <= offset && offset < s.end;
+                let name_span = decl_name_span_at(items, &hit)?;
+                (
+                    name_span,
+                    DefSite {
+                        file: file_idx,
+                        span: name_span,
+                    },
+                )
+            }
+        };
+
+        let items = &analysis.program.modules.get(target.file)?.items;
+        let found = decl_at(items, &|s: Span| s == target.span)?;
+        let source = &analysis.program.files.get(target.file)?.content;
+        let scope = |locals: Vec<(String, Span)>| docs::DocScope {
+            locals,
+            file: target.file,
+            source,
+            modules: &analysis.program.modules,
+            link,
+        };
+        let (signature, body, fields) = match found {
+            DeclAt::Struct(s) => {
+                let scope = docs::struct_scope(
+                    s,
+                    target.file,
+                    source,
+                    &analysis.program.modules,
+                    link,
+                );
+                let fields = docs::field_section(&s.fields, &scope);
+                (struct_signature(s), docs::render(&s.docs, &scope), fields)
+            }
+            DeclAt::Qualifier(q) => {
+                // Members (`qualifies`, constructors) are in scope for
+                // `[symbol]` references in the qualifier's own docs.
+                let scope = scope(
+                    q.fns
+                        .iter()
+                        .map(|f| (f.name.name.clone(), f.name.span))
+                        .collect(),
+                );
+                (
+                    qualifier_signature(q),
+                    docs::render(&q.docs, &scope),
+                    None,
+                )
+            }
+            DeclAt::Effect(e) => {
+                let scope = scope(
+                    e.fns
+                        .iter()
+                        .map(|f| (f.name.name.clone(), f.name.span))
+                        .collect(),
+                );
+                (effect_signature(e), docs::render(&e.docs, &scope), None)
+            }
+            DeclAt::Handler(h) => {
+                let scope = scope(
+                    h.fns
+                        .iter()
+                        .map(|f| (f.name.name.clone(), f.name.span))
+                        .chain(h.params.iter().map(|p| (p.name.name.clone(), p.name.span)))
+                        .chain(h.state.iter().map(|f| (f.name.name.clone(), f.name.span)))
+                        .collect(),
+                );
+                (handler_signature(h), docs::render(&h.docs, &scope), None)
+            }
+            DeclAt::Type(t) => {
+                let scope = scope(Vec::new());
+                (type_signature(t), docs::render(&t.docs, &scope), None)
+            }
+            // A field: its own declaration line, whose declares it, and
+            // its docs [doc-struct-fields].
+            DeclAt::Field {
+                owner,
+                siblings,
+                decl,
+            } => {
+                let scope = scope(siblings);
+                let default = decl
+                    .default
+                    .as_ref()
+                    .and_then(|e| {
+                        let s = e.span();
+                        source
+                            .get(s.start as usize..s.end as usize)
+                            .map(|text| format!(" = {text}"))
+                    })
+                    .unwrap_or_default();
+                (
+                    format!("{}: {}{}", decl.name.name, decl.ty, default),
+                    docs::render(&decl.docs, &scope),
+                    Some(format!("Field of {owner}.")),
+                )
+            }
+            // An effect, handler, or qualifier member fn: its signature
+            // rendered from the declaration (members have no `FnKey`, so
+            // there are no inferred deductions to show) [doc-comment].
+            DeclAt::Member {
+                owner,
+                siblings,
+                decl,
+            } => {
+                // The member's own parameters and generics, then the
+                // owner's names (state, sibling members)
+                // [doc-symbol-ref].
+                let mut scope = docs::fn_scope(
+                    decl,
+                    target.file,
+                    source,
+                    &analysis.program.modules,
+                    link,
+                );
+                scope.locals.extend(siblings);
+                (
+                    fn_decl_signature(decl, None),
+                    docs::render(&decl.docs, &scope),
+                    Some(format!("Member of {owner}.")),
+                )
+            }
+        };
+        Some(markdown_hover(
+            docs::hover_markdown(&signature, &[body, fields]),
+            span_to_range(content, span),
+        ))
     }
 
     /// Go-to-definition [lsp-definition]: a fn name resolves through
@@ -427,7 +637,8 @@ impl Server<'_> {
                 consider(*span, site, &mut best);
             }
         }
-        for ((file, span), site) in &checked.def_refs {
+        // Declared names and fields alike [lsp-definition].
+        for ((file, span), site) in checked.def_refs.iter().chain(&checked.field_refs) {
             if *file != file_idx {
                 continue;
             }
@@ -541,12 +752,295 @@ fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
 /// fn greet(person: Person) [Console] -> [person] None
 /// fn ok<T>(value: T) -> [] T as Ok
 /// ```
+/// A declaration found at a name span, including the ones nested inside
+/// another declaration's body.
+enum DeclAt<'a> {
+    Struct(&'a salvo_syntax::ast::StructDecl),
+    Qualifier(&'a salvo_syntax::ast::QualifierDecl),
+    Effect(&'a salvo_syntax::ast::EffectDecl),
+    Handler(&'a salvo_syntax::ast::HandlerDecl),
+    Type(&'a salvo_syntax::ast::TypeDecl),
+    /// A struct field, handler state field, or qualifier field override.
+    Field {
+        owner: String,
+        /// The owner's own names, in scope for `[symbol]` references
+        /// [doc-symbol-ref].
+        siblings: Vec<(String, Span)>,
+        decl: &'a salvo_syntax::ast::FieldDecl,
+    },
+    /// A member fn of an effect, handler, or qualifier.
+    Member {
+        owner: String,
+        siblings: Vec<(String, Span)>,
+        decl: &'a FnDecl,
+    },
+}
+
+/// The names a declaration brings into scope for its members' docs:
+/// fields, state, constructor parameters and member fns.
+fn own_names(item: &Item) -> Vec<(String, Span)> {
+    let idents = |names: Vec<(&str, Span)>| -> Vec<(String, Span)> {
+        names.into_iter().map(|(n, s)| (n.to_string(), s)).collect()
+    };
+    match item {
+        Item::Struct(s) => idents(
+            s.fields
+                .iter()
+                .map(|f| (f.name.name.as_str(), f.name.span))
+                .collect(),
+        ),
+        Item::Qualifier(q) => idents(
+            q.field_overrides
+                .iter()
+                .map(|f| (f.name.name.as_str(), f.name.span))
+                .chain(q.fns.iter().map(|f| (f.name.name.as_str(), f.name.span)))
+                .collect(),
+        ),
+        Item::Effect(e) => idents(
+            e.fns
+                .iter()
+                .map(|f| (f.name.name.as_str(), f.name.span))
+                .collect(),
+        ),
+        Item::Handler(h) => idents(
+            h.state
+                .iter()
+                .map(|f| (f.name.name.as_str(), f.name.span))
+                .chain(h.params.iter().map(|p| (p.name.name.as_str(), p.name.span)))
+                .chain(h.fns.iter().map(|f| (f.name.name.as_str(), f.name.span)))
+                .collect(),
+        ),
+        _ => Vec::new(),
+    }
+}
+
+/// The declaration whose *name* span satisfies `hit`. Searches top-level
+/// declarations and the ones nested in their bodies — struct fields,
+/// handler state, effect/handler/qualifier member fns — so hover and
+/// go-to-definition reach all of them.
+fn decl_at<'a>(items: &'a [Item], hit: &dyn Fn(Span) -> bool) -> Option<DeclAt<'a>> {
+    for item in items {
+        match item {
+            Item::Struct(s) => {
+                if hit(s.name.span) {
+                    return Some(DeclAt::Struct(s));
+                }
+                if let Some(f) = s.fields.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Field {
+                        owner: format!("struct `{}`", s.name.name),
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+            }
+            Item::Qualifier(q) => {
+                if hit(q.name.span) {
+                    return Some(DeclAt::Qualifier(q));
+                }
+                let owner = format!("qualifier `{}`", q.name.name);
+                if let Some(f) = q.field_overrides.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Field {
+                        owner: format!("{owner} (field override)"),
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+                if let Some(f) = q.fns.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Member {
+                        owner,
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+            }
+            Item::Effect(e) => {
+                if hit(e.name.span) {
+                    return Some(DeclAt::Effect(e));
+                }
+                if let Some(f) = e.fns.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Member {
+                        owner: format!("effect `{}`", e.name.name),
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+            }
+            Item::Handler(h) => {
+                if hit(h.name.span) {
+                    return Some(DeclAt::Handler(h));
+                }
+                let owner = format!("handler `{}`", h.name.name);
+                if let Some(f) = h.state.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Field {
+                        owner: format!("{owner} (state)"),
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+                if let Some(f) = h.fns.iter().find(|f| hit(f.name.span)) {
+                    return Some(DeclAt::Member {
+                        owner,
+                        siblings: own_names(item),
+                        decl: f,
+                    });
+                }
+            }
+            Item::Type(t) => {
+                if hit(t.name.span) {
+                    return Some(DeclAt::Type(t));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The name span of the declaration satisfying `hit`, for locating the
+/// declaration the cursor sits on.
+fn decl_name_span_at(items: &[Item], hit: &dyn Fn(Span) -> bool) -> Option<Span> {
+    Some(match decl_at(items, hit)? {
+        DeclAt::Struct(s) => s.name.span,
+        DeclAt::Qualifier(q) => q.name.span,
+        DeclAt::Effect(e) => e.name.span,
+        DeclAt::Handler(h) => h.name.span,
+        DeclAt::Type(t) => t.name.span,
+        DeclAt::Field { decl, .. } => decl.name.span,
+        DeclAt::Member { decl, .. } => decl.name.span,
+    })
+}
+
+/// A hover whose contents are markdown [doc-markdown].
+fn markdown_hover(value: String, range: Range) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: Some(range),
+    }
+}
+
+/// A struct's declaration line, without its body: `struct Person canbe Mut`.
+fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
+    let mut sig = format!("struct {}", decl.name.name);
+    if !decl.generics.is_empty() {
+        let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
+        sig.push_str(&format!("<{}>", generics.join(", ")));
+    }
+    if !decl.auto_qualifiers.is_empty() {
+        let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
+        sig.push_str(&format!(" canbe {}", quals.join(", ")));
+    }
+    sig
+}
+
+fn generic_list(generics: &[salvo_syntax::ast::Ident]) -> String {
+    if generics.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = generics.iter().map(|g| g.name.as_str()).collect();
+    format!("<{}>", names.join(", "))
+}
+
+/// `provenance qualifier Authenticated of Request with Old`.
+fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
+    let mut sig = String::new();
+    if decl.subject == QualSubject::Provenance {
+        sig.push_str("provenance ");
+    }
+    sig.push_str(&format!(
+        "qualifier {}{} of {}",
+        decl.name.name,
+        generic_list(&decl.generics),
+        decl.of
+    ));
+    if !decl.with.is_empty() {
+        let with: Vec<String> = decl.with.iter().map(|w| w.to_string()).collect();
+        sig.push_str(&format!(" with {}", with.join(", ")));
+    }
+    sig
+}
+
+/// `effect Random<T>` plus its member signatures, which are the whole
+/// point of hovering an effect.
+fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
+    let mut sig = format!("effect {}{}", decl.name.name, generic_list(&decl.generics));
+    if !decl.fns.is_empty() {
+        sig.push_str(" {");
+        for f in &decl.fns {
+            let params: Vec<String> = f
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name.name, p.ty))
+                .collect();
+            let ret = match &f.return_type {
+                Some(t) => format!(" -> {t}"),
+                None => String::new(),
+            };
+            sig.push_str(&format!("\n    fn {}({}){}", f.name.name, params.join(", "), ret));
+        }
+        sig.push_str("\n}");
+    }
+    sig
+}
+
+/// `handler CyclicRandom<T>(values: List<T>) of Random<T>`.
+fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
+    let params: Vec<String> = decl
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name.name, p.ty))
+        .collect();
+    let params = if params.is_empty() {
+        String::new()
+    } else {
+        format!("({})", params.join(", "))
+    };
+    format!(
+        "handler {}{}{} of {}",
+        decl.name.name,
+        generic_list(&decl.generics),
+        params,
+        decl.of
+    )
+}
+
+/// `type Number = Int | Long`, or `external type List<T> canbe Mut`.
+fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
+    let mut sig = String::new();
+    match decl.backing {
+        Some(BackingMod::Internal) => sig.push_str("internal "),
+        Some(BackingMod::External) => sig.push_str("external "),
+        None => {}
+    }
+    sig.push_str(&format!(
+        "type {}{}",
+        decl.name.name,
+        generic_list(&decl.generics)
+    ));
+    if !decl.auto_qualifiers.is_empty() {
+        let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
+        sig.push_str(&format!(" canbe {}", quals.join(", ")));
+    }
+    if let Some(alias) = &decl.alias {
+        sig.push_str(&format!(" = {alias}"));
+    }
+    sig
+}
+
 fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<String> {
     let module = program.modules.get(key.file)?;
     let Item::Fn(decl) = module.items.get(key.item)? else {
         return None;
     };
+    Some(fn_decl_signature(decl, checked.deductions.get(&key).map(|d| d.as_slice())))
+}
 
+/// A fn's source-like signature. `inferred` is the whole-program deduction
+/// list when there is one — effect and handler members have no `FnKey`, so
+/// they render their declared list only [doc-comment].
+fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
     let mut sig = String::from("fn ");
     sig.push_str(&decl.name.name);
     if !decl.generics.is_empty() {
@@ -577,7 +1071,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     // produced one, else the declared list. Kept params render with their
     // remaining qualifiers (`name:` when a qualified param keeps none);
     // moved params are omitted [deduce-syntax].
-    if let Some(deductions) = checked.deductions.get(&key) {
+    if let Some(deductions) = inferred {
         sig.push_str(&format!(" {}", render_deductions(deductions, decl)));
     } else if let Some(declared) = &decl.deductions {
         let names = |items: &[salvo_syntax::ast::TypeRef]| -> Vec<String> {
@@ -615,7 +1109,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
     if let Some(cref) = &decl.constructs {
         sig.push_str(&format!(" as {cref}"));
     }
-    Some(sig)
+    sig
 }
 
 /// Renders an effective deduction list [deduce-syntax]: moved parameters

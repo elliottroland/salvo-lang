@@ -118,6 +118,10 @@ pub struct Checked {
     /// name mapped to where its declaration's identifier is written.
     /// Drives go-to-definition for everything `fn_refs` does not cover.
     pub def_refs: HashMap<Key, DefSite>,
+    /// Field accesses [lsp-definition]: the span of the field *name* in
+    /// `base.field` mapped to where the field's declaration is written.
+    /// Drives go-to-definition and doc hover on fields [doc-comment].
+    pub field_refs: HashMap<Key, DefSite>,
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
@@ -620,6 +624,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.own_contract = None;
                 }                Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
+                    for p in &h.params {
+                        self.validate_type(&p.ty);
+                    }
+                    for field in &h.state {
+                        self.validate_type(&field.ty);
+                    }
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
                         self.check_fn(f, &h.params, &h.state);
@@ -627,10 +637,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.generics = saved;
                 }
                 Item::Effect(e) => {
+                    let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
                         self.require_explicit_member(f);
+                        // Member signatures are declaration sites like any
+                        // other, but no body is checked, so validate them
+                        // here [name-resolve].
+                        let inner = self.enter_generics(&f.generics);
+                        for p in &f.params {
+                            self.validate_type(&p.ty);
+                        }
+                        if let Some(rt) = &f.return_type {
+                            self.validate_type(rt);
+                        }
+                        self.generics = inner;
                     }
+                    self.generics = saved;
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
@@ -642,7 +665,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
+                    self.validate_auto_quals(&s.auto_qualifiers);
                     for field in &s.fields {
+                        self.validate_type(&field.ty);
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(&field.ty);
                             self.locals.push(HashMap::new());
@@ -652,8 +677,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     self.generics = saved;
                 }
+                Item::Type(t) => {
+                    let saved = self.enter_generics(&t.generics);
+                    self.validate_auto_quals(&t.auto_qualifiers);
+                    if let Some(alias) = &t.alias {
+                        self.validate_type(alias);
+                    }
+                    self.generics = saved;
+                }
                 _ => {}
             }
+        }
+    }
+
+    /// [canbe-optin] A `canbe` clause names one of the compiler's
+    /// permission/obligation qualifiers; user qualifiers are applied in
+    /// types, not granted by opt-in.
+    fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
+        for q in quals {
+            if matches!(q.name.name.as_str(), "Mut" | "Linear") {
+                continue;
+            }
+            self.error(
+                q.span,
+                format!(
+                    "only `Mut` and `Linear` can be opted into with `canbe` \
+                     (found `{}`)",
+                    q.name.name
+                ),
+            );
         }
     }
 
@@ -820,6 +872,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
             let ty = self.lower_type(&p.ty);
+            // Parameter names hover like the variables they are
+            // [doc-hover-narrowed].
+            self.out
+                .expr_ty
+                .entry(self.key(p.name.span))
+                .or_insert_with(|| ty.clone());
             let id = self.next_var_id;
             self.next_var_id += 1;
             top.insert(
@@ -840,6 +898,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for field in state {
             let ty = self.lower_type(&field.ty);
+            self.out
+                .expr_ty
+                .entry(self.key(field.name.span))
+                .or_insert_with(|| ty.clone());
             let id = self.next_var_id;
             self.next_var_id += 1;
             top.insert(
@@ -1113,6 +1175,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         is_param: bool,
         for_origin: Option<Span>,
     ) {
+        // A declared *name* is not an expression, but tooling hovers it
+        // like one: record its type so hover answers on the declaration
+        // (parameter, `let`, `is`/`for` binding) and not only on uses
+        // [doc-hover-narrowed]. `or_insert` keeps a more specific entry
+        // an earlier pass recorded for the same span.
+        self.out
+            .expr_ty
+            .entry(self.key(name.span))
+            .or_insert_with(|| ty.clone());
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
@@ -2560,15 +2631,72 @@ impl<'p, 'r> Checker<'p, 'r> {
         ty
     }
 
+    // ================= name resolution =================
+
+    /// Whether `name` is usable as a written *type* name [name-resolve]:
+    /// a struct, an `internal`/`external type`, a type alias, an effect
+    /// (effect lists are written as types), or the language-level `None`
+    /// (which has no declaration). Generic parameters are resolved by the
+    /// caller, before this is consulted.
+    fn type_name_exists(&self, name: &str) -> bool {
+        name == "None"
+            || self.scope.structs.contains_key(name)
+            || self.scope.opaque_types.contains_key(name)
+            || self.scope.type_aliases.contains_key(name)
+            || self.scope.effects.contains_key(name)
+    }
+
+    /// Whether `name` is usable as a written *qualifier* name
+    /// [name-resolve]: a declared qualifier, or one of the compiler's
+    /// intrinsic ones (which have no declaration to find — their
+    /// position-specific rules are enforced by `validate_quals`).
+    fn qual_name_exists(&self, name: &str) -> bool {
+        matches!(name, "Mut" | "Linear" | "Once") || self.scope.is_qualifier(name)
+    }
+
+    /// Reports a written name in a type position that resolves to nothing
+    /// visible [name-resolve]. `expect_qual` picks the wording and the
+    /// namespace searched.
+    fn require_name(&mut self, r: &TypeRef, expect_qual: bool) {
+        let name = r.name.name.as_str();
+        if self.generics.contains(name) {
+            return;
+        }
+        let known = if expect_qual {
+            self.qual_name_exists(name)
+        } else {
+            self.type_name_exists(name)
+        };
+        if known {
+            return;
+        }
+        let what = if expect_qual { "qualifier" } else { "type" };
+        // A name that exists in the *other* namespace is a position
+        // mistake, not a missing declaration: say so instead of
+        // suggesting an import that would not help.
+        let hint = if expect_qual && self.type_name_exists(name) {
+            format!(" (`{name}` is a type, not a qualifier)")
+        } else if !expect_qual && self.qual_name_exists(name) {
+            format!(" (`{name}` is a qualifier, not a type)")
+        } else {
+            String::new()
+        };
+        let name = name.to_string();
+        self.error_unresolved(r.span, format!("unknown {what} `{name}`{hint}"), &name);
+    }
+
     // ================= qualifier validation =================
 
-    /// Validates every qualifier application inside a written type:
-    /// duplicates, `of`-type applicability, and pairwise `with`
-    /// compatibility. Called at declaration sites (fn signatures, `let`
-    /// annotations, struct fields) so each error is reported once.
+    /// Validates a written type: every name resolves [name-resolve], and
+    /// every qualifier application is well formed — duplicates,
+    /// `of`-type applicability, pairwise `with` compatibility. Called at
+    /// declaration sites (fn signatures, `let` annotations, struct
+    /// fields, ...) so each error is reported once; type *lowering* runs
+    /// repeatedly and stays silent.
     fn validate_type(&mut self, ty: &ast::Type) {
         match ty {
             ast::Type::Named { qualifiers, base } => {
+                self.require_name(base, false);
                 for a in &base.args {
                     self.validate_type(a);
                 }
@@ -2608,6 +2736,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn validate_quals(&mut self, qualifiers: &[TypeRef], base: &Ty) {
+        // Every applied qualifier names a declaration [name-resolve].
+        for q in qualifiers {
+            self.require_name(q, true);
+            for a in &q.args {
+                self.validate_type(a);
+            }
+        }
         // The same qualifier cannot be applied twice [qual-no-dup].
         for (i, q) in qualifiers.iter().enumerate() {
             if qualifiers[..i].iter().any(|p| p.name.name == q.name.name) {
@@ -2765,6 +2900,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
     fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
         self.validate_type(&q.of);
+        // [qual-with] Compatibility clauses name other qualifiers
+        // [name-resolve].
+        for w in &q.with {
+            self.require_name(w, true);
+        }
         let of_ty = self.lower_type(&q.of);
         match &of_ty {
             Ty::Union(_) => self.error(
@@ -3117,6 +3257,9 @@ struct CheckPat {
     quals: Vec<String>,
     base: Option<Ty>,
     is_none: bool,
+    /// A name in the check resolved to nothing and was reported
+    /// [name-resolve]: downstream match diagnostics are suppressed.
+    unresolved: bool,
 }
 
 /// The outcome of analyzing one `is` expression.
@@ -3777,6 +3920,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // A predicate-qualifier field override refines the type
                 // [qual-field-override];
                 // the backend casts + asserts at the access site.
+                // [lsp-definition] the field name points at its
+                // declaration in the struct.
+                self.record_field_ref(&base_ty, field);
                 if let Some(override_ty) = self.field_override_ty(&base_ty, &field.name) {
                     self.out
                         .field_casts
@@ -3829,6 +3975,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let empty = HashMap::new();
+                self.require_name(elem_type, false);
                 let elem = self.lower_base_ref(elem_type, &empty, 0);
                 self.check_expr(size, Some(&Ty::named("Int")));
                 let init_ty = Ty::Fn {
@@ -4064,6 +4211,34 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
             Expr::Error { .. } => Ty::Unknown,
         }
+    }
+
+    /// Records where an accessed field is declared [lsp-definition]. The
+    /// struct's own field, even when a predicate qualifier overrides its
+    /// type [qual-field-override]: the override refines the field, it does
+    /// not replace the declaration.
+    fn record_field_ref(&mut self, base_ty: &Ty, field: &Ident) {
+        let Ty::Named { name, .. } = base_ty.strip_quals() else {
+            return;
+        };
+        let Some(decl) = self.scope.structs.get(name.as_str()).copied() else {
+            return;
+        };
+        let Some(f) = decl.fields.iter().find(|f| f.name.name == field.name) else {
+            return;
+        };
+        // The struct's `DefSite` names the file it was declared in; the
+        // field span comes from that same declaration.
+        let Some(site) = self.scope.def_sites.get(name.as_str()).copied() else {
+            return;
+        };
+        self.out.field_refs.insert(
+            self.key(field.span),
+            DefSite {
+                file: site.file,
+                span: f.name.span,
+            },
+        );
     }
 
     fn field_ty_or_error(&mut self, base_ty: &Ty, field: &Ident) -> Ty {
@@ -4660,7 +4835,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Runtime lowering against the declared union representation
             // [is-narrowing] [is-precise].
             self.out.is_tests.insert(self.key(*span), test);
-        } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) {
+        } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) && !pat.unresolved {
             // [qual-constructive] no runtime test exists for constructive
             // qualifiers on non-union values.
             let constructive = pat.quals.iter().find(|q| {
@@ -4688,6 +4863,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         // Narrowing math on the logical (possibly already narrowed) type.
         let (matched, remaining) = match &subj_ty {
+            // An unresolved check name was already reported: keep the
+            // subject's type and narrow nothing, so nothing cascades
+            // [name-resolve].
+            _ if pat.unresolved => (subj_ty.clone(), None),
             Ty::Union(arms) => {
                 let (m, r): (Vec<Ty>, Vec<Ty>) = arms
                     .iter()
@@ -4747,29 +4926,55 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Splits an `is` check into qualifier names and an optional base type.
+    /// Names that resolve to nothing are reported here [name-resolve] and
+    /// mark the pattern `unresolved`, which suppresses the match-arm
+    /// diagnostics downstream (an unresolved name matches nothing, and
+    /// "this check can never succeed" would only mislead).
     fn parse_check(&mut self, check: &[TypeRef]) -> CheckPat {
         if check.len() == 1 && check[0].name.name == "None" && check[0].args.is_empty() {
             return CheckPat {
                 quals: Vec::new(),
                 base: None,
                 is_none: true,
+                unresolved: false,
             };
         }
         let mut quals = Vec::new();
         let mut base = None;
+        let mut unresolved = false;
         for (i, r) in check.iter().enumerate() {
             let last = i + 1 == check.len();
-            if self.scope.is_qualifier(&r.name.name) || !last {
+            let name = r.name.name.as_str();
+            let is_qual = self.qual_name_exists(name) || self.generics.contains(name);
+            let is_type = self.type_name_exists(name) || self.generics.contains(name);
+            // Every position but the last is a qualifier; the last is a
+            // qualifier when it names one, else the checked base type.
+            if !last || self.qual_name_exists(name) {
+                if !is_qual {
+                    self.require_name(r, true);
+                    unresolved = true;
+                }
                 quals.push(r.name.name.clone());
-            } else {
+            } else if is_type {
                 let empty = HashMap::new();
                 base = Some(self.lower_base_ref(r, &empty, 0));
+            } else {
+                // Both namespaces are admissible here, so neither wording
+                // fits on its own.
+                let name = name.to_string();
+                self.error_unresolved(
+                    r.span,
+                    format!("unknown type or qualifier `{name}`"),
+                    &name,
+                );
+                unresolved = true;
             }
         }
         CheckPat {
             quals,
             base,
             is_none: false,
+            unresolved,
         }
     }
 
@@ -4921,6 +5126,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut branch_tys = Vec::new();
         let mut tails: Vec<Option<TailInfo>> = Vec::new();
         let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
+        // A branch whose check named something unresolved cannot be
+        // matched against the arms; its diagnostics — and the
+        // exhaustiveness verdict, which the unmatched arms would falsify
+        // — are suppressed [name-resolve].
+        let mut unresolved_check = false;
         for branch in branches {
             let pat = self.parse_check(&branch.check);
             let matched: Vec<Ty> = remaining
@@ -4928,7 +5138,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|arm| self.arm_matches(arm, &pat))
                 .cloned()
                 .collect();
-            if matched.is_empty() {
+            if pat.unresolved {
+                unresolved_check = true;
+            } else if matched.is_empty() {
                 self.error(
                     branch.span,
                     "this `when` branch matches no remaining union arm",
@@ -4970,7 +5182,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             remaining.retain(|arm| !matched.contains(arm));
         }
         self.merge_fallthrough(&fallthrough, span);
-        if !remaining.is_empty() {
+        if !remaining.is_empty() && !unresolved_check {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
             self.error(
                 span,
