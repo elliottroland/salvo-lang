@@ -876,7 +876,7 @@ fn l2_move_sites_consume_roots() {
     fs::write(
         dir.join("main.sv"),
         "struct Box {\n    item: Str\n}\n\n\
-         effect Greeter {\n    fn greet() -> Str\n}\n\n\
+         effect Greeter {\n    fn greet() -> [] Str\n}\n\n\
          handler FixedGreeter(text: Str) of Greeter {\n    \
          fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
          fn read(s: Str) -> [s] None {\n}\n\n\
@@ -961,7 +961,7 @@ fn l2_move_sites_remedies_stay_clean() {
     fs::write(
         dir.join("main.sv"),
         "struct Box {\n    item: Str\n}\n\n\
-         effect Greeter {\n    fn greet() -> Str\n}\n\n\
+         effect Greeter {\n    fn greet() -> [] Str\n}\n\n\
          handler FixedGreeter(text: Str) of Greeter {\n    \
          fn greet() -> Str {\n        return \"hi\"\n    }\n}\n\n\
          fn read(s: Str) -> [s] None {\n}\n\n\
@@ -1610,7 +1610,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         dir.join("main.sv"),
         format!(
             "{prelude}\
-             external fn clear(list: Mut List<Int>) -> [list: Mut] None\n\n\
+             external fn clear(list: Mut List<Int>) [] -> [list: Mut] None\n\n\
              fn describe(list: NonEmpty Mut List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
@@ -1645,7 +1645,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              qualifier Checked of List<Int> {{\n    \
              fn qualifies(list: List<Int>) -> Bool {{\n        \
              return true\n    }}\n}}\n\n\
-             external fn forget_nonempty(list: NonEmpty List<Int>) -> \
+             external fn forget_nonempty(list: NonEmpty List<Int>) [] -> \
              [list: -NonEmpty] None\n\n\
              fn needs_checked(list: Checked List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
@@ -1664,22 +1664,33 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         "the delta form must preserve `Checked`: {stderr}"
     );
 
-    // ...and a bodyless fn with a `Mut` parameter may not use it: taking
-    // `Mut` is taking permission to invalidate.
+    // ...including on a bodyless fn with a `Mut` parameter: an external's
+    // declaration *is* its contract [decl-explicit], so the delta is
+    // trusted rather than second-guessed. Catching a *wrong* external
+    // declaration is roadmap item E2 (heuristics over the define
+    // template), not a rule that overrides the author here.
     fs::write(
         dir.join("main.sv"),
         format!(
             "{prelude}\
-             external fn touch(list: Mut List<Int>) -> [list: -NonEmpty] None\n"
+             external fn touch(list: Mut List<Int>) [] -> [list: -NonEmpty] None\n\n\
+             fn describe(list: Checked Mut List<Int>) -> Int {{\n    \
+             return list.size()\n}}\n\n\
+             qualifier Checked of List<Int> {{\n    \
+             fn qualifies(list: List<Int>) -> Bool {{\n        \
+             return true\n    }}\n}}\n\n\
+             fn main() [use] {{\n    use StdOutConsole\n    \
+             let xs = mutable_list(1)\n    \
+             if xs is Checked {{\n        touch(xs)\n        \
+             println(\"${{describe(xs)}}\")\n    }}\n}}\n"
         ),
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success());
     assert!(
-        stderr.contains("cannot drop qualifiers selectively"),
-        "stderr: {stderr}"
+        out.status.success(),
+        "an external's declared delta is trusted: {stderr}"
     );
 
     // A mutating body may not keep everything.
@@ -1742,6 +1753,99 @@ fn deduction_entry_forms_are_validated() {
     assert!(!out.status.success());
     assert!(
         stderr.contains("type narrowing in deductions is not supported yet"),
+        "stderr: {stderr}"
+    );
+}
+
+// [decl-explicit] Bodyless declarations carry no inference: `external`
+// and `internal` fns must state effects, deductions, and return type, and
+// effect members must state deductions and return type. The declaration is
+// then a real contract — a member that takes ownership consumes its
+// argument at the call site.
+#[test]
+fn bodyless_declarations_must_be_explicit() {
+    let dir = src_dir("decl_explicit");
+
+    // An external missing all three.
+    fs::write(
+        dir.join("main.sv"),
+        "external fn mystery(x: Int)\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    for needle in [
+        "external fn `mystery` must declare its return type",
+        "external fn `mystery` must declare its effect list",
+        "external fn `mystery` must declare its deduction list",
+    ] {
+        assert!(stderr.contains(needle), "stderr: {stderr}");
+    }
+
+    // An effect member missing the two that apply to it (effects are
+    // forbidden there [effect-member-no-effects], so they are not asked
+    // for).
+    fs::write(
+        dir.join("main.sv"),
+        "effect Sink {\n    fn eat(x: Int)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("effect member `eat` must declare its return type")
+            && stderr.contains("effect member `eat` must declare its deduction list"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("effect member `eat` must declare its effect list"),
+        "members may not declare effects at all: {stderr}"
+    );
+
+    // The member's declared deductions are enforced: `[]` moves `h`, so
+    // the later read is an error (this was silently accepted before).
+    fs::write(
+        dir.join("main.sv"),
+        "struct Handle {\n    id: Int\n}\n\n\
+         effect Sink {\n    fn eat(h: Handle) -> [] None\n}\n\n\
+         handler Bin of Sink {\n    fn eat(h: Handle) -> [] None {\n        \
+         discard(h)\n    }\n}\n\n\
+         fn main() [use] -> [] None {\n    use StdOutConsole\n    use Bin\n    \
+         let h = Handle {id: 1}\n    eat(h)\n    println(\"${h.id}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`h` cannot be used here: it was consumed (moved)"),
+        "stderr: {stderr}"
+    );
+}
+
+// [decl-explicit] std's `add` takes ownership of the element: the list
+// owns it now. Before bodyless declarations became explicit this was
+// inferred as *kept*, so the program below compiled on Kotlin and was
+// rejected by rustc — a backend divergence the checker now catches.
+#[test]
+fn std_add_consumes_its_element() {
+    let dir = src_dir("decl_add_moves");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Handle {\n    id: Int\n}\n\n\
+         fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+         let xs = mutable_list(Handle {id: 1})\n    \
+         let h = Handle {id: 2}\n    add(xs, h)\n    \
+         println(\"${h.id}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`h` cannot be used here: it was consumed (moved)"),
         "stderr: {stderr}"
     );
 }

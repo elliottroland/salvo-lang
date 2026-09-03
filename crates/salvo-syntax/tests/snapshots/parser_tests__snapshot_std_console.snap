@@ -43,14 +43,37 @@ Module {
                             },
                         ],
                         effects: None,
-                        deductions: None,
-                        return_type: None,
+                        deductions: Some(
+                            [
+                                Deduction {
+                                    param: Ident {
+                                        name: "message",
+                                        span: 104..111,
+                                    },
+                                    kind: KeepAll,
+                                    span: 104..111,
+                                },
+                            ],
+                        ),
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "None",
+                                        span: 113..117,
+                                    },
+                                    args: [],
+                                    span: 113..117,
+                                },
+                            },
+                        ),
                         constructs: None,
                         body: None,
-                        span: 77..85,
+                        span: 77..117,
                     },
                 ],
-                span: 0..101,
+                span: 0..119,
             },
         ),
         Handler(
@@ -60,7 +83,7 @@ Module {
                 ),
                 name: Ident {
                     name: "StdOutConsole",
-                    span: 120..133,
+                    span: 138..151,
                 },
                 generics: [],
                 params: [],
@@ -69,15 +92,15 @@ Module {
                     base: TypeRef {
                         name: Ident {
                             name: "Console",
-                            span: 137..144,
+                            span: 155..162,
                         },
                         args: [],
-                        span: 137..144,
+                        span: 155..162,
                     },
                 },
                 state: [],
                 fns: [],
-                span: 112..144,
+                span: 130..162,
             },
         ),
         Fn(
@@ -85,7 +108,7 @@ Module {
                 backing: None,
                 name: Ident {
                     name: "println",
-                    span: 149..156,
+                    span: 167..174,
                 },
                 generics: [],
                 generic_with: [],
@@ -94,21 +117,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "message",
-                            span: 157..164,
+                            span: 175..182,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 166..169,
+                                    span: 184..187,
                                 },
                                 args: [],
-                                span: 166..169,
+                                span: 184..187,
                             },
                         },
                         variadic: false,
-                        span: 157..169,
+                        span: 175..187,
                     },
                 ],
                 effects: Some(
@@ -117,10 +140,10 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 172..179,
+                                    span: 190..197,
                                 },
                                 args: [],
-                                span: 172..179,
+                                span: 190..197,
                             },
                         ),
                     ],
@@ -132,10 +155,10 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 184..188,
+                                span: 202..206,
                             },
                             args: [],
-                            span: 184..188,
+                            span: 202..206,
                         },
                     },
                 ),
@@ -148,7 +171,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 195..200,
+                                            span: 213..218,
                                         },
                                     ),
                                     type_args: [],
@@ -156,11 +179,11 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 201..208,
+                                                span: 219..226,
                                             },
                                         ),
                                     ],
-                                    span: 195..209,
+                                    span: 213..227,
                                 },
                             ),
                             Expr(
@@ -168,7 +191,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 214..219,
+                                            span: 232..237,
                                         },
                                     ),
                                     type_args: [],
@@ -179,17 +202,17 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 220..224,
+                                            span: 238..242,
                                         },
                                     ],
-                                    span: 214..225,
+                                    span: 232..243,
                                 },
                             ),
                         ],
-                        span: 189..227,
+                        span: 207..245,
                     },
                 ),
-                span: 146..227,
+                span: 164..245,
             },
         ),
     ],

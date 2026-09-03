@@ -10,11 +10,11 @@
 // `first` stay closed to linear types.
 
 // Returns the number of elements in the array
-external fn size<T with Linear>(array: T[]) -> Int
+external fn size<T with Linear>(array: T[]) [] -> [array] Int
 
 // Possibly gets the element at the given index if the array is long enough
-external fn get<T>(array: T[], index: Int) -> T?
+external fn get<T>(array: T[], index: Int) [] -> [array, index] T?
 
-external fn first<T>(array: T[]) -> [array] ReadOnly[from: array] T?
+external fn first<T>(array: T[]) [] -> [array] ReadOnly[from: array] T?
 
-external fn iter<T with Linear>(array: T[]) -> Iter<T>
+external fn iter<T with Linear>(array: T[]) [] -> [array] Iter<T>

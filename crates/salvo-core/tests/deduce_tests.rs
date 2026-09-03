@@ -85,8 +85,8 @@ qualifier A<T> of List<T>
 qualifier B<T> of List<T> with A<T>
 qualifier C<T> of List<T> with A<T>, B<T>
 
-external fn drop_a<T>(list: A B List<T>) -> [list: B] None
-external fn consume<T>(list: List<T>) -> [] None
+external fn drop_a<T>(list: A B List<T>) [] -> [list: B] None
+external fn consume<T>(list: List<T>) [] -> [] None
 "#;
 
 // [deduce-infer] A call removes exactly the callee's removal set
@@ -140,7 +140,7 @@ fn caller<T>(list: A B C List<T>) -> None {{
 fn delta_lists_pass_undeclared_qualifiers_through() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn shed_a<T>(list: A B List<T>) -> [list: -A] None
+external fn shed_a<T>(list: A B List<T>) [] -> [list: -A] None
 
 fn caller<T>(list: A B C List<T>) -> None {{
     shed_a(list)
@@ -168,7 +168,7 @@ internal type List<T> with Mut
 
 qualifier A<T> of List<T>
 
-external fn mutate<T>(list: Mut List<T>) -> [list: Mut] None
+external fn mutate<T>(list: Mut List<T>) [] -> [list: Mut] None
 
 fn keeps_all<T>(list: Mut A List<T>) -> [list] None {
     mutate(list)
@@ -217,7 +217,7 @@ fn exhaustive<T>(list: Mut A List<T>) -> [list: Mut] None {
 fn nothing_in_a_deduction_means_moved() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn eat<T>(list: List<T>) -> [list: Nothing] None
+external fn eat<T>(list: List<T>) [] -> [list: Nothing] None
 
 fn caller<T>(list: List<T>) -> None {{
     eat(list)
@@ -390,8 +390,8 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
 fn bare_entries_keep_all_qualifiers_and_explicit_empty_keeps_none() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn keep_all<T>(list: A B List<T>) -> [list] None
-external fn strip_all<T>(list: A B List<T>) -> [list:] None
+external fn keep_all<T>(list: A B List<T>) [] -> [list] None
+external fn strip_all<T>(list: A B List<T>) [] -> [list:] None
 "
     );
     let (program, checked) = check_src(&src);
@@ -430,9 +430,9 @@ fn escapes<T>(list: List<T>) -> List<T> {{
     return copy(alias)
 }}
 
-internal fn copy<T>(value: T) -> [value] T
+internal fn copy<T>(value: T) [] -> [value] T
 
-external fn list_size<T>(list: List<T>) -> Int
+external fn list_size<T>(list: List<T>) [] -> [list] Int
 "
     );
     let (program, checked) = check_src(&src);
@@ -474,7 +474,7 @@ fn caller<T>(list: List<T>) -> Int {{
     return list_size(result)
 }}
 
-external fn list_size<T>(list: List<T>) -> Int
+external fn list_size<T>(list: List<T>) [] -> [list] Int
 "
     );
     let (program, checked) = check_src(&src);
@@ -510,9 +510,9 @@ fn reads<T>(store: Mut Store<T>) -> None {{
     runs(g)
 }}
 
-external fn bump<T>(store: Mut Store<T>) -> [store: Mut] None
+external fn bump<T>(store: Mut Store<T>) [] -> [store: Mut] None
 
-external fn store_size<T>(store: Store<T>) -> Int
+external fn store_size<T>(store: Store<T>) [] -> [store] Int
 "
     );
     let (program, checked) = check_src(&src);
@@ -543,7 +543,7 @@ fn late<T>(seed: List<T>) -> Int {{
     return list_size(xs)
 }}
 
-external fn list_size<T>(list: List<T>) -> Int
+external fn list_size<T>(list: List<T>) [] -> [list] Int
 "
     );
     let (_, checked) = check_src(&src);

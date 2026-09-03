@@ -57,6 +57,19 @@ acceptance, so the shared substrate gets validated under the lower-risk
 feature. Two P1 design points (which projections narrow; whether
 narrowing survives a kept-immutable call) are marked **DECISION**.
 
+**Bodyless declarations are explicit (user decision 2026-09-03).** No
+inference for anything the compiler cannot see: `external`/`internal` fns
+must declare effects, deductions, *and* return type; effect members must
+declare return type and deductions; and every `define fn` must match an
+external one-to-one, taking its signature from that external
+[decl-explicit]. This removed the last inference-from-nothing guess (and
+with it the `Mut`-parameter proxy D1 needed), and fixed a real ownership
+bug it had been hiding: std's `add` did not consume its element, so
+`add(xs, h)` then using `h` compiled on Kotlin and was rejected by rustc.
+New roadmap sections: **E1** effect-to-effect dependencies (the effect
+declares them, handlers mirror exactly) and **E2** heuristics for
+validating external declarations against their define templates.
+
 **D1 landed 2026-09-02: deductions are exhaustive by default.** A
 confirmed unsoundness — qualifiers surviving calls that invalidate them,
 reproduced with a `clear` that emptied a list while the caller kept
@@ -85,7 +98,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 241 tests; includes twenty-three kotlinc and nineteen rustc
+cargo test                  # 244 tests; includes twenty-three kotlinc and nineteen rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1146,6 +1159,50 @@ L6 landed 2026-09-02 with its own LANGUAGE.md section and the
 [linear-*] rule family. Per AGENTS.md, each phase lands with
 LANGUAGE_SPEC.md rules and tests at every affected layer.
 
+## Roadmap: effects
+
+### E1 — Effect-to-effect dependencies (user decision 2026-09-03)
+
+An effect may depend on another effect: the *effect* declares the
+dependency and every handler must mirror the effect exactly. Today
+[effect-member-no-effects] forbids members declaring effects at all,
+because dispatch goes through the handler instance and the call site has
+no way to thread extra handler arguments. Declaring the dependency on the
+effect (not the member) fixes that: the set is known from the effect
+declaration, so a handler's members can receive the dependencies the same
+way ordinary fns do, and call sites thread them like any other effect
+list.
+
+- The mirroring principle generalizes: a handler must match its effect
+  exactly, just as a `define fn` must match an external exactly (D-defines
+  below). Anywhere the compiler cannot see an implementation, the
+  declaration is the contract and the implementation is validated against
+  it — one-to-one, no inference.
+- Sequencing note: effect *member* deduction contracts (declared on the
+  member, validated against each handler's body) are the smaller sibling
+  of this work and land first — see the bodyless-explicitness rule
+  [decl-explicit].
+
+### E2 — Heuristics for validating external functions (user decision 2026-09-03)
+
+An `external fn` is a trust boundary: its declared contract (effects,
+deductions, return type, qualifiers) is taken on faith, and a wrong
+declaration introduces a hole *accidentally* rather than maliciously.
+Worth building cheap checks that catch the common mistakes by inspecting
+the backend define template:
+
+- A template that mutates its argument (`.clear()`, `.push(...)`,
+  assignment) under a parameter the external declares as kept-immutable,
+  or that keeps qualifiers a mutation would invalidate.
+- A template that moves an argument (Rust: passing by value into a
+  container) while the external's deduction keeps it — the `add`
+  ownership bug this arc found, in reverse.
+- A template performing I/O (`println`, file APIs) while the external
+  declares `[]`.
+- Necessarily heuristic and backend-specific (pattern matching on native
+  source), so findings should be *warnings* with an opt-out, never hard
+  errors — a false positive must not block a legitimate define.
+
 ## Roadmap: place-based flow analysis
 
 A second flow-analysis arc, independent of linearity. Today every flow
@@ -1485,7 +1542,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 241)
+## Test inventory (all green: 244)
 
 - `salvo-core`: 40 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1519,7 +1576,7 @@ spec rule; consolidated here for findability):
   ordering, and equality — and `None` itself — while narrowed/asserted
   operands pass; interpolating an optional or a struct field rejected,
   the `is T name` binding and `!` forms accepted).
-- `salvo-cli`: 50 - 42 `analyze` integration tests running the built
+- `salvo-cli`: 52 - 44 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -1535,6 +1592,10 @@ spec rule; consolidated here for findability):
   always-exiting path), `when`-arm merging incl. subject consumption,
   partial qualifier removal joining conservatively, and call-site
   qualifier removal for kept params incl. `[list:]` [deduce-consume],
+  bodyless-declaration explicitness ([decl-explicit]: an external missing
+  all three parts, an effect member missing the two that apply to it and
+  *not* asked for effects, an effect member's declared deductions enforced
+  at the call site, and std's `add` consuming its element),
   the D1 deduction forms ([deduce-syntax]: the `clear`/`NonEmpty`
   unsoundness now rejected, a delta preserving an undeclared qualifier, a
   bodyless `Mut` parameter refusing the delta form, a mutating body
@@ -1623,7 +1684,7 @@ spec rule; consolidated here for findability):
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
-- `salvo-backend-kotlin`: 81 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 82 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -1654,6 +1715,9 @@ spec rule; consolidated here for findability):
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [internal-fn]) and a negative test (`copy` of nested
   mutability is a codegen error);
+  define/external pairing ([decl-explicit]: same-name defines dispatching
+  by parameter base types, a define with no external rejected, two defines
+  for one external rejected);
   general-sweep assertions (precedence-preserving binary rendering,
   iterator-body `return` retargeting through a value-position loop,
   alias imports of mangled qualified overloads keeping the `__Qual`
@@ -1777,6 +1841,27 @@ snapshot diffs.
   the lattice is reachable for every fn that needs it — here mutating fns
   could never reach it, because no constraint knew about qualifiers the
   signature never named.
+- (decl-explicit) The `add` bug is the cautionary tale for
+  inference-from-nothing: a bodyless fn has no body to constrain
+  inference, so the "optimistic start" of the deduction fixpoint *was* the
+  answer — keep everything, including an element the list had taken
+  ownership of. It survived because the two backends disagreed quietly:
+  Kotlin aliased and printed, rustc rejected with E0382. When a rule's
+  inputs are absent, ask what the optimistic default *claims*, not whether
+  the algorithm terminates.
+- (decl-explicit) Trust boundaries should be one-directional. Once
+  externals must declare their contracts, the checker must *stop*
+  second-guessing them — the `Mut`-parameter proxy added hours earlier had
+  to come back out, because inferring mutation from a declaration and
+  overriding the author is the opposite of "the declaration is the
+  contract". Catching wrong declarations belongs in a separate, opt-out
+  validation pass (roadmap E2), not in the semantics.
+- (decl-explicit) Requiring declarations exposed a second silent hole for
+  free: effect-member deductions were *parsed* and ignored, so a member
+  taking ownership never consumed its argument. The fix was to extract the
+  flow half of the fn-value contract loop (`apply_call_contract`) and
+  reuse it — when two call paths are documented as "keep the two in
+  sync", that is a sign they should share code instead.
 - (D1) Deriving a capability from a *declaration* rather than a body is
   the only option for `external`s, and it is often the right call anyway:
   `Mut` on a bodyless parameter means "I may mutate this", which is
@@ -1784,6 +1869,10 @@ snapshot diffs.
   bodied fns would have been strictly worse (a non-`Mut` parameter can
   still have `Mut` *contents* mutated through it — the `h.tags` case the
   fate analysis already tracks).
+- (std) Analyzing `--src std` double-loads the standard library (the CLI
+  always loads its embedded copy) and trips every [mod-collision] check.
+  Expected artifact of pointing the tool at its own std — use an ordinary
+  project directory to see std diagnostics.
 - (arrays) The CLI embeds std with `include_dir` at *build* time: adding a
   file under `std/` does not invalidate the crate, so the new module is
   silently invisible to `cargo run -- compile` (the tell is the file count

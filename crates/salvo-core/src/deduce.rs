@@ -13,9 +13,10 @@
 //! carries, which is what makes the exhaustive form sound: a function
 //! that mutates a value can invalidate claims about its contents that its
 //! signature never mentions, so such a parameter may not keep
-//! "everything else" — the bare and delta forms are rejected there. For a
-//! bodyless fn there is nothing to inspect, so a `Mut` parameter counts
-//! as mutated.
+//! "everything else" — the bare and delta forms are rejected there. A
+//! bodyless fn has no inference at all: it must declare its effects,
+//! deductions, and return type [decl-explicit], so there is nothing to
+//! approximate.
 //!
 //! An unwritten list is inferred as the strictest deduction over all uses
 //! of each parameter in the body (including moves), iterated to a
@@ -104,9 +105,7 @@ pub(crate) fn infer(
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     for f in &fns {
-        let own = mutations.get(&f.key).unwrap_or(&no_mutations);
-        let bodyless = bodyless_mutations(f.decl);
-        let mutated: &HashSet<String> = if bodyless.is_empty() { own } else { &bodyless };
+        let mutated = mutations.get(&f.key).unwrap_or(&no_mutations);
         let state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, mutated, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
@@ -197,25 +196,6 @@ pub(crate) fn infer(
     checked.deductions = states;
 }
 
-/// [deduce-syntax] A fn with no body (an `external`, or a define
-/// signature) has nothing to inspect, so mutability is the only available
-/// signal: a parameter declared `Mut` is taken as mutable *in order to*
-/// mutate it, and must therefore state what survives exhaustively. This is
-/// what makes std's own mutators (`add`, and any `external` `clear`-like
-/// fn) drop a caller's predicates. Residual hole, deliberately: an
-/// external that mutates through the *contents* of a non-`Mut` parameter
-/// cannot be detected — the same trust boundary as `as Qual`.
-fn bodyless_mutations(decl: &FnDecl) -> HashSet<String> {
-    if decl.body.is_some() {
-        return HashSet::new();
-    }
-    decl.params
-        .iter()
-        .filter(|p| declared_quals(&p.ty).iter().any(|q| q == "Mut"))
-        .map(|p| p.name.name.clone())
-        .collect()
-}
-
 /// [deduce-syntax] Forces the exhaustive form on every parameter the body
 /// invalidates: keeping "everything else" is exactly the unsound claim,
 /// because mutation can falsify qualifiers the caller has and this
@@ -251,8 +231,9 @@ pub fn declared_quals(ty: &Type) -> Vec<String> {
     }
 }
 
-/// Everything kept with nothing stripped (the optimistic starting point of
-/// inference, and the state of unannotated bodyless fns).
+/// Everything kept with nothing stripped: the optimistic starting point of
+/// inference. Bodyless fns never reach it — they must declare their lists
+/// [decl-explicit].
 pub(crate) fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
     decl.params
         .iter()

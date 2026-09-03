@@ -61,7 +61,7 @@ define fn list_size<T>(list: List<T>) -> Int {
     ``
 }
 
-external fn list_size<T>(list: List<T>) -> Int
+external fn list_size<T>(list: List<T>) [] -> [list] Int
 "#;
 
 fn build_program(extra: &[(&str, &str, bool)]) -> Program {
@@ -706,7 +706,7 @@ fn kotlinc_compiles_and_runs_demo() {
 /// fn call sites — all resolved from the checker's effect tables.
 const EFFECTS_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: List<T>) of Random<T> {
@@ -844,7 +844,7 @@ fn unknown_effect_is_rejected() {
 fn ambiguous_generic_effect_call_is_rejected() {
     let src = r#"
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 fn f() [Random<Int>, Random<Double>] -> None {
@@ -1295,7 +1295,7 @@ fn kotlinc_compiles_and_runs_mangled_alias() {
 #[test]
 fn missing_define_for_external_fn_is_an_error() {
     let src = r#"
-external fn mystery(x: Int) -> Int
+external fn mystery(x: Int) [] -> [x] Int
 
 fn main() [use] -> [] None {
     use StdOutConsole
@@ -1337,7 +1337,7 @@ fn main() [use] -> [] None {
 // the backend's define files, used or not.
 #[test]
 fn core_externals_must_be_fully_covered() {
-    let fake_core = "external fn uncovered_core_fn(x: Int) -> Int\n";
+    let fake_core = "external fn uncovered_core_fn(x: Int) [] -> [x] Int\n";
     let program = build_program(&[
         ("core/fake.sv", fake_core, false),
         (
@@ -2330,13 +2330,18 @@ fn kotlinc_compiles_and_runs_nested_coercion() {
     run_kotlin_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
 }
 
-// ===== unchecked overload dispatch =====
-// [backend-never-wrong] [fn-overload] Same-name `define fn` templates
-// with no external declarations reach the emitter without a checker
-// -resolved key: dispatch narrows by the checked argument types, and
-// truly ambiguous calls error instead of guessing.
+// ===== same-name defines and the define/external pairing =====
+// [decl-explicit] Every `define fn` implements exactly one `external fn`:
+// the external carries the contract, the define the native template.
+// Same-name externals (`twice(Str)` / `twice(Int)`) pair with their
+// defines by parameter base types.
 
-const UNCHECKED_DEFINES: &str = r#"
+const PAIRED_EXTERNALS: &str = r#"
+external fn twice(s: Str) [] -> [s] Str
+external fn twice(i: Int) [] -> [i] Int
+"#;
+
+const PAIRED_DEFINES: &str = r#"
 define fn twice(s: Str) -> Str {
     inline: ``
     (${s} + ${s})
@@ -2351,7 +2356,7 @@ define fn twice(i: Int) -> Int {
 "#;
 
 #[test]
-fn unchecked_define_dispatch_uses_arg_types() {
+fn same_name_defines_dispatch_by_param_types() {
     let main = r#"
 fn main() [use] -> [] None {
     use StdOutConsole
@@ -2360,8 +2365,8 @@ fn main() [use] -> [] None {
 }
 "#;
     let program = build_program(&[
-        ("main.sv", main, false),
-        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
+        ("main.kotlin.sv", PAIRED_DEFINES, true),
     ]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -2382,30 +2387,59 @@ fn main() [use] -> [] None {
     );
 }
 
+// [decl-explicit] A define with no external has no contract at all.
 #[test]
-fn ambiguous_unchecked_define_call_is_an_error() {
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let x = mystery()
-    println("${twice(x)}")
-}
-"#;
+fn define_without_an_external_is_an_error() {
     let program = build_program(&[
-        ("main.sv", main, false),
-        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+        ("main.sv", "fn main() [use] -> [] None {\n    use StdOutConsole\n}\n", false),
+        ("main.kotlin.sv", PAIRED_DEFINES, true),
     ]);
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
         .expect("expected codegen errors");
     assert!(
-        errors.iter().any(|e| e.contains("ambiguous here")),
+        errors
+            .iter()
+            .any(|e| e.contains("implements no `external fn` declaration")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [decl-explicit] ...and one external may not have two defines.
+#[test]
+fn duplicate_defines_for_one_external_are_an_error() {
+    let twice_twice = r#"
+define fn twice(s: Str) -> Str {
+    inline: ``
+    (${s} + ${s})
+    ``
+}
+
+define fn twice(s: Str) -> Str {
+    inline: ``
+    (${s} + "!")
+    ``
+}
+"#;
+    let program = build_program(&[
+        (
+            "main.sv",
+            "external fn twice(s: Str) [] -> [s] Str\n\nfn main() [use] -> [] None {\n    use StdOutConsole\n}\n",
+            false,
+        ),
+        ("main.kotlin.sv", twice_twice, true),
+    ]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected codegen errors");
+    assert!(
+        errors.iter().any(|e| e.contains("is defined twice for the same signature")),
         "unexpected errors: {errors:?}"
     );
 }
 
 #[test]
-fn kotlinc_compiles_and_runs_unchecked_defines() {
+fn kotlinc_compiles_and_runs_paired_defines() {
     if Command::new("kotlinc").arg("-version").output().is_err() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
@@ -2418,13 +2452,13 @@ fn main() [use] -> [] None {
 }
 "#;
     let program = build_program(&[
-        ("main.sv", main, false),
-        ("main.kotlin.sv", UNCHECKED_DEFINES, true),
+        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
+        ("main.kotlin.sv", PAIRED_DEFINES, true),
     ]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "unchecked-defines", "hihi\n6\n");
+    run_kotlin_files(&files, "paired-defines", "hihi\n6\n");
 }
 
 // ===== effect member fns with their own generics =====
@@ -2433,7 +2467,7 @@ fn main() [use] -> [] None {
 
 const MEMBER_GENERICS_DEMO: &str = r#"
 effect Stash {
-    fn pick<T>(a: T, b: T) -> T
+    fn pick<T>(a: T, b: T) -> [] T
 }
 
 handler FirstStash of Stash {
@@ -2487,7 +2521,7 @@ fn kotlinc_compiles_and_runs_member_generics() {
 fn effect_member_generics_bind_per_call() {
     let src = r#"
 effect Stash {
-    fn pick<T>(a: T, b: T) -> T
+    fn pick<T>(a: T, b: T) -> [] T
 }
 
 handler FirstStash of Stash {
@@ -2523,7 +2557,7 @@ const ALIASED_EFFECT_DEMO: &str = r#"
 type Count = Int
 
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: List<T>) of Random<T> {
@@ -2592,7 +2626,7 @@ fn kotlinc_compiles_and_runs_aliased_effects() {
 
 const ARRAY_STD_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {

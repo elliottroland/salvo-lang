@@ -93,6 +93,9 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     // [backend-external] Everything external in `core.*` must be covered
     // by the backend's define files (core is implicitly imported).
     let mut errors = check_core_define_coverage(program, &symbols);
+    // [decl-explicit] Every define implements exactly one external:
+    // the external carries the contract, the define the template.
+    errors.extend(salvo_core::check_define_pairing(program, &symbols, "rust"));
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();

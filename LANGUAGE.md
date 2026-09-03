@@ -1106,10 +1106,17 @@ To start, you prefix a definition with `external` and leave out any implementati
 // In file string.sv
 
 // Returns an array of characters in the [str]
-external fn chars(str: Str) -> Char[]
+external fn chars(str: Str) [] -> [str] Char[]
 ```
 
-Alongside the file where this is defined, you define files for each target backend, and use the `define` syntax to tell Salvo how to resolve the function call to something. The `define` keyword exposes the "``" character, which is used to create the code which will be interpolated at that call site in the target code:
+A bodyless declaration states its whole contract: the effect list (`[]`
+here — reading characters is pure), the deduction list (`[str]` — the
+string is given back untouched), and the return type. None of the three
+may be left out, because there is no body to infer them from, and guessing
+is how a wrong contract sneaks in: before this rule, std's `add` was
+inferred as *keeping* the element the list had just taken ownership of.
+
+Alongside the file where this is defined, you define files for each target backend, and use the `define` syntax to tell Salvo how to resolve the function call to something. Each `define` must implement exactly one `external` and each `external` may have at most one `define` per backend: the external declares the contract, the define supplies the native template, and a define with no external would have no contract at all. The `define` keyword exposes the "``" character, which is used to create the code which will be interpolated at that call site in the target code:
 
 ```
 // In file string.kotlin.sv
@@ -1161,7 +1168,7 @@ If you would like to provide custom function definitions, then you can do so as 
 
 ```
 // In file complicated.sv
-external fn complicated_func<T>(list: List<T>) -> Str
+external fn complicated_func<T>(list: List<T>) [] -> [list] Str
 
 // In file complicated.kotlin.sv
 define fn complicated_func<T>(list: List<T>) -> Str {

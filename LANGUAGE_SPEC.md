@@ -301,6 +301,29 @@ Conventions:
   means `None`; omitted effect list means pure (`[]`).
 * [fn-return-none] Functions returning `None` may `return` bare or not
   return at all.
+  * Exception: a *bodyless* declaration must write `-> None` explicitly
+    [decl-explicit].
+* [decl-explicit] Nothing the compiler cannot see is inferred (user
+  decision 2026-09-03). A fn with **no body** — `external fn`,
+  `internal fn` — must declare its **effect list**, **deduction list**,
+  and **return type**; an *effect member* must declare its deduction list
+  and return type (it may not declare effects at all
+  [effect-member-no-effects]). Inference from an absent body is a guess,
+  and always the most permissive one: it is how std's `add` came to be
+  inferred as *keeping* the element the list had taken ownership of, so
+  `add(xs, h)` then reading `h` compiled on Kotlin and was rejected by
+  rustc.
+  * The declaration is then a real contract: an effect member's deductions
+    are applied at call sites exactly like a named call's, so a member
+    that takes ownership consumes its argument. Validating each *handler*
+    body against the member's contract is future work (roadmap E1).
+  * An external's declaration is **trusted**, not second-guessed: the
+    checker does not infer mutation from a `Mut` parameter and override
+    it. Catching a *wrong* external declaration by inspecting its define
+    template is roadmap E2.
+  * `define fn` declarations are exempt: they carry a native template, not
+    a contract, and must pair one-to-one with an `external fn` (see
+    [backend-define-inline]) whose declaration supplies the contract.
 * [fn-must-return] A fn with a non-`None` return type must return on
   every path. Definitely-returning constructs: `return`, `if` with an
   `else` where every branch returns, `when` where every branch returns
@@ -356,7 +379,9 @@ Conventions:
 * [effect-member-no-effects] Effect member fns (and handler member fns)
   cannot declare their own effect dependencies (compile error "…yet"):
   dispatch call sites go through the handler instance and cannot thread
-  extra handler args.
+  extra handler args. Effect-to-effect dependencies declared on the
+  *effect* are roadmap E1. Members must still declare their deductions
+  and return type [decl-explicit].
 * [effect-handler] `handler H<G>(ctor params) of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
@@ -945,6 +970,16 @@ Conventions:
   * Templates lex as raw dedented `Template` tokens. A template calling a
     same-named native fn must qualify it (`kotlin.io.print`) to avoid
     self-recursion.
+  * **One-to-one with externals** [decl-explicit]: every `define fn` must
+    implement exactly one `external fn` declaration, and no external may
+    have two defines. Matching is by name, arity, then parameter *base
+    type names*, so overloaded externals (`size(Str)` / `size(List<T>)`)
+    pair with their own defines. The external carries the contract; the
+    define's own signature is documentation.
+    * Consequence: the emitters' arity/type-directed dispatch for
+      *unchecked* define calls is unreachable for valid programs (every
+      define has an external, which the checker resolves), so it remains
+      only as a [backend-never-wrong] safety net.
   * Overloaded externals share a define name; templates are matched to
     the checker-resolved declaration by parameter base types, then
     arity/shape (`define_for_decl`; the arity-only fallback can still

@@ -618,8 +618,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.own_fn = None;
                     self.own_written = false;
                     self.own_contract = None;
-                }
-                Item::Handler(h) => {
+                }                Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
@@ -630,6 +629,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Effect(e) => {
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
+                        self.require_explicit_member(f);
                     }
                 }
                 Item::Qualifier(q) => {
@@ -657,10 +657,71 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [decl-explicit] Nothing the compiler cannot see may be inferred: a
+    /// fn with no body states its effects, deductions, and return type
+    /// explicitly (user decision 2026-09-03). Inference from an absent
+    /// body is a *guess*, and the most permissive one — which is how
+    /// std's `add` came to keep an element the list had taken ownership
+    /// of. Effect members are the same case with one exception: they may
+    /// not declare effects at all [effect-member-no-effects].
+    fn require_explicit_decl(&mut self, f: &FnDecl) {
+        if f.body.is_some() {
+            return;
+        }
+        let kind = match f.backing {
+            Some(BackingMod::External) => "external fn",
+            Some(BackingMod::Internal) => "internal fn",
+            None => return,
+        };
+        self.require_explicit(f, kind, true);
+    }
+
+    /// [decl-explicit] The effect-member form: return type and deductions
+    /// are required, effects are forbidden [effect-member-no-effects].
+    fn require_explicit_member(&mut self, f: &FnDecl) {
+        self.require_explicit(f, "effect member", false);
+    }
+
+    fn require_explicit(&mut self, f: &FnDecl, kind: &str, want_effects: bool) {
+        let name = &f.name.name;
+        if f.return_type.is_none() {
+            self.error(
+                f.name.span,
+                format!(
+                    "{kind} `{name}` must declare its return type (write \
+                     `-> None` when it returns no value): with no body to \
+                     infer from, the signature is the whole contract"
+                ),
+            );
+        }
+        if want_effects && f.effects.is_none() {
+            self.error(
+                f.name.span,
+                format!(
+                    "{kind} `{name}` must declare its effect list (write `[]` \
+                     when it is pure): with no body to infer from, the \
+                     signature is the whole contract"
+                ),
+            );
+        }
+        if f.deductions.is_none() {
+            self.error(
+                f.name.span,
+                format!(
+                    "{kind} `{name}` must declare its deduction list (write \
+                     `[]` to move every parameter, or list what it gives \
+                     back): with no body to infer from, the signature is the \
+                     whole contract"
+                ),
+            );
+        }
+    }
+
     /// Checks one function body. `extra_params`/`state` provide handler
     /// constructor parameters and state fields as in-scope variables.
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
+        self.require_explicit_decl(f);
         for p in &f.params {
             self.validate_type(&p.ty);
         }
@@ -1554,6 +1615,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         self.out.fn_value_calls.insert(self.key(span), effective);
+        self.apply_call_contract(args, params, contract, span);
+    }
+
+    /// The flow half of a contract application, shared by calls through
+    /// fn values [fn-contract] and effect-member calls [effect-decl]:
+    /// moved arguments are consumed, kept `Mut` positions are mutation
+    /// events, kept positions shed their removal set [deduce-syntax],
+    /// projections follow the moved/kept-`Mut` rules, and same-call
+    /// ordering applies [deduce-same-call]. An absent contract keeps
+    /// everything, so only its `Mut` mutation events fire.
+    fn apply_call_contract(
+        &mut self,
+        args: &[&'p Expr],
+        params: &[Ty],
+        contract: Option<&[FnParamContract]>,
+        span: Span,
+    ) {
         let mut consumed_here: Vec<String> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
             if let Some(name) = consumed_here
@@ -6042,6 +6120,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
+        }
+        // [decl-explicit] The member's declared deduction list is a real
+        // contract: apply it exactly like a named call's, so a member that
+        // takes ownership consumes its argument. (Validating each
+        // *handler* body against the member's contract is the E1-adjacent
+        // follow-up; the declaration is trusted here, as for externals.)
+        if let Some(list) = &member.deductions {
+            let facts =
+                crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});
+            let contract: Vec<FnParamContract> = member
+                .params
+                .iter()
+                .zip(&member_params)
+                .map(|(p, pty)| {
+                    let entry = facts.iter().find(|d| d.param == p.name.name);
+                    FnParamContract {
+                        name: Some(p.name.name.clone()),
+                        kept: entry.map(|d| d.kept).unwrap_or(true),
+                        effect: entry
+                            .map(|d| d.effect.clone())
+                            .unwrap_or(QualEffect::KeepAll),
+                        mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                    }
+                })
+                .collect();
+            self.apply_call_contract(args, &member_params, Some(&contract), span);
         }
         if let Some(instance) = &resolved {
             self.out

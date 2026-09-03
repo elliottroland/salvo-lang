@@ -403,7 +403,7 @@ fn goto_definition_resolves_names() {
     // 0 import shapes.Point
     // 1
     // 2 effect Beeper {
-    // 3     fn beep() -> Int
+    // 3     fn beep() -> [] Int
     // 4 }
     // 5
     // 6 handler Loud of Beeper {
@@ -424,7 +424,7 @@ fn goto_definition_resolves_names() {
     let text = "import shapes.Point\n\
                 \n\
                 effect Beeper {\n\
-                \x20   fn beep() -> Int\n\
+                \x20   fn beep() -> [] Int\n\
                 }\n\
                 \n\
                 handler Loud of Beeper {\n\

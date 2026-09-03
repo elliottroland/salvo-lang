@@ -260,16 +260,18 @@ Module {
                         span: 662..670,
                     },
                 ],
-                effects: None,
+                effects: Some(
+                    [],
+                ),
                 deductions: Some(
                     [
                         Deduction {
                             param: Ident {
                                 name: "value",
-                                span: 676..681,
+                                span: 679..684,
                             },
                             kind: KeepAll,
-                            span: 676..681,
+                            span: 679..684,
                         },
                     ],
                 ),
@@ -279,16 +281,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 683..684,
+                                span: 686..687,
                             },
                             args: [],
-                            span: 683..684,
+                            span: 686..687,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 651..684,
+                span: 651..687,
             },
         ),
         Fn(
@@ -298,27 +300,27 @@ Module {
                 ),
                 name: Ident {
                     name: "discard",
-                    span: 946..953,
+                    span: 949..956,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 954..955,
+                        span: 957..958,
                     },
                 ],
                 generic_with: [
                     (
                         Ident {
                             name: "T",
-                            span: 954..955,
+                            span: 957..958,
                         },
                         TypeRef {
                             name: Ident {
                                 name: "Linear",
-                                span: 961..967,
+                                span: 964..970,
                             },
                             args: [],
-                            span: 961..967,
+                            span: 964..970,
                         },
                     ),
                 ],
@@ -327,24 +329,26 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 969..974,
+                            span: 972..977,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 976..977,
+                                    span: 979..980,
                                 },
                                 args: [],
-                                span: 976..977,
+                                span: 979..980,
                             },
                         },
                         variadic: false,
-                        span: 969..977,
+                        span: 972..980,
                     },
                 ],
-                effects: None,
+                effects: Some(
+                    [],
+                ),
                 deductions: Some(
                     [],
                 ),
@@ -354,16 +358,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 985..989,
+                                span: 991..995,
                             },
                             args: [],
-                            span: 985..989,
+                            span: 991..995,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 943..989,
+                span: 946..995,
             },
         ),
     ],

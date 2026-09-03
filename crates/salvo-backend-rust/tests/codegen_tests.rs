@@ -455,7 +455,7 @@ fn rustc_compiles_and_runs_qualifiers() {
 
 const EFFECTS_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: List<T>) of Random<T> {
@@ -750,7 +750,7 @@ fn rustc_compiles_and_runs_multi_module() {
 #[test]
 fn missing_define_for_external_fn_is_an_error() {
     let src = r#"
-external fn mystery(x: Int) -> Int
+external fn mystery(x: Int) [] -> [x] Int
 
 fn main() [use] -> [] None {
     use StdOutConsole
@@ -790,7 +790,7 @@ fn main() [use] -> [] None {
 // [backend-external]
 #[test]
 fn core_externals_must_be_fully_covered() {
-    let fake_core = "external fn uncovered_core_fn(x: Int) -> Int\n";
+    let fake_core = "external fn uncovered_core_fn(x: Int) [] -> [x] Int\n";
     let program = build_program(&[
         ("core/fake.sv", fake_core, false),
         (
@@ -815,7 +815,7 @@ fn core_externals_must_be_fully_covered() {
 fn generic_effect_members_are_rejected() {
     let src = r#"
 effect Weird {
-    fn pick<T>(value: T) -> T
+    fn pick<T>(value: T) -> [] T
 }
 
 handler PassThrough of Weird {
@@ -1625,13 +1625,16 @@ fn rustc_compiles_and_runs_nested_coercion() {
     run_rust_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
 }
 
-// ===== unchecked overload dispatch =====
-// [backend-never-wrong] [fn-overload] Same-name `define fn` templates
-// with no external declarations reach the emitter without a checker
-// -resolved key: dispatch narrows by the checked argument types, and
-// truly ambiguous calls error instead of guessing.
+// ===== same-name defines and the define/external pairing =====
+// [decl-explicit] Every `define fn` implements exactly one `external fn`:
+// the external carries the contract, the define the native template.
 
-const UNCHECKED_DEFINES_RS: &str = r#"
+const PAIRED_EXTERNALS: &str = r#"
+external fn twice(s: Str) [] -> [s] Str
+external fn twice(i: Int) [] -> [i] Int
+"#;
+
+const PAIRED_DEFINES_RS: &str = r#"
 define fn twice(s: Str) -> Str {
     inline: ``
     format!("{}{}", ${s}, ${s})
@@ -1646,7 +1649,7 @@ define fn twice(i: Int) -> Int {
 "#;
 
 #[test]
-fn unchecked_define_dispatch_uses_arg_types() {
+fn same_name_defines_dispatch_by_param_types() {
     let main = r#"
 fn main() [use] -> [] None {
     use StdOutConsole
@@ -1655,8 +1658,8 @@ fn main() [use] -> [] None {
 }
 "#;
     let files = generate(&[
-        ("main.sv", main, false),
-        ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
+        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
+        ("main.rust.sv", PAIRED_DEFINES_RS, true),
     ]);
     let main = files
         .iter()
@@ -1674,32 +1677,26 @@ fn main() [use] -> [] None {
     );
 }
 
+// [decl-explicit] A define with no external has no contract at all.
 #[test]
-fn ambiguous_unchecked_define_call_is_an_error() {
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let x = mystery()
-    println("${twice(x)}")
-}
-"#;
-    let errors = {
-        let program = build_program(&[
-            ("main.sv", main, false),
-            ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
-        ]);
-        salvo_backend_rust::emit_program(&program)
-            .err()
-            .expect("expected codegen errors")
-    };
+fn define_without_an_external_is_an_error() {
+    let program = build_program(&[
+        ("main.sv", "fn main() [use] -> [] None {\n    use StdOutConsole\n}\n", false),
+        ("main.rust.sv", PAIRED_DEFINES_RS, true),
+    ]);
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("expected codegen errors");
     assert!(
-        errors.iter().any(|e| e.contains("ambiguous here")),
+        errors
+            .iter()
+            .any(|e| e.contains("implements no `external fn` declaration")),
         "unexpected errors: {errors:?}"
     );
 }
 
 #[test]
-fn rustc_compiles_and_runs_unchecked_defines() {
+fn rustc_compiles_and_runs_paired_defines() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
@@ -1712,10 +1709,10 @@ fn main() [use] -> [] None {
 }
 "#;
     let files = generate(&[
-        ("main.sv", main, false),
-        ("main.rust.sv", UNCHECKED_DEFINES_RS, true),
+        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
+        ("main.rust.sv", PAIRED_DEFINES_RS, true),
     ]);
-    run_rust_files(&files, "unchecked-defines", "hihi\n6\n");
+    run_rust_files(&files, "paired-defines", "hihi\n6\n");
 }
 
 // ===== effect member fns with their own generics =====
@@ -1726,7 +1723,7 @@ fn main() [use] -> [] None {
 fn effect_member_generics_are_rejected_loudly() {
     let src = r#"
 effect Stash {
-    fn pick<T>(a: T, b: T) -> T
+    fn pick<T>(a: T, b: T) -> [] T
 }
 
 handler FirstStash of Stash {
@@ -1761,7 +1758,7 @@ const ALIASED_EFFECT_DEMO: &str = r#"
 type Count = Int
 
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: List<T>) of Random<T> {
@@ -1817,7 +1814,7 @@ fn rustc_compiles_and_runs_aliased_effects() {
 
 const ARRAY_STD_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {

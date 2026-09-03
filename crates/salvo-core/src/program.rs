@@ -194,3 +194,108 @@ fn arity_matches(params: &[salvo_syntax::ast::Param], arg_count: usize) -> bool 
         arg_count == required
     }
 }
+
+/// [decl-explicit] Validates the `define fn` ↔ `external fn` pairing for a
+/// backend: every define must implement exactly one external declaration,
+/// and no external may be implemented twice. The external carries the
+/// contract (effects, deductions, return type) — the define supplies only
+/// the native template — so a define with no external has no contract at
+/// all, and two defines for one external make dispatch ambiguous.
+///
+/// Matching is by name, then by arity, then by parameter *base type names*
+/// (the same key `define_for_decl` uses in the emitters, so overloaded
+/// externals like `size(Str)` / `size(List<T>)` pair up correctly).
+/// `backend` names the backend in the messages.
+pub fn check_define_pairing(
+    program: &Program,
+    symbols: &Symbols<'_>,
+    backend: &str,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    // define -> the externals it could implement.
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::BackendDefine {
+            continue;
+        }
+        for item in &unit.ast.items {
+            let Item::DefineFn(d) = item else { continue };
+            let name = d.sig.name.name.as_str();
+            let candidates: Vec<&FnDecl> = symbols
+                .fns
+                .get(name)
+                .map(|decls| {
+                    decls
+                        .iter()
+                        .copied()
+                        .filter(|f| {
+                            f.body.is_none()
+                                && f.params.len() == d.sig.params.len()
+                                && params_pair(&f.params, &d.sig.params)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            match candidates.len() {
+                1 => {}
+                0 => errors.push(format!(
+                    "{}: {backend} `define fn {name}` implements no `external fn` \
+                     declaration — a define supplies the native template, the \
+                     external declares the contract (effects, deductions, \
+                     return type), so every define needs one",
+                    unit.file.name
+                )),
+                _ => errors.push(format!(
+                    "{}: {backend} `define fn {name}` matches {} `external fn` \
+                     declarations; the pairing must be one-to-one (make the \
+                     parameter types distinguish them)",
+                    unit.file.name,
+                    candidates.len()
+                )),
+            }
+        }
+    }
+    // Two defines for one external.
+    for (name, defines) in &symbols.define_fns {
+        for (i, a) in defines.iter().enumerate() {
+            for b in &defines[i + 1..] {
+                if a.sig.params.len() == b.sig.params.len()
+                    && params_pair(&a.sig.params, &b.sig.params)
+                {
+                    errors.push(format!(
+                        "{backend} `define fn {name}` is defined twice for the \
+                         same signature; the `define`/`external` pairing must \
+                         be one-to-one"
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
+/// Whether two parameter lists agree on variadic-ness and base type names
+/// (`Mut List<T>` and `List<T>` pair; `Str` and `List<T>` do not).
+fn params_pair(a: &[salvo_syntax::ast::Param], b: &[salvo_syntax::ast::Param]) -> bool {
+    a.iter().zip(b).all(|(x, y)| {
+        x.variadic == y.variadic
+            && match (base_name(&x.ty), base_name(&y.ty)) {
+                (Some(x), Some(y)) => x == y,
+                // Shapes without a single base name (unions, tuples, fn
+                // types) are not distinguished — lenient, like the
+                // emitters' own pairing.
+                _ => true,
+            }
+    })
+}
+
+/// The base type name of an AST type, ignoring qualifiers and nullability.
+fn base_name(ty: &salvo_syntax::ast::Type) -> Option<&str> {
+    use salvo_syntax::ast::Type;
+    match ty {
+        Type::Named { base, .. } => Some(base.name.name.as_str()),
+        Type::Nullable { inner, .. } => base_name(inner),
+        Type::QualifiedGroup { base, .. } => base_name(base),
+        Type::Array { .. } => Some("[]"),
+        _ => None,
+    }
+}

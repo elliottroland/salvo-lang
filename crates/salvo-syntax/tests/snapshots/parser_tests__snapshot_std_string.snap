@@ -52,24 +52,37 @@ Module {
                         span: 86..94,
                     },
                 ],
-                effects: None,
-                deductions: None,
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 103..106,
+                            },
+                            kind: KeepAll,
+                            span: 103..106,
+                        },
+                    ],
+                ),
                 return_type: Some(
                     Named {
                         qualifiers: [],
                         base: TypeRef {
                             name: Ident {
                                 name: "Int",
-                                span: 99..102,
+                                span: 108..111,
                             },
                             args: [],
-                            span: 99..102,
+                            span: 108..111,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 78..102,
+                span: 78..111,
             },
         ),
         Fn(
@@ -79,7 +92,7 @@ Module {
                 ),
                 name: Ident {
                     name: "char_at",
-                    span: 214..221,
+                    span: 223..230,
                 },
                 generics: [],
                 generic_with: [],
@@ -88,53 +101,74 @@ Module {
                     Param {
                         name: Ident {
                             name: "str",
-                            span: 222..225,
+                            span: 231..234,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 227..230,
+                                    span: 236..239,
                                 },
                                 args: [],
-                                span: 227..230,
+                                span: 236..239,
                             },
                         },
                         variadic: false,
-                        span: 222..230,
+                        span: 231..239,
                     },
                     Param {
                         name: Ident {
                             name: "index",
-                            span: 232..237,
+                            span: 241..246,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Positive",
-                                        span: 239..247,
+                                        span: 248..256,
                                     },
                                     args: [],
-                                    span: 239..247,
+                                    span: 248..256,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Int",
-                                    span: 248..251,
+                                    span: 257..260,
                                 },
                                 args: [],
-                                span: 248..251,
+                                span: 257..260,
                             },
                         },
                         variadic: false,
-                        span: 232..251,
+                        span: 241..260,
                     },
                 ],
-                effects: None,
-                deductions: None,
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 269..272,
+                            },
+                            kind: KeepAll,
+                            span: 269..272,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "index",
+                                span: 274..279,
+                            },
+                            kind: KeepAll,
+                            span: 274..279,
+                        },
+                    ],
+                ),
                 return_type: Some(
                     Nullable {
                         inner: Named {
@@ -142,18 +176,18 @@ Module {
                             base: TypeRef {
                                 name: Ident {
                                     name: "Char",
-                                    span: 256..260,
+                                    span: 281..285,
                                 },
                                 args: [],
-                                span: 256..260,
+                                span: 281..285,
                             },
                         },
-                        span: 256..261,
+                        span: 281..286,
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 211..261,
+                span: 220..286,
             },
         ),
     ],

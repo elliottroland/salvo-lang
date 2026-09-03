@@ -1,5 +1,5 @@
 effect Random<T> {
-    fn next_random() -> T
+    fn next_random() -> [] T
 }
 
 effect Console {
