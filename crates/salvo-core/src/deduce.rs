@@ -40,7 +40,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
-    Block, Deduction, DeductionKind, Expr, FnDecl, Item, LambdaBody, Param, Stmt,
+    Block, Deduction, DeductionKind, Expr, FnDecl, Item, LambdaBody, Param, QualSubject, Stmt,
     StrExprPart, StructLitFieldKind, Type,
 };
 use salvo_syntax::Span;
@@ -84,6 +84,22 @@ pub(crate) fn infer(
     mutations: &HashMap<FnKey, HashSet<String>>,
 ) {
     let no_mutations: HashSet<String> = HashSet::new();
+    // [qual-subject] Provenance qualifiers survive every call, so an
+    // inferred entry must not claim to remove one. Collected program-wide:
+    // the deduction machinery is qualifier-*name* keyed throughout, and
+    // [mod-collision] already rejects one name declared by two visible
+    // modules.
+    let provenance: HashSet<String> = program
+        .modules
+        .iter()
+        .flat_map(|ast| ast.items.iter())
+        .filter_map(|item| match item {
+            Item::Qualifier(q) if q.subject == QualSubject::Provenance => {
+                Some(q.name.name.clone())
+            }
+            _ => None,
+        })
+        .collect();
     let mut fns: Vec<FnInfo<'_>> = Vec::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for (item_idx, item) in ast.items.iter().enumerate() {
@@ -131,7 +147,7 @@ pub(crate) fn infer(
                 continue;
             }
             let Some(body) = &f.decl.body else { continue };
-            let mut new = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
+            let mut new = infer_body(f, body, &checked.call_fn, &fn_decls, &states, &provenance);
             exhaustive_for_mutated(
                 f.decl,
                 &mut new,
@@ -155,7 +171,7 @@ pub(crate) fn infer(
         let (Some(list), Some(body)) = (&f.decl.deductions, &f.decl.body) else {
             continue;
         };
-        let inferred = infer_body(f, body, &checked.call_fn, &fn_decls, &states);
+        let inferred = infer_body(f, body, &checked.call_fn, &fn_decls, &states, &provenance);
         let written = &states[&f.key];
         for ((w, i), p) in written.iter().zip(&inferred).zip(&f.decl.params) {
             let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
@@ -379,12 +395,13 @@ pub(crate) fn from_written(
 
 /// Re-derives one fn's deduction facts from its body, given the current
 /// state of every other fn [deduce-infer].
-fn infer_body(
+fn infer_body<'a>(
     f: &FnInfo<'_>,
     body: &Block,
-    call_fn: &HashMap<Key, FnKey>,
-    fn_decls: &HashMap<FnKey, &FnDecl>,
-    states: &HashMap<FnKey, Vec<ParamDeduction>>,
+    call_fn: &'a HashMap<Key, FnKey>,
+    fn_decls: &'a HashMap<FnKey, &FnDecl>,
+    states: &'a HashMap<FnKey, Vec<ParamDeduction>>,
+    provenance: &'a HashSet<String>,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.key.file,
@@ -393,6 +410,7 @@ fn infer_body(
         states,
         params: optimistic(f.decl),
         decl: f.decl,
+        provenance,
     };
     walk.block(body);
     walk.params
@@ -408,6 +426,8 @@ struct Walk<'a, 'p> {
     /// The declaration being walked (for its fn-typed parameters'
     /// written contracts [fn-contract]).
     decl: &'p FnDecl,
+    /// Provenance qualifier names [qual-subject]: never removed.
+    provenance: &'a HashSet<String>,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -457,6 +477,13 @@ impl Walk<'_, '_> {
     /// A use that drops specific qualifiers: the parameter's effect keeps
     /// its polarity and grows the removal set [deduce-syntax].
     fn remove_quals(&mut self, name: &str, removed: &[String]) {
+        // [qual-subject] Provenance survives; only state claims drop.
+        let removed: Vec<String> = removed
+            .iter()
+            .filter(|q| !self.provenance.contains(*q))
+            .cloned()
+            .collect();
+        let removed = removed.as_slice();
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
             p.effect = match &p.effect {
                 QualEffect::KeepAll => QualEffect::Remove(removed.to_vec()),
@@ -481,6 +508,23 @@ impl Walk<'_, '_> {
     /// a fn that hands its parameter to an exhaustive callee can no longer
     /// promise qualifiers of its own caller either [deduce-syntax].
     fn restrict_to(&mut self, name: &str, allowed: &[String]) {
+        // [qual-subject] An exhaustive callee still cannot invalidate a
+        // provenance claim, so the parameter's own provenance qualifiers
+        // stay in the allowed set.
+        let mut allowed = allowed.to_vec();
+        for q in self
+            .decl
+            .params
+            .iter()
+            .find(|p| p.name.name == name)
+            .map(|p| declared_quals(&p.ty))
+            .unwrap_or_default()
+        {
+            if self.provenance.contains(&q) && !allowed.contains(&q) {
+                allowed.push(q);
+            }
+        }
+        let allowed = allowed.as_slice();
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
             let keep: Vec<String> = match &p.effect {
                 QualEffect::KeepAll => allowed.to_vec(),

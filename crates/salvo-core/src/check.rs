@@ -1728,7 +1728,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let removed = effect.removal_set(&have);
+            let removed = effect.removal_set(&have, |q| self.is_provenance_qual(q));
             if !removed.is_empty() {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = var.narrowed.clone().remove_quals(&removed);
@@ -2690,6 +2690,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if a.name.name == b.name.name {
                     continue; // duplicate, already reported
                 }
+                // [qual-subject] Provenance qualifiers compose without a
+                // `with` declaration: a claim about where a handle came
+                // from is orthogonal to every claim about its contents,
+                // and to other origins.
+                if a.subject == QualSubject::Provenance || b.subject == QualSubject::Provenance {
+                    continue;
+                }
                 // Internal qualifiers compose with everything.
                 if a.backing == Some(BackingMod::Internal)
                     || b.backing == Some(BackingMod::Internal)
@@ -2727,6 +2734,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Whether the base type's declaration opted into the `Mut`
     /// auto-qualifier: `struct S canbe Mut` [struct-mut] or
     /// `external type List<T> canbe Mut` [type-canbe-mut].
+    /// Whether `name` is a *provenance* qualifier [qual-subject]: a claim
+    /// about where the handle came from, which no call can invalidate.
+    fn is_provenance_qual(&self, name: &str) -> bool {
+        self.scope
+            .qualifiers
+            .get(name)
+            .is_some_and(|d| d.subject == QualSubject::Provenance)
+    }
+
     fn has_auto_mut(&self, base: &Ty) -> bool {
         let Ty::Named { name, .. } = base.strip_quals() else {
             return false;
@@ -2760,6 +2776,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "a qualifier cannot apply to a tuple type; qualify the parts instead",
             ),
             _ => {}
+        }
+        // [qual-subject] Provenance is mint-only: no inspection of the
+        // bits can establish where a handle came from, so a `qualifies`
+        // body (and the field overrides that come with one — those are
+        // claims about *contents*) is a contradiction.
+        if q.subject == QualSubject::Provenance && q.has_body {
+            self.error(
+                q.name.span,
+                format!(
+                    "provenance qualifier `{}` cannot have a body: provenance is not \
+                     testable at runtime (no `qualifies`) and describes the handle, \
+                     not its contents (no field overrides) — values gain it from \
+                     constructor functions",
+                    q.name.name
+                ),
+            );
+            return;
         }
         if !q.has_body {
             return;
@@ -5835,7 +5868,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let removed = d.effect.removal_set(&have);
+                let removed = d.effect.removal_set(&have, |q| self.is_provenance_qual(q));
                 if removed.is_empty() {
                     continue;
                 }

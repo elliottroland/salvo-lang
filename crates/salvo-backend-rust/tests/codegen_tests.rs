@@ -2023,3 +2023,62 @@ fn dot_names_in_unions_and_narrowing() {
         "id: id\nname: name\nafter\ntagged x\nnone\n",
     );
 }
+
+// ===== D5: qualifier subjects [qual-subject] =====
+
+/// The state/provenance contrast, observable in the output: `add` is a
+/// mutating call, so it strips the *state* claim (`Checked`) and the plain
+/// overload is chosen, while the *provenance* claim (`Trusted`) survives
+/// and keeps selecting its own overload.
+const QUAL_SUBJECTS: &str = r#"
+qualifier Checked of List<Int>
+provenance qualifier Trusted of List<Int>
+
+fn check(l: Mut List<Int>) -> Mut List<Int> as Checked {
+    return l
+}
+
+fn trust(l: Mut List<Int>) -> Mut List<Int> as Trusted {
+    return l
+}
+
+fn describe(l: List<Int>) -> Str {
+    return "plain ${l.size()}"
+}
+
+fn describe(l: Checked List<Int>) -> Str {
+    return "checked ${l.size()}"
+}
+
+fn describe(l: Trusted List<Int>) -> Str {
+    return "trusted ${l.size()}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole()
+    let t = trust(mutable_list(1, 2))
+    t.add(3)
+    println(describe(t))
+    let c = check(mutable_list(1, 2))
+    c.add(3)
+    println(describe(c))
+    let c2 = check(mutable_list(4, 5))
+    println(describe(c2))
+}
+"#;
+
+// [qual-subject] [deduce-syntax] [qual-erasure] Provenance survives a
+// mutating call where state does not — and both subjects erase, so the
+// difference shows up only in which overload the checker picked.
+#[test]
+fn provenance_survives_mutation_where_state_does_not() {
+    let program = build_program(&[("main.sv", QUAL_SUBJECTS, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_rust_files(
+        &files,
+        "qual_subjects",
+        "trusted 3\nplain 3\nchecked 2\n",
+    );
+}

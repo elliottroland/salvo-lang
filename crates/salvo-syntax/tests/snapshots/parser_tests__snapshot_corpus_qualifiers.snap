@@ -7,6 +7,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Surname",
                     span: 10..17,
@@ -42,6 +43,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Old",
                     span: 48..51,
@@ -77,6 +79,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Ok",
                     span: 86..88,
@@ -108,6 +111,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Err",
                     span: 107..110,
@@ -139,6 +143,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Something",
                     span: 130..139,
@@ -197,6 +202,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "FirstStr",
                     span: 170..178,
@@ -251,6 +257,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Ints",
                     span: 208..212,
@@ -368,6 +375,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "Positive",
                     span: 276..284,
@@ -470,6 +478,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "NonNegative",
                     span: 373..384,
@@ -581,6 +590,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "HasSurname",
                     span: 488..498,
@@ -715,6 +725,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 backing: None,
+                subject: State,
                 name: Ident {
                     name: "RandomPositive",
                     span: 628..642,

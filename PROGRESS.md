@@ -90,6 +90,22 @@ transitional error was removed on the user's call, so a plain parse
 error is the default. Recorded as an invariant in AGENTS.md with a step
 in the task workflow.
 
+**Qualifier subjects landed 2026-09-03 (roadmap D5).** Qualifiers now say
+what their claim is *about*: `qualifier Q of T` is a **state** claim about
+the value's contents (the default, unchanged), `provenance qualifier Q of
+T` is a claim about where the handle came from ([qual-subject]).
+Provenance is exempt from D1's stripping — the rule that a mutating call
+invalidates unlisted qualifiers is sound only for claims about contents —
+which is the whole point: an `Authenticated Request` no longer loses its
+tag to a logger that takes `Mut`. Provenance is mint-only (no body, so no
+`qualifies` and no field overrides), droppable, survives storage, and
+composes without `with`. It erases like every qualifier, so no backend
+changed; the visible consequence is which overload the checker picks. The
+compiler's own capability qualifiers (`Mut`, `Linear`, `Once`,
+`ReadOnly`) stay intrinsic — each needs a representation choice, a flow
+rule, a subtyping direction or a restricted position that no user
+declaration could supply.
+
 **Dot-names landed 2026-09-03 (roadmap N1).** Structs and qualifiers can
 be declared `Ns.Name` where `Ns` is a struct in the same file
 ([name-dot]), giving the Kotlin wrapper-type idiom (`Environment.Id`)
@@ -1558,7 +1574,7 @@ arm, and only an explicitly parenthesized group can be qualified
   2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
   in practice.
 
-### D5 — Qualifier subjects: state vs provenance (user decisions 2026-09-03)
+### D5 — Qualifier subjects: state vs provenance ✅ Done 2026-09-03
 
 The predicate/constructive split [qual-predicate] [qual-constructive] is
 an *evidence* axis — how a value acquires a fact. It says nothing about
@@ -1665,6 +1681,40 @@ Two properties of the erased design worth knowing before revisiting it:
 Namespacing (the former D5b) outgrew this section and is now its own
 roadmap item, **N1** — dot-names apply to structs as well as qualifiers,
 so it is a naming feature independent of the subject axis.
+
+What landed (rule [qual-subject]):
+
+- **Syntax** (user decision 2026-09-03, confirmed after implementation):
+  `provenance qualifier Q of T`, a prefix modifier matching the existing
+  `internal`/`external` shape. Plain `qualifier` stays state
+  (`QualSubject::State` is the AST default), so nothing existing changed;
+  there is deliberately no `state` keyword — one keyword for the
+  non-default is enough, and the default is documented. Revisitable if it
+  reads badly in practice (there is no compatibility to preserve).
+- **Stripping exemption (the payoff)**: `QualEffect::removal_set` now
+  takes a provenance predicate and filters the removal set, so a
+  provenance tag survives any call. The *inference* side matches
+  (`remove_quals` filters, `restrict_to` re-admits the parameter's
+  declared provenance quals) so inferred signatures never claim a removal
+  that cannot happen. Deduce works from a program-wide provenance name
+  set — the deduction machinery is qualifier-name keyed throughout, and
+  [mod-collision] already rejects one name declared by two visible
+  modules; the checker uses the precise per-file scope.
+- **Mint-only**: a `provenance` qualifier with a body is an error naming
+  both halves (no `qualifies`, no field overrides). `is Q` on a non-union
+  provenance value needed no new code — provenance is bodiless, so
+  [qual-constructive]'s existing message fires.
+- **Free composition**: the pairwise `with` check in `validate_quals`
+  skips any pair where either side is provenance.
+- **No backend work**: provenance erases like every qualifier
+  [qual-erasure]. The only emitter-visible consequence is *which
+  overload* the checker picked.
+- Verified end to end on both backends with one program that makes the
+  distinction observable in program output: a `Mut List<Int>` carrying a
+  state tag and one carrying a provenance tag both go through `add`
+  (`[list: Mut]`), then dispatch — `trusted 3` (provenance survived),
+  `plain 3` (state stripped), `checked 2` (state intact without
+  mutation), identical under `kotlinc` and `rustc`.
 
 Implementation sketch (no backend work — provenance is erased, so
 emitters are untouched under D5a-as-recommended):
@@ -1926,9 +1976,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 263)
+## Test inventory (all green: 273)
 
-- `salvo-core`: 47 - 8 unit tests (file classification; `types.rs` union
+- `salvo-core`: 53 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
@@ -1964,7 +2014,12 @@ spec rule; consolidated here for findability):
   dot-names resolve, the namespace must be a same-file non-generic
   struct, the concatenated-name ban fires for own-module *and* imported
   names, importing a namespace brings its members and a member imports
-  directly, an uppercase module path is an error naming the file).
+  directly, an uppercase module path is an error naming the file) + 6
+  subject tests (`tests/subject_tests.rs` [qual-subject]: a mutating call
+  strips a state qualifier but not a provenance one, provenance composes
+  without `with` while two state claims still need it, a provenance body
+  is rejected, `is` on a non-union provenance value is rejected,
+  provenance is droppable and survives being stored in a struct field).
 - `salvo-cli`: 52 - 44 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -2069,7 +2124,7 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 28 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 30 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
@@ -2079,8 +2134,11 @@ spec rule; consolidated here for findability):
   ([name-dot] [name-casing]: dot-names in declarations and type
   positions, a dot-name struct literal distinguished from a field read
   and a dot-call, three-segment names rejected, the casing rule enforced
-  across ten declaration forms, generic parameters uppercase).
-- `salvo-backend-kotlin`: 84 - golden snapshots of the M2 demo, the M3
+  across ten declaration forms, generic parameters uppercase), and 2
+  subject tests ([qual-subject]: `provenance qualifier` parses with the
+  provenance subject while a plain declaration defaults to state;
+  `provenance` must precede `qualifier`).
+- `salvo-backend-kotlin`: 85 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -2135,7 +2193,7 @@ spec rule; consolidated here for findability):
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 52 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 53 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

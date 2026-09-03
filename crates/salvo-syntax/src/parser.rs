@@ -250,6 +250,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwInternal
                 | TokenKind::KwExternal
                 | TokenKind::KwDefine
+                | TokenKind::KwProvenance
                 | TokenKind::KwImport
                     if depth == 0 =>
                 {
@@ -274,9 +275,9 @@ impl<'s> Parser<'s> {
                 match self.kind() {
                     TokenKind::KwType => self.parse_type_decl(Some(backing)).map(Item::Type),
                     TokenKind::KwFn => self.parse_fn(Some(backing)).map(Item::Fn),
-                    TokenKind::KwQualifier => {
-                        self.parse_qualifier(Some(backing)).map(Item::Qualifier)
-                    }
+                    TokenKind::KwQualifier => self
+                        .parse_qualifier(Some(backing), QualSubject::State)
+                        .map(Item::Qualifier),
                     TokenKind::KwHandler => self.parse_handler(Some(backing)).map(Item::Handler),
                     _ => {
                         let found = self.kind().describe();
@@ -294,7 +295,25 @@ impl<'s> Parser<'s> {
             }
             TokenKind::KwType => self.parse_type_decl(None).map(Item::Type),
             TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
-            TokenKind::KwQualifier => self.parse_qualifier(None).map(Item::Qualifier),
+            TokenKind::KwQualifier => self
+                .parse_qualifier(None, QualSubject::State)
+                .map(Item::Qualifier),
+            // [qual-subject] `provenance qualifier Q of T`: a claim about
+            // where the handle came from, not about its contents.
+            TokenKind::KwProvenance => {
+                self.bump();
+                if !self.at(&TokenKind::KwQualifier) {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(
+                        format!("expected `qualifier` after `provenance`, found {found}"),
+                        span,
+                    );
+                    return None;
+                }
+                self.parse_qualifier(None, QualSubject::Provenance)
+                    .map(Item::Qualifier)
+            }
             TokenKind::KwEffect => self.parse_effect().map(Item::Effect),
             TokenKind::KwHandler => self.parse_handler(None).map(Item::Handler),
             TokenKind::KwFn => self.parse_fn(None).map(Item::Fn),
@@ -496,7 +515,11 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_qualifier(&mut self, backing: Option<BackingMod>) -> Option<QualifierDecl> {
+    fn parse_qualifier(
+        &mut self,
+        backing: Option<BackingMod>,
+        subject: QualSubject,
+    ) -> Option<QualifierDecl> {
         let start = self.expect(&TokenKind::KwQualifier)?.span;
         let name = self.ident_decl_dotted("qualifier")?;
         let generics = self.parse_generics();
@@ -530,6 +553,7 @@ impl<'s> Parser<'s> {
         }
         Some(QualifierDecl {
             backing,
+            subject,
             name,
             generics,
             of,

@@ -24,7 +24,7 @@ const CONTROL_KEYWORDS: &[&str] = &[
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "type", "internal", "external",
-    "define", "import",
+    "define", "import", "provenance",
 ];
 const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "canbe", "is", "use"];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];

@@ -1040,6 +1040,40 @@ fn parse_age(input: Int) -> Ok Int | Err Str {
 
 Constructive qualifiers can also be entirely handled by the backend implementation. We will discuss this more in the section on backends.
 
+### State and provenance
+
+The qualifiers above answer *how* a value gained a tag — by predication or by construction. A second, independent question is what the tag is a claim *about*, and that one changes the semantics:
+
+* A **state** qualifier is a claim about the value's **contents**: `NonEmpty`, `Sorted`, `Positive`. This is the default, and it is what `qualifier Q of T` declares.
+* A **provenance** qualifier is a claim about where the **handle** came from: `Authenticated`, `Validated`, an id minted for one particular struct. Declare it by prefixing `provenance`.
+
+```
+qualifier NonEmpty<T> of List<T>              // about the contents
+provenance qualifier Authenticated of Request // about the origin
+```
+
+The difference matters because a function that mutates a value invalidates claims about its contents. A call that takes `Mut` and does not promise to keep `NonEmpty` strips it, since adding or removing elements could make it false. But mutating a request's body does not change the fact that the request was authenticated, so provenance qualifiers survive every call:
+
+```
+external fn touch(r: Mut Request) [] -> [r: Mut] None
+
+fn f(r: Mut Authenticated NonEmpty Request) -> None {
+    touch(r)
+    // `NonEmpty` is gone here -- `touch` may have invalidated it
+    // `Authenticated` is still known -- mutation cannot un-authenticate
+}
+```
+
+Three further rules follow from provenance being about the handle rather than the data:
+
+* **It is mint-only.** No inspection of the bits can tell you where a value came from, so a provenance qualifier has no body: no `qualifies` predicate, and no field overrides. Values gain it from constructor functions, exactly like a constructive qualifier, and `x is Authenticated` on a non-union value is a compile error.
+* **It composes freely.** Two state qualifiers must declare `with` compatibility, because both constrain the same contents. An origin is orthogonal to contents and to other origins, so provenance tags stack without any declaration, including several at once: `Authenticated FromCache Request`.
+* **It is droppable, and it survives storage.** Forgetting where a value came from is always safe, so `Authenticated Request` can be passed wherever a plain `Request` is wanted; and a struct field typed `Authenticated Request` keeps the tag for whoever reads it back.
+
+Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
+
+`Mut`, `Linear`, `Once` and `ReadOnly` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `Once` never drop).
+
 ## Modules and files
 
 The file extension for Salvo source code is `.sv`. Modules correspond to files, so that there is no need to specify the module name or path at the top of the file (as in Java and Kotlin).

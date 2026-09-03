@@ -46,7 +46,10 @@ fn main() [use] {
     use StdOutConsole
     use DefaultRandom
 
-    let rand = random()
+    let n = try_get_number()
+    if n is Ok {
+
+    }
 
     let strings = mutable_list("name", "surname", "something")
     if strings is NonEmpty {
@@ -66,7 +69,8 @@ fn add(a: Int, b: Int) -> [] Int {
     return a + b
 }
 
-fn random() [Random] -> Int {
+fn make_random() [Random, Console] -> Int {
+    println("About to generate random number")
     if random() < 0.5 {
         return -1
     }

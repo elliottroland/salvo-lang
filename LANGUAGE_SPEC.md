@@ -179,6 +179,7 @@ Conventions:
   * Pairwise `with` compatibility is validated at declaration sites.
   * `with` is only ever this compatibility clause; opting a declaration
     into a qualifier is `canbe` [canbe-optin].
+  * Provenance qualifiers need no `with` at all [qual-subject].
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
   single arm it is written on, never the whole union; qualifiers cannot
   apply to tuples.
@@ -199,6 +200,42 @@ Conventions:
   * Constructing a nested qualified union group in a single expression
     needs an annotated intermediate `let` (single-level coercion only;
     errors, never mis-emits).
+* [qual-subject] A qualifier declares what its claim is *about* (D5, user
+  decisions 2026-09-03). `qualifier Q of T` is a **state** claim — about
+  the value's *contents*. `provenance qualifier Q of T` is a
+  **provenance** claim — about where the *handle* came from
+  (`Authenticated`, `EnvironmentId`), which is content-independent.
+  * **Provenance survives stripping.** A mutating call strips state
+    claims the callee did not keep [deduce-syntax]; that rule is sound
+    only because mutation can invalidate a claim about contents, so
+    provenance is exempt (`QualEffect::removal_set` takes a provenance
+    predicate; the inference side keeps them out of inferred removals
+    too).
+  * **Mint-only**: a provenance qualifier has no body — no `qualifies`
+    (nothing in the bits establishes an origin, so a *predicate*
+    provenance qualifier cannot exist) and no field overrides (those are
+    claims about contents). Values gain it from constructor functions
+    [qual-ctor-fn], and `is Q` on a non-union value is the error
+    [qual-constructive] already gives.
+  * **Droppable**, and it survives being stored into another value:
+    forgetting an origin is safe, and a field typed `Q T` keeps the tag.
+  * **Composes without `with`** [qual-with]: an origin is orthogonal to
+    every claim about contents and to other origins, so tags stack
+    freely, including several over one base
+    (`Authenticated EnvironmentId Str`). Two *state* claims still need an
+    explicit `with`.
+  * Erased like every qualifier [qual-erasure] — the subject axis is
+    invisible to backends (user decision 2026-09-03, D5a: the nominal
+    flavor of this pattern is a one-field struct, and two lowering models
+    for one concept was the cost that settled it).
+  * The compiler's own capability qualifiers stay intrinsic and are *not*
+    user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-canbe],
+    `Once` [once-fn], `ReadOnly` [readonly-return] each need a
+    representation choice, a flow rule, a non-standard subtyping
+    direction, or a restricted position. Vocabulary: users declare
+    *state* or *provenance*; the compiler owns *permissions* (droppable,
+    like `Mut`) and *obligations* (never droppable, like `Linear` and
+    `Once`).
 * [qual-predicate] A qualifier with a body is a *predicate qualifier*: it
   declares `fn qualifies(x: OfType) -> Bool`.
   * The `qualifies` signature is validated: exactly one param accepting
@@ -465,7 +502,9 @@ Conventions:
     callee never declared and therefore cannot have preserved.
   * **Mutation forces the exhaustive form.** A parameter the body
     mutates may use neither keep-all nor a delta: mutation can invalidate
-    a caller's state predicates that the signature never mentions (the
+    a caller's *state* predicates that the signature never mentions
+    (provenance claims are exempt from removal entirely
+    [qual-subject]; the
     unsoundness D1 fixed — `clear(list: Mut List<Int>) -> [list]` would
     silently preserve a caller's `NonEmpty`). Mutation is the only
     invalidating operation on a kept value: reads preserve state and a

@@ -36,8 +36,16 @@ pub enum QualEffect {
 impl QualEffect {
     /// The qualifiers to strip from an argument that currently carries
     /// `have`.
-    pub fn removal_set(&self, have: &[String]) -> HashSet<String> {
-        match self {
+    /// `is_provenance` exempts provenance qualifiers [qual-subject]: the
+    /// stripping rule is sound only for claims about *contents*, so a
+    /// claim about where the handle came from survives any call. Callers
+    /// pass a predicate because only the checker knows the declarations.
+    pub fn removal_set(
+        &self,
+        have: &[String],
+        is_provenance: impl Fn(&str) -> bool,
+    ) -> HashSet<String> {
+        let removed: HashSet<String> = match self {
             QualEffect::KeepAll => HashSet::new(),
             QualEffect::Exhaustive(keep) => have
                 .iter()
@@ -47,7 +55,11 @@ impl QualEffect {
             QualEffect::Remove(drop) => {
                 drop.iter().filter(|q| have.contains(q)).cloned().collect()
             }
-        }
+        };
+        removed
+            .into_iter()
+            .filter(|q| !is_provenance(q))
+            .collect()
     }
 
     /// The qualifiers a caller may still assume, given a parameter's

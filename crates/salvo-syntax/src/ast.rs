@@ -86,10 +86,30 @@ pub struct FieldDecl {
     pub span: Span,
 }
 
+/// What a qualifier's claim is *about* [qual-subject]: the value's
+/// contents, or where the handle came from. The subject decides whether a
+/// mutating call may strip it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum QualSubject {
+    /// A claim about the contents (`NonEmpty`, `Sorted`): a call that
+    /// mutates the value may invalidate it, so it is stripped unless the
+    /// callee's deduction list keeps it [deduce-syntax].
+    #[default]
+    State,
+    /// A claim about the handle's origin (`Authenticated`,
+    /// `Environment.Id`): content-independent, so mutation cannot
+    /// invalidate it and it survives stripping. Mint-only — a provenance
+    /// qualifier has no body, since no inspection of the bits can
+    /// establish it.
+    Provenance,
+}
+
 /// `qualifier Name<G> of Type with Other { field-overrides fns }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct QualifierDecl {
     pub backing: Option<BackingMod>,
+    /// State (default) or provenance [qual-subject].
+    pub subject: QualSubject,
     pub name: Ident,
     pub generics: Vec<Ident>,
     pub of: Type,

@@ -102,7 +102,11 @@ fn main() [use] {
   value), flow-sensitive narrowing via `is`, exhaustive `when`.
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
   overloading, union tagging, and precise checks; `Mut` opts structs and
-  types (`canbe Mut`) into mutability.
+  types (`canbe Mut`) into mutability. A qualifier is a claim about a
+  value's *contents* (`NonEmpty`) or about where the *handle* came from
+  (`provenance qualifier Authenticated of Request`) — only the former can
+  be invalidated by mutation. Structs and qualifiers can be namespaced
+  under a struct (`Environment.Id`), giving wrapper types without nesting.
 - **Everything is an expression**: `if`/`when` produce values; branch types
   union together.
 - **Functions**: overloading by argument types, dot-notation

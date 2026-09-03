@@ -307,3 +307,44 @@ fn generic_parameters_must_be_uppercase() {
         "got {errors:?}"
     );
 }
+
+// [qual-subject] `provenance qualifier Q of T` parses with the provenance
+// subject; a plain declaration defaults to state.
+#[test]
+fn provenance_qualifiers_parse() {
+    let source = "qualifier Validated of Request\n\
+                  provenance qualifier Authenticated of Request\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let subjects: Vec<salvo_syntax::ast::QualSubject> = module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            salvo_syntax::ast::Item::Qualifier(q) => Some(q.subject),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        subjects,
+        vec![
+            salvo_syntax::ast::QualSubject::State,
+            salvo_syntax::ast::QualSubject::Provenance
+        ]
+    );
+}
+
+// [qual-subject] `provenance` only modifies a qualifier declaration.
+#[test]
+fn provenance_must_precede_a_qualifier() {
+    let errors = errors_of("provenance struct Thing {\n    v: Str\n}\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("expected `qualifier` after `provenance`")),
+        "got {errors:?}"
+    );
+}
