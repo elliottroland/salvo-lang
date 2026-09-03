@@ -8,13 +8,13 @@ deductions, uniform across types, branch- and loop-aware). The
 shared-fate arc (S1, L2, S2, L3, L4, S3) **and L6 must-use linearity**
 are complete: move-mode bindings emit real moves, borrow-mode bindings
 and loops emit real borrows, read-only pipelines over kept parameters
-are clone-free — and `with Linear` types carry a use obligation
+are clone-free — and `canbe Linear` types carry a use obligation
 (forgetting to close/commit is a compile error, `discard` is the
 explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
 limitations, and the plan for what's next. **The L7 milestone is
-complete** — L7a (`<T with Linear>`), L7b (`Once` fn types), L7c
+complete** — L7a (`<T canbe Linear>`), L7b (`Once` fn types), L7c
 (derived returns `ReadOnly[from: p]`), and L7d (fn-type contracts:
 named fn-type parameters with standard deduction lists, applied at
 fn-value calls, inherited by lambdas, carried by named fns, emitted as
@@ -69,6 +69,25 @@ bug it had been hiding: std's `add` did not consume its element, so
 New roadmap sections: **E1** effect-to-effect dependencies (the effect
 declares them, handlers mirror exactly) and **E2** heuristics for
 validating external declarations against their define templates.
+
+**`canbe` replaces `with` at opt-in sites (user decision 2026-09-03).**
+Auto-qualifiers on struct and type declarations and the per-type-parameter
+linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
+`external type List<T> canbe Mut`, `struct FileHandle canbe Linear`,
+`fn hold<T canbe Linear>`), which states the optionality the clause
+actually carries [canbe-optin]. `with` keeps exactly one job: qualifier
+*compatibility* (`qualifier Old of Person with Surname` [qual-with]) —
+co-application of two qualifiers, which `canbe` would misdescribe; no
+better word was found, so the overload is gone but `with` stays. A `with`
+at a `canbe` site is a rename diagnostic that still parses the
+declaration (`Parser::eat_canbe`). Labels renamed with the syntax:
+`[type-with-mut]` → `[type-canbe-mut]`, `[linear-with]` →
+`[linear-canbe]`; AST field `FnDecl.generic_with` → `generic_canbe`
+(uniform snapshot churn). The same analysis produced roadmap **D4**:
+`is` on a union subject always means arm identity, so a *predicate*
+qualifier can never be tested against a union-typed value — fixing that
+needs qualifiers over unions, and `is` itself stays as-is (user decision
+2026-09-03).
 
 **D1 landed 2026-09-02: deductions are exhaustive by default.** A
 confirmed unsoundness — qualifiers surviving calls that invalidate them,
@@ -214,8 +233,8 @@ that still shape the code, and where to look for the mechanics.
   borrowed (`&mut` when `Mut`); expressions emit owned by default
   (borrowed reads clone); no emitted signature returns a reference, so no
   lifetimes exist anywhere. User decision: `Mut` generalized to a
-  language-level qualifier any type opts into with `with Mut`
-  [type-with-mut]; backends map it per type (`Mut inline:` define
+  language-level qualifier any type opts into with `canbe Mut`
+  [type-canbe-mut]; backends map it per type (`Mut inline:` define
   sections). Unions are generated enums; effects are traits with
   `&mut dyn` threading; iterators are *eager* (`Iter<T>` = `Vec<T>`,
   documented divergence [rs-iter-vec]); `WrapOption` coercion added
@@ -250,7 +269,7 @@ that still shape the code, and where to look for the mechanics.
   `T[]`) did not compile. New `core.array` module mirrors `core.list`
   minus construction (literals are the constructor) and mutation
   (fixed size): `size`, `get`, `first`, `iter`, with the same
-  `<T with Linear>` opt-in pattern (measuring/iterating a linear array
+  `<T canbe Linear>` opt-in pattern (measuring/iterating a linear array
   is fine; taking an element out is not). The example now compiles and
   runs verbatim on both backends.
 
@@ -564,11 +583,11 @@ borrows [rs-borrow-locals]. What landed:
 ### L6 — must-use linearity (completed 2026-09-02)
 
 All five decisions (L6a–e) approved by the user as recommended; rules
-[linear-with] [linear-obligation] [linear-discard] [linear-composite]
+[linear-canbe] [linear-obligation] [linear-discard] [linear-composite]
 [linear-generics] [linear-lambda] [linear-static]. What landed:
 
-- **`with Linear`** on type declarations (the with-clause already
-  parsed arbitrary auto-qualifiers; `has_auto_linear` mirrors
+- **`canbe Linear`** on type declarations (the auto-qualifier clause
+  already parsed arbitrary auto-qualifiers; `has_auto_linear` mirrors
   `has_auto_mut`); `Linear` in a use-site type is an error — linearity
   is declared, not applied. `ty_transitively_linear` /
   `ast_type_linear` mirror the `Mut` transitive analysis (composites
@@ -606,16 +625,17 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   have no body to check. `List<FileHandle>` is expressible but not
   constructible until a generic opt-in exists (L7).
 
-### L7a — generic linear opt-in `<T with Linear>` (completed 2026-09-02)
+### L7a — generic linear opt-in `<T canbe Linear>` (completed 2026-09-02)
 
 Syntax decision (user, 2026-09-02, option C of the explored set): the
-opt-in reuses the `with Linear` phrase on *type parameters* — one
-qualifier per `with`, comma separates parameters; struct-side syntax
-deferred. What landed (rule [linear-generics] rewritten):
+opt-in reuses the `canbe Linear` phrase on *type parameters* — one
+qualifier per `canbe`, comma separates parameters; struct-side syntax
+deferred. (Both sites were spelled `with` until the 2026-09-03 rename
+[canbe-optin].) What landed (rule [linear-generics] rewritten):
 
-- **Parser**: `parse_generics_with` parses `<T with Q, U>` into
-  `FnDecl.generic_with: Vec<(Ident, TypeRef)>` (fn declarations and
-  define signatures); non-fn declarations report "`with` on a type
+- **Parser**: `parse_generics_canbe` parses `<T canbe Q, U>` into
+  `FnDecl.generic_canbe: Vec<(Ident, TypeRef)>` (fn declarations and
+  define signatures); non-fn declarations report "`canbe` on a type
   parameter is only supported on functions". Uniform snapshot churn
   (new FnDecl field) accepted.
 - **Checker**: `own_linear_generics` set per fn; `Ty::Var(name)` joined
@@ -632,7 +652,7 @@ deferred. What landed (rule [linear-generics] rewritten):
   Empty construction + `add` is the supported pattern.
 - **std audit**: `add`, `list`, `mutable_list`, `size` opted in;
   `discard` re-declared as
-  `internal fn discard<T with Linear>(value: T) -> [] None`; `get`
+  `internal fn discard<T canbe Linear>(value: T) -> [] None`; `get`
   deliberately *not* opted (returns an alias of an element — a clone of
   a linear value would duplicate the obligation); `copy` refused.
 - Verified end to end: the `List<FileHandle>` workflow (construct
@@ -1062,7 +1082,7 @@ instead of per-variable states).
 (See the L6 section in the decision log above; rules [linear-*].) All
 five decisions approved by the user as recommended on 2026-09-02:
 
-- **L6a**: `with Linear` on the type declaration; `Linear` is not
+- **L6a**: `canbe Linear` on the type declaration; `Linear` is not
   writable at use sites (every value of the type is linear, always).
 - **L6b**: consumption = any move, as the deduction system defines it;
   moves transfer the obligation (compositional across calls, returns,
@@ -1132,7 +1152,7 @@ practice, independent returns may be the permanently right answer.
   parameters (recommended: yes — strictly more informative, revival
   unchanged).
 - **L7a delivered 2026-09-02**: the generic linear opt-in
-  `<T with Linear>` (see the decision-log section; syntax option C —
+  `<T canbe Linear>` (see the decision-log section; syntax option C —
   `where` clauses and qualifier-prefix forms were explored and
   declined; body-inference recorded as a possible later complement,
   mirroring the deduction precedent: written validates, unwritten
@@ -1443,6 +1463,66 @@ algorithm), so establishment is trust (like `as Q`) or a runtime
   trusted, runtime-checked, or restricted to fns declared in the
   qualifier's own file (as `as Q` is today).
 
+### D4 — Predicate `is` on union subjects (and qualifiers over unions)
+
+Motivated by an analysis of the `is` keyword (2026-09-03): `is` has one
+grammar and two evidence sources — union-arm identity, statically known
+[is-narrowing], and a runtime `qualifies` call [is-qualifies]. There is
+no parse ambiguity (one `Expr::Is` node; both forms are
+`subject is Qual* [Type] [binding]`), but `is_info` picks between them
+by the *subject's shape*: a `Ty::Union` subject **always** takes the
+arm-matching path. Consequence: a predicate qualifier can never be
+tested against a union-typed value. With `let x: Int | Str`,
+`x is Positive` matches no arm and reports "this check can never
+succeed"; the workaround is to narrow first (`x is Int && x is Positive`
+works, because the second test sees a non-union subject). The predicate
+form is shadowed by the union form, and the shadow is invisible in the
+surface syntax.
+
+Fixing it is not a checker patch — the narrowed type it should produce
+is a union whose arms carry a qualifier, so it needs qualifiers over
+unions in general (today [qual-union-arm] binds a qualifier to a single
+arm, and only an explicitly parenthesized group can be qualified
+[qual-group]).
+
+- **DECISION D4a — semantics of `x is Q` on a union subject.** Which
+  arms participate (recommendation: those whose qualifier-stripped type
+  satisfies `Q`'s `of` type), and what the check *is*: a conjunction of
+  the arm/tag test and the `qualifies` call (recommended — it is what
+  the two-step workaround does today), or `qualifies` alone.
+  Then-type: the participating arms with `Q` added.
+- **DECISION D4b — the else branch.** A failed predicate proves nothing
+  ([is-qualifies] already records "no else information"), so the
+  remaining set must *keep* the participating arms — unlike a pure arm
+  test, which subtracts them. That asymmetry is the load-bearing
+  difference and it propagates: a `when` whose arms are predicate checks
+  can never be exhaustive. Decide whether predicate checks are allowed
+  in `when` arms at all (recommendation: allow only when the arms are
+  exhaustive on tags alone, otherwise reject with a message pointing at
+  `if`/`elif`).
+- **D4c — qualifiers over unions.** Decide the shape of the narrowed
+  type: per-arm `Q A | Q B` (recommended — preserves [qual-union-arm]
+  and existing arm identity) versus a qualified group `Q (A | B)`
+  ([qual-group], which changes wrapper identity). Per-arm keeps the
+  positional-arm invariant that the checker and both emitters share.
+- **D4d — mixed checks.** `x is Positive Int` on a union: base-type arm
+  test *plus* the `qualifies` call, one lowering.
+- **Backend work.** `is_tests` and `predicate_tests` are separate side
+  tables and each emitter lowers one of them; a union subject with a
+  predicate needs a *combined* lowering (tag test `&&` qualifies call)
+  in both, and checker and emitters must agree exactly, per the
+  invariant. Effects on the `qualifies` fn stay subject to
+  [is-qualifies-effects] at every such site.
+- Sequencing: independent of D1–D3, but it shares the "what does a
+  qualifier mean over a composite type" question with D3's refinements;
+  do D4c's decision before either.
+- Not in scope: renaming `is`. The two readings are opposites in
+  *feel* — "already attached" versus "may be attached" — but both are
+  "test whether this holds now, and refine if it does"; conferring a
+  qualifier is what `-> T as Q` does [qual-ctor-fn]. User decision
+  2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
+  in practice.
+
 ### Related, independent: `!is` in expressions
 
 Negated checks (`if x !is Str { … }`) — sugar over `!(x is Str)` with the
@@ -1511,6 +1591,12 @@ spec rule; consolidated here for findability):
   for UTF-8-native clients. Signature *hover* still covers fn decls only
   — effect members and define fns have no `FnKey` (go-to-definition does
   reach effect members, via `def_refs`).
+- **Predicate `is` on a union subject** is now roadmap phase **D4**, not
+  a leftover: a `Ty::Union` subject always takes the arm-matching path,
+  so `x is Positive` on `Int | Str` errors ("this check can never
+  succeed") instead of calling `qualifies` — narrow first
+  (`x is Int && x is Positive`). Lifting it requires qualifiers over
+  unions [is-qualifies] [qual-union-arm].
 - Struct destructuring ignores predicate-qualifier field overrides
   (deliberate: bindings get the declared type; direct accesses get the
   override + cast).
@@ -1542,7 +1628,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 244)
+## Test inventory (all green: 248)
 
 - `salvo-core`: 40 - 8 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection) + 2 source
@@ -1680,10 +1766,14 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 20 - std + LANGUAGE.md-corpus parse-clean assertions with
-  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests, and
+- `salvo-syntax`: 24 - std + LANGUAGE.md-corpus parse-clean assertions with
+  insta AST snapshots (`tests/corpus/*.sv`), error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
-  `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int).
+  `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
+  and 4 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
+  on an `external type`, `<T canbe Linear>` on a fn, `with` at any of
+  those sites reporting the rename while still parsing the declaration,
+  and `canbe` on a non-fn type parameter rejected [linear-generics]).
 - `salvo-backend-kotlin`: 82 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
@@ -1691,7 +1781,7 @@ spec rule; consolidated here for findability):
   packages + generated imports, alias imports, effect-param collision
   avoidance, unique destructure temps);
   M8 `Mut` assertions (`Mut List<T>` maps through the `Mut inline:`
-  template; `Mut` on a non-`with Mut` type is an error [type-with-mut]);
+  template; `Mut` on a non-`canbe Mut` type is an error [type-canbe-mut]);
   wrapper/wrap/`is`-lowering assertions (`unions_emit_sealed_wrappers`),
   predicate/mangling/field-cast assertions
   (`qualifiers_lower_to_predicates_and_mangled_overloads`), checker-driven
@@ -2252,3 +2342,18 @@ snapshot diffs.
   `#[path]` mounts resolve relative to the file containing them - the
   root-file header is prepended after all files are emitted, when the
   full mount list (unions, companions) is known.
+- (rename) A keyword rename touches more than the lexer: `KEYWORDS`
+  feeds `salvo lang tm-grammar`, and a test compares the generated
+  grammar against the checked-in `vscode/syntaxes/salvo.tmLanguage.json`
+  byte for byte — add the word to a category list in `cli/src/lang.rs`
+  (`keywords_are_fully_categorized` asserts the partition is exact) and
+  regenerate the file in the same change. A longer keyword also shifts
+  every span in the parser snapshots, so the insta diffs are large but
+  should contain *only* span deltas and the renamed field.
+- (rename) Sweeping a keyword with `sed` needs case sensitivity and a
+  pass over the hits first: `with Linear` (syntax) and `with linear
+  type` (an error message's prose) differ only in case, and one site
+  that looked like the same clause — `qualifier NonEmpty<T> of List<T>
+  with Mut<T>` in `experiments/` — was the *other* meaning of `with`
+  ([qual-with]) and had to stay. Grep with context, exclude the
+  exceptions explicitly, then re-grep for leftovers.

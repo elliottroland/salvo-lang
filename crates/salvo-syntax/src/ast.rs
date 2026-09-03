@@ -51,27 +51,27 @@ pub struct ImportDecl {
     pub span: Span,
 }
 
-/// `internal type Str`, `external type List<T> with Mut`, or a type alias
+/// `internal type Str`, `external type List<T> canbe Mut`, or a type alias
 /// `type Result<S, T> = Ok S | Err T`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDecl {
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// Auto-qualifiers, e.g. `with Mut` [type-with-mut]: the type opts
-    /// into the language-level `Mut` qualifier (like `struct ... with
+    /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
+    /// into the language-level `Mut` qualifier (like `struct ... canbe
     /// Mut` [struct-mut]).
     pub auto_qualifiers: Vec<TypeRef>,
     pub alias: Option<Type>,
     pub span: Span,
 }
 
-/// `struct Person with Mut { name: Str, ... }`
+/// `struct Person canbe Mut { name: Str, ... }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructDecl {
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// Auto-qualifiers, e.g. `with Mut`.
+    /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
     pub span: Span,
@@ -137,8 +137,8 @@ pub struct FnDecl {
     pub backing: Option<BackingMod>,
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// Per-type-parameter opt-ins: `<T with Linear>` [linear-generics].
-    pub generic_with: Vec<(Ident, TypeRef)>,
+    /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
+    pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// `-> ReadOnly[from: param] T`: the returned value is derived from
     /// (borrows) the named kept parameter [readonly-return].
     pub derived_return: Option<Ident>,
@@ -239,9 +239,9 @@ pub struct DefineBody {
     pub imports: Option<Template>,
     pub inline: Option<Template>,
     /// `Mut inline:` — the template used instead of `inline:` when the
-    /// type is qualified with `Mut` [type-with-mut] (e.g. Kotlin maps
+    /// type is qualified with `Mut` [type-canbe-mut] (e.g. Kotlin maps
     /// `Mut List<T>` to `MutableList<T>`). Only meaningful on
-    /// `define type` for types declared `with Mut`.
+    /// `define type` for types declared `canbe Mut`.
     pub mut_inline: Option<Template>,
 }
 

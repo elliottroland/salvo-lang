@@ -148,3 +148,83 @@ fn unterminated_string_is_an_error() {
         .iter()
         .any(|d| d.is_error() && d.message.contains("unterminated string")));
 }
+
+// --- `canbe` opt-ins [canbe-optin] ---
+
+// [canbe-optin] [struct-mut] [type-canbe-mut] `canbe` opts declarations
+// into an auto-qualifier; `with` at those sites is a rename error that
+// still parses the declaration.
+#[test]
+fn canbe_opts_declarations_into_auto_qualifiers() {
+    let source = "struct Person canbe Mut {\n    name: Str\n}\n\nexternal type List<T> canbe Mut\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let quals: Vec<&str> = module
+        .items
+        .iter()
+        .flat_map(|item| match item {
+            salvo_syntax::ast::Item::Struct(s) => s.auto_qualifiers.as_slice(),
+            salvo_syntax::ast::Item::Type(t) => t.auto_qualifiers.as_slice(),
+            _ => &[],
+        })
+        .map(|q| q.name.name.as_str())
+        .collect();
+    assert_eq!(quals, vec!["Mut", "Mut"]);
+}
+
+// [canbe-optin] [linear-generics] Per-type-parameter opt-in on fns.
+#[test]
+fn canbe_opts_a_type_parameter_in() {
+    let source = "fn hold<T canbe Linear>(value: T) -> T {\n    return value\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    assert_eq!(f.generic_canbe.len(), 1);
+    assert_eq!(f.generic_canbe[0].0.name, "T");
+    assert_eq!(f.generic_canbe[0].1.name.name, "Linear");
+}
+
+// [canbe-optin] `with` at an opt-in site names the replacement and keeps
+// parsing (it used to be the spelling of `canbe`).
+#[test]
+fn with_at_a_canbe_site_reports_the_rename() {
+    for source in [
+        "struct Person with Mut {\n    name: Str\n}\n",
+        "external type List<T> with Mut\n",
+        "fn hold<T with Linear>(value: T) -> T {\n    return value\n}\n",
+    ] {
+        let (module, diagnostics) = salvo_syntax::parse_module(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.is_error() && d.message.contains("write `canbe`")),
+            "expected a rename error for {source:?}, got {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        assert_eq!(module.items.len(), 1, "declaration should still parse");
+    }
+}
+
+// [canbe-optin] [linear-generics] The clause is fn-only for now.
+#[test]
+fn canbe_on_a_non_fn_type_parameter_is_an_error() {
+    let source = "struct Box<T canbe Linear> {\n    item: T\n}\n";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("only supported on functions")),
+        "expected a fn-only error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

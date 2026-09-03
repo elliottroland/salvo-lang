@@ -1,7 +1,7 @@
 // Rust defines for core.list [backend-define-inline] [rs-borrows].
 //
 // `List<T>` maps to `Vec<T>`; there is deliberately no `Mut inline:`
-// section [type-with-mut]: Rust expresses mutability through bindings
+// section [type-canbe-mut]: Rust expresses mutability through bindings
 // and references, not through a different type.
 
 define type List<T> {

@@ -237,7 +237,7 @@ Module {
                         span: 659..660,
                     },
                 ],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -308,7 +308,7 @@ Module {
                         span: 957..958,
                     },
                 ],
-                generic_with: [
+                generic_canbe: [
                     (
                         Ident {
                             name: "T",
@@ -317,10 +317,10 @@ Module {
                         TypeRef {
                             name: Ident {
                                 name: "Linear",
-                                span: 964..970,
+                                span: 965..971,
                             },
                             args: [],
-                            span: 964..970,
+                            span: 965..971,
                         },
                     ),
                 ],
@@ -329,21 +329,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 972..977,
+                            span: 973..978,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 979..980,
+                                    span: 980..981,
                                 },
                                 args: [],
-                                span: 979..980,
+                                span: 980..981,
                             },
                         },
                         variadic: false,
-                        span: 972..980,
+                        span: 973..981,
                     },
                 ],
                 effects: Some(
@@ -358,16 +358,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 991..995,
+                                span: 992..996,
                             },
                             args: [],
-                            span: 991..995,
+                            span: 992..996,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 946..995,
+                span: 946..996,
             },
         ),
     ],

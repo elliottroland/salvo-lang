@@ -31,7 +31,7 @@ Module {
                                 span: 56..61,
                             },
                             generics: [],
-                            generic_with: [],
+                            generic_canbe: [],
                             derived_return: None,
                             params: [
                                 Param {

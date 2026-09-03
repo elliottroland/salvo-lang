@@ -102,7 +102,7 @@ fn main() [use] {
   value), flow-sensitive narrowing via `is`, exhaustive `when`.
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
   overloading, union tagging, and precise checks; `Mut` opts structs and
-  types (`with Mut`) into mutability.
+  types (`canbe Mut`) into mutability.
 - **Everything is an expression**: `if`/`when` produce values; branch types
   union together.
 - **Functions**: overloading by argument types, dot-notation

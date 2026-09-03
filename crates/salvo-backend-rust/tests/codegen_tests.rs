@@ -917,7 +917,7 @@ fn main() [use] -> [] None {
 /// type, plus a fate-linked alias (`let zs = xs`) whose source must stay
 /// physically valid ([fate-link]: linked bindings clone, not move).
 const COPY_DEMO: &str = r#"
-struct Person with Mut {
+struct Person canbe Mut {
     name: Str,
     age: Int
 }
@@ -1174,7 +1174,7 @@ fn rustc_compiles_and_runs_borrows() {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Rust: `discard` lowers to `drop`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle with Linear {
+struct FileHandle canbe Linear {
     fd: Int
 }
 
@@ -1225,11 +1225,11 @@ fn rustc_compiles_and_runs_linear() {
 
 // ===== L7a: generic linear opt-in [linear-generics] =====
 
-/// `<T with Linear>` in action: the opted std surface makes a linear
+/// `<T canbe Linear>` in action: the opted std surface makes a linear
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle with Linear {
+struct FileHandle canbe Linear {
     fd: Int
 }
 
@@ -1238,7 +1238,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
     return FileHandle {fd: n}
 }
 
-fn hold<T with Linear>(value: T) -> T {
+fn hold<T canbe Linear>(value: T) -> T {
     return value
 }
 

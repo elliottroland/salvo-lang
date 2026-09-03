@@ -24,7 +24,7 @@ Module {
                             span: 26..37,
                         },
                         generics: [],
-                        generic_with: [],
+                        generic_canbe: [],
                         derived_return: None,
                         params: [],
                         effects: None,
@@ -67,7 +67,7 @@ Module {
                             span: 75..82,
                         },
                         generics: [],
-                        generic_with: [],
+                        generic_canbe: [],
                         derived_return: None,
                         params: [
                             Param {
@@ -219,7 +219,7 @@ Module {
                             span: 193..204,
                         },
                         generics: [],
-                        generic_with: [],
+                        generic_canbe: [],
                         derived_return: None,
                         params: [],
                         effects: None,
@@ -352,7 +352,7 @@ Module {
                     span: 330..334,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [],
                 effects: Some(
@@ -458,7 +458,7 @@ Module {
                     span: 425..439,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {

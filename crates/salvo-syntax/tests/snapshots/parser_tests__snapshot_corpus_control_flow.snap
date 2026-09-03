@@ -12,7 +12,7 @@ Module {
                     span: 3..12,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -181,7 +181,7 @@ Module {
                     span: 166..177,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [],
                 effects: None,
@@ -383,7 +383,7 @@ Module {
                     span: 379..387,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -615,7 +615,7 @@ Module {
                     span: 632..646,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -848,7 +848,7 @@ Module {
                     span: 823..834,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -1018,7 +1018,7 @@ Module {
                     span: 989..994,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -1179,7 +1179,7 @@ Module {
                     span: 1136..1150,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {

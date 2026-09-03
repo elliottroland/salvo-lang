@@ -808,7 +808,7 @@ fn struct_field_assignment_requires_mut() {
     let dir = src_dir("struct_mut");
     fs::write(
         dir.join("main.sv"),
-        "struct Person with Mut {\n    name: Str\n}\n\n\
+        "struct Person canbe Mut {\n    name: Str\n}\n\n\
          fn bad() {\n    let p = Person {name: \"a\"}\n    p.name = \"b\"\n}\n\n\
          fn good() -> Str {\n    let p = Mut Person {name: \"a\"}\n    p.name = \"b\"\n    \
          return copy(p.name)\n}\n",
@@ -1211,7 +1211,7 @@ fn l4_lambda_captures() {
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
-// [linear-obligation] L6: values of `with Linear` types must be used —
+// [linear-obligation] L6: values of `canbe Linear` types must be used —
 // moved onward or `discard`ed — on every path. The negative matrix:
 // scope-exit leak, consumed-on-some-paths-only, dropped expression
 // result, overwriting a live value, returning while owing, `copy`
@@ -1224,9 +1224,9 @@ fn l6_linear_obligations() {
     let dir = src_dir("l6_linear");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
-         struct Box2 with Linear {\n    item: FileHandle\n}\n\n\
-         struct Conn with Linear {\n    tags: Mut List<Int>\n}\n\n\
+        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
+         struct Box2 canbe Linear {\n    item: FileHandle\n}\n\n\
+         struct Conn canbe Linear {\n    tags: Mut List<Int>\n}\n\n\
          fn open_file(path: Str) -> [] FileHandle {\n    \
          return FileHandle {fd: size(path)}\n}\n\n\
          fn close_file(h: FileHandle) -> [] None {\n    discard(h)\n}\n\n\
@@ -1299,14 +1299,14 @@ fn l6_linear_obligations() {
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused
-// unless the type parameter declares `<T with Linear>`; variadic
+// unless the type parameter declares `<T canbe Linear>`; variadic
 // positions refuse linear values outright (they are untracked).
 #[test]
 fn l6_generics_refuse_linear_types() {
     let dir = src_dir("l6_generics");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
+        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
          fn hold<T>(value: T) -> T {\n    return value\n}\n\n\
          fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
          let kept = hold(h)\n    discard(kept)\n}\n\n\
@@ -1320,7 +1320,7 @@ fn l6_generics_refuse_linear_types() {
     assert!(
         stderr.contains(
             "cannot instantiate generic parameter `T` of `hold` with linear type \
-             `FileHandle`: `hold` does not declare `<T with Linear>`"
+             `FileHandle`: `hold` does not declare `<T canbe Linear>`"
         ),
         "stderr: {stderr}"
     );
@@ -1330,7 +1330,7 @@ fn l6_generics_refuse_linear_types() {
     );
 }
 
-// [linear-generics] L7a: `<T with Linear>` opts a generic fn into
+// [linear-generics] L7a: `<T canbe Linear>` opts a generic fn into
 // linear instantiation — its body treats `T` values as linear (a
 // written-moved parameter that the body drops is rejected), forwarding
 // an opted `T` to an *unopted* generic is rejected, only `Linear` is
@@ -1343,14 +1343,14 @@ fn l7a_generic_linear_opt_in() {
     let dir = src_dir("l7a_optin");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle with Linear {\n    fd: Int\n}\n\n\
+        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
          fn open_file(n: Int) -> [] FileHandle {\n    return FileHandle {fd: n}\n}\n\n\
-         fn hold<T with Linear>(value: T) -> T {\n    return value\n}\n\n\
-         fn eat<T with Linear>(value: T) -> [] None {\n}\n\n\
-         fn forward<T with Linear>(value: T) {\n    let kept = unopted(value)\n    \
+         fn hold<T canbe Linear>(value: T) -> T {\n    return value\n}\n\n\
+         fn eat<T canbe Linear>(value: T) -> [] None {\n}\n\n\
+         fn forward<T canbe Linear>(value: T) {\n    let kept = unopted(value)\n    \
          discard(kept)\n}\n\n\
          fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
-         fn bad_clause<T with Mut>(value: T) -> T {\n    return value\n}\n\n\
+         fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
          fn variadic_refused() {\n    let h = open_file(1)\n    \
          let xs = mutable_list(h)\n}\n\n\
          fn workflow() -> Int {\n    let handles: Mut List<FileHandle> = mutable_list()\n    \
@@ -1372,7 +1372,7 @@ fn l7a_generic_linear_opt_in() {
     assert!(
         stderr.contains(
             "cannot instantiate generic parameter `T` of `unopted` with linear \
-             type `T`: `unopted` does not declare `<T with Linear>`"
+             type `T`: `unopted` does not declare `<T canbe Linear>`"
         ),
         "stderr: {stderr}"
     );

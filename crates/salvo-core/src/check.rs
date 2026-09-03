@@ -512,7 +512,7 @@ struct Checker<'p, 'r> {
     /// by the lambda expression's span, this file only).
     lambda_links: HashMap<Span, Vec<FateLink>>,
     /// Type parameters of the current fn that opted into linearity with
-    /// `<T with Linear>` [linear-generics]: `T`-typed values are treated
+    /// `<T canbe Linear>` [linear-generics]: `T`-typed values are treated
     /// as linear in the body, and callers may instantiate them with
     /// linear types.
     own_linear_generics: HashSet<String>,
@@ -774,17 +774,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [linear-generics] Type-parameter opt-ins: `<T with Linear>`
+        // [linear-generics] Type-parameter opt-ins: `<T canbe Linear>`
         // treats `T`-typed values as linear in this body and admits
         // linear instantiation at call sites. Only `Linear` is
         // supported in a type-parameter `with` clause.
         self.own_linear_generics = f
-            .generic_with
+            .generic_canbe
             .iter()
             .filter(|(_, q)| q.name.name == "Linear")
             .map(|(id, _)| id.name.clone())
             .collect();
-        for (_, q) in &f.generic_with {
+        for (_, q) in &f.generic_canbe {
             if q.name.name != "Linear" {
                 self.error(
                     q.span,
@@ -1843,7 +1843,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Whether a type's data is transitively mutable: `Mut` at any depth
     /// — top-level qualifier, type argument, array/tuple/union
     /// component, or a struct field followed recursively through struct
-    /// declarations [type-with-mut] [fate-move-mode]. Mirrors the Kotlin
+    /// declarations [type-canbe-mut] [fate-move-mode]. Mirrors the Kotlin
     /// backend's transitive immutability analysis for `copy` lowering.
     fn ty_transitively_mut(&self, ty: &Ty, visited: &mut HashSet<String>) -> bool {
         if ty.quals().iter().any(|q| q.name == "Mut") {
@@ -1871,10 +1871,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Whether a type is *linear* — declared `with Linear`, or a
+    /// Whether a type is *linear* — declared `canbe Linear`, or a
     /// composite containing a linear component at any depth (type
     /// argument, array/tuple/union component, or struct field, followed
-    /// recursively) [linear-with] [linear-composite].
+    /// recursively) [linear-canbe] [linear-composite].
     fn ty_transitively_linear(&self, ty: &Ty, visited: &mut HashSet<String>) -> bool {
         match ty.strip_quals() {
             Ty::Named { name, args } => {
@@ -1909,8 +1909,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Whether a declaration opted into linearity with `with Linear`
-    /// [linear-with].
+    /// Whether a declaration opted into linearity with `canbe Linear`
+    /// [linear-canbe].
     fn has_auto_linear(&self, name: &str) -> bool {
         let has = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Linear");
         self.scope
@@ -2626,29 +2626,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
             for (q, decl) in qualifiers.iter().zip(&decls) {
                 // `Mut` is the language-level auto-qualifier: valid only
-                // on declarations that opt in with `with Mut`
-                // [struct-mut] [type-with-mut].
+                // on declarations that opt in with `canbe Mut`
+                // [struct-mut] [type-canbe-mut].
                 if q.name.name == "Mut" {
                     if !self.has_auto_mut(base) {
                         self.error(
                             q.span,
                             format!(
                                 "`Mut` does not apply to `{base}` (its declaration \
-                                 does not say `with Mut`)"
+                                 does not say `canbe Mut`)"
                             ),
                         );
                     }
                     continue;
                 }
-                // [linear-with] Linearity is declared, not applied: every
-                // value of a `with Linear` type is linear, so writing
+                // [linear-canbe] Linearity is declared, not applied: every
+                // value of a `canbe Linear` type is linear, so writing
                 // `Linear` at a use site is meaningless (and forgetting
                 // it must not silently drop the protection).
                 if q.name.name == "Linear" {
                     self.error(
                         q.span,
                         "`Linear` cannot be written in a type: linearity is \
-                         declared on the type itself (`with Linear`) and applies \
+                         declared on the type itself (`canbe Linear`) and applies \
                          to every value of it",
                     );
                     continue;
@@ -2680,7 +2680,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for i in 0..qualifiers.len() {
             for j in (i + 1)..qualifiers.len() {
                 // The `Mut` auto-qualifier composes with everything
-                // [type-with-mut].
+                // [type-canbe-mut].
                 if qualifiers[i].name.name == "Mut" || qualifiers[j].name.name == "Mut" {
                     continue;
                 }
@@ -2725,8 +2725,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Whether the base type's declaration opted into the `Mut`
-    /// auto-qualifier: `struct S with Mut` [struct-mut] or
-    /// `external type List<T> with Mut` [type-with-mut].
+    /// auto-qualifier: `struct S canbe Mut` [struct-mut] or
+    /// `external type List<T> canbe Mut` [type-canbe-mut].
     fn has_auto_mut(&self, base: &Ty) -> bool {
         let Ty::Named { name, .. } = base.strip_quals() else {
             return false;
@@ -5613,7 +5613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // meaningless).
         if self.inferred.is_some() {
             let opted: HashSet<&str> = decl
-                .generic_with
+                .generic_canbe
                 .iter()
                 .filter(|(_, q)| q.name.name == "Linear")
                 .map(|(id, _)| id.name.as_str())
@@ -5622,7 +5622,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !callee_generics.contains(var_name) {
                     continue;
                 }
-                // [linear-generics] `<T with Linear>` admits linear
+                // [linear-generics] `<T canbe Linear>` admits linear
                 // instantiation: the callee's body honors the obligation
                 // (or, for bodiless externals, its audit claims so).
                 if opted.contains(var_name.as_str()) {
@@ -5647,7 +5647,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "cannot instantiate generic parameter `{var_name}` \
                                  of `{name}` with linear type `{ty}`: `{name}` does \
-                                 not declare `<{var_name} with Linear>`, so it does \
+                                 not declare `<{var_name} canbe Linear>`, so it does \
                                  not honor the use obligation"
                             ),
                         );

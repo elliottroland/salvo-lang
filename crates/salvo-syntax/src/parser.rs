@@ -106,6 +106,24 @@ impl<'s> Parser<'s> {
         self.diagnostics.push(Diagnostic::error(message, span));
     }
 
+    /// Eats the `canbe` opt-in keyword [canbe-optin]. `with` used to spell
+    /// this; when it shows up here it is consumed with a rename diagnostic
+    /// so the rest of the declaration still parses.
+    fn eat_canbe(&mut self) -> bool {
+        if self.eat(&TokenKind::KwCanbe).is_some() {
+            return true;
+        }
+        if let Some(tok) = self.eat(&TokenKind::KwWith) {
+            self.error(
+                "`with` no longer opts a declaration into a qualifier: write `canbe` \
+                 (`with` now only declares qualifier compatibility)",
+                tok.span,
+            );
+            return true;
+        }
+        false
+    }
+
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             pos: self.pos,
@@ -271,9 +289,10 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident()?;
         let generics = self.parse_generics();
-        // `with Mut` — auto-qualifiers the type opts into [type-with-mut].
+        // `canbe Mut` — auto-qualifiers the type opts into
+        // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
-        if self.eat(&TokenKind::KwWith).is_some() {
+        if self.eat_canbe() {
             loop {
                 auto_qualifiers.push(self.parse_type_ref()?);
                 if self.eat(&TokenKind::Comma).is_none() {
@@ -303,10 +322,10 @@ impl<'s> Parser<'s> {
 
     /// `<A, B, C>` — declaration-site generic parameters.
     fn parse_generics(&mut self) -> Vec<Ident> {
-        let (generics, with) = self.parse_generics_with();
-        for (ident, _) in &with {
+        let (generics, canbe) = self.parse_generics_canbe();
+        for (ident, _) in &canbe {
             self.error(
-                "`with` on a type parameter is only supported on functions",
+                "`canbe` on a type parameter is only supported on functions",
                 ident.span,
             );
         }
@@ -338,12 +357,12 @@ impl<'s> Parser<'s> {
         Some(param)
     }
 
-    /// Type parameters with optional per-parameter `with` opt-ins
-    /// [linear-generics]: `<T with Linear, U>` — one qualifier per
-    /// `with` (the comma separates parameters).
-    fn parse_generics_with(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
+    /// Type parameters with optional per-parameter `canbe` opt-ins
+    /// [linear-generics] [canbe-optin]: `<T canbe Linear, U>` — one
+    /// qualifier per `canbe` (the comma separates parameters).
+    fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
         let mut generics = Vec::new();
-        let mut with = Vec::new();
+        let mut canbe = Vec::new();
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
@@ -353,9 +372,9 @@ impl<'s> Parser<'s> {
                 }
                 match self.ident() {
                     Some(id) => {
-                        if self.eat(&TokenKind::KwWith).is_some() {
+                        if self.eat_canbe() {
                             if let Some(q) = self.parse_type_ref() {
-                                with.push((id.clone(), q));
+                                canbe.push((id.clone(), q));
                             }
                         }
                         generics.push(id);
@@ -374,15 +393,17 @@ impl<'s> Parser<'s> {
             }
             self.group_depth -= 1;
         }
-        (generics, with)
+        (generics, canbe)
     }
 
     fn parse_struct(&mut self) -> Option<StructDecl> {
         let start = self.expect(&TokenKind::KwStruct)?.span;
         let name = self.ident()?;
         let generics = self.parse_generics();
+        // `canbe Mut` — auto-qualifiers the struct opts into
+        // [struct-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
-        if self.eat(&TokenKind::KwWith).is_some() {
+        if self.eat_canbe() {
             loop {
                 auto_qualifiers.push(self.parse_type_ref()?);
                 if self.eat(&TokenKind::Comma).is_none() {
@@ -534,7 +555,7 @@ impl<'s> Parser<'s> {
     fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident()?;
-        let (generics, generic_with) = self.parse_generics_with();
+        let (generics, generic_canbe) = self.parse_generics_canbe();
         let params = self.parse_params()?;
 
         // Effects: `[Random<Int>, Console, use]`
@@ -580,7 +601,7 @@ impl<'s> Parser<'s> {
             backing,
             name,
             generics,
-            generic_with,
+            generic_canbe,
             params,
             derived_return,
             effects,
@@ -817,7 +838,7 @@ impl<'s> Parser<'s> {
     fn parse_fn_signature_only(&mut self) -> Option<FnDecl> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident()?;
-        let (generics, generic_with) = self.parse_generics_with();
+        let (generics, generic_canbe) = self.parse_generics_canbe();
         let params = self.parse_params()?;
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
             Some(self.parse_effect_list()?)
@@ -840,7 +861,7 @@ impl<'s> Parser<'s> {
             backing: None,
             name,
             generics,
-            generic_with,
+            generic_canbe,
             params,
             derived_return,
             effects,
@@ -859,7 +880,7 @@ impl<'s> Parser<'s> {
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let section = self.ident()?;
             // `Mut inline:` — the Mut-qualified variant of `inline:`
-            // [type-with-mut].
+            // [type-canbe-mut].
             let sub = if section.name == "Mut" && !self.at(&TokenKind::Colon) {
                 Some(self.ident()?)
             } else {

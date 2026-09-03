@@ -74,7 +74,7 @@ Conventions:
 * [kt-mutability] `let` emits `val`, or `var` when the name is assigned or
   `++`-incremented anywhere in the fn (mutation pre-scan);
   `Mut List<T>` emits `MutableList<T>` via the define's `Mut inline:`
-  template [type-with-mut]; `Mut` struct fields emit `var`.
+  template [type-canbe-mut]; `Mut` struct fields emit `var`.
 * [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
 * [is-binding] `is T name` bindings emit `val name = subj as T` at the top
@@ -206,7 +206,7 @@ Conventions:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
     elements, tuples/unions/fn values of immutable components, and
-    struct types (any `with Mut` declaration included) whose value is
+    struct types (any `canbe Mut` declaration included) whose value is
     not `Mut`-qualified and whose fields are transitively immutable
     [struct-mut]. Duplicating a reference to immutable data *is* a
     copy on the JVM.

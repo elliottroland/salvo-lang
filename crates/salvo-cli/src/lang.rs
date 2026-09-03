@@ -26,7 +26,7 @@ const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "type", "internal", "external",
     "define", "import",
 ];
-const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "is", "use"];
+const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "canbe", "is", "use"];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 
 fn alternation(words: &[&str]) -> String {

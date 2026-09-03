@@ -99,7 +99,7 @@
         },
         {
           "name": "keyword.other.salvo",
-          "match": "\\b(as|of|with|is|use)\\b"
+          "match": "\\b(as|of|with|canbe|is|use)\\b"
         },
         {
           "name": "constant.language.boolean.salvo",

@@ -1362,7 +1362,7 @@ impl<'p> Emitter<'p> {
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
         let name = base.name.name.clone();
         // A `Mut`-qualified type maps through its define's `Mut inline:`
-        // template when one exists [type-with-mut]; the std rust defines
+        // template when one exists [type-canbe-mut]; the std rust defines
         // deliberately provide none (mutability is in bindings, not
         // types [rs-borrows]).
         if qualifiers.iter().any(|q| q.name.name == "Mut") {

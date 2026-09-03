@@ -131,7 +131,7 @@ Conventions:
   when the expected type is known (`let p: Person = {name: ...}`).
   * A struct literal with no inferable type is a codegen error, never a
     guess.
-* [struct-mut] `struct Name with Mut { ... }` opts a struct into the `Mut`
+* [struct-mut] `struct Name canbe Mut { ... }` opts a struct into the `Mut`
   auto-qualifier; only `Mut Name` values may have fields assigned.
   * `Mut` is the only auto-qualifier.
   * Enforced at field-assignment sites since S1: assigning to a field of
@@ -140,10 +140,10 @@ Conventions:
     values really being immutable [copy-fn]). Arrays remain
     index-assignable without `Mut` (status quo; `copy` performs a real
     array copy).
-* [type-with-mut] `Mut` is a language-level qualifier, not a library
-  declaration: any type declaration may opt into it with `with Mut`
-  (`external type List<T> with Mut`), and applying `Mut` to a type whose
-  declaration does not say `with Mut` is an error. `Mut` composes with
+* [type-canbe-mut] `Mut` is a language-level qualifier, not a library
+  declaration: any type declaration may opt into it with `canbe Mut`
+  (`external type List<T> canbe Mut`), and applying `Mut` to a type whose
+  declaration does not say `canbe Mut` is an error. `Mut` composes with
   every other qualifier (no `with` compatibility needed).
   * Validated at declaration sites (`validate_quals` in the checker)
     against struct and opaque-type `auto_qualifiers`.
@@ -162,10 +162,26 @@ Conventions:
     — not during type lowering, which runs repeatedly.
 * [qual-no-dup] The same qualifier cannot be applied twice to one type
   (`Old Old Person` is invalid).
+* [canbe-optin] `canbe` declares an *opt-in*: the declaration it follows
+  may carry the named qualifier. Two sites use it — auto-qualifiers on
+  struct and type declarations (`struct Person canbe Mut` [struct-mut],
+  `external type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
+  canbe Linear` [linear-canbe]) and per-type-parameter opt-ins on fns
+  (`fn hold<T canbe Linear>` [linear-generics]).
+  * `canbe` is *not* `with`: `canbe` grants a qualifier to one
+    declaration ("this may be Mut"), while `with` declares that two
+    qualifiers may co-apply to one type ("Old may stack with Surname",
+    [qual-with]). They are separate keywords and never interchangeable.
+  * Parsed by `Parser::eat_canbe`; a `with` at a `canbe` site is
+    consumed with a rename diagnostic so the declaration still parses
+    (user decision 2026-09-03: `with` → `canbe` at opt-in sites,
+    `with` kept for qualifier compatibility).
 * [qual-with] Two qualifiers may stack on one type only if one declares
   `with` the other; the `Mut` auto-qualifier composes with everything
-  [type-with-mut].
+  [type-canbe-mut].
   * Pairwise `with` compatibility is validated at declaration sites.
+  * `with` is only ever this compatibility clause; opting a declaration
+    into a qualifier is `canbe` [canbe-optin].
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
   single arm it is written on, never the whole union; qualifiers cannot
   apply to tuples.
@@ -197,6 +213,12 @@ Conventions:
   adding the qualifier in the then-branch (no else information).
   * Recorded in the checker's `predicate_tests` table (qualifier names,
     conjunction); backends lower the check to `qualifies` calls.
+  * *Non-union* is load-bearing: a `Ty::Union` subject always takes the
+    arm-matching path [is-narrowing], so a predicate qualifier cannot be
+    tested against a union-typed value (`let x: Int | Str` then
+    `x is Positive` errors with "this check can never succeed"). Narrow
+    first — `x is Int && x is Positive`. Lifting this needs qualifiers
+    over unions; see roadmap D4 in PROGRESS.md.
 * [is-qualifies-effects] `qualifies` may declare effects; at each
   predicate `is` site those effects must be available in the caller's
   scope like any call.
@@ -824,8 +846,8 @@ Conventions:
 
 ## Linear types
 
-* [linear-with] A type opts into linearity at its declaration with
-  `with Linear` (structs and `internal`/`external` types; decision L6a,
+* [linear-canbe] A type opts into linearity at its declaration with
+  `canbe Linear` (structs and `internal`/`external` types; decision L6a,
   2026-09-02). Every value of the type is linear — `Linear` cannot be
   written in a use-site type (error): a per-value qualifier that could
   be forgotten would defeat the protection. Tooling may present
@@ -864,9 +886,10 @@ Conventions:
 * [linear-generics] An unconstrained generic parameter cannot be
   instantiated with a linear type (decision L6d): unopted generic code
   does not honor the obligation. A fn opts in *per type parameter* with
-  `<T with Linear>` (decision L7a-syntax, 2026-09-02 — the same
-  `with Linear` phrase as on type declarations, one qualifier per
-  `with`, the comma separates parameters):
+  `<T canbe Linear>` (decision L7a-syntax, 2026-09-02 — the same
+  `canbe Linear` phrase as on type declarations, one qualifier per
+  `canbe`, the comma separates parameters; spelled `with` until the
+  2026-09-03 rename [canbe-optin]):
   * inside the opted fn, `T`-typed values are treated as linear
     (`Ty::Var` participates in the transitive analysis), so the body is
     checked under the worst case — including that forwarding an opted
@@ -874,14 +897,14 @@ Conventions:
   * for bodiless externals the opt-in is a trusted audit claim; std's
     audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
     (whose declaration is now honestly
-    `internal fn discard<T with Linear>(value: T) -> [] None` — no
+    `internal fn discard<T canbe Linear>(value: T) -> [] None` — no
     blessed-by-name special case), while `get` stays out (returns an
     alias of an element) and `copy` refuses with a dedicated message
     (duplicating an obligation is meaningless);
   * a linear value cannot be passed in a *variadic* position (variadic
     arguments are untracked, so the obligation would be physically
     moved but statically unresolvable);
-  * `with` on type parameters of non-fn declarations (structs,
+  * `canbe` on type parameters of non-fn declarations (structs,
     qualifiers, effects) is a parse error for now (struct-side deferred
     by user decision); only `Linear` is accepted in the clause.
   * Effect members with their own generics are not yet covered by the
@@ -936,7 +959,7 @@ Conventions:
 * [backend-internal] `internal` declarations (types) are
   mapped inside the compiler; every backend must handle all of them
   (`Str`, numeric types, `Iter<T>`, ...). The `Mut` auto-qualifier is
-  mapped per backend via `Mut inline:` define sections [type-with-mut].
+  mapped per backend via `Mut inline:` define sections [type-canbe-mut].
 * [internal-fn] `internal fn` declares a compiler-intrinsic function:
   the declaration carries the signature and deduction list the checker
   uses (body-less, like `external fn`), but there are *no* define files

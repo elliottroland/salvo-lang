@@ -1,4 +1,4 @@
-struct Person with Mut {
+struct Person canbe Mut {
     name: Str,
     surname: Str? = None,
     age: Int

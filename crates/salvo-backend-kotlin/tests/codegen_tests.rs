@@ -643,8 +643,8 @@ fn constructive_values_only_come_from_constructors() {
     );
 }
 
-// [type-with-mut] `Mut List<T>` maps through the define's `Mut inline:`
-// template; `Mut` on a type without `with Mut` is an error.
+// [type-canbe-mut] `Mut List<T>` maps through the define's `Mut inline:`
+// template; `Mut` on a type without `canbe Mut` is an error.
 #[test]
 fn mut_types_map_through_the_mut_inline_template() {
     let src = r#"
@@ -675,7 +675,7 @@ fn main() [use] -> [] None {
     assert!(main.content.contains("val items: MutableList<Int> = mutableListOf(1)"));
 }
 
-// [type-with-mut] `Mut` only applies to declarations that say `with Mut`.
+// [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
 #[test]
 fn mut_requires_a_with_mut_declaration() {
     let errors = expect_errors("fn f(x: Mut Str) -> None {\n}\n");
@@ -1585,7 +1585,7 @@ fn main() [use] -> [] None {
 /// with immutable fields, and `.copyOf()` for arrays — plus a fate-linked
 /// alias (`let zs = xs`) that must stay readable.
 const COPY_DEMO: &str = r#"
-struct Person with Mut {
+struct Person canbe Mut {
     name: Str,
     age: Int
 }
@@ -1791,7 +1791,7 @@ fn kotlinc_compiles_and_runs_borrows() {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Kotlin: `discard` evaluates and ignores via `.let {}`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle with Linear {
+struct FileHandle canbe Linear {
     fd: Int
 }
 
@@ -1833,11 +1833,11 @@ fn kotlinc_compiles_and_runs_linear() {
 
 // ===== L7a: generic linear opt-in [linear-generics] =====
 
-/// `<T with Linear>` in action: the opted std surface makes a linear
+/// `<T canbe Linear>` in action: the opted std surface makes a linear
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle with Linear {
+struct FileHandle canbe Linear {
     fd: Int
 }
 
@@ -1846,7 +1846,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
     return FileHandle {fd: n}
 }
 
-fn hold<T with Linear>(value: T) -> T {
+fn hold<T canbe Linear>(value: T) -> T {
     return value
 }
 

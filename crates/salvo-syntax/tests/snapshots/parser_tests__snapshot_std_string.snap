@@ -29,7 +29,7 @@ Module {
                     span: 81..85,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -95,7 +95,7 @@ Module {
                     span: 223..230,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {

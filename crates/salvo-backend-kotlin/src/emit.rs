@@ -915,7 +915,7 @@ impl<'p> Emitter<'p> {
         let has_mut = qualifiers.iter().any(|q| q.name.name == "Mut");
 
         // A `Mut`-qualified type whose define provides a `Mut inline:`
-        // template maps through it [type-with-mut] (e.g. `Mut List<T>` ->
+        // template maps through it [type-canbe-mut] (e.g. `Mut List<T>` ->
         // `MutableList<T>`).
         if has_mut {
             let arg_strs: Vec<String> = base.args.iter().map(|a| self.emit_type(a)).collect();
@@ -927,7 +927,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// Expands the `Mut inline:` template of a type's define, when the
-    /// define provides one [type-with-mut]. `None` falls back to the
+    /// define provides one [type-canbe-mut]. `None` falls back to the
     /// plain mapping (`Mut` erases like other qualifiers).
     fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
         let def = self.symbols.define_types.get(name).copied()?;
@@ -1041,7 +1041,7 @@ impl<'p> Emitter<'p> {
             }
             Ty::Qualified { quals, base } => {
                 // A `Mut`-qualified type maps through its define's
-                // `Mut inline:` template [type-with-mut]; other qualifiers
+                // `Mut inline:` template [type-canbe-mut]; other qualifiers
                 // erase.
                 if let Ty::Named { name, args } = base.as_ref() {
                     if quals.iter().any(|q| q.name == "Mut") {
@@ -1126,7 +1126,7 @@ impl<'p> Emitter<'p> {
             }
             Ty::Qualified { quals, base } => {
                 // The `Mut inline:` define mapping survives erasure
-                // [type-with-mut].
+                // [type-canbe-mut].
                 if quals.iter().any(|q| q.name == "Mut") {
                     if let Ty::Named { name, args } = base.as_ref() {
                         let name = name.clone();
@@ -2560,7 +2560,7 @@ impl<'p> Emitter<'p> {
             Ty::Named { name, args } => match name.as_str() {
                 "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool"
                 | "Str" | "None" => true,
-                // A non-`Mut` list is read-only [type-with-mut].
+                // A non-`Mut` list is read-only [type-canbe-mut].
                 "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
                 _ => {
                     let Some(s) = self.symbols.structs.get(name.as_str()) else {

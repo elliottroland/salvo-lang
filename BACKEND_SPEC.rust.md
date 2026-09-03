@@ -76,7 +76,7 @@ Conventions:
 * [qual-erasure] Qualifiers erase from emitted types; what survives is
   arm choice, casts, predicate calls, mangled names — and the borrow
   modes that `Mut` implies [rs-borrows].
-* [type-with-mut] Rust maps `Mut T` to the *same* type as `T` (no
+* [type-canbe-mut] Rust maps `Mut T` to the *same* type as `T` (no
   `Mut inline:` in the std rust defines): mutability is expressed in
   bindings and references (`let mut`, `&mut`) [rs-borrows], not in the
   type. Struct `Mut` works the same way (all struct fields are plain

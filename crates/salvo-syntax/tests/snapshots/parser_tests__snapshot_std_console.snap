@@ -19,7 +19,7 @@ Module {
                             span: 80..85,
                         },
                         generics: [],
-                        generic_with: [],
+                        generic_canbe: [],
                         derived_return: None,
                         params: [
                             Param {
@@ -111,7 +111,7 @@ Module {
                     span: 167..174,
                 },
                 generics: [],
-                generic_with: [],
+                generic_canbe: [],
                 derived_return: None,
                 params: [
                     Param {

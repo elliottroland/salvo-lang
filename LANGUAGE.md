@@ -262,12 +262,14 @@ let p: Old Surname Person | None = check_old_surname(person)
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
+Note that `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe Linear` in the linear types section).
+
 ### Auto-qualifiers and `Mut`
 
-When they're defined, structs can specify "auto-qualifiers", which are precanned qualifiers supported at the language level. At the moment, the only auto-qualifier is `Mut`, which introduces support for a mutable version of the struct, wherein each field can be modified:
+When they're defined, structs can specify "auto-qualifiers", which are precanned qualifiers supported at the language level. `canbe Q` reads as "values of this type may be `Q`" — the declaration opts in, and individual values gain the qualifier where the language says so. At the moment, the only auto-qualifier is `Mut`, which introduces support for a mutable version of the struct, wherein each field can be modified:
 
 ```
-struct Person with Mut {
+struct Person canbe Mut {
     name: Str,
     surname: Str? = None,
     age: Int
@@ -282,13 +284,13 @@ let mutable_person = Mut Person {...person}
 mutable_person.name = "Someone else" // No problem
 ```
 
-`Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `with Mut` syntax — for example, the standard library's list type is declared as:
+`Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `canbe Mut` syntax — for example, the standard library's list type is declared as:
 
 ```
-external type List<T> with Mut
+external type List<T> canbe Mut
 ```
 
-Applying `Mut` to a type whose declaration does not say `with Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section (`Mut inline`).
+Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section (`Mut inline`).
 
 ### Generic types
 
@@ -703,7 +705,7 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 
 The second square bracket includes what we call "deductions". These tell the compiler what happens to the parameters given to a function, which in turn helps us to compile functions with concrete ownership/borrowing rules in Rust.
 
-Suppose that we have the standard library's mutable list (`external type List<T> with Mut`) and a qualifier that tracks non-emptiness:
+Suppose that we have the standard library's mutable list (`external type List<T> canbe Mut`) and a qualifier that tracks non-emptiness:
 
 ```
 // Tells us that there is at least one element in the list
@@ -875,7 +877,7 @@ Some consequences worth knowing:
 Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type can opt into **linearity** at its declaration:
 
 ```
-struct FileHandle with Linear {
+struct FileHandle canbe Linear {
     fd: Int
 }
 ```
@@ -918,9 +920,9 @@ fn deliberate() {
 
 Rules that keep the obligation sound:
 
-- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `with Linear` type is linear, always. (A qualifier you could forget to write would defeat the point.)
+- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `canbe Linear` type is linear, always. (A qualifier you could forget to write would defeat the point.)
 - **Composites are contagious**: a struct with a linear field, a tuple/array/union with a linear component, is itself linear — storing a handle in a box moves the obligation into the box, and the box must now be passed on.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T with Linear>(value: T) -> T` — the same `with Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size` — so `List<FileHandle>` works), while `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `internal fn discard<T with Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked) — add elements to a collection individually.
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size` — so `List<FileHandle>` works), while `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `internal fn discard<T canbe Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked) — add elements to a collection individually.
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 
@@ -1079,7 +1081,7 @@ internal fn copy<T>(value: T) -> [value] T
 
 A backend that does not implement an internal fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
-The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `with Mut` (`external type List<T> with Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
+The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`external type List<T> canbe Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
 
 ```
 // In file list.kotlin.sv
