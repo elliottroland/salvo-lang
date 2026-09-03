@@ -58,13 +58,32 @@ Conventions:
   (`Display` is not implemented), so leniency made the backends disagree
   observably. `Unknown`/`Nothing` operands stay lenient
   [type-unknown-lenient].
-  * Struct fields do not flow-narrow [is-narrowing], so
-    `if p.surname is Str { "${p.surname}" }` is rejected; the
-    `is Str surname` binding form is the idiom (LANGUAGE.md uses it).
+  * A narrowable *place* is enough: `if p.surname is Str { "${p.surname}" }`
+    is accepted, because field chains flow-narrow [flow-place]. Element
+    reads (`arr[i]`) do not narrow, so those still need the
+    `is Str name` binding form.
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
-  `let`.
+  `let` and indexed by position ([expr-tuple-index]).
   * Backends may support only small sizes; unsupported sizes are codegen
     errors ([backend-never-wrong]).
+* [expr-tuple-index] `t.0` reads a tuple element by *constant* position,
+  zero-based; chains nest left to right (`t.1.0` is element 0 of element 1).
+  * Only tuples have elements, and the position must exist — both are
+    errors, not leniency: the index is program text, so nothing about it
+    can be interop-dependent. An `Unknown` base stays lenient
+    ([type-unknown-lenient]).
+  * Tuple elements are **read-only**: qualifiers cannot apply to a tuple
+    ([qual-union-arm]), so no tuple value can be `Mut` and there is nothing
+    to assign through ([struct-mut]). Assigning to one is an error naming
+    the rebuild remedy.
+  * No suffixes (`t.0L`, `t.0f` are parse errors).
+  * Lexing: a digit sequence directly after `.` is an index, never a
+    fraction, so `t.0.1` is two indices rather than `t` and `0.1`. Nothing
+    else in the grammar places a numeric literal after a dot (paths and
+    dot-calls take identifiers; spread is one `...` token), so the
+    suspension of the decimal-point rule is unambiguous.
+  * A constant index names one storage location, so it narrows
+    ([flow-place]) and can be an `is` subject.
 * [type-union] `A | B | C` is a union type. Duplicate arms collapse
   (`Str | Str` ≡ `Str`) — but *qualified* duplicates are distinct arms.
   * `Ty::Union` invariants: ≥ 2 arms, no nested unions (flattened), arms
@@ -92,16 +111,23 @@ Conventions:
   * Aliases expand *structurally* at use sites (with generic
     substitution), in both the checker (`lower_base_ref`) and the
     emitters; no nominal identity.
-* [type-unknown-lenient] Anything the checker cannot type is `Ty::Unknown`,
-  compatible in both directions, and never an error by itself.
-  * This is the backbone of backend interop: unknown
-    fields/methods/expressions pass through to the backend untouched, and
-    unchecked code must not cascade errors. Coercions/unwraps fire only
-    where checker side tables say so.
-  * Leniency covers *inferred* types, not *written names*: a name in a
-    type position must resolve [name-resolve]. Interop types are reached
-    by declaring them (`external type`), which is what makes their
-    members lenient in the first place.
+* [type-unknown-lenient] A type the checker cannot *infer* is
+  `Ty::Unknown`, compatible in both directions, and never an error by
+  itself: one mistake yields one diagnostic instead of a cascade of
+  follow-on complaints. Coercions/unwraps fire only where checker side
+  tables say so.
+  * Leniency is about **inference, not visibility** (user decision
+    2026-09-03). It does not excuse anything the author *wrote*: names in
+    type positions must resolve [name-resolve], and members must be
+    justified by a declaration ([call-resolve], [field-resolve],
+    [index-resolve], [iter-resolve]). Reaching a target-language feature
+    means declaring it — `external type` for the type, `external fn`
+    (+ `define`) for anything you do with it.
+  * The emitters keep syntactic fallbacks where a checker table may
+    legitimately have no entry (an `Unknown`-typed expression still has to
+    render), but *not* where the checker now guarantees resolution: an
+    unresolved dot-call is a codegen error naming the internal
+    inconsistency ([backend-never-wrong]).
 
 ## Variables and scoping
 
@@ -121,6 +147,35 @@ Conventions:
   * Struct destructuring binds the *declared* field types, deliberately
     ignoring predicate-qualifier field overrides (see
     [qual-field-override], which applies to direct accesses only).
+* [flow-place] Flow facts are keyed by *place*, not by variable name: a
+  place is a local root plus a projection path (`h`, `h.field`, `h.a.b`,
+  `h.pair.0`). Narrowing applies to every step that names one location
+  statically — **fields and constant tuple indices**, in any combination
+  (user decision P1a, 2026-09-03). An array element (`arr[i]`) is carried
+  by the place type but never narrows: an unknown index may alias any
+  element.
+  * A read of a narrowed place has the narrowed type; its storage keeps
+    the *declared* type, so both backends unwrap at the use site exactly
+    as they do for a narrowed variable ([is-narrowing]). `is` tests, `is`
+    bindings and `when` subjects read the storage, never the unwrapped
+    payload.
+  * Places relate by *prefix* (an event on `h.a` reaches `h.a.b`) and
+    *overlap* (either is a prefix of the other). Siblings (`h.a`, `h.b`)
+    are independent.
+  * A fact survives a branch join only when every fall-through path
+    agrees on it exactly; otherwise the place falls back to its declared
+    type, which is always a supertype.
+  * The same substrate is what place-based *ownership* (roadmap L5) will
+    key on.
+* [flow-place-invalidate] A place narrowing falls on any event that could
+  falsify it: assignment to an overlapping place, reassignment of the
+  root (including `++`), a move out of the place, and a call that keeps
+  the value **mutably** (a `Mut` parameter). A call that keeps a value
+  *immutably* cannot mutate it, so narrowing survives it (user decision
+  P1b, 2026-09-03). Consuming a variable drops every fact about its
+  parts.
+  * This is the event set the fate analysis already watches
+    ([fate-poison]); narrowing invalidation rides on the same sites.
 
 ## Structs
 
@@ -331,15 +386,16 @@ Conventions:
     (`no_struct`) so `if x is Person { ... }` parses.
 * [if-else-none] A missing `else` contributes `None` to an
   if-expression's type (`Str` + no else → `Str?`).
-* [is-narrowing] `is` checks flow-narrow identifier subjects: matched type
-  in the then-branch, remaining arms in the else-branch; `elif` chains
-  accumulate exclusions; `&&`/`||`/`!` propagate facts.
-  * Only *identifier* subjects flow-narrow. Union-test lowering and
-    `is`-bindings work for any subject place (struct fields included) —
-    the tested branch reads the field through the binding or the
-    recorded unwrap, not through narrowing.
+* [is-narrowing] `is` checks flow-narrow their subject *place*
+  [flow-place]: matched type in the then-branch, remaining arms in the
+  else-branch; `elif` chains accumulate exclusions; `&&`/`||`/`!`
+  propagate facts.
+  * Union-test lowering and `is`-bindings work for *any* subject
+    expression; narrowing needs a narrowable place, so an element read
+    (`arr[i]`) is tested and bound but never narrowed.
   * Narrowing resets to the declared type for any variable assigned
-    inside a branch ([narrow-assign-reset]).
+    inside a branch ([narrow-assign-reset]); place facts fall on the
+    events in [flow-place-invalidate].
 * [is-binding] `is Type name` binds the narrowed value to a fresh
   variable in the matched branch (and per-iteration in `while`).
   * Parse heuristic: uppercase idents in the check are type refs; a
@@ -348,7 +404,8 @@ Conventions:
   `is Err Str` matches only the `Err Str` arm; `is Err` matches every
   `Err`-qualified arm; overlapping matches infer the smaller union.
 * [when-union-subject] `when` requires a union-typed *variable* subject;
-  there is no default branch.
+  there is no default branch. Field subjects stay rejected even though
+  they now narrow (user decision 2026-09-03): `if … is` covers them.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A
@@ -425,8 +482,29 @@ Conventions:
     callee's `T` never appears inside argument types (a caller's
     same-named `T` is a different variable).
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
-  known fn/define/effect member; otherwise it stays a backend method call
-  ([type-unknown-lenient] interop).
+  declared fn/define/effect member. There is no method-call fallback: an
+  undeclared name is an unresolved call ([call-resolve]), and the
+  diagnostic names `external fn` as the way to reach a target-language
+  method.
+* [call-resolve] Every call must resolve to something declared: a fn, a
+  `define` signature, an effect member, a handler constructor, or a value
+  of fn type. Otherwise it is an error (user decision 2026-09-03) —
+  unresolved names carry import suggestions [diag-import-suggest].
+  * Calling a value whose type is known and is not a fn type is an error
+    too ("`n` is not callable: its type is `Int`"), generics included: a
+    type parameter has no bounds, so nothing makes a `T` callable.
+  * Only an *un-inferred* callee stays silent [type-unknown-lenient].
+* [field-resolve] Only structs have fields, and only the ones they declare
+  (predicate-qualifier overrides refine them [qual-field-override]).
+  A field on any other known type — an `external type`, an array, a fn
+  value, a generic `T` — is an error; a target-language member is reached
+  through a declared accessor (`external fn`).
+* [index-resolve] `[]` subscripts arrays only. Other collections expose
+  element access as declared functions (std's `get(list, index)`), and
+  tuples use constant positions ([expr-tuple-index]).
+* [iter-resolve] A `for` subject must be an array, an `Iter<T>`, or a value
+  some declared `iter` overload accepts (the implicit `iter(subject)`
+  call); anything else is an error.
 * [fn-variadic] `...xs: T[]` collects remaining arguments as an array;
   a spread argument `...xs` forwards an array whole; variadics bind after
   fixed params.
@@ -568,10 +646,11 @@ Conventions:
     variable to the parameter [fate-link] — but a binding that is later
     moved or mutated *claims* the parameter as moved (move-mode takes
     ownership through the chain [fate-move-mode]); the claims are
-    seeded into the fixpoint between the checking rounds. Unresolved
-    callees (backend interop, effect members) borrow leniently and
-    preserve all qualifiers; value flow out of a branch/loop tail is
-    not tracked as a move yet.
+    seeded into the fixpoint between the checking rounds. Effect-member
+    calls — the one callee kind with no declaration to resolve to, since
+    the handler is chosen at run time — borrow leniently and preserve all
+    qualifiers ([call-resolve] removed the other source, backend interop);
+    value flow out of a branch/loop tail is not tracked as a move yet.
   * A written list is validated against the same body facts: it may be
     *stricter* than the body (drop qualifiers, move parameters the body
     gives back), but promising a parameter back that the body moves, or

@@ -4,6 +4,7 @@
 pub mod check;
 pub mod deduce;
 pub mod diag;
+pub mod place;
 pub mod program;
 pub mod reach;
 pub mod resolve;
@@ -13,6 +14,7 @@ pub mod types;
 pub use check::{check_program, Checked, Coercion, UnionTest};
 pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;
+pub use place::{Place, Proj};
 pub use program::{check_define_pairing, Program, Symbols};
 pub use reach::reachable_modules;
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};

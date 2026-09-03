@@ -133,6 +133,94 @@ fn snapshot_corpus_defines_kotlin() {
     insta::assert_debug_snapshot!(parse_clean(&corpus("defines.kotlin.sv")));
 }
 
+// --- Tuple indexing [expr-tuple-index] ---
+
+/// Parses one expression statement out of a function body.
+fn parse_expr_stmt(src: &str) -> salvo_syntax::ast::Expr {
+    let source = format!("fn f() -> None {{\n    let x = {src}\n}}\n");
+    let (module, diagnostics) = salvo_syntax::parse_module(&source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse errors in `{src}`: {errors:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn");
+    };
+    let Some(salvo_syntax::ast::Stmt::Let { value, .. }) = f.body.as_ref().unwrap().stmts.first()
+    else {
+        panic!("expected a let");
+    };
+    value.clone()
+}
+
+/// [expr-tuple-index] `t.0` is a tuple-element projection, not a field.
+#[test]
+fn tuple_index_parses_as_a_projection() {
+    let expr = parse_expr_stmt("t.0");
+    match expr {
+        salvo_syntax::ast::Expr::TupleIndex { base, index, .. } => {
+            assert_eq!(index, 0);
+            assert!(matches!(*base, salvo_syntax::ast::Expr::Ident(_)));
+        }
+        other => panic!("expected a tuple index, got {other:?}"),
+    }
+}
+
+/// [expr-tuple-index] The lexer must not read `0.1` as a fraction here:
+/// `t.0.1` is *two* indices. (Numbers own their decimal point everywhere
+/// else, so this is the one place the rule is suspended.)
+#[test]
+fn nested_tuple_index_is_two_projections() {
+    let expr = parse_expr_stmt("t.0.1");
+    let salvo_syntax::ast::Expr::TupleIndex { base, index, .. } = expr else {
+        panic!("expected a tuple index");
+    };
+    assert_eq!(index, 1, "outermost index");
+    match *base {
+        salvo_syntax::ast::Expr::TupleIndex { index, .. } => assert_eq!(index, 0),
+        other => panic!("expected a nested tuple index, got {other:?}"),
+    }
+}
+
+/// [expr-tuple-index] Float literals keep their decimal point everywhere a
+/// tuple index cannot appear.
+#[test]
+fn floats_still_lex_as_floats() {
+    let expr = parse_expr_stmt("1.5");
+    assert!(
+        matches!(expr, salvo_syntax::ast::Expr::Float { value, .. } if value == 1.5),
+        "expected a float literal, got {expr:?}"
+    );
+}
+
+/// [expr-tuple-index] A tuple element can be the receiver of a dot-call,
+/// so the index must not swallow the following `.name`.
+#[test]
+fn tuple_index_can_be_a_dot_call_receiver() {
+    let expr = parse_expr_stmt("t.1.size()");
+    let salvo_syntax::ast::Expr::Call { callee, .. } = expr else {
+        panic!("expected a call, got {expr:?}");
+    };
+    let salvo_syntax::ast::Expr::Field { base, field, .. } = *callee else {
+        panic!("expected a field callee");
+    };
+    assert_eq!(field.name, "size");
+    assert!(matches!(
+        *base,
+        salvo_syntax::ast::Expr::TupleIndex { index: 1, .. }
+    ));
+}
+
+/// [expr-tuple-index] Numeric suffixes are not tuple indices.
+#[test]
+fn tuple_index_rejects_numeric_suffixes() {
+    let (_, diagnostics) = salvo_syntax::parse_module("fn f() -> None {\n    let x = t.0L\n}\n");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("tuple index has no `L` suffix")),
+        "unexpected diagnostics: {diagnostics:?}"
+    );
+}
+
 // --- Error reporting ---
 
 #[test]

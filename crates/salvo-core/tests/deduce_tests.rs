@@ -274,15 +274,20 @@ fn mid<T>(list: A B List<T>) -> None {{
     );
 }
 
-// [deduce-infer] Unresolved calls (backend interop) borrow leniently and
-// preserve all qualifiers; plain reads never move.
+// [deduce-infer] [call-resolve] Effect-member calls — the one callee kind
+// the deduction pass does not resolve to a declaration — borrow leniently
+// and preserve all qualifiers; plain reads never move.
 #[test]
-fn reads_and_unresolved_calls_borrow() {
+fn reads_and_effect_member_calls_borrow() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
-fn caller<T>(list: A B List<T>) -> Int {{
+effect Logger {{
+    fn log<T>(list: List<T>) -> [list] None
+}}
+
+fn caller<T>(list: A B List<T>) [Logger] -> Int {{
     let s = "${{list}}"
-    unknown_interop(list)
+    log(list)
     return 1
 }}
 "#

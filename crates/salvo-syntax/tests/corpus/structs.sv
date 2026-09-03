@@ -16,6 +16,9 @@ fn build() -> Person {
     let person3: Person = {name: "Roland", age: 36}
     let {name, age: their_age} = person
     let (a, b, c) = ("String", -1, true)
+    let pair = (1, ("two", 3))
+    let one = pair.0
+    let two = pair.1.0
     let surname: Str? = person.surname
     return person2
 }

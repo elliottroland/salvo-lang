@@ -23,6 +23,14 @@ parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse.
 
+**The checker no longer takes anything on trust (2026-09-03).** Members
+must be declared, not assumed: unresolved calls and dot-calls, calls on
+non-fn values, fields on non-structs, `[]` on non-arrays, and `for` over
+non-iterables are all errors ([call-resolve], [field-resolve],
+[index-resolve], [iter-resolve]). Target-language features are reached by
+declaring them; generics are opaque for want of bounds. The remaining
+leniency is inference alone ([type-unknown-lenient]).
+
 **General-leftover sweep (2026-09-02, this session).** Eleven of the
 non-ownership leftovers were worked through; four turned out to be
 *stale* (the capability was already there, just untested — now pinned
@@ -47,15 +55,137 @@ implemented (std array functions; optionals rejected at operators and in
 interpolation), leaving `when` on non-identifier subjects and the wider
 operator-typing rules open.
 
-**Next arc: place-based flow analysis (P1).** A new roadmap section
-tracks widening flow-state keys from variables to *places*: **P1** is
-field smart-casting (`h.field is Str` narrowing reads of `h.field`),
-with **P2** `when` on field subjects riding on it, and L5's
-field-disjoint ownership sharing the same substrate. Recommended
-sequencing is P1 before L5 — P1 has a live customer and is monotone in
-acceptance, so the shared substrate gets validated under the lower-risk
-feature. Two P1 design points (which projections narrow; whether
-narrowing survives a kept-immutable call) are marked **DECISION**.
+**Next arc: place-based flow analysis.** **P1 is done** (see the decision
+log): flow state is keyed by *places*, `is` narrows field chains *and*
+tuple positions (`t.0`, new syntax added in the same session), and
+invalidation rides on the fate analysis's event set. **P2** (`when` on
+field subjects) was decided *against* — `when` stays variable-only. What
+still rides on the substrate: **L5**'s field-disjoint ownership.
+
+**Salvo assumes it can see everything (user decision 2026-09-03).** The
+checker's interop leniency is gone: a call, field read, subscript or `for`
+subject that no declaration justifies is now an error
+([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+Target-language features are reached by *declaring* them — `external type`
+for the type, `external fn` + `define` for anything you do with it — and
+dot-notation still reads like a method call because it *is* a call to a
+declared function. Generics fall under the same rule: with no bounds,
+nothing about a `T` is knowable, so `value.name` inside `fn f<T>(value: T)`
+is an error rather than a promise about future call sites.
+
+Six holes closed, all of which the compiler used to accept silently and
+hand to the target compiler: an unresolved bare call (`nowhere()`), an
+unresolved dot-call (`text.shout()`), calling a value of known non-fn type
+(`n()` on an `Int`), a field on a non-struct (an opaque `external type`, a
+generic, an `Int`), `[]` on a non-array, and `for` over a non-iterable.
+Each produced code the target compiler rejected — `E0618: expected
+function` from rustc, `unresolved reference 'n'` from kotlinc — which was
+loud but pointed at generated code the author never wrote, and in Kotlin's
+case named a symbol that *does* exist in the Salvo source. That is not what
+[backend-never-wrong] asks for.
+
+What remains lenient is **inference, not visibility**
+([type-unknown-lenient], rewritten): a type the checker could not work out
+stays `Ty::Unknown` so one mistake yields one diagnostic. The one
+unresolved *callee* kind left is an effect member, whose handler is chosen
+at run time — [deduce-infer]'s lenient borrow now names only that.
+
+Cost of the change: nothing. **No test needed the leniency** — the only
+failure in 331 was a deduction test whose premise was a call to
+`unknown_interop`, rewritten to pin the effect-member case it actually
+covers. Making generics opaque broke nothing either.
+
+**Why (user rationale, 2026-09-03):** the rules the compiler imposes should
+be *easy to understand and predictable*. Strictness is welcome on that
+basis — one rule for dot-calls beats a rule plus a silent interop
+exception — provided the diagnostic makes the problem obvious and, where
+possible, the language offers a straightforward remedy (the precedents are
+`copy` for shared fate and `discard` for linear obligations). That is the
+standard the new diagnostics are held to: each names the remedy
+(`external fn` for a missing member, `get(collection, index)` for a
+subscript, "rebuild the tuple" for an element write) — and where no remedy
+exists, it says *that* instead of suggesting a useless one: a type
+parameter's diagnostic explains that nothing is known about a `T` rather
+than pointing at an accessor that could not help.
+
+The emitters' method-call fallbacks went with it (user decision, same
+session): both `emit_call`s used to render an unresolved dot-call as a
+native method call, which was the *mechanism* for interop and is now
+unreachable from valid source. Rather than leave a path that silently
+guesses, each is a codegen error naming the internal inconsistency — the
+checker guarantees resolution, so arriving there means a table lost an
+entry without reporting it. Fallbacks stay only where a table may
+legitimately have no entry (an `Unknown`-typed expression still has to
+render).
+
+**Tuple indexing added 2026-09-03 (user decision).** `t.0` reads a tuple
+element by constant position ([expr-tuple-index]) — the projection P1a had
+asked to narrow but which the language could not express. It is a
+`Proj::Index` place, so it narrows, invalidates and merges exactly like a
+field, in any combination (`p.pair.0`, `t.1.0`). Decisions inside it:
+elements are **read-only** (qualifiers, `Mut` among them, cannot apply to a
+tuple [qual-union-arm], so there is nothing to assign through — the error
+names the rebuild remedy), out-of-range and non-tuple bases are **errors**
+rather than lenient `Unknown` (the index is program text, so it cannot be
+interop-dependent), and no numeric suffixes.
+
+The subtle part was lexical: numbers own their decimal point, so `t.0.1`
+would lex as `t` and the float `0.1`. Rather than un-parse a float in the
+parser — which cannot recover `.0.10` from an `f64` — the *lexer* now
+refuses a fraction directly after `.`, where nothing else in the grammar
+can put a numeric literal (paths and dot-calls take identifiers, spread is
+one `...` token). `t.0.1` is then two ordinary index tokens. Kotlin maps
+the projection onto `Pair`/`Triple` components ([kt-tuple-component]);
+Rust uses its own `t.0` ([rs-tuple-index]).
+
+**P1 landed 2026-09-03: flow analysis is keyed by places, and fields
+narrow.** `is` now narrows a *place* — a variable or a field chain out of
+one — so after `if p.surname is Str` the field itself reads as `Str`
+([flow-place]), which is what the optional-strictness rules
+([interp-no-none], [op-no-none]) had been forcing into the `is Str name`
+binding form. Three user decisions shaped it:
+
+- **P1a — which projections narrow: field chains** (`h.a.b`). Array
+  elements never narrow: an unknown index may alias any element, and
+  restricting to constant indices would invite the expectation that
+  `arr[i]` narrows too. The `Place` type carries `Field`, `Index` and
+  `Element` projections from the start so place-based *ownership* (L5)
+  reuses it. The user asked for constant *tuple* indices as well —
+  which turned up a gap: Salvo had no tuple element access at all (`.`
+  required an ident, so `t.0` was a parse error; tuples were
+  destructure-only). **The user added it the same day** — see the
+  tuple-indexing entry above — so constant indices narrow too.
+- **P1b — kept-immutable calls preserve narrowing.** Only a call that
+  keeps the value *mutably* (a `Mut` parameter) invalidates
+  ([flow-place-invalidate]); a read-only call cannot mutate, so a
+  logging call no longer costs you the fact. This reads the same
+  deduction facts D1 established, so it is precision without new
+  machinery — and it keeps the rule consistent with D5's reason for
+  exempting provenance qualifiers.
+- **P2 — `when` stays variable-only** (against the recommendation): field
+  subjects keep the [when-union-subject] error, since `if … is` covers
+  them now. That dropped the arc's top-ranked motivation; the
+  strictness-gap customer and L5's shared substrate carried it.
+
+Design notes worth keeping: place facts live *inside* the root's
+`LocalVar` (a `place_narrows` list keyed by projection path), which is
+why `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` stayed the
+single source of truth (the S1 gotcha) and why an event on a root
+invalidates everything below it for free. A fact survives a join only if
+every fall-through path agrees on it exactly — falling back to the
+declared type is always sound. Restoring a branch's narrows must *not*
+resurrect a fact the branch invalidated, the dual of the
+consumed-stays-consumed rule. The four duplicated "mutation through a
+projection" provenance loops collapsed into one `fate_mutation_through`,
+so no invalidation site can be forgotten.
+
+The implementation also found a real **backend-parity bug** the feature
+would have shipped: Kotlin refuses to smart-cast a *property*, and
+`canbe Mut` struct fields emit as `var`, so a narrowed nullable field
+read produced Kotlin that did not compile ("smart cast to 'String' is
+impossible"). Narrowed nullable field reads now emit `!!`
+([kt-narrow-field-assert]) — the assert can never fire, since the
+checker invalidates the fact on any mutation.
 
 **Bodyless declarations are explicit (user decision 2026-09-03).** No
 inference for anything the compiler cannot see: `external`/`internal` fns
@@ -168,7 +298,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 244 tests; includes twenty-three kotlinc and nineteen rustc
+cargo test                  # 345 tests; includes twenty-six kotlinc and twenty-two rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -243,7 +373,9 @@ that still shape the code, and where to look for the mechanics.
   and the side-table architecture (`Checked`: `expr_ty`, `repr_ty`,
   `coerce`, `is_tests`, `call_fn`, …) the emitters consult. Two founding
   decisions: the checker is *lenient* (anything untypable is
-  `Ty::Unknown` and passes through — Kotlin interop), and union arm
+  `Ty::Unknown` and passes through — then justified by Kotlin interop,
+  narrowed twice since: to inferred types only, and finally to inference
+  alone once members had to be declared [call-resolve]), and union arm
   identity is *positional over the declared type's non-`None` arms*
   [union-arm-identity]. Kotlin unions lower to generated sealed wrappers
   (`UnionN`), `None` arms to outer nullability.
@@ -397,10 +529,12 @@ that still shape the code, and where to look for the mechanics.
     `validate_type` / `validate_quals` / `parse_check` at declaration
     sites, which is where [qual-of] already put applicability checking —
     lowering runs repeatedly and stays silent.
-  - This narrows [type-unknown-lenient]: leniency is about types the
-    checker cannot *infer* (interop fields, methods, expressions), not
-    about names the author wrote. Reaching an interop type still means
-    declaring it `external type`, which is what makes its members lenient.
+  - This narrowed [type-unknown-lenient] a first time: leniency is about
+    types the checker cannot *infer*, not about names the author wrote.
+    (It was narrowed again on 2026-09-03, when members stopped being
+    lenient too — see the "Salvo assumes it can see everything" entry.
+    At the time of this milestone, an interop type's *members* were still
+    pass-through.)
   - An unresolved `is`/`when` check marks the pattern and suppresses every
     verdict that follows from the failed match — "can never succeed", "no
     remaining union arm", non-exhaustiveness, the `Nothing` cascade. One
@@ -968,10 +1102,14 @@ by faithful emission. Rule [fn-contract]:
   [diag-structured]; they abort emission and are rendered at the backend
   boundary into `BackendError::Codegen` strings (the CLI `analyze`
   command consumes them structured instead).
-- The checker is *lenient by design*: anything it cannot type is
-  `Ty::Unknown` and emits like before (Kotlin interop pass-through).
-  Coercions/unwraps only fire where the tables say so — the emitter's
-  syntactic paths remain the fallback everywhere else.
+- The checker assumes it can **see everything** (2026-09-03): calls,
+  fields, subscripts and `for` subjects must be justified by declarations
+  ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+  What stays lenient is *inference*: a type it could not work out is
+  `Ty::Unknown`, compatible with everything, so one mistake yields one
+  diagnostic. Coercions/unwraps only fire where the tables say so — the
+  emitter's syntactic paths remain the fallback everywhere else, which is
+  what keeps a checker regression degraded rather than wrong.
 - Wrapper-union arm identity is positional over the **declared** type's
   non-`None` arms; narrowing never re-wraps a variable in place (uses are
   unwrapped/re-wrapped at expression sites instead).
@@ -1242,11 +1380,9 @@ instead of per-variable states).
   practice.
 - **Not L5: field smart-casting.** Place-based *type narrowing* (reads
   of `h.field` narrowed by `h.field is T`) is a separate feature from
-  place-based ownership — it is roadmap phase **P1** (see "Roadmap:
-  place-based flow analysis"), which shares L5's `Place` substrate. The
-  recommendation there is **P1 before L5**: P1 has a live customer
-  (`when` on field subjects) and is monotone in acceptance, so the shared
-  substrate gets designed and validated under the lower-risk feature.
+  place-based ownership — it was roadmap phase **P1**, done 2026-09-03.
+  L5 inherits its `Place` substrate: the projection type (fields *and*
+  elements), the prefix/overlap relations, and per-root fact storage.
 
 ### L6 — Must-use: true linearity. ✅ Done 2026-09-02
 
@@ -1396,85 +1532,40 @@ the backend define template:
 
 ## Roadmap: place-based flow analysis
 
-A second flow-analysis arc, independent of linearity. Today every flow
-fact is keyed by *variable* — narrowed type, poison, links, consumed
-state all live on a `LocalVar` and are snapshotted/merged by name (see
-the S1 gotcha: keep new facts inside `VarState` so
-`snapshot_narrows`/`restore_narrows`/`merge_fallthrough` stay the single
-source of truth). Two wanted features both need that key widened to a
-*place* (`h`, `h.field`, `h.a.b`):
+A second flow-analysis arc, independent of linearity. Flow facts are keyed
+by *place* — a local root plus a projection path (`h`, `h.field`,
+`h.a.b`) — rather than by variable name. The place facts live inside the
+root's `LocalVar`, so `snapshot_narrows`/`restore_narrows`/
+`merge_fallthrough` remain the single source of truth (the S1 gotcha) and
+an event on a root reaches everything below it.
 
-- **P1 — field smart-casting**: place-based *type* narrowing. After
-  `h.field is Str`, reads of `h.field` have type `Str`.
-- **L5 (field-disjoint precision)** — place-based *ownership*: using one
-  field while another is moved or borrowed. Lives in the linear-types
-  roadmap above; listed here because it shares P1's substrate.
+### P1 — Field smart-casting. ✅ Done 2026-09-03
 
-### P1 — Field smart-casting (place-based narrowing)
+`is` narrows places, so a checked field or tuple element reads at its
+narrowed type ([flow-place]), and invalidation ([flow-place-invalidate])
+rides on the event set the fate analysis already watches. Landed:
+`place.rs` (the `Place`/`Proj` types and the prefix/overlap relations),
+place-keyed narrowing through the branch machinery, narrowed-read
+unwrapping in both emitters, tuple element access as new syntax
+([expr-tuple-index]), and — from the Kotlin parity bug it surfaced —
+[kt-narrow-field-assert]. Decisions P1a/P1b/P2 are in the decision log.
 
-Motivation, in order of weight:
+Deliberately out: array elements (an unknown index may alias any element,
+so they are tested and bound but never narrowed) and `when` on field
+subjects (P2, decided against — `when` stays variable-only).
 
-1. **`when` on field subjects** becomes natural (user interest
-   2026-09-02). Without narrowing, arms cannot read the subject at all
-   except through a binding, and `when` bindings only work for
-   single-type arms — so `when h.result { … }` would be a poor cousin of
-   the variable form. With narrowing it is the same feature.
-2. **The optional-strictness rules made the gap user-facing**
-   (2026-09-02): `[interp-no-none]` / `[op-no-none]` mean a field check
-   must use the `is T name` binding form before the value can be
-   interpolated or used as an operand. Three LANGUAGE.md examples had to
-   be rewritten for exactly this.
-3. It is **monotone in acceptance**: currently-rejected reads become
-   legal, no existing program changes meaning. Low blast radius.
+**Tuple element access** ([expr-tuple-index]) was added in the same
+session to close P1a: `t.0` is a `Proj::Index` place, so it narrows,
+invalidates and merges like a field.
 
-Scope: a `Place` (root var id + projection path), prefix relations
-(is-prefix-of / overlaps), place-keyed narrowing state through
-snapshot/restore/merge, and invalidation on assignment to any prefix,
-mutation through a `Mut`-keeping call on any prefix, and root
-reassignment — the same event set the fate analysis already watches
-(`fate_mutation`, [fate-poison]). Emitters already lower the *tests* for
-any place; they need the narrowed *reads* unwrapped (Kotlin smart-casts
-`T?` but needs `.value as T` for wrapper unions; Rust needs the `.uN()`
-accessor), and checker/emitter must agree as ever.
+### L5 — field-disjoint ownership (rides on this substrate)
 
-- **DECISION P1a** — which projections narrow. Field chains are the
-  clear case; array/tuple *elements* (`arr[i]`) are not statically
-  identifiable in general, so narrowing them is either unsound or
-  restricted to constant indices. Recommendation: field chains only at
-  first, but define the projection enum with an element variant from the
-  start so L5 can reuse it without a rework.
-- **DECISION P1b** — whether narrowing survives a *call* that keeps the
-  root (`f(h)` with `h` kept but not `Mut`): a kept-immutable parameter
-  cannot mutate, so narrowing could survive. Conservative default:
-  invalidate on any `Mut`-keeping call, survive pure reads.
-- **P2 — `when` on field subjects** rides on P1 and is small once
-  narrowing exists (the checker's `when` currently rejects non-ident
-  subjects because `narrows` is name-keyed; emitters already handle
-  field subjects for `is`). Also a **DECISION** in its own right — it is
-  a language-surface change ([when-union-subject]).
-
-### Sequencing with L5 (recommendation)
-
-**P1 before L5.** Both widen the same key, so whichever lands first pays
-for the substrate; the argument for P1 going first:
-
-- P1 has a live customer (`when` on fields, plus the strictness
-  regression); L5a records that field-disjoint ownership has *no current
-  use case*. Designing the shared substrate under the feature that is
-  actually wanted validates it with real code instead of speculation.
-- P1 is monotone (more programs compile, nothing breaks). L5 changes
-  rejection behavior in both directions — more precision accepts some
-  programs while a place lattice tracks new events that can surface new
-  errors. Smaller blast radius first.
-- The integration with fate/poison happens once either way; doing it
-  with the smaller feature means less code is at risk when the keying
-  changes.
-
-The one risk of P1-first is designing `Place` against the easier
-consumer and having to generalize it for ownership (elements, not just
-fields) — mitigated by DECISION P1a's recommendation to include the
-element variant from the start. Neither phase hard-blocks the other:
-they are coupled only through the substrate.
+Place-based *ownership*: using one field while another is moved or
+borrowed. Lives in the linear-types roadmap above; it now inherits P1's
+`Place` type, prefix/overlap relations, and the per-root fact storage.
+Sequencing worked out as recommended (P1 first): the substrate was
+designed and validated under the monotone feature, and the element
+projection variant is already in place for ownership's benefit.
 
 ## Roadmap: deductions and qualifier reasoning
 
@@ -2077,12 +2168,10 @@ spec rule; consolidated here for findability):
   intermediate `let`; single-level coercion only (errors, never mis-emits).
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
-- **Field smart-casting** is now roadmap phase **P1** (place-based flow
-  analysis), not a leftover: struct-field subjects do not flow-narrow, so
-  after `h.field is Str` a read of `h.field` still has the declared type
-  and cannot be interpolated or used as an operand
-  ([interp-no-none] [op-no-none]) — the `is Str name` binding form is the
-  idiom until P1 lands.
+- **Field smart-casting landed (P1, 2026-09-03)**: after `h.field is Str`
+  a read of `h.field` *is* narrowed ([flow-place]), tuple positions
+  included ([expr-tuple-index]). What remains coarse: array elements never
+  narrow, since an unknown index may alias any element.
 - `yield` inside a *value-position* loop of an iterator body is a kotlinc
   error ("restricted suspending functions…"): the `run {}` value lowering
   is not an inline suspension scope. Loud, never silently wrong; the fix
@@ -2091,19 +2180,19 @@ spec rule; consolidated here for findability):
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
 - **DECISION (open, for the user):**
-  - `when` on field subjects is roadmap phase **P2** (it rides on P1's
-    narrowing); the language-surface change to [when-union-subject] is
-    still a decision, as are P1a (which projections narrow) and P1b
-    (whether narrowing survives a kept-immutable call).
   - Binary operators are typed only for `None` [op-no-none]: everything
     else is unchecked (`Str * Bool` passes, result typing is just the
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 290)
+## Test inventory (all green: 345)
 
-- `salvo-core`: 60 - 8 unit tests (file classification; `types.rs` union
-  normalization, subtyping, display, wrapper detection) + 2 source
+- `salvo-core`: 98 - 13 unit tests (file classification; `types.rs` union
+  normalization, subtyping, display, wrapper detection; `place.rs`
+  [flow-place]: the prefix relation reflexive and downward-closed,
+  different roots never relating, overlap symmetric, an unknown array
+  index aliasing every element while constant indices stay distinct, and
+  `narrowable` accepting field chains only) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
   skipped with the root exempt) + 16 deduction
@@ -2111,7 +2200,7 @@ spec rule; consolidated here for findability):
   qualifiers and delta lists passing them through, mutating bodies
   requiring the exhaustive form, `Nothing` meaning moved
   [deduce-syntax], move inference, call-graph fixpoint
-  transitivity, lenient interop borrows, written-list body validation,
+  transitivity, lenient effect-member borrows, written-list body validation,
   written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
   reads through the alias are free, `copy` severs [fate-link] — and
@@ -2152,7 +2241,30 @@ spec rule; consolidated here for findability):
   strips a state qualifier but not a provenance one, provenance composes
   without `with` while two state claims still need it, a provenance body
   is rejected, `is` on a non-union provenance value is rejected,
-  provenance is droppable and survives being stored in a struct field).
+  provenance is droppable and survives being stored in a struct field)
+  + 19 place-narrowing tests (`tests/place_tests.rs` [flow-place]
+  [flow-place-invalidate], using `[interp-no-none]` acceptance as the
+  observable: a checked field narrows inside the branch but not after it,
+  siblings stay independent, field *chains* narrow, `&&` accumulates place
+  facts, the `else` branch carries the negative fact, array elements do
+  not narrow (P1a); and for invalidation — assignment to the place, to a
+  prefix (dropping the subtree) but *not* to a sibling, a `Mut`-keeping
+  call, a `Mut` call through a projection hitting only that subtree, a
+  kept-*immutable* call preserving the fact (P1b), and a fact only some
+  paths agree on not surviving the join; and for tuple elements
+  [expr-tuple-index] — a constant index narrowing, siblings staying
+  independent, an out-of-range index and a non-tuple base erroring, and
+  assignment to an element rejected)
+  + 14 member-resolution tests (`tests/member_tests.rs` [call-resolve]
+  [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
+  dot-calls rejected — the latter naming `external fn` as the remedy, both
+  carrying import suggestions — calling a non-fn value and a generic
+  rejected, a *declared* external still callable by dot-notation, fields
+  on a non-struct/opaque/generic base rejected, `[]` on a non-array
+  rejected while arrays still work, `for` over a non-iterable rejected
+  while arrays still iterate, and — the leniency that remains — a member
+  read off an un-inferred value adding *no* second diagnostic
+  [type-unknown-lenient]).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -2275,11 +2387,15 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 36 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 41 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
   error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
   `1.2f`, invalid suffix/juxtaposition errors, `1.size()` stays an int),
+  5 tuple-index tests ([expr-tuple-index]: `t.0` parses as a projection,
+  `t.0.1` as *two* projections rather than a float, floats still lexing as
+  floats where an index cannot appear, a tuple element as a dot-call
+  receiver, and numeric suffixes rejected),
   3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
   on an `external type`, `<T canbe Linear>` on a fn, and `canbe` on a
   non-fn type parameter rejected [linear-generics]), and 5 name tests
@@ -2295,7 +2411,7 @@ spec rule; consolidated here for findability):
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
   `provenance` must precede `qualifier`).
-- `salvo-backend-kotlin`: 85 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 91 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -2334,7 +2450,13 @@ spec rule; consolidated here for findability):
   alias imports of mangled qualified overloads keeping the `__Qual`
   suffix [kt-imports] [kt-qual-mangling], field-subject `is` lowering
   [is-narrowing] with `when` still rejecting field subjects
-  [when-union-subject], union coercion inside array/tuple literals and
+  [when-union-subject], place narrowing [flow-place] (a narrowed nullable
+  field read asserting [kt-narrow-field-assert], a narrowed field *chain*
+  read, a narrowed wrapper-union field read taking its arm payload — plus
+  the kotlinc run, whose stdout matches the Rust backend's byte for
+  byte); a narrowed `val` field *not* asserted (kotlinc smart-casts it, so
+  the assert would only warn) and a narrowed field used as an operator
+  operand [op-no-none], union coercion inside array/tuple literals and
   lambda tail returns, type-directed dispatch for unchecked define
   overloads plus the ambiguity error [backend-never-wrong], effect
   member generics rendered on the interface and bound per call
@@ -2350,7 +2472,7 @@ spec rule; consolidated here for findability):
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 53 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 59 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -2374,7 +2496,11 @@ spec rule; consolidated here for findability):
   alias of an owned local, read-only pipeline clone-free); `discard`
   lowering assertions (`drop(...)` [linear-discard]);
   general-sweep assertions (field-subject `is` lowering
-  [is-narrowing], union coercion inside array/tuple literals and lambda
+  [is-narrowing], place narrowing [flow-place] (narrowed nullable field
+  and field-chain reads unwrapping the `Option`, a narrowed wrapper-union
+  field read using the arm accessor — plus the rustc run against the same
+  expected stdout as Kotlin) and a narrowed field as an operator operand
+  [op-no-none], union coercion inside array/tuple literals and lambda
   tail returns with fn-type `let` annotations dropped [fn-contract],
   type-directed dispatch for unchecked define overloads plus the
   ambiguity error [backend-never-wrong], and an aliased effect type
@@ -2399,6 +2525,62 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **"Loud" is not the same as "an error".** The interop leniency did not
+  emit *wrong* code — kotlinc and rustc both rejected what it produced —
+  which is why it survived so long. But the diagnostic pointed at
+  generated code the author never wrote, and Kotlin's version
+  (`unresolved reference 'n'`) named a symbol that plainly exists in the
+  Salvo source. When judging a leniency against
+  [backend-never-wrong], ask *where the error surfaces*, not just whether
+  one does.
+- **Leniency with no customer is pure risk.** Removing the interop
+  pass-through that dated from M3 (unresolved calls, dot-calls, non-fn
+  callees, fields on non-structs, non-array subscripts, non-iterable
+  `for`) broke exactly **one** test — and that test's premise *was* the
+  leniency. If a permissive path has no test that needs it, it is not a
+  feature.
+- **Lexer rules can block a syntax before the parser sees it.** `t.0.1`
+  cannot be parsed as two tuple indices while the lexer still owns the
+  decimal point: it hands over one `Float` token, and no parser trick
+  recovers the digits (`.0.10` and `.0.1` are the same `f64`). Fixing it
+  in the lexer — no fraction directly after `.`, the one position where
+  the grammar cannot hold a numeric literal — made the parser side
+  trivial. Where two layers disagree about who owns a character, the
+  earlier layer is usually the cheaper place to fix it.
+- **Kotlin does not smart-cast properties.** A narrowed nullable *field*
+  read cannot rely on the smart cast a narrowed local gets: kotlinc
+  rejects it ("smart cast to 'String' is impossible, because 'surname' is
+  a mutable property that could be mutated concurrently"), and every
+  `canbe Mut` struct field emits as `var`, so the hazard is the common
+  case, not a corner. Narrowed nullable field reads emit `!!`
+  ([kt-narrow-field-assert]). The lesson generalizes: when a checker fact
+  is discharged by the *target language's* own analysis, check that the
+  target's rules are at least as permissive — here Rust (explicit
+  `unwrap`) was fine and Kotlin was not, which is exactly the asymmetry
+  the backend-parity principle exists to catch. It only surfaced because
+  the e2e test compiles the output; a golden-string test would have
+  passed.
+- **Place facts belong on the root, not in a new map.** Keying narrowing
+  by `Place` looked like it needed a place-keyed frame map — a second
+  structure for `snapshot_narrows`/`restore_narrows`/`merge_fallthrough`
+  to carry, against the S1 gotcha below. Storing the projection facts
+  *inside* the root's `LocalVar` instead kept those three functions the
+  single source of truth, and made "an event on the root invalidates
+  everything below it" fall out of clearing one list.
+- **Restores must not resurrect invalidated facts.** `with_narrows`
+  reinstates the pre-branch narrowing on exit, and the variable version
+  already had to skip that when the branch *consumed* the value. Place
+  facts need the same exception for invalidation (an assignment or a
+  mutating call inside the branch): the dual rule is "only put the old
+  fact back if the fact you applied is still standing".
+- **A feature can be blocked by syntax that was never written.** P1a's
+  decision to narrow constant tuple indices could not be implemented at
+  first: Salvo had no tuple element access at all (`.` required an
+  identifier, and `t[0]` on a tuple typed as `Unknown`). Worth checking
+  that the construct a rule talks about is actually *expressible* before
+  designing the rule around it — the gap here was one session wide, but
+  it was invisible from the rule's wording.
 
 - Trivia the lexer discards is expensive to get back. Comments were
   dropped outright, and the cheap-looking recovery — re-scan the text

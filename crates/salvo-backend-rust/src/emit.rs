@@ -2083,7 +2083,10 @@ impl<'p> Emitter<'p> {
         target: Option<&Ty>,
         test: Option<UnionTest>,
     ) -> String {
-        let subj = self.emit_place(subject);
+        // The payload comes out of the *storage*: if the subject place is
+        // itself narrowed (a nested check on the same place), its own
+        // unwrap must not be applied on top [flow-place].
+        let subj = self.place_storage(subject);
         match test {
             Some(test) if test.size >= 2 => {
                 // Wrapper union: unwrap the (unique) matched arm.
@@ -2128,8 +2131,67 @@ impl<'p> Emitter<'p> {
     /// [rs-option]: `None` when the ident is not narrowed. The result is
     /// owned.
     fn ident_unwrap(&mut self, id: &Ident) -> Option<String> {
-        let (repr, logical) = (self.repr_of(id.span)?, self.ty_of(id.span)?);
-        let name = self.binding_place(&id.name);
+        if !self.checked.repr_ty.contains_key(&(self.file_idx, id.span)) {
+            return None;
+        }
+        let storage = self.binding_place(&id.name);
+        self.narrow_unwrap(id.span, storage)
+    }
+
+    /// The narrowing unwrap for a *projection place* read [flow-place]:
+    /// `h.field` narrowed by `h.field is T` reads its payload out of the
+    /// declared representation, exactly as a narrowed identifier does. The
+    /// storage code keeps the base's own unwraps (a narrowed base must be
+    /// unwrapped before its field can be reached) but not this place's.
+    fn place_unwrap(&mut self, expr: &Expr) -> Option<String> {
+        if !matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. }) {
+            return None;
+        }
+        if !self
+            .checked
+            .repr_ty
+            .contains_key(&(self.file_idx, expr.span()))
+        {
+            return None;
+        }
+        let storage = self.place_storage(expr);
+        self.narrow_unwrap(expr.span(), storage)
+    }
+
+    /// A place's storage rendering: the read *without* its own narrowing
+    /// unwrap [flow-place]. What an `is` test, an `is` binding, and the
+    /// narrowing unwrap itself must read.
+    fn place_storage(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Field { base, field, span } => {
+                let base_code = self.emit_place(base);
+                let code = format!("{base_code}.{}", rs_ident(&field.name));
+                if let Some(cast_ty) = self.checked.field_casts.get(&(self.file_idx, *span)) {
+                    let cast_ty = cast_ty.clone();
+                    return if Self::is_copy_ty(&cast_ty) {
+                        format!("{code}.unwrap()")
+                    } else {
+                        format!("{code}.as_ref().unwrap().clone()")
+                    };
+                }
+                code
+            }
+            Expr::TupleIndex { base, index, .. } => {
+                // [rs-tuple-index] Rust tuples index natively.
+                let base_code = self.emit_place(base);
+                format!("{base_code}.{index}")
+            }
+            Expr::Ident(id) if id.name != "None" => self.binding_place(&id.name),
+            other => self.emit_place(other),
+        }
+    }
+
+    /// Reads a narrowed value out of the declared representation at
+    /// `span`, given the code for its storage [rs-union-enums]
+    /// [rs-option]. Shared by identifier and projection-place reads.
+    fn narrow_unwrap(&mut self, span: Span, storage: String) -> Option<String> {
+        let (repr, logical) = (self.repr_of(span)?, self.ty_of(span)?);
+        let name = storage;
         // Wrapper union narrowed to a single non-`None` arm.
         if repr.is_wrapper_union()
             && !matches!(logical, Ty::Union(_))
@@ -2213,6 +2275,16 @@ impl<'p> Emitter<'p> {
                     .checked
                     .field_casts
                     .contains_key(&(self.file_idx, *span))
+                    // A narrowed projection read is an owned temporary
+                    // (the payload out of the wrapper), not a place
+                    // [flow-place].
+                    && !self.checked.repr_ty.contains_key(&(self.file_idx, *span))
+                    && self.place_is_pure(base)
+            }
+            Expr::TupleIndex { base, span, .. } => {
+                // A narrowed element read is an owned temporary
+                // [flow-place].
+                !self.checked.repr_ty.contains_key(&(self.file_idx, *span))
                     && self.place_is_pure(base)
             }
             Expr::Index { base, .. } => self.place_is_pure(base),
@@ -2239,7 +2311,7 @@ impl<'p> Emitter<'p> {
                 }
                 None => None,
             },
-            Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 Some(format!("&{}", self.emit_place(value)))
             }
             _ => None,
@@ -2276,6 +2348,16 @@ impl<'p> Emitter<'p> {
                     .checked
                     .field_casts
                     .contains_key(&(self.file_idx, *span))
+                    // A narrowed read is an owned temporary [flow-place].
+                    || self.checked.repr_ty.contains_key(&(self.file_idx, *span))
+                    || !self.place_is_pure(base)
+                {
+                    return None;
+                }
+                Some(format!("&{}", self.emit_place(value)))
+            }
+            Expr::TupleIndex { base, span, .. } => {
+                if self.checked.repr_ty.contains_key(&(self.file_idx, *span))
                     || !self.place_is_pure(base)
                 {
                     return None;
@@ -2352,7 +2434,12 @@ impl<'p> Emitter<'p> {
                     _ => place,
                 }
             }
-            Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
+                // A narrowed projection read unwraps to an owned payload
+                // [flow-place].
+                if let Some(unwrapped) = self.place_unwrap(expr) {
+                    return unwrapped;
+                }
                 let place = self.emit_place(expr);
                 // A projection in a moved position whose roots the
                 // checker consumed renders as the raw place — a real
@@ -2398,20 +2485,15 @@ impl<'p> Emitter<'p> {
                 }
                 self.binding_place(&id.name)
             }
-            Expr::Field { base, field, span } => {
-                let base_code = self.emit_place(base);
-                let code = format!("{base_code}.{}", rs_ident(&field.name));
-                // [qual-field-override] cast-and-assert reads the value
-                // out of the declared representation.
-                if let Some(cast_ty) = self.checked.field_casts.get(&(self.file_idx, *span)) {
-                    let cast_ty = cast_ty.clone();
-                    return if Self::is_copy_ty(&cast_ty) {
-                        format!("{code}.unwrap()")
-                    } else {
-                        format!("{code}.as_ref().unwrap().clone()")
-                    };
+            Expr::Field { .. } | Expr::TupleIndex { .. } => {
+                // A narrowed projection place reads its payload out of the
+                // declared representation [flow-place]; otherwise it is
+                // the plain storage read (which applies a field cast
+                // [qual-field-override]).
+                if let Some(unwrapped) = self.place_unwrap(expr) {
+                    return unwrapped;
                 }
-                code
+                self.place_storage(expr)
             }
             Expr::Index { base, index, .. } => {
                 let base_code = self.emit_place(base);
@@ -2435,6 +2517,9 @@ impl<'p> Emitter<'p> {
             }
             Expr::Field { base, field, .. } => {
                 format!("{}.{}", self.emit_raw(base), rs_ident(&field.name))
+            }
+            Expr::TupleIndex { base, index, .. } => {
+                format!("{}.{index}", self.emit_raw(base))
             }
             Expr::Index { base, index, .. } => {
                 let idx = self.emit_owned(index);
@@ -2462,7 +2547,10 @@ impl<'p> Emitter<'p> {
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
             Expr::Str { parts, .. } => self.emit_string(parts),
-            Expr::Ident(_) | Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Ident(_)
+            | Expr::Field { .. }
+            | Expr::TupleIndex { .. }
+            | Expr::Index { .. } => {
                 unreachable!("place expressions are handled by the callers")
             }
             Expr::Call {
@@ -2563,7 +2651,9 @@ impl<'p> Emitter<'p> {
     /// else is a codegen error [backend-never-wrong].
     fn emit_is_check(&mut self, subject: &Expr, check: &[TypeRef], span: Span) -> String {
         if let Some(test) = self.is_test_of(span).cloned() {
-            let subj = self.emit_place(subject);
+            // The test reads the storage, never the narrowed payload
+            // [flow-place].
+            let subj = self.place_storage(subject);
             return self.emit_union_test(&subj, &test);
         }
         if let Some(quals) = self
@@ -2576,7 +2666,7 @@ impl<'p> Emitter<'p> {
         }
         // Fallbacks for unchecked subjects with an optional repr (e.g.
         // `person.surname is Str`).
-        let subj = self.emit_place(subject);
+        let subj = self.place_storage(subject);
         if check.len() == 1 && check[0].name.name == "None" {
             return format!("{subj}.is_none()");
         }
@@ -2757,7 +2847,7 @@ impl<'p> Emitter<'p> {
             }
         }
         match expr {
-            Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 format!("&{}", self.emit_place(expr))
             }
             other => {
@@ -2782,7 +2872,7 @@ impl<'p> Emitter<'p> {
             }
         }
         match expr {
-            Expr::Field { .. } | Expr::Index { .. } => {
+            Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 format!("&mut {}", self.emit_place(expr))
             }
             other => {
@@ -2989,7 +3079,9 @@ impl<'p> Emitter<'p> {
         value_pos: bool,
     ) -> String {
         let pad = "    ".repeat(indent);
-        let subj = self.emit_place(subject);
+        // `match` scrutinizes the storage, not a narrowed read
+        // [flow-place].
+        let subj = self.place_storage(subject);
         let tests: Vec<Option<UnionTest>> = branches
             .iter()
             .map(|b| self.is_test_of(b.span).cloned())
@@ -3426,7 +3518,10 @@ impl<'p> Emitter<'p> {
                 // refinement); the clone also keeps unchecked contexts
                 // safe.
                 let base = match spreads[0] {
-                    e @ (Expr::Ident(_) | Expr::Field { .. } | Expr::Index { .. }) => {
+                    e @ (Expr::Ident(_)
+                    | Expr::Field { .. }
+                    | Expr::TupleIndex { .. }
+                    | Expr::Index { .. }) => {
                         format!("{}.clone()", self.emit_place(e))
                     }
                     other => self.emit_expr(other),
@@ -3487,22 +3582,26 @@ impl<'p> Emitter<'p> {
                 all_args.extend(args.iter());
                 return self.emit_resolved_call(name, type_args, &all_args, span);
             }
-            // Unknown method: pass through as a Rust method call
-            // (companion-code interop [type-unknown-lenient]).
-            let base_code = self.emit_place(base);
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-            return format!("{base_code}.{}({})", rs_ident(name), arg_code.join(", "));
-        }
-
-        if let Expr::Ident(id) = callee {
+            // [call-resolve] The checker rejects an undeclared dot-call, so
+            // reaching here means a resolution table lost an entry without
+            // reporting it — a compiler bug. Say so instead of inventing a
+            // Rust method call: emitted code must never be a guess
+            // [backend-never-wrong].
+            self.error(format!(
+                "internal error: dot-call `{name}` reached the Rust emitter \
+                 unresolved (the checker should have rejected it, or resolved \
+                 it to a fn, define, or effect member)"
+            ));
+            "todo!()".to_string()
+        } else if let Expr::Ident(id) = callee {
             let arg_refs: Vec<&Expr> = args.iter().collect();
-            return self.emit_resolved_call(&id.name, type_args, &arg_refs, span);
+            self.emit_resolved_call(&id.name, type_args, &arg_refs, span)
+        } else {
+            // Calling a computed value (lambda etc.): owned args [fn-lambda].
+            let callee_code = self.emit_owned(callee);
+            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            format!("{callee_code}({})", arg_code.join(", "))
         }
-
-        // Calling a computed value (lambda etc.): owned args [fn-lambda].
-        let callee_code = self.emit_owned(callee);
-        let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-        format!("{callee_code}({})", arg_code.join(", "))
     }
 
     fn emit_resolved_call(
@@ -3757,7 +3856,9 @@ impl<'p> Emitter<'p> {
                 format!("{}.clone()", self.binding_place(&id.name))
             }
             // Field/index reads already clone in owned position.
-            Expr::Field { .. } | Expr::Index { .. } => self.emit_owned(arg),
+            Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
+                self.emit_owned(arg)
+            }
             other => self.emit_expr(other),
         }
     }
@@ -3807,7 +3908,10 @@ impl<'p> Emitter<'p> {
                     // except variadic parts, which are spliced into
                     // constructors (`vec![${...elems}]`) and must be
                     // owned.
-                    Expr::Ident(_) | Expr::Field { .. } | Expr::Index { .. }
+                    Expr::Ident(_)
+                        | Expr::Field { .. }
+                        | Expr::TupleIndex { .. }
+                        | Expr::Index { .. }
                         if !is_variadic_part =>
                     {
                         self.emit_place(arg)
@@ -4504,7 +4608,9 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
         | Expr::Spread { operand, .. } => collect_mutated_expr(operand, out),
-        Expr::Field { base, .. } => collect_mutated_expr(base, out),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_mutated_expr(base, out)
+        }
         Expr::Index { base, index, .. } => {
             collect_mutated_expr(base, out);
             collect_mutated_expr(index, out);
@@ -4666,7 +4772,9 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         | Expr::NonNull { operand, .. }
         | Expr::PostIncrement { operand, .. }
         | Expr::Spread { operand, .. } => collect_declared_expr(operand, out),
-        Expr::Field { base, .. } => collect_declared_expr(base, out),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_declared_expr(base, out)
+        }
         Expr::Index { base, index, .. } => {
             collect_declared_expr(base, out);
             collect_declared_expr(index, out);

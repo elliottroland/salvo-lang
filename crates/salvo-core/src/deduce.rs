@@ -628,7 +628,7 @@ impl Walk<'_, '_> {
                     }
                 }
             }
-            Expr::Field { base, .. } => self.expr(base),
+            Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => self.expr(base),
             Expr::Index { base, index, .. } => {
                 self.expr(base);
                 self.expr(index);

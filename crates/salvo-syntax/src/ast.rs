@@ -520,6 +520,14 @@ pub enum Expr {
         field: Ident,
         span: Span,
     },
+    /// `expr.0` — a tuple element by constant index [expr-tuple-index].
+    /// Distinct from `Index`: the position is known statically, so it
+    /// names one element rather than an unknown one.
+    TupleIndex {
+        base: Box<Expr>,
+        index: usize,
+        span: Span,
+    },
     /// `callee(args)` — including dot-notation `list.size()` which is kept
     /// as a `Field` callee and normalized later.
     Call {
@@ -700,6 +708,7 @@ impl Expr {
             | Expr::Char { span, .. }
             | Expr::Str { span, .. }
             | Expr::Field { span, .. }
+            | Expr::TupleIndex { span, .. }
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
             | Expr::ArrayLit { span, .. }

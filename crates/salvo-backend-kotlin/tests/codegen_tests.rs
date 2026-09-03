@@ -2107,7 +2107,7 @@ fn kotlinc_compiles_and_runs_iterator_return() {
 
 // ===== `is` on union-typed struct-field subjects =====
 // [is-narrowing] [is-binding] Field subjects get the same union-test
-// lowering as identifier subjects (only flow-narrowing is ident-only);
+// lowering as identifier subjects, and narrow like them [flow-place];
 // `when` still requires a variable subject [when-union-subject].
 
 const FIELD_IS_DEMO: &str = r#"
@@ -2194,6 +2194,223 @@ fn main() [use] -> [] None {
             .iter()
             .any(|e| e.contains("`when` requires a plain variable as its subject")),
         "unexpected errors: {errors:?}"
+    );
+}
+
+// ===== place-based narrowing of field reads [flow-place] =====
+// [flow-place] `is` narrows *places*: after `p.surname is Str` the field
+// itself reads as `Str` (no binding needed), field chains included.
+// Invalidation is [flow-place-invalidate]; `when` stays variable-only
+// [when-union-subject].
+
+const PLACE_NARROW_DEMO: &str = r#"
+struct Address canbe Mut {
+    city: Str? = None
+}
+
+struct Person canbe Mut {
+    name: Str,
+    surname: Str? = None,
+    address: Mut Address
+}
+
+struct Holder {
+    result: Ok Int | Err Str
+}
+
+fn describe(p: Person) -> [p] Str {
+    if p.surname is Str {
+        return "${p.name} ${p.surname}"
+    }
+    return p.name
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(describe(Person {name: "Ann", surname: "Lee", address: Mut Address {city: "Rome"}}))
+    println(describe(Person {name: "Bo", address: Mut Address {city: None}}))
+    let p = Person {name: "Cy", surname: "Ray", address: Mut Address {city: "Oslo"}}
+    if p.address.city is Str {
+        println("city ${p.address.city}")
+    }
+    let h = Holder {result: ok(3)}
+    if h.result is Ok {
+        println("ok ${h.result}")
+    }
+}
+"#;
+
+/// [flow-place] [kt-narrow-field-assert] A narrowed nullable *field* read
+/// asserts instead of relying on a smart cast (Kotlin refuses to smart-cast
+/// a property, and a `canbe Mut` struct's fields are `var`); a narrowed
+/// wrapper-union field reads its arm payload.
+#[test]
+fn narrowed_field_reads_unwrap() {
+    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("\"${p.name} ${p.surname!!}\""),
+        "expected the narrowed field read to assert in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("${p.address.city!!}"),
+        "expected the narrowed field *chain* read to assert in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("${(h.result.value as Int)}"),
+        "expected the narrowed wrapper-union field read to unwrap in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_place_narrowing() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n");
+}
+
+// [flow-place] [op-no-none] A narrowed field is usable as an *operand*,
+// which the optional-strictness rules used to reject outright.
+
+const PLACE_OPERAND_DEMO: &str = r#"
+struct Reading {
+    label: Str,
+    value: Int? = None
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let r = Reading {label: "temp", value: 21}
+    if r.value is Int {
+        println("${r.label}: ${r.value + 1}")
+    }
+    let empty = Reading {label: "none"}
+    if empty.value is Int {
+        println("unreachable")
+    } else {
+        println("${empty.label}: no value")
+    }
+}
+"#;
+
+/// [kt-narrow-field-assert] The assert is only needed for `var`
+/// properties: a field of a struct without `canbe Mut` emits as `val`,
+/// which kotlinc smart-casts — asserting there would produce an
+/// "unnecessary non-null assertion" warning.
+#[test]
+fn narrowed_val_field_relies_on_the_smart_cast() {
+    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("${r.value + 1}"),
+        "expected the plain smart-cast read in:\n{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("r.value!!"),
+        "a `val` property should not be asserted in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_place_operand() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "place-operand", "temp: 22\nnone: no value\n");
+}
+
+// ===== tuple element access [expr-tuple-index] =====
+// `t.0` reads a tuple element; a constant index narrows like a field
+// [flow-place], and nesting (`t.1.0`) is two projections.
+
+const TUPLE_INDEX_DEMO: &str = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let t: (Int, Str, Bool) = (1, "two", true)
+    println("${t.0} ${t.1} ${t.2}")
+    let nested: (Int, (Str, Int)) = (7, ("in", 9))
+    println("${nested.1.0} ${nested.1.1}")
+    let maybe: (Str?, Int) = ("here", 5)
+    if maybe.0 is Str {
+        println("some ${maybe.0} ${maybe.1 + 1}")
+    } else {
+        println("none")
+    }
+}
+"#;
+
+/// [kt-tuple-component] Tuple elements map onto `Pair`/`Triple`
+/// components, and a narrowed one asserts — a stdlib property is not
+/// smart-cast [kt-narrow-field-assert].
+#[test]
+fn tuple_elements_emit_pair_components() {
+    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("${t.first} ${t.second} ${t.third}"),
+        "expected Pair/Triple components in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("${nested.second.first}"),
+        "expected a nested component chain in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("${maybe.first!!}"),
+        "expected the narrowed element to assert in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_tuple_index() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(
+        &files,
+        "tuple-index",
+        "1 two true\nin 9\nsome here 6\n",
     );
 }
 

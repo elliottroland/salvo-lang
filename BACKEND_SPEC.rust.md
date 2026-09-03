@@ -69,6 +69,10 @@ Conventions:
   collection changes side-effect *timing* (not values) versus Kotlin's
   lazy sequences, and an infinite iterator would not terminate.
 * [type-tuple] Tuples map to native Rust tuples (any size).
+* [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
+  positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
+  Reads clone like any other projection in owned position, and a narrowed
+  element unwraps as a field does ([flow-place] [rs-option]).
 * [type-str] Strings are `String` (owned). Plain string literals emit
   `"...".to_string()`; interpolation emits `format!("{}...", args)`.
 * [name-dot] Dot-names *flatten*: `Environment.Id` emits as
@@ -220,11 +224,15 @@ derives them mechanically:
   * Wrap at boundaries: `UnionN::<A, .., Z>::Ui(code)` (turbofish —
     the other type parameters are not inferable from one arm), wrapped
     in `Some(...)` when the target union has a `None` arm.
-  * Narrowed ident uses unwrap in place: `x.u2().clone()`
-    (`x.as_ref().unwrap().u2().clone()` for a nullable repr). Unlike
+  * Narrowed place reads unwrap in place — `x.u2().clone()` for a
+    variable, `h.result.u1().clone()` for a field [flow-place]
+    (`….as_ref().unwrap().u2().clone()` for a nullable repr). Unlike
     Kotlin, Rust also unwraps a `T?` repr narrowed to its value arm:
     `x.unwrap()` for Copy scalars, `x.as_ref().unwrap().clone()`
-    otherwise — there is no smart cast to lean on.
+    otherwise — there is no smart cast to lean on. The result is an owned
+    temporary, so a narrowed place is *not* a pure place
+    ([rs-borrow-locals]): it cannot be borrowed directly. `is` tests, `is`
+    bindings and `match` subjects read the storage instead.
   * `is` lowering ([is-narrowing], `is_tests` table): single arm →
     `matches!(subj, UnionN::Ui(_))`; multi-arm → a `|` pattern; all
     arms → `subj.is_some()` when nullable, `true` otherwise;
@@ -313,10 +321,11 @@ derives them mechanically:
 
 ## Functions and calls
 
-* [fn-dot] Dot-notation calls that resolve to a known fn/define/effect
-  member normalize to `f(base, args)`. Unknown methods emit as Rust
-  method calls (`base.f(args)`) for companion-code interop
-  ([type-unknown-lenient]).
+* [fn-dot] Dot-notation calls resolve to a declared fn/define/effect
+  member and normalize to `f(base, args)`. There is no method-call
+  fallback: an unresolved name here is a *codegen error* naming an internal
+  inconsistency, since the checker already rejects undeclared dot-calls
+  ([call-resolve]).
 * [fn-variadic] Non-spread trailing arguments collect into `vec![...]`;
   a spread argument `...xs` forwards the vector (owned rendering).
 * [fn-lambda] Lambdas emit as closures (`|a, b| expr`); fn-typed

@@ -145,10 +145,22 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 - **Never emit silently wrong code.** Unsupported constructs must produce a
   codegen/checker *error*, not incorrect output ([backend-never-wrong];
   the remaining deliberate cuts are listed in PROGRESS.md's history).
-- **The checker is lenient by design**: anything it cannot type is
-  `Ty::Unknown` and must pass through without cascading errors (Kotlin
-  interop relies on this). Coercions/unwraps fire only where the checker's
-  side tables say so.
+- **Salvo assumes it can see everything** (user decision 2026-09-03).
+  Every call, field read, subscript, and `for` subject must be justified
+  by a declaration: an unresolved callee, a field on a non-struct, a
+  subscript on a non-array, a non-iterable `for` subject — all errors
+  ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
+  Target-language features are reached by *declaring* them
+  (`external fn`, `external type`, `define`), never by writing an
+  undeclared member and hoping the backend understands it. Generics are
+  opaque under this rule too: with no bounds, nothing about a `T` is
+  knowable.
+- **What leniency remains is about inference, not visibility**: a type
+  the checker could not *infer* is `Ty::Unknown` and must pass through
+  without cascading errors ([type-unknown-lenient]) — one mistake, one
+  diagnostic. Coercions/unwraps fire only where the checker's side
+  tables say so. The emitters keep their syntactic fallbacks so a
+  checker regression degrades to plain output rather than wrong output.
 - **Checker and emitter must agree** on lowering rules (union wrapper arm
   identity, the ident-unwrap predicate, `is`-test lowering). If you change
   one side, change the other and the tests.

@@ -1454,8 +1454,8 @@ fn rustc_compiles_and_runs_fn_contracts() {
 
 // ===== `is` on union-typed struct-field subjects =====
 // [is-narrowing] [is-binding] Field subjects get the same union-test
-// lowering as identifier subjects; both backends must agree with the
-// checker's is_tests lowering.
+// lowering as identifier subjects, and narrow like them [flow-place];
+// both backends must agree with the checker's is_tests lowering.
 
 const FIELD_IS_DEMO: &str = r#"
 struct Holder {
@@ -1500,6 +1500,193 @@ fn rustc_compiles_and_runs_field_is() {
     }
     let files = generate(&[("main.sv", FIELD_IS_DEMO, false)]);
     run_rust_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
+}
+
+// ===== place-based narrowing of field reads [flow-place] =====
+// [flow-place] `is` narrows *places*: after `p.surname is Str` the field
+// itself reads as `Str` (no binding needed), field chains included.
+// Invalidation is [flow-place-invalidate]; `when` stays variable-only
+// [when-union-subject].
+
+const PLACE_NARROW_DEMO: &str = r#"
+struct Address canbe Mut {
+    city: Str? = None
+}
+
+struct Person canbe Mut {
+    name: Str,
+    surname: Str? = None,
+    address: Mut Address
+}
+
+struct Holder {
+    result: Ok Int | Err Str
+}
+
+fn describe(p: Person) -> [p] Str {
+    if p.surname is Str {
+        return "${p.name} ${p.surname}"
+    }
+    return p.name
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(describe(Person {name: "Ann", surname: "Lee", address: Mut Address {city: "Rome"}}))
+    println(describe(Person {name: "Bo", address: Mut Address {city: None}}))
+    let p = Person {name: "Cy", surname: "Ray", address: Mut Address {city: "Oslo"}}
+    if p.address.city is Str {
+        println("city ${p.address.city}")
+    }
+    let h = Holder {result: ok(3)}
+    if h.result is Ok {
+        println("ok ${h.result}")
+    }
+}
+"#;
+
+/// [flow-place] A narrowed nullable field read unwraps the `Option`
+/// physically [rs-option]; a narrowed wrapper-union field read takes the
+/// arm accessor [rs-union-enums].
+#[test]
+fn narrowed_field_reads_unwrap() {
+    let files = generate(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("p.surname.as_ref().unwrap().clone()"),
+        "expected the narrowed field read to unwrap in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("p.address.city.as_ref().unwrap().clone()"),
+        "expected the narrowed field *chain* read to unwrap in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("*h.result.u1()"),
+        "expected the narrowed wrapper-union field read to use the arm \
+         accessor in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_place_narrowing() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    run_rust_files(&files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n");
+}
+
+// [flow-place] [op-no-none] A narrowed field is usable as an *operand*,
+// which the optional-strictness rules used to reject outright.
+
+const PLACE_OPERAND_DEMO: &str = r#"
+struct Reading {
+    label: Str,
+    value: Int? = None
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let r = Reading {label: "temp", value: 21}
+    if r.value is Int {
+        println("${r.label}: ${r.value + 1}")
+    }
+    let empty = Reading {label: "none"}
+    if empty.value is Int {
+        println("unreachable")
+    } else {
+        println("${empty.label}: no value")
+    }
+}
+"#;
+
+/// [flow-place] [rs-option] The operand read unwraps the `Option`; Rust has
+/// no smart cast to lean on, so this is the same lowering everywhere.
+#[test]
+fn narrowed_field_operand_unwraps() {
+    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("r.value.unwrap() + 1"),
+        "expected the narrowed operand to unwrap in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_place_operand() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    run_rust_files(&files, "place-operand", "temp: 22\nnone: no value\n");
+}
+
+// ===== tuple element access [expr-tuple-index] =====
+// `t.0` reads a tuple element; a constant index narrows like a field
+// [flow-place], and nesting (`t.1.0`) is two projections.
+
+const TUPLE_INDEX_DEMO: &str = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let t: (Int, Str, Bool) = (1, "two", true)
+    println("${t.0} ${t.1} ${t.2}")
+    let nested: (Int, (Str, Int)) = (7, ("in", 9))
+    println("${nested.1.0} ${nested.1.1}")
+    let maybe: (Str?, Int) = ("here", 5)
+    if maybe.0 is Str {
+        println("some ${maybe.0} ${maybe.1 + 1}")
+    } else {
+        println("none")
+    }
+}
+"#;
+
+/// [rs-tuple-index] Rust tuples index natively; a narrowed element unwraps
+/// its `Option` [rs-option].
+#[test]
+fn tuple_elements_emit_native_indexes() {
+    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("t.0"),
+        "expected a native tuple index in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("nested.1.0.clone()"),
+        "expected a nested index chain in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("maybe.0.as_ref().unwrap().clone()"),
+        "expected the narrowed element to unwrap in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_tuple_index() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    run_rust_files(&files, "tuple-index", "1 two true\nin 9\nsome here 6\n");
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====

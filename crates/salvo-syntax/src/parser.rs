@@ -1807,12 +1807,51 @@ impl<'s> Parser<'s> {
         }
     }
 
+    /// After a `.`, an integer token is a **tuple index**
+    /// [expr-tuple-index]: `t.0`, and `t.0.1` for a nested one (the lexer
+    /// never reads a fraction after a dot, so these are two tokens).
+    /// Returns `None` when the next token is not an integer, leaving the
+    /// field-name path to the caller.
+    fn tuple_index_suffix(&mut self, base: &Expr) -> Option<Expr> {
+        let TokenKind::Int { value, long } = *self.kind() else {
+            return None;
+        };
+        let token = self.bump();
+        if long {
+            self.error(
+                "a tuple index has no `L` suffix [expr-tuple-index]",
+                token.span,
+            );
+        }
+        let index = match usize::try_from(value) {
+            Ok(i) => i,
+            Err(_) => {
+                self.error(
+                    format!("`{value}` is not a valid tuple index [expr-tuple-index]"),
+                    token.span,
+                );
+                0
+            }
+        };
+        Some(Expr::TupleIndex {
+            base: Box::new(base.clone()),
+            index,
+            span: base.span().to(token.span),
+        })
+    }
+
     fn parse_postfix(&mut self) -> Option<Expr> {
         let mut expr = self.parse_primary()?;
         loop {
             match self.kind() {
                 TokenKind::Dot => {
                     self.bump();
+                    // `t.0` — a tuple element by constant index
+                    // [expr-tuple-index].
+                    if let Some(indexed) = self.tuple_index_suffix(&expr) {
+                        expr = indexed;
+                        continue;
+                    }
                     let field = self.ident()?;
                     let span = expr.span().to(field.span);
                     expr = Expr::Field {

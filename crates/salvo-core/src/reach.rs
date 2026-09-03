@@ -235,7 +235,9 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Ident(id) => {
             used.insert(&id.name);
         }
-        Expr::Field { base, .. } => expr_names(base, used),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            expr_names(base, used)
+        }
         Expr::Call {
             callee,
             type_args,

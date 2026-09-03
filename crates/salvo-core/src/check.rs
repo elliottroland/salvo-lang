@@ -23,6 +23,7 @@ use salvo_syntax::ast::{self, *};
 use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
+use crate::place::{Place, Proj};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
 use crate::source::SourceKind;
@@ -382,6 +383,26 @@ struct LocalVar {
     /// [fn-contract]: the value belongs to the caller — read-only-ish
     /// (mutation is type-gated by `Mut`), never consumable.
     lambda_kept: bool,
+    /// Narrowed *projections* out of this variable [flow-place]: flow
+    /// facts about `h.field`, keyed by the projection path. The
+    /// variable's own narrowing stays in `narrowed`; keeping the
+    /// projections here is what makes an event on the root — mutation,
+    /// reassignment, a move — invalidate every fact below it, and what
+    /// keeps `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` the
+    /// single source of truth for flow state.
+    place_narrows: Vec<PlaceNarrow>,
+}
+
+/// One narrowed projection place [flow-place]: the path out of the
+/// variable, the type reads of that place have while the fact holds, and
+/// the *declared* (physical) type the storage keeps — narrowing never
+/// re-wraps storage, so reads unwrap from `declared` to `narrowed` and
+/// both the checker (`repr_ty`) and the emitters need it.
+#[derive(Clone, PartialEq)]
+struct PlaceNarrow {
+    path: Vec<Proj>,
+    narrowed: Ty,
+    declared: Ty,
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -430,13 +451,15 @@ struct Poison {
 }
 
 /// Flow state of one local: narrowed type plus fate links/poison
-/// [deduce-consume] [fate-link].
+/// [deduce-consume] [fate-link], and the narrowed projections out of it
+/// [flow-place].
 #[derive(Clone, PartialEq)]
 struct VarState {
     narrowed: Ty,
     links: Vec<FateLink>,
     poison: Option<Poison>,
     consumed_by: Option<&'static str>,
+    place_narrows: Vec<PlaceNarrow>,
 }
 
 /// Flow state of every local, per scope frame [deduce-consume].
@@ -549,13 +572,22 @@ struct CaptureInfo {
     moved: bool,
 }
 
+/// A flow narrowing to apply in a branch [flow-place]: the place, the type
+/// it holds there, and the physical (declared) type its storage keeps.
+#[derive(Clone)]
+struct Narrow {
+    place: Place,
+    narrowed: Ty,
+    declared: Ty,
+}
+
 /// Narrowing facts derived from a condition.
 #[derive(Default, Clone)]
 struct CondInfo {
-    /// Variable narrowings that hold when the condition is true.
-    then_narrows: Vec<(String, Ty)>,
+    /// Place narrowings that hold when the condition is true.
+    then_narrows: Vec<Narrow>,
     /// Narrowings that hold when the condition is false.
-    else_narrows: Vec<(String, Ty)>,
+    else_narrows: Vec<Narrow>,
     /// `is T name` bindings introduced in the true branch.
     bindings: Vec<Binding>,
 }
@@ -893,6 +925,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for_origin: None,
                     decl_span: p.name.span,
                     lambda_kept: false,
+                    place_narrows: Vec::new(),
                 },
             );
         }
@@ -917,6 +950,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for_origin: None,
                     decl_span: field.name.span,
                     lambda_kept: false,
+                    place_narrows: Vec::new(),
                 },
             );
         }
@@ -1208,6 +1242,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for_origin,
                 decl_span: name.span,
                 lambda_kept: false,
+                place_narrows: Vec::new(),
             },
         );
     }
@@ -1222,7 +1257,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn provenance<'e>(expr: &'e Expr, out: &mut Vec<&'e Ident>) {
         match expr {
             Expr::Ident(id) => out.push(id),
-            Expr::Field { base, .. } => Self::provenance(base, out),
+            Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+                Self::provenance(base, out)
+            }
             Expr::Index { base, .. } => Self::provenance(base, out),
             Expr::NonNull { operand, .. } => Self::provenance(operand, out),
             _ => {}
@@ -1734,15 +1771,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             let Expr::Ident(id) = arg else {
                 if kept && mutable {
-                    let mut sources = Vec::new();
-                    Self::provenance(arg, &mut sources);
-                    let names: Vec<String> =
-                        sources.iter().map(|s| s.name.clone()).collect();
-                    for name in names {
-                        self.fate_mutation(&name, span);
-                    }
+                    self.fate_mutation_through(arg, span);
                 } else if !kept {
                     let consumed = self.projection_move(arg, span);
+                    // Data moved out of the projection: nothing narrowed
+                    // about it survives [flow-place-invalidate].
+                    if let Some(place) = Place::of_expr(arg) {
+                        self.invalidate_place_narrows(&place);
+                    }
                     consumed_here.extend(consumed);
                 }
                 continue;
@@ -1783,7 +1819,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if mutable {
                 let name = id.name.clone();
-                self.fate_mutation(&name, span);
+                // [flow-place-invalidate] A `Mut`-keeping call may mutate
+                // the whole value, so every fact about its parts falls. A
+                // kept *immutable* parameter cannot mutate: narrowings
+                // survive such a call (user decision P1b).
+                self.fate_mutation_root(&name, span);
             }
             // [deduce-syntax] The removal set is computed against the
             // qualifiers the *argument* actually carries, so an exhaustive
@@ -2168,17 +2208,114 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.poison_derived(id, name, FateEvent::Mutated, span);
     }
 
+    // ================= place narrowing [flow-place] =================
+
+    /// The recorded narrowing of a projection place, if flow analysis has
+    /// one [flow-place].
+    fn place_narrow_entry(&self, place: &Place) -> Option<&PlaceNarrow> {
+        let var = self.lookup(&place.root)?;
+        var.place_narrows.iter().find(|n| n.path == place.path)
+    }
+
+    fn place_narrow(&self, place: &Place) -> Option<&Ty> {
+        self.place_narrow_entry(place).map(|n| &n.narrowed)
+    }
+
+    /// Records a projection narrowing, returning the fact it displaced.
+    fn set_place_narrow(&mut self, narrow: &Narrow) -> Option<PlaceNarrow> {
+        let entry = PlaceNarrow {
+            path: narrow.place.path.clone(),
+            narrowed: narrow.narrowed.clone(),
+            declared: narrow.declared.clone(),
+        };
+        let var = self.lookup_mut(&narrow.place.root)?;
+        match var.place_narrows.iter().position(|n| n.path == entry.path) {
+            Some(i) => Some(std::mem::replace(&mut var.place_narrows[i], entry)),
+            None => {
+                var.place_narrows.push(entry);
+                None
+            }
+        }
+    }
+
+    fn drop_place_narrow(&mut self, place: &Place) {
+        if let Some(var) = self.lookup_mut(&place.root) {
+            var.place_narrows.retain(|n| n.path != place.path);
+        }
+    }
+
+    /// Drops every projection narrowing an event on `place` could falsify
+    /// [flow-place-invalidate]: the place itself and everything below it
+    /// (writing `h.a` replaces the subtree), and everything *above* it
+    /// (writing `h.a` mutates `h`, so a fact about `h` as a whole is no
+    /// longer known to hold) — i.e. every overlapping place. Sibling
+    /// facts (`h.b`) survive. Only *narrowing* facts are dropped here;
+    /// fate/poison is `fate_mutation`'s job.
+    fn invalidate_place_narrows(&mut self, place: &Place) {
+        let path = place.path.clone();
+        let root = place.root.clone();
+        if let Some(var) = self.lookup_mut(&root) {
+            var.place_narrows.retain(|n| {
+                let other = Place {
+                    root: root.clone(),
+                    path: n.path.clone(),
+                };
+                let event = Place {
+                    root: root.clone(),
+                    path: path.clone(),
+                };
+                !event.overlaps(&other)
+            });
+        }
+    }
+
+    /// A mutation *through a projection* [fate-poison] [flow-place]: the
+    /// fate event lands on every provenance root, and projection
+    /// narrowings are invalidated for exactly the storage the mutation can
+    /// reach. Every site that mutates through a non-identifier expression
+    /// goes through here, so no invalidation site can be forgotten.
+    fn fate_mutation_through(&mut self, expr: &Expr, span: Span) {
+        let mut sources = Vec::new();
+        Self::provenance(expr, &mut sources);
+        let names: Vec<String> = sources.iter().map(|s| s.name.clone()).collect();
+        for name in &names {
+            self.fate_mutation(name, span);
+        }
+        match Place::of_expr(expr) {
+            Some(place) => self.invalidate_place_narrows(&place),
+            // Not a place rooted in a variable (a call result, say): the
+            // provenance roots are still mutated, so nothing projected out
+            // of them survives.
+            None => {
+                for name in names {
+                    self.invalidate_place_narrows(&Place::root(name));
+                }
+            }
+        }
+    }
+
+    /// A mutation of a whole variable: every projection fact under it
+    /// falls [flow-place-invalidate].
+    fn fate_mutation_root(&mut self, name: &str, span: Span) {
+        self.fate_mutation(name, span);
+        self.invalidate_place_narrows(&Place::root(name));
+    }
+
     /// Runs `f` with the given narrowings applied, restoring afterwards.
-    fn with_narrows<T>(
-        &mut self,
-        narrows: &[(String, Ty)],
-        f: impl FnOnce(&mut Self) -> T,
-    ) -> T {
+    fn with_narrows<T>(&mut self, narrows: &[Narrow], f: impl FnOnce(&mut Self) -> T) -> T {
         let mut saved: Vec<(String, Ty)> = Vec::new();
-        for (name, ty) in narrows {
-            if let Some(var) = self.lookup_mut(name) {
-                saved.push((name.clone(), var.narrowed.clone()));
-                var.narrowed = ty.clone();
+        // Applied place facts, with the fact each one displaced
+        // [flow-place].
+        let mut saved_places: Vec<(Place, Ty, Option<PlaceNarrow>)> = Vec::new();
+        for n in narrows {
+            if n.place.is_root() {
+                if let Some(var) = self.lookup_mut(&n.place.root) {
+                    saved.push((n.place.root.clone(), var.narrowed.clone()));
+                    var.narrowed = n.narrowed.clone();
+                }
+            } else if self.lookup(&n.place.root).is_some() {
+                let displaced = self.set_place_narrow(n);
+                saved_places.push((n.place.clone(), n.narrowed.clone(), displaced));
             }
         }
         let result = f(self);
@@ -2194,17 +2331,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                 var.narrowed = ty;
             }
         }
+        for (place, applied, displaced) in saved_places.into_iter().rev() {
+            // The dual of the consumed-stays-consumed rule [flow-place]:
+            // if the branch invalidated the fact we applied (an
+            // assignment or a mutating call through a prefix), the
+            // invalidation is a flow fact and must survive the restore.
+            if self.place_narrow(&place) != Some(&applied) {
+                continue;
+            }
+            match displaced {
+                Some(previous) => {
+                    self.set_place_narrow(&Narrow {
+                        place,
+                        narrowed: previous.narrowed,
+                        declared: previous.declared,
+                    });
+                }
+                None => self.drop_place_narrow(&place),
+            }
+        }
         result
     }
 
     /// Resets narrowing to the declared type for every variable assigned
-    /// inside `block` (called after branching constructs).
+    /// inside `block` (called after branching constructs). Projection
+    /// facts fall with it [flow-place]: an assignment rebinds the variable,
+    /// so nothing projected out of it is known any more.
     fn reset_assigned(&mut self, block: &Block) {
         let mut names = HashSet::new();
         collect_assigned(block, &mut names);
         for name in names {
             if let Some(var) = self.lookup_mut(&name) {
                 var.narrowed = var.declared.clone();
+                var.place_narrows.clear();
             }
         }
     }
@@ -2227,6 +2386,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 links: var.links.clone(),
                                 poison: var.poison.clone(),
                                 consumed_by: var.consumed_by,
+                                place_narrows: var.place_narrows.clone(),
                             },
                         )
                     })
@@ -2243,6 +2403,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.links = state.links.clone();
                     var.poison = state.poison.clone();
                     var.consumed_by = state.consumed_by;
+                    var.place_narrows = state.place_narrows.clone();
                 }
             }
         }
@@ -2259,7 +2420,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_loop_body(
         &mut self,
         body: &'p Block,
-        narrows: &[(String, Ty)],
+        narrows: &[Narrow],
         bindings: Vec<Binding>,
     ) -> (Ty, Option<TailInfo>) {
         let entry = self.snapshot_narrows();
@@ -2384,12 +2545,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     (None, None)
                 };
+                // [flow-place] A projection narrowing survives the join
+                // only when every fall-through path agrees on it exactly;
+                // otherwise the place falls back to its declared type,
+                // which is always a supertype. A consumed variable keeps
+                // no facts about its parts.
+                let place_narrows: Vec<PlaceNarrow> = if matches!(joined, Ty::Nothing) {
+                    Vec::new()
+                } else {
+                    states[0]
+                        .place_narrows
+                        .iter()
+                        .filter(|n| {
+                            states[1..]
+                                .iter()
+                                .all(|s| s.place_narrows.iter().any(|m| *m == **n))
+                        })
+                        .cloned()
+                        .collect()
+                };
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
                 {
                     var.narrowed = joined;
                     var.links = links;
                     var.poison = poison;
                     var.consumed_by = consumed_by;
+                    var.place_narrows = place_narrows;
                 }
             }
         }
@@ -3172,7 +3353,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             StrExprPart::Interp(e) => expr_mentions(e, name),
             _ => false,
         }),
-        Expr::Field { base, .. } => expr_mentions(base, name),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            expr_mentions(base, name)
+        }
         Expr::Call { callee, args, .. } => {
             expr_mentions(callee, name) || args.iter().any(|a| expr_mentions(a, name))
         }
@@ -3264,8 +3447,13 @@ struct CheckPat {
 
 /// The outcome of analyzing one `is` expression.
 struct IsInfo {
-    /// Subject variable name when the subject is a plain identifier.
-    subject_name: Option<String>,
+    /// The place the subject denotes, when it is one flow analysis tracks
+    /// [flow-place]: a variable or a field chain out of one.
+    subject_place: Option<Place>,
+    /// The physical (declared) type of the subject's storage — the type the
+    /// `is` test was lowered against, and the type a narrowed read unwraps
+    /// from [flow-place].
+    subject_repr: Ty,
     /// Logical type when the check succeeds.
     matched: Ty,
     /// Logical type when the check fails (union subjects only).
@@ -3386,16 +3574,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 );
                             }
                         }
+                        // [expr-tuple-index] A tuple element is never
+                        // assignable: qualifiers — `Mut` among them —
+                        // cannot apply to a tuple [qual-union-arm], so no
+                        // tuple value can grant mutation permission.
+                        if let Expr::TupleIndex { index, span, .. } = other {
+                            self.error(
+                                *span,
+                                format!(
+                                    "cannot assign to tuple element `{index}`: `Mut` \
+                                     cannot apply to a tuple, so tuple elements are \
+                                     read-only — rebuild the tuple instead"
+                                ),
+                            );
+                        }
                         // Assigning through a projection mutates the root
                         // variable [fate-poison]; mutating a derived
                         // variable is an error [fate-derived-readonly].
-                        let mut sources = Vec::new();
-                        Self::provenance(other, &mut sources);
-                        let names: Vec<String> =
-                            sources.iter().map(|s| s.name.clone()).collect();
-                        for name in names {
-                            self.fate_mutation(&name, *span);
-                        }
+                        // Narrowings of the overwritten storage fall
+                        // [flow-place-invalidate].
+                        self.fate_mutation_through(other, *span);
                         ty
                     }
                 };
@@ -3451,6 +3649,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         var.links = links;
                         var.poison = None;
                         var.consumed_by = None;
+                        // The old value is gone: every fact about its
+                        // parts falls with it [flow-place-invalidate].
+                        var.place_narrows.clear();
                     }
                 }
                 Ty::none()
@@ -3719,11 +3920,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The physical representation type of an expression: for identifier
-    /// uses this is the declared type (narrowing does not re-wrap values).
+    /// uses this is the declared type (narrowing does not re-wrap values),
+    /// and for a narrowed projection place the type its storage keeps
+    /// [flow-place].
     fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
         if let Expr::Ident(id) = expr {
             if let Some(var) = self.lookup(&id.name) {
                 return var.declared.clone();
+            }
+        }
+        if matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. }) {
+            if let Some(entry) = Place::of_expr(expr)
+                .as_ref()
+                .and_then(|p| self.place_narrow_entry(p))
+            {
+                return entry.declared.clone();
             }
         }
         logical.clone()
@@ -3929,7 +4140,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .insert(self.key(*span), override_ty.clone());
                     return override_ty;
                 }
+                // [flow-place] A narrowed projection place reads at its
+                // narrowed type. The storage keeps the declared type — the
+                // one the `is` test was lowered against — so the read is
+                // recorded in `repr_ty` for the emitters to unwrap from,
+                // exactly as a narrowed identifier read is.
+                if let Some(place) = Place::of_expr(expr) {
+                    if let Some(entry) = self.place_narrow_entry(&place) {
+                        let (narrowed, declared) =
+                            (entry.narrowed.clone(), entry.declared.clone());
+                        if narrowed != declared {
+                            self.out.repr_ty.insert(self.key(*span), declared);
+                        }
+                        return narrowed;
+                    }
+                }
                 self.field_ty_or_error(&base_ty, field)
+            }
+            Expr::TupleIndex { base, index, span } => {
+                let base_ty = self.check_expr(base, None);
+                // [flow-place] A narrowed element place reads at its
+                // narrowed type, exactly as a field does.
+                if let Some(place) = Place::of_expr(expr) {
+                    if let Some(entry) = self.place_narrow_entry(&place) {
+                        let (narrowed, declared) =
+                            (entry.narrowed.clone(), entry.declared.clone());
+                        if narrowed != declared {
+                            self.out.repr_ty.insert(self.key(*span), declared);
+                        }
+                        return narrowed;
+                    }
+                }
+                self.tuple_elem_ty_or_error(&base_ty, *index, *span)
             }
             Expr::Call {
                 callee,
@@ -3937,12 +4179,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                 args,
                 span,
             } => self.check_call(callee, type_args, args, expected, *span),
-            Expr::Index { base, index, .. } => {
+            Expr::Index { base, index, span } => {
                 let base_ty = self.check_expr(base, None);
-                self.check_expr(index, None);
+                self.check_expr(index, Some(&Ty::named("Int")));
                 match base_ty.strip_quals() {
                     Ty::Array(elem) => (**elem).clone(),
-                    _ => Ty::Unknown,
+                    // [index-resolve] Only arrays are subscriptable; other
+                    // collections expose element access as declared
+                    // functions (`get(list, i)`). Only an un-inferred base
+                    // stays lenient [type-unknown-lenient] — a generic `T`
+                    // is opaque, not unknown.
+                    Ty::Unknown | Ty::Nothing => Ty::Unknown,
+                    other => {
+                        let other = other.clone();
+                        self.error(
+                            *span,
+                            format!(
+                                "`{other}` cannot be indexed with `[]`: only \
+                                 arrays can, and other collections expose \
+                                 element access as functions (e.g. \
+                                 `get(collection, index)`)"
+                            ),
+                        );
+                        Ty::Unknown
+                    }
                 }
             }
             Expr::ArrayLit { elems, .. } => {
@@ -4089,16 +4349,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if let Some(var) = self.lookup_mut(&id.name) {
                             var.links = Vec::new();
                             var.poison = None;
+                            // `i++` rebinds the variable: facts about its
+                            // parts fall [flow-place-invalidate].
+                            var.place_narrows.clear();
                         }
                     }
                     other => {
-                        let mut sources = Vec::new();
-                        Self::provenance(other, &mut sources);
-                        let names: Vec<String> =
-                            sources.iter().map(|s| s.name.clone()).collect();
-                        for name in names {
-                            self.fate_mutation(&name, *span);
-                        }
+                        self.fate_mutation_through(other, *span);
                     }
                 }
                 ty
@@ -4168,7 +4425,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let iter_ty = self.check_expr(iterable, None);
-                let elem = self.iter_elem_ty(&iter_ty);
+                let elem = self.iter_elem_ty(&iter_ty, iterable.span());
                 // The loop binding is a projection of the iterated
                 // collection: it shares the collection's fate [fate-link].
                 // It goes through the per-pass bindings channel so every
@@ -4245,14 +4502,49 @@ impl<'p, 'r> Checker<'p, 'r> {
         match self.field_ty(base_ty, &field.name) {
             Some(t) => t,
             None => {
-                // Only report when the base is a known struct (anything else
-                // may be backend interop).
-                if let Ty::Named { name, .. } = base_ty.strip_quals() {
-                    if self.scope.structs.contains_key(name.as_str()) {
+                // [field-resolve] Only structs have fields, and only the
+                // ones they declare. A target-language member is reached by
+                // declaring an accessor (`external fn`), not by reading
+                // through an opaque type — so an unknown field is an error
+                // (user decision 2026-09-03). A generic value exposes
+                // nothing either: Salvo has no bounds, so `T` is opaque.
+                // Only an *un-inferred* base (`Unknown`) stays lenient
+                // [type-unknown-lenient].
+                let stripped = base_ty.strip_quals().clone();
+                match &stripped {
+                    Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => {
                         let name = name.clone();
                         self.error(
                             field.span,
                             format!("struct `{name}` has no field `{}`", field.name),
+                        );
+                    }
+                    Ty::Unknown | Ty::Nothing => {}
+                    // A generic parameter needs its own wording: adding an
+                    // accessor cannot help, because nothing is known about
+                    // `T` at all.
+                    Ty::Var(name) => {
+                        let name = name.clone();
+                        self.error(
+                            field.span,
+                            format!(
+                                "`{name}` is a type parameter, so nothing is known \
+                                 about its values: it has no field `{}`. Take the \
+                                 concrete type as a parameter instead",
+                                field.name
+                            ),
+                        );
+                    }
+                    other => {
+                        let other = other.clone();
+                        self.error(
+                            field.span,
+                            format!(
+                                "`{other}` has no field `{}`: only structs have \
+                                 fields, and a target-language member needs an \
+                                 `external fn` accessor",
+                                field.name
+                            ),
                         );
                     }
                 }
@@ -4266,6 +4558,42 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Some(t);
         }
         self.declared_field_ty(base_ty, field_name)
+    }
+
+    /// The type of `base.index` [expr-tuple-index]: the element at a
+    /// constant position of a tuple. Only tuples have elements, and the
+    /// position must exist — both are errors rather than leniency, since
+    /// the index is written in the source and cannot be interop-dependent.
+    /// A non-tuple `Unknown` base stays lenient
+    /// [type-unknown-lenient].
+    fn tuple_elem_ty_or_error(&mut self, base_ty: &Ty, index: usize, span: Span) -> Ty {
+        match base_ty.strip_quals() {
+            Ty::Tuple(elems) => match elems.get(index) {
+                Some(t) => t.clone(),
+                None => {
+                    let len = elems.len();
+                    self.error(
+                        span,
+                        format!(
+                            "tuple `{base_ty}` has {len} element(s), so it has no \
+                             element `{index}`"
+                        ),
+                    );
+                    Ty::Unknown
+                }
+            },
+            other if other.is_unknown() || matches!(other, Ty::Nothing) => Ty::Unknown,
+            _ => {
+                self.error(
+                    span,
+                    format!(
+                        "`.{index}` reads a tuple element, but `{base_ty}` is not a \
+                         tuple"
+                    ),
+                );
+                Ty::Unknown
+            }
+        }
     }
 
     /// A predicate-qualifier field override for this (qualified) base type,
@@ -4312,7 +4640,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(self.lower_type_subst(&field.ty, &subst, 0))
     }
 
-    fn iter_elem_ty(&mut self, iter_ty: &Ty) -> Ty {
+    fn iter_elem_ty(&mut self, iter_ty: &Ty, span: Span) -> Ty {
         match iter_ty.strip_quals() {
             Ty::Named { name, args } if name == "Iter" && !args.is_empty() => args[0].clone(),
             Ty::Array(elem) => (**elem).clone(),
@@ -4346,6 +4674,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                     }
+                }
+                // [iter-resolve] Nothing makes this value iterable: no
+                // `Iter`, no array, and no `iter` overload accepts it. An
+                // un-inferred value stays lenient
+                // [type-unknown-lenient]; everything else is an error
+                // (user decision 2026-09-03).
+                if !other.is_unknown() && !matches!(other, Ty::Nothing) {
+                    self.error(
+                        span,
+                        format!(
+                            "`{other}` is not iterable: `for` takes an array, an \
+                             `Iter<T>`, or a value some `iter` function accepts"
+                        ),
+                    );
                 }
                 Ty::Unknown
             }
@@ -4691,10 +5033,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .expr_ty
                     .insert(self.key(cond.span()), Ty::named("Bool"));
                 let mut out = CondInfo::default();
-                if let Some(name) = &info.subject_name {
-                    out.then_narrows.push((name.clone(), info.matched.clone()));
+                if let Some(place) = &info.subject_place {
+                    out.then_narrows.push(Narrow {
+                        place: place.clone(),
+                        narrowed: info.matched.clone(),
+                        declared: info.subject_repr.clone(),
+                    });
                     if let Some(rem) = &info.remaining {
-                        out.else_narrows.push((name.clone(), rem.clone()));
+                        out.else_narrows.push(Narrow {
+                            place: place.clone(),
+                            narrowed: rem.clone(),
+                            declared: info.subject_repr.clone(),
+                        });
                     }
                 }
                 if let Some(binding) = info.binding {
@@ -4896,10 +5246,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
 
-        let subject_name = match subject.as_ref() {
-            Expr::Ident(id) => Some(id.name.clone()),
-            _ => None,
-        };
+        let subject_place = Place::of_expr(subject).filter(|p| {
+            // Only field chains out of a tracked local narrow [flow-place]
+            // (user decision P1a): an element step cannot be told from a
+            // sibling, and a place whose root is not a local has no flow
+            // state to hang the fact on.
+            p.narrowable() && self.lookup(&p.root).is_some()
+        });
         let binding = binding.as_ref().map(|b| {
             let bty = if matches!(matched, Ty::Union(_)) {
                 self.error(
@@ -4918,7 +5271,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         });
 
         IsInfo {
-            subject_name,
+            subject_place,
+            subject_repr: repr,
             matched,
             remaining,
             binding,
@@ -5034,7 +5388,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         else_block: Option<&'p Block>,
         span: Span,
     ) -> Ty {
-        let mut acc_else: Vec<(String, Ty)> = Vec::new();
+        let mut acc_else: Vec<Narrow> = Vec::new();
         let mut branch_tys = Vec::new();
         let mut tails: Vec<Option<TailInfo>> = Vec::new();
         // Branch-aware consumption merging [deduce-consume]: each branch
@@ -5165,7 +5519,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
-            let narrows = vec![(subject_id.name.clone(), narrow_ty)];
+            let narrows = vec![Narrow {
+                place: Place::root(subject_id.name.clone()),
+                narrowed: narrow_ty,
+                declared: repr.clone(),
+            }];
             // Isolate this branch's consumption effects; only
             // fall-through branches reach the code after the `when`
             // [deduce-consume].
@@ -5549,9 +5907,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)` when `f`
-        // is a known function/define/effect member; otherwise backend
-        // interop.
+        // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)`. `f`
+        // must be a declared function, define, or effect member — reaching
+        // a target-language method means declaring it (`external fn`), so
+        // an unknown name here is an error, not interop pass-through
+        // [call-resolve].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let known = self.scope.effect_members.contains_key(name)
@@ -5569,6 +5929,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             for a in args {
                 self.check_expr(a, None);
             }
+            self.error_unresolved(
+                field.span,
+                format!(
+                    "no function named `{name}` is in scope: dot-notation calls a \
+                     function with the receiver as its first argument \
+                     ([fn-dot]), so a target-language method must be declared \
+                     (`external fn`) to be callable"
+                ),
+                name,
+            );
             return Ty::Unknown;
         }
 
@@ -5631,8 +6001,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     return *ret;
                 }
+                // [call-resolve] The local's type is known and is not a
+                // function, so this call can never succeed — including a
+                // generic `T`, which is opaque (no bounds to make it
+                // callable). Only an *un-inferred* type stays lenient
+                // ([type-unknown-lenient]).
                 for a in args {
                     self.check_expr(a, None);
+                }
+                if !vty.is_unknown() {
+                    let detail = if matches!(vty, Ty::Var(_)) {
+                        // Adding a declaration cannot make a `T` callable:
+                        // there are no bounds to say it is a function.
+                        format!(
+                            "`{}` is a type parameter (`{vty}`), so nothing is \
+                             known about its values — including whether they \
+                             are functions. Declare it with a fn type to call \
+                             it",
+                            id.name
+                        )
+                    } else {
+                        format!("`{}` is not callable: its type is `{vty}`", id.name)
+                    };
+                    self.error(span, detail);
                 }
                 return Ty::Unknown;
             }
@@ -5651,8 +6042,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return *ret;
         }
+        // [call-resolve] As above: a known non-fn type is not callable.
         for a in args {
             self.check_expr(a, None);
+        }
+        if !cty.is_unknown() && !matches!(cty, Ty::Nothing) {
+            self.error(span, format!("this expression is not callable: its type is `{cty}`"));
         }
         Ty::Unknown
     }
@@ -5702,7 +6097,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             if self.scope.handlers.contains_key(name) {
                 return Ty::named(name);
             }
-            // Unknown callable (backend interop, struct ctor, ...).
+            // Nothing declares this name [call-resolve]. Reaching a target
+            // function means declaring it (`external fn`), so an
+            // unresolved callee is an error rather than interop
+            // pass-through (user decision 2026-09-03).
+            self.error_unresolved(
+                name_span,
+                format!("no function named `{name}` is in scope"),
+                name,
+            );
             return Ty::Unknown;
         }
 
@@ -6000,17 +6403,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .iter()
                             .any(|q| q == "Mut")
                     {
-                        let mut sources = Vec::new();
-                        Self::provenance(arg, &mut sources);
-                        let names: Vec<String> =
-                            sources.iter().map(|s| s.name.clone()).collect();
-                        for name in names {
-                            self.fate_mutation(&name, span);
-                        }
+                        self.fate_mutation_through(arg, span);
                     } else if !d.kept {
                         // A projection in a *moved* position moves data
-                        // out of its provenance roots [fate-move-mode].
+                        // out of its provenance roots [fate-move-mode];
+                        // narrowings of that storage fall
+                        // [flow-place-invalidate].
                         let consumed = self.projection_move(arg, span);
+                        if let Some(place) = Place::of_expr(arg) {
+                            self.invalidate_place_narrows(&place);
+                        }
                         consumed_here.extend(consumed);
                     }
                     continue;
@@ -6061,11 +6463,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Kept. A parameter declared `Mut` gives the callee
                 // mutation permission: mutating a derived variable is an
                 // error, mutating a root poisons its derived variables
-                // [fate-poison] [fate-derived-readonly].
+                // [fate-poison] [fate-derived-readonly], and every
+                // narrowing of its parts falls
+                // [flow-place-invalidate]. A kept *immutable* parameter
+                // cannot mutate, so narrowings survive it (user decision
+                // P1b).
                 let declared_q = crate::deduce::declared_quals(&param.ty);
                 if declared_q.iter().any(|q| q == "Mut") {
                     let name = id.name.clone();
-                    self.fate_mutation(&name, span);
+                    self.fate_mutation_root(&name, span);
                 }
                 // [deduce-syntax] Computed against what the argument
                 // actually carries: an exhaustive list drops qualifiers

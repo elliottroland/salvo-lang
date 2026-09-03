@@ -52,6 +52,25 @@ Salvo supports algebraic data types in the form of tuples (for AND) and unions (
 let (a, b, c) = ("String", -1, true)
 ```
 
+A single element can also be read by its position, written like a field with
+the index in place of the name:
+
+```
+let point: (Int, Int) = (3, 4)
+let x = point.0             // Int
+let y = point.1             // Int
+
+// Nesting reads left to right, so `.0.1` is "element 1 of element 0".
+let nested: ((Int, Int), Str) = ((3, 4), "label")
+let inner_y = nested.0.1    // Int
+```
+
+Positions are counted from zero, and an index that the tuple does not have
+is a compile-time error — unlike an array subscript, the position is part of
+the program text rather than a runtime value. Tuple elements are read-only:
+qualifiers never apply to a tuple, so no tuple value can be `Mut`, and there
+is nothing to assign through. Build a new tuple instead.
+
 Unions can be checked in if expressions and while loops using `is`. The syntax of these checks is similar to type checking in C#:
 
 ```
@@ -137,12 +156,20 @@ We say that `surname` is _nullable_, because this syntax resembles the nullabili
 
 ```
 // Because `Str?` is just `Str | None` we can use normal union type checking.
-// The check binds the narrowed value: only *variables* narrow in place, so
-// a field check introduces a binding to use inside the block.
-if (person.surname is Str surname) {
-    println("Surname is ${surname}") // String interpolation like in Kotlin
+// The check narrows the field itself: inside the block, `person.surname`
+// reads as `Str`.
+if (person.surname is Str) {
+    println("Surname is ${person.surname}") // String interpolation like in Kotlin
 }
 ```
+
+Narrowing works for any chain of fields and tuple positions out of a
+variable (`a.b.0.c`), and the fact is dropped as soon as anything could have
+changed the value: an assignment to that place or one containing it, a
+reassignment of the variable, or a call that takes it as `Mut`. Array
+elements do not narrow — `numbers[i]` cannot be told apart from
+`numbers[j]` — so for those, bind the checked value with `is Str name` as
+shown for unions above.
 
 When a value is known to be non-null but this can't be proven by the compiler, then you can use `!` to get the non-null value out or panic (equivalent to `unwrap` in Rust):
 
@@ -202,8 +229,8 @@ Here, `Surname` is the name of the qualifier, and `Person` is the type it applie
 ```
 // Does not know there's a surname, so we have to check it's nullability. Ignore the `[person]` part for now.
 fn full_name(person: Person) -> [person] Str {
-    if (person.surname is Str surname) {
-        return "${person.name} ${surname}"
+    if (person.surname is Str) {
+        return "${person.name} ${person.surname}"
     }
     // Explicit returns, unlike in Rust
     return person.name
@@ -372,8 +399,8 @@ As in Ruby, `if` blocks are expressions which evaluate to values. Each branch of
 
 ```
 // Type of `full_name` is `Str | Str` which simplifies to `Str`
-let full_name = if person.surname is Str surname {
-    "${person.name} ${surname}"
+let full_name = if person.surname is Str {
+    "${person.name} ${person.surname}"
 } else {
     person.name
 }
@@ -383,8 +410,8 @@ The type of an unspecified `else` branch is `None`:
 
 ```
 // Type of `full_name` is `Str | None` or `Str?`
-let full_name = if person.surname is Str surname {
-    "${person.name} ${surname}"
+let full_name = if person.surname is Str {
+    "${person.name} ${person.surname}"
 }
 ```
 
@@ -1103,7 +1130,27 @@ qualifier Tag of Int
 fn f(x: Tag) -> Int { ... }  // error: unknown type `Tag` (`Tag` is a qualifier, not a type)
 ```
 
-Note that this is about *written names*, not about types the compiler cannot work out: an unknown field or method on an interop value still passes through unchecked.
+Nothing is taken on trust. Besides written names, every *member* you reach
+for must be justified by a declaration the compiler can see: a call to a
+function nobody declared, a field on something that is not a struct (or a
+field a struct does not have), `[]` on something that is not an array, and
+`for` over something not iterable are all compile-time errors. There is no
+"pass it through and let the target language sort it out" — a value's type
+tells you exactly what you can do with it.
+
+This is what makes the interop layer a *declaration* layer: to call a
+Kotlin method or a Rust function, you declare it (`external fn`, and a
+`define` block per backend — see the backends section) and then call the
+Salvo function you declared. Dot-notation still reads like a method call
+(`text.shout()` is `shout(text)`), but the function has to exist. The same
+applies to generics: a type parameter has no bounds, so nothing is known
+about a `T` — reading `value.name` inside `fn f<T>(value: T)` is an error,
+not a promise about the values you will pass in.
+
+The one thing that *is* lenient is a type the compiler could not work out
+for itself: it stays unknown, compatible with everything, so a single
+mistake produces a single error instead of a cascade of follow-on
+complaints.
 
 ### Naming rules
 

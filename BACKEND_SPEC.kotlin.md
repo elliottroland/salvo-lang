@@ -52,6 +52,14 @@ Conventions:
   `x!` → `!!`.
 * [type-tuple] Tuples of size 2/3 map to `Pair`/`Triple`; larger tuples
   are a codegen error ([backend-never-wrong]).
+* [kt-tuple-component] A tuple index ([expr-tuple-index]) emits the
+  matching component name: `.0`/`.1`/`.2` → `.first`/`.second`/`.third`.
+  A higher index has no Kotlin spelling and is a codegen error (it is
+  unreachable in practice — the tuple *type* is rejected first).
+  * A narrowed tuple element always asserts
+    ([kt-narrow-field-assert]): `Pair`/`Triple` components are `val`s, but
+    kotlinc only smart-casts properties declared in the module being
+    compiled, and these come from the stdlib.
 * [type-array] `T[]` emits as `Array<T>` — always, including `Int[]` /
   `Double[]`. Decision (M7): no `IntArray`/`DoubleArray` specialization.
   Kotlin's specialized arrays are *unrelated types* to `Array<T>`, which
@@ -93,10 +101,12 @@ Conventions:
   * Wrap at boundaries: `U2_1<Int, String>(expr)`; re-wrap between union
     reprs via a `let { when (it) { is U3_2<*,*,*> -> U2_1<...>(...) } }`
     chain (unmatched source arms are unreachable at runtime).
-  * Narrowed ident uses unwrap in place: `(x.value as Int)`. The cast is
-    *required* even when kotlinc smart-casts: narrowing may come from
+  * Narrowed place reads unwrap in place — `(x.value as Int)` for a
+    variable, `(h.result.value as Int)` for a field [flow-place]. The cast
+    is *required* even when kotlinc smart-casts: narrowing may come from
     `elif` exclusion (no Kotlin smart cast), and `value` is typed `Any?`
-    on the sealed interface.
+    on the sealed interface. `is` tests, `is` bindings and `when`
+    subjects read the storage, so they never see this unwrap.
   * `is` lowering: single arm → `x is U3_2<*, *, *>` (star projections
     required — kotlinc rejects bare generic classes in `is`), multi-arm →
     `||` chain, all arms / `is None` → null tests. Interpolating a
@@ -107,6 +117,14 @@ Conventions:
   * A `T?`-subject `when` lowers to a subject-less Kotlin `when` whose
     last branch becomes `else` (kotlinc demands one on expression `when`;
     sound because the checker proved exhaustiveness).
+* [kt-narrow-field-assert] A `T?`-representation **field** narrowed to its
+  value arm ([flow-place]) emits an explicit `!!` rather than relying on a
+  smart cast: Kotlin refuses to smart-cast a property ("could be mutated
+  concurrently"), and a `canbe Mut` struct's fields emit as `var`, so the
+  read would not compile. Local variables do smart-cast and keep the plain
+  read. The assert can never fire — the checker proved non-nullness and
+  invalidates the fact on any mutation ([flow-place-invalidate]) — it is
+  what keeps emitted Kotlin compilable ([backend-never-wrong]).
 * [when-union-subject] `when` over a wrapper union lowers to Kotlin
   `when (subj)` over the sealed wrappers; kotlinc re-proves the
   exhaustiveness the checker established ([when-exhaustive]).
@@ -207,9 +225,12 @@ Conventions:
 * [fn-iterator] Iterator fns emit
   `return Iterable<T> { iterator { ... } }`; `yield x` → `yield(x)`; bare
   `return` → `return@iterator`.
-* [fn-dot] Dot-notation calls that resolve to a known fn/define/effect
-  member are normalized to `f(base, args)`; unknown methods stay Kotlin
-  method calls (`base.f(args)`) for interop ([type-unknown-lenient]).
+* [fn-dot] Dot-notation calls resolve to a declared fn/define/effect
+  member and normalize to `f(base, args)`. There is no method-call
+  fallback: an unresolved name here is a *codegen error* naming an internal
+  inconsistency, since the checker already rejects undeclared dot-calls
+  ([call-resolve]). Emitted Kotlin is never a guess
+  ([backend-never-wrong]).
 * [backend-define-inline] Define templates expand inline at call sites;
   `imports:` lines are hoisted per generated file
   ([backend-define-imports]).

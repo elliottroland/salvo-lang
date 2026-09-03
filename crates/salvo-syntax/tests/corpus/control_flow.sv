@@ -1,6 +1,6 @@
 fn full_name(person: Person) -> [person] Str {
-    if (person.surname is Str surname) {
-        return "${person.name} ${surname}"
+    if (person.surname is Str) {
+        return "${person.name} ${person.surname}"
     }
     return person.name
 }

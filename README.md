@@ -85,10 +85,12 @@ fn main() [use] {
 
 ## Features at a glance
 
-- **Data**: structs (defaults, spread `...`, destructuring), tuples, arrays,
-  immutable strings with `${}` interpolation.
+- **Data**: structs (defaults, spread `...`, destructuring), tuples
+  (destructuring and positional reads, `t.0`), arrays, immutable strings
+  with `${}` interpolation.
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
-  value), flow-sensitive narrowing via `is`, exhaustive `when`.
+  value), flow-sensitive narrowing via `is` — of variables and of field
+  chains (`p.address.city`) — and exhaustive `when`.
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
   overloading, union tagging, and precise checks; `Mut` opts structs and
   types (`canbe Mut`) into mutability. A qualifier is a claim about a

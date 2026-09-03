@@ -73,8 +73,8 @@ fn main() [use] {
 
     let number = 10
     let person = Person { id_number: "1231232", name: "Roland", age: number }
-    let person2 = Person { ...person, id_number: "34578346584" }
-    let { id_number } = person
+    // let person2 = Person { ...person, id_number: "34578346584" }
+    // println(person.id_number)
 
     let fh = get_fh()
 
@@ -97,6 +97,12 @@ fn main() [use] {
 
     let (a, b) = (1, 2)
     let c = a.add(b)
+    close(fh)
+}
+
+fn close(fh: FileHandle) -> [] None {
+    // Close it
+    discard(fh)
 }
 
 fn get_fh() -> FileHandle {

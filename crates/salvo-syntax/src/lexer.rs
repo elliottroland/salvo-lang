@@ -190,8 +190,23 @@ impl<'s> Lexer<'s> {
         }
         // A float requires `.` followed by a digit (so `1.size()` stays an
         // int followed by a method call).
+        //
+        // [expr-tuple-index] A digit sequence that *follows* a `.` is a
+        // tuple index, so it never takes a decimal point of its own:
+        // `t.0.1` is element 0 of element... 1, two indices — not `t.0`
+        // and the float `0.1`. Nothing else in the grammar puts a numeric
+        // literal directly after a dot (paths and dot-calls take
+        // identifiers, spread is one `...` token), so the rule is
+        // unambiguous.
+        let after_dot = matches!(
+            self.tokens.last().map(|t| &t.kind),
+            Some(TokenKind::Dot)
+        );
         let mut is_float = false;
-        if self.peek() == Some('.') && self.peek_at(1).is_some_and(|c| c.is_ascii_digit()) {
+        if !after_dot
+            && self.peek() == Some('.')
+            && self.peek_at(1).is_some_and(|c| c.is_ascii_digit())
+        {
             is_float = true;
             text.push('.');
             self.bump();

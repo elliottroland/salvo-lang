@@ -1611,7 +1611,9 @@ impl<'p> Emitter<'p> {
         });
         let mut out = String::new();
         for (subject, check, binding, is_span) in collected {
-            let subj = self.emit_expr_base(subject);
+            // The binding reads the payload out of the storage: a narrowed
+            // subject place must not unwrap twice [flow-place].
+            let subj = self.emit_place_storage(subject);
             let code = match self.is_test_of(is_span).cloned() {
                 Some(test) if test.size >= 2 => {
                     let kt = self
@@ -1657,36 +1659,141 @@ impl<'p> Emitter<'p> {
     /// Emits an expression with the narrowing unwrap but *without* boundary
     /// coercions (both are skipped for plain identifiers via `raw`).
     fn emit_expr_base(&mut self, expr: &Expr) -> String {
-        if let Expr::Ident(id) = expr {
-            if let (Some(repr), Some(logical)) = (self.repr_of(id.span), self.ty_of(id.span)) {
-                // Narrowed to a single arm of a wrapper union: unwrap.
-                if repr.is_wrapper_union()
-                    && !matches!(logical, Ty::Union(_))
-                    && !logical.is_none_ty()
-                {
-                    let logical = logical.clone();
-                    let nullable = repr.has_none_arm();
-                    let kt = self.emit_ty(&logical);
-                    let access = if nullable { "?" } else { "" };
-                    return format!("({}{access}.value as {kt})", kt_ident(&id.name));
-                }
+        // A narrowed place — an identifier or a projection [flow-place] —
+        // reads its payload out of the declared representation.
+        match self.place_unwrap_kind(expr) {
+            Some((PlaceUnwrap::ArmValue, logical)) => {
+                let logical = logical.clone();
+                let nullable = self
+                    .repr_of(expr.span())
+                    .is_some_and(|repr| repr.has_none_arm());
+                let kt = self.emit_ty(&logical);
+                let access = if nullable { "?" } else { "" };
+                let place = self.emit_place_storage(expr);
+                format!("({place}{access}.value as {kt})")
             }
+            Some((PlaceUnwrap::NonNull, _)) => {
+                let place = self.emit_place_storage(expr);
+                format!("{place}!!")
+            }
+            None => self.emit_expr_raw(expr),
         }
-        self.emit_expr_raw(expr)
+    }
+
+    /// How a narrowed place read reaches its value [flow-place]: `None`
+    /// when the place is not narrowed, so the plain read stands.
+    ///
+    /// [kt-narrow-field-assert] A `T?` *field* read cannot rely on Kotlin's
+    /// smart cast — a struct field is a property, and a `canbe Mut`
+    /// struct's is a `var`, which Kotlin refuses to smart-cast ("could be
+    /// mutated concurrently") — so it asserts instead. Local variables do
+    /// smart-cast, and keep the plain read.
+    fn place_unwrap_kind(&self, expr: &Expr) -> Option<(PlaceUnwrap, &'p Ty)> {
+        if !matches!(
+            expr,
+            Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. }
+        ) {
+            return None;
+        }
+        let span = expr.span();
+        let (repr, logical) = (self.repr_of(span)?, self.ty_of(span)?);
+        if repr.is_wrapper_union()
+            && !matches!(logical, Ty::Union(_))
+            && !logical.is_none_ty()
+        {
+            return Some((PlaceUnwrap::ArmValue, logical));
+        }
+        if matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. })
+            && matches!(repr, Ty::Union(_))
+            && repr.has_none_arm()
+            && !repr.is_wrapper_union()
+            && !logical.has_none_arm()
+            && !logical.is_none_ty()
+            && !matches!(logical, Ty::Union(_))
+            && self.field_is_var(expr)
+        {
+            return Some((PlaceUnwrap::NonNull, logical));
+        }
+        None
+    }
+
+    /// Whether a field read goes through a Kotlin `var` property, which is
+    /// what makes the smart cast unavailable [kt-narrow-field-assert]:
+    /// fields of a `canbe Mut` struct emit as `var`, everything else as
+    /// `val`. Unknown bases answer `true` — an unnecessary `!!` is a
+    /// kotlinc *warning*, a missing one is a compile error
+    /// ([backend-never-wrong]).
+    fn field_is_var(&self, expr: &Expr) -> bool {
+        // A tuple element is a `Pair`/`Triple` component: a `val`, but one
+        // declared in the Kotlin *stdlib*, and kotlinc only smart-casts
+        // properties from the module being compiled — so it needs the
+        // assert [kt-narrow-field-assert].
+        if matches!(expr, Expr::TupleIndex { .. }) {
+            return true;
+        }
+        let Expr::Field { base, .. } = expr else {
+            return false;
+        };
+        let Some(base_ty) = self.ty_of(base.span()) else {
+            return true;
+        };
+        let Ty::Named { name, .. } = base_ty.strip_quals() else {
+            return true;
+        };
+        let decl = self.program.modules.iter().flat_map(|m| &m.items).find_map(
+            |item| match item {
+                Item::Struct(s) if s.name.name == *name => Some(s),
+                _ => None,
+            },
+        );
+        match decl {
+            Some(s) => s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
+            None => true,
+        }
+    }
+
+    /// The Kotlin component name of a tuple position
+    /// [kt-tuple-component]: `Pair`/`Triple` expose `first`/`second`/
+    /// `third`, and Kotlin has no larger tuple type ([type-tuple]), so
+    /// anything beyond is unsupported.
+    fn tuple_component(index: usize) -> Option<&'static str> {
+        match index {
+            0 => Some("first"),
+            1 => Some("second"),
+            2 => Some("third"),
+            _ => None,
+        }
+    }
+
+    /// A place's storage rendering: the read *without* its own narrowing
+    /// unwrap [flow-place]. The base keeps its unwraps — a narrowed base
+    /// must be unwrapped before its field can be reached — and `is` tests,
+    /// `is` bindings and `when` subjects read through this, since they
+    /// operate on the declared representation.
+    fn emit_place_storage(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Ident(_)
+            | Expr::Field { .. }
+            | Expr::TupleIndex { .. }
+            | Expr::Index { .. } => self.emit_expr_raw(expr),
+            other => self.emit_expr_base(other),
+        }
     }
 
     /// The physical Kotlin-level type of an emitted expression (accounting
-    /// for the identifier unwrap rule).
+    /// for the place unwrap rule [flow-place]).
     fn emitted_repr(&self, expr: &Expr) -> Option<&'p Ty> {
         let logical = self.ty_of(expr.span())?;
-        if let Expr::Ident(id) = expr {
-            if let Some(repr) = self.repr_of(id.span) {
-                if repr.is_wrapper_union()
-                    && !matches!(logical, Ty::Union(_))
-                    && !logical.is_none_ty()
-                {
-                    return Some(logical); // unwrapped at the use site
-                }
+        // Unwrapped at the use site: the emitted code has the narrowed
+        // type, not the storage's.
+        if let Some((_, narrowed)) = self.place_unwrap_kind(expr) {
+            return Some(narrowed);
+        }
+        if matches!(
+            expr,
+            Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. }
+        ) {
+            if let Some(repr) = self.repr_of(expr.span()) {
                 return Some(repr);
             }
         }
@@ -1897,6 +2004,20 @@ impl<'p> Emitter<'p> {
                 }
                 code
             }
+            Expr::TupleIndex { base, index, .. } => {
+                // [kt-tuple-component] `Pair`/`Triple` name their elements.
+                let code = self.emit_expr(base);
+                match Self::tuple_component(*index) {
+                    Some(name) => format!("{code}.{name}"),
+                    None => {
+                        self.error(format!(
+                            "tuple element `.{index}` is not supported: Kotlin \
+                             tuples map to `Pair`/`Triple` [type-tuple]"
+                        ));
+                        code
+                    }
+                }
+            }
             Expr::Call {
                 callee,
                 type_args,
@@ -1951,7 +2072,9 @@ impl<'p> Emitter<'p> {
             Expr::Is {
                 subject, check, span, ..
             } => {
-                let subj = self.emit_expr_base(subject);
+                // The test reads the storage, never a narrowed payload
+                // [flow-place].
+                let subj = self.emit_place_storage(subject);
                 if let Some(test) = self.is_test_of(*span) {
                     let test = test.clone();
                     return self.emit_union_test(&subj, &test);
@@ -2359,10 +2482,17 @@ impl<'p> Emitter<'p> {
                 all_args.extend(args.iter());
                 return self.emit_resolved_call(name, type_args, &all_args, span);
             }
-            // Unknown method: pass through as a Kotlin method call.
-            let base_code = self.emit_expr(base);
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-            return format!("{base_code}.{}({})", kt_ident(name), arg_code.join(", "));
+            // [call-resolve] The checker rejects an undeclared dot-call, so
+            // reaching here means a resolution table lost an entry without
+            // reporting it — a compiler bug. Say so instead of inventing a
+            // Kotlin method call: emitted code must never be a guess
+            // [backend-never-wrong].
+            self.error(format!(
+                "internal error: dot-call `{name}` reached the Kotlin emitter \
+                 unresolved (the checker should have rejected it, or resolved \
+                 it to a fn, define, or effect member)"
+            ));
+            return "TODO()".to_string();
         }
 
         if let Expr::Ident(id) = callee {
@@ -2930,6 +3060,16 @@ enum StmtCtx {
     IteratorBody,
 }
 
+/// How a narrowed place read reaches its value [flow-place].
+#[derive(Clone, Copy, PartialEq)]
+enum PlaceUnwrap {
+    /// Wrapper-union storage: read the matched arm's payload and cast.
+    ArmValue,
+    /// `T?` storage narrowed to its value arm, where Kotlin's smart cast
+    /// does not apply: assert non-null [kt-narrow-field-assert].
+    NonNull,
+}
+
 /// True when a checker type contains no `Unknown` (inference fully
 /// resolved it) — only then is it safe to render it into emitted code.
 /// The base type name of an AST type, used to pair define templates with
@@ -3282,7 +3422,9 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
         | Expr::Spread { operand, .. } => collect_mutated_expr(operand, out),
-        Expr::Field { base, .. } => collect_mutated_expr(base, out),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_mutated_expr(base, out)
+        }
         Expr::Index { base, index, .. } => {
             collect_mutated_expr(base, out);
             collect_mutated_expr(index, out);
@@ -3446,7 +3588,9 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         | Expr::NonNull { operand, .. }
         | Expr::PostIncrement { operand, .. }
         | Expr::Spread { operand, .. } => collect_declared_expr(operand, out),
-        Expr::Field { base, .. } => collect_declared_expr(base, out),
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_declared_expr(base, out)
+        }
         Expr::Index { base, index, .. } => {
             collect_declared_expr(base, out);
             collect_declared_expr(index, out);
