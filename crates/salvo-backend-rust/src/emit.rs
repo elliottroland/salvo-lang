@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use salvo_core::check::{Checked, Coercion, UnionTest};
+use salvo_core::check::{AbortSite, Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program, SourceKind, Symbols};
 use salvo_syntax::ast::*;
@@ -583,6 +583,32 @@ struct Emitter<'p> {
     loop_defer_floors: Vec<usize>,
     /// `return`-value temporary counter [rs-defer-splice].
     defer_id: usize,
+    /// [rs-abort-controlflow] The declared abort message type of the fn
+    /// being emitted, when it declares `[Abort<M>]`: its Rust return type
+    /// is then `ControlFlow<M, T>`, `return v` becomes
+    /// `ControlFlow::Continue(v)`, and a propagating call unwraps.
+    abort_message: Option<Ty>,
+    /// Enclosing `try` delimiters being emitted [rs-try-label], innermost
+    /// last: an abort inside one breaks its labelled block instead of
+    /// returning.
+    try_frames: Vec<TryFrame>,
+    /// Labelled-block counter for `try` [rs-try-label].
+    try_id: usize,
+    /// The indentation of the statement being emitted: expression-position
+    /// control transfers ([rs-abort-controlflow]) splice deferred blocks,
+    /// which are statements, so they need a column to write at.
+    expr_indent: usize,
+}
+
+/// One `try` delimiter while its body is emitted [rs-try-label].
+struct TryFrame {
+    /// The Rust block label (`'try_0`).
+    label: String,
+    /// `defers.len()` at entry: an abort into this delimiter runs the
+    /// deferred blocks registered inside the `try` body, and only those.
+    defer_floor: usize,
+    /// The outcome union `Ok T | Aborted M`, for wrapping both arms.
+    outcome: Option<Ty>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -632,6 +658,10 @@ impl<'p> Emitter<'p> {
             defer_floor: 0,
             loop_defer_floors: Vec::new(),
             defer_id: 0,
+            abort_message: None,
+            try_frames: Vec::new(),
+            try_id: 0,
+            expr_indent: 0,
         }
     }
 
@@ -686,6 +716,10 @@ impl<'p> Emitter<'p> {
         for item in &module.items {
             match item {
                 Item::Struct(s) => body.push_str(&self.emit_struct(s)),
+                // [abort] The abort effect has no handlers — `try` delimits
+                // it — so there is nothing to implement: emitting an
+                // interface for it would be dead, misleading code.
+                Item::Effect(e) if e.name.name == salvo_core::ABORT_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
@@ -1240,6 +1274,16 @@ impl<'p> Emitter<'p> {
         let top_level = matches!(style, FnStyle::TopLevel);
         let is_main = top_level && f.name.name == "main";
         let fn_key = if top_level { self.key_of_fn(f) } else { None };
+        // [rs-abort-controlflow] A fn declaring `[Abort<M>]` returns
+        // `ControlFlow<M, T>`: the abort *is* the return, so intermediate
+        // frames stay silent (no handler, no dispatch, no allocation).
+        let saved_abort = std::mem::replace(
+            &mut self.abort_message,
+            fn_key
+                .and_then(|key| self.checked.fn_effects.get(&key))
+                .and_then(|effects| effects.iter().find_map(abort_message_of)),
+        );
+        let saved_try_frames = std::mem::take(&mut self.try_frames);
         let sig_only = matches!(style, FnStyle::DepMemberSig(..));
         let saved_fn = std::mem::replace(&mut self.current_fn, f.name.name.clone());
         let saved_hoist = std::mem::replace(&mut self.hoist_id, 0);
@@ -1317,6 +1361,12 @@ impl<'p> Emitter<'p> {
             match checked_effects {
                 Some(tys) => {
                     for ty in tys {
+                        // [rs-abort-controlflow] `Abort` is not a
+                        // capability parameter: it changes the *return*
+                        // shape instead, so it never becomes a `&mut dyn`.
+                        if is_abort_effect_ty(&ty) {
+                            continue;
+                        }
                         let rendered = self.rust_ty(&ty);
                         effects.push((Some(ty), rendered));
                     }
@@ -1324,6 +1374,9 @@ impl<'p> Emitter<'p> {
                 None => {
                     for eff in f.effects.iter().flatten() {
                         if let EffectRef::Effect(r) = eff {
+                            if r.name.name == salvo_core::ABORT_EFFECT {
+                                continue;
+                            }
                             let rendered = self.emit_type_ref(r);
                             effects.push((None, rendered));
                         }
@@ -1451,6 +1504,19 @@ impl<'p> Emitter<'p> {
         } else {
             self.emit_return_type(f.return_type.as_ref())
         };
+        // [rs-abort-controlflow] The declared return type becomes
+        // `ControlFlow`'s `Continue` payload; the message type is its
+        // `Break` payload, which is why propagation is `?`.
+        let ret = match self.abort_message.clone() {
+            Some(message) => {
+                self.imports.insert("use std::ops::ControlFlow;".to_string());
+                let msg = self.rust_ty(&message);
+                let value = ret.trim_start_matches(" -> ").trim();
+                let value = if value.is_empty() { "()" } else { value };
+                format!(" -> ControlFlow<{msg}, {value}>")
+            }
+            None => ret,
+        };
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
@@ -1518,9 +1584,17 @@ impl<'p> Emitter<'p> {
                 "{pad}    let mut __yielded: Vec<{elem}> = Vec::new();\n"
             ));
             out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::IteratorBody));
-            out.push_str(&format!("{pad}    return __yielded;\n"));
+            let yielded = self.wrap_continue("__yielded".to_string());
+            out.push_str(&format!("{pad}    return {yielded};\n"));
         } else {
             out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
+            // [rs-abort-controlflow] A `None`-returning fn that may abort
+            // still has to produce a `ControlFlow` value on the way out.
+            if self.abort_message.is_some()
+                && self.emit_return_type(f.return_type.as_ref()).is_empty()
+            {
+                out.push_str(&format!("{pad}    return ControlFlow::Continue(());\n"));
+            }
         }
         out.push_str(&format!("{pad}}}\n"));
 
@@ -1535,6 +1609,8 @@ impl<'p> Emitter<'p> {
         self.defers = saved_defers;
         self.defer_floor = saved_defer_floor;
         self.loop_defer_floors = saved_loop_floors;
+        self.abort_message = saved_abort;
+        self.try_frames = saved_try_frames;
         out
     }
 
@@ -2124,6 +2200,7 @@ impl<'p> Emitter<'p> {
 
     fn emit_stmt(&mut self, stmt: &Stmt, indent: usize, ctx: StmtCtx) -> String {
         let pad = "    ".repeat(indent);
+        self.expr_indent = indent;
         match stmt {
             Stmt::Let {
                 pattern,
@@ -2144,7 +2221,8 @@ impl<'p> Emitter<'p> {
                     // [rs-iter-vec] short-circuit returns what was
                     // collected so far.
                     let defers = self.exit_defers(indent, false);
-                    format!("{defers}{pad}return __yielded;\n")
+                    let yielded = self.wrap_continue("__yielded".to_string());
+                    format!("{defers}{pad}return {yielded};\n")
                 }
                 (StmtCtx::IteratorBody, Some(_)) => {
                     self.error("`return` with a value is not allowed in an iterator function");
@@ -2157,15 +2235,23 @@ impl<'p> Emitter<'p> {
                     // temporary when any of them follow it.
                     let defers = self.exit_defers(indent, false);
                     if defers.is_empty() {
+                        let code = self.wrap_continue(code);
                         format!("{pad}return {code};\n")
                     } else {
                         let tmp = self.fresh_defer_var();
-                        format!("{pad}let {tmp} = {code};\n{defers}{pad}return {tmp};\n")
+                        let out = self.wrap_continue(tmp.clone());
+                        format!("{pad}let {tmp} = {code};\n{defers}{pad}return {out};\n")
                     }
                 }
                 (_, None) => {
                     let defers = self.exit_defers(indent, false);
-                    format!("{defers}{pad}return;\n")
+                    let unit = self.wrap_continue("()".to_string());
+                    let value = if self.abort_message.is_some() {
+                        format!(" {unit}")
+                    } else {
+                        String::new()
+                    };
+                    format!("{defers}{pad}return{value};\n")
                 }
             },
             Stmt::Break { value, .. } => {
@@ -2265,6 +2351,177 @@ impl<'p> Emitter<'p> {
     fn fresh_defer_var(&mut self) -> String {
         self.defer_id += 1;
         format!("__deferred_value{}", self.defer_id)
+    }
+
+    // ================= abort and `try` [rs-abort-controlflow] =================
+
+    /// Wraps a returned value in `ControlFlow::Continue` when the current
+    /// fn may abort [rs-abort-controlflow]; a pass-through otherwise.
+    fn wrap_continue(&mut self, code: String) -> String {
+        match self.abort_message {
+            Some(_) => {
+                self.imports.insert("use std::ops::ControlFlow;".to_string());
+                format!("ControlFlow::Continue({code})")
+            }
+            None => code,
+        }
+    }
+
+    /// A fresh labelled-block label for a `try` [rs-try-label].
+    fn fresh_try_label(&mut self) -> String {
+        self.try_id += 1;
+        format!("'try_{}", self.try_id)
+    }
+
+    /// The message value at an abort site, wrapped into the target's arm
+    /// when several message types meet there [union-arm-identity].
+    fn abort_message_value(&mut self, site: &AbortSite, code: String) -> String {
+        match site.arm {
+            Some(arm) => self.wrap_union_value(&site.target, arm, code),
+            None => code,
+        }
+    }
+
+    /// The Rust code that *takes* the abort at a site: breaking the
+    /// enclosing `try`'s labelled block with the aborted arm of its
+    /// outcome, or returning `ControlFlow::Break` out of the fn
+    /// [rs-abort-controlflow]. Deferred blocks pending inside the
+    /// construct being left run first [defer].
+    fn abort_transfer(&mut self, site: &AbortSite, message: String, indent: usize) -> String {
+        match self.try_frames.last() {
+            Some(frame) => {
+                let label = frame.label.clone();
+                let floor = frame.defer_floor;
+                let outcome = frame.outcome.clone();
+                let payload = self.abort_message_value(site, message);
+                // The aborted arm is arm 1 of `Ok T | Aborted M`.
+                let wrapped = match &outcome {
+                    Some(ty) => self.wrap_union_value(ty, 1, payload),
+                    None => payload,
+                };
+                let defers = self.splice_defers(floor, indent, false);
+                if defers.is_empty() {
+                    format!("break {label} {wrapped}")
+                } else {
+                    let pad = "    ".repeat(indent);
+                    format!("{{\n{defers}{pad}break {label} {wrapped};\n{pad}}}")
+                }
+            }
+            None => {
+                self.imports.insert("use std::ops::ControlFlow;".to_string());
+                let payload = self.abort_message_value(site, message);
+                let defers = self.exit_defers(indent, false);
+                if defers.is_empty() {
+                    format!("return ControlFlow::Break({payload})")
+                } else {
+                    let pad = "    ".repeat(indent);
+                    format!("{{\n{defers}{pad}return ControlFlow::Break({payload});\n{pad}}}")
+                }
+            }
+        }
+    }
+
+    /// `abort(message)` [abort]: the control transfer itself, in expression
+    /// position (`break`/`return` are expressions in Rust, so a
+    /// `Nothing`-typed operand needs no special casing).
+    fn emit_abort_call(&mut self, site: &AbortSite, args: &[Expr], indent: usize) -> String {
+        let message = match args.first() {
+            Some(a) => self.emit_expr(a),
+            None => {
+                self.error("`abort` needs a message argument");
+                "()".to_string()
+            }
+        };
+        self.abort_transfer(site, message, indent)
+    }
+
+    /// A call to a fn that may abort [rs-abort-controlflow]: its
+    /// `ControlFlow` result is unwrapped here. `?` does it in one character
+    /// — but only when the abort would leave *this* fn unchanged: inside a
+    /// `try`, when the message needs wrapping into a union, or when
+    /// deferred blocks must run first, the propagation is written out as a
+    /// `match` (an expression, so no hoisting is needed).
+    fn wrap_may_abort_call(&mut self, site: &AbortSite, call: String, indent: usize) -> String {
+        self.imports.insert("use std::ops::ControlFlow;".to_string());
+        let inside_try = !self.try_frames.is_empty();
+        let pending_defers = match self.try_frames.last() {
+            Some(frame) => self.defers.len() > frame.defer_floor,
+            None => self.defers.len() > self.defer_floor,
+        };
+        if !inside_try && !pending_defers && site.arm.is_none() {
+            return format!("{call}?");
+        }
+        let transfer = self.abort_transfer(site, "__m".to_string(), indent);
+        format!(
+            "match {call} {{ ControlFlow::Continue(__v) => __v, \
+             ControlFlow::Break(__m) => {transfer} }}"
+        )
+    }
+
+    /// `try { ... }` [rs-try-label]: a labelled block. No closure, so
+    /// nothing is captured — the body reads the fn's effect parameters and
+    /// locals directly — and an abort inside it `break`s the label with the
+    /// aborted arm of the outcome.
+    fn emit_try(&mut self, body: &Block, span: Span, indent: usize) -> String {
+        let outcome = self.ty_of(span).cloned();
+        if let Some(ty) = &outcome {
+            let arms = ty.value_arms().len();
+            if arms >= 2 {
+                self.union_sizes.insert(arms);
+            }
+        }
+        let label = self.fresh_try_label();
+        self.try_frames.push(TryFrame {
+            label: label.clone(),
+            defer_floor: self.defers.len(),
+            outcome: outcome.clone(),
+        });
+        let inner = self.emit_try_body(body, outcome.as_ref(), indent + 1);
+        self.try_frames.pop();
+        let pad = "    ".repeat(indent);
+        format!("{label}: {{\n{inner}{pad}}}")
+    }
+
+    /// The body of a `try`: ordinary statements, with the tail wrapped into
+    /// the outcome's `Ok` arm (arm 0). A body that always leaves — every
+    /// path aborts or returns — still needs a value for the block, which
+    /// the checker made `Ok None` [try].
+    fn emit_try_body(&mut self, body: &Block, outcome: Option<&Ty>, indent: usize) -> String {
+        let pad = "    ".repeat(indent);
+        let mut out = String::new();
+        let saved_env = self.effect_env.clone();
+        let defer_floor = self.defers.len();
+        let mut tail_code: Option<String> = None;
+        let n = body.stmts.len();
+        for (i, stmt) in body.stmts.iter().enumerate() {
+            if i + 1 == n {
+                if let Stmt::Expr(e) = stmt {
+                    if !matches!(self.ty_of(e.span()), Some(Ty::Nothing)) {
+                        tail_code = Some(self.emit_expr(e));
+                        continue;
+                    }
+                }
+            }
+            out.push_str(&self.emit_stmt(stmt, indent, StmtCtx::Normal));
+        }
+        let value = tail_code.unwrap_or_else(|| "()".to_string());
+        let wrapped = match outcome {
+            Some(ty) => self.wrap_union_value(ty, 0, value),
+            None => value,
+        };
+        // Deferred blocks in the body run before the block's value is
+        // produced on the normal path [defer].
+        let tmp = if self.defers.len() > defer_floor {
+            let tmp = self.fresh_defer_var();
+            out.push_str(&format!("{pad}let {tmp} = {wrapped};\n"));
+            out.push_str(&self.splice_defers(defer_floor, indent, true));
+            tmp
+        } else {
+            wrapped
+        };
+        out.push_str(&format!("{pad}{tmp}\n"));
+        self.effect_env = saved_env;
+        out
     }
 
     fn emit_let(
@@ -3408,6 +3665,10 @@ impl<'p> Emitter<'p> {
                 ..
             } => self.emit_if_expr(branches, else_block.as_ref()),
             Expr::Lambda { params, body, span } => self.emit_lambda(params, body, *span),
+            Expr::Try { body, span } => {
+                let indent = self.expr_indent;
+                self.emit_try(body, *span, indent)
+            }
             Expr::Spread { operand, .. } => self.emit_owned(operand),
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
@@ -3694,25 +3955,33 @@ impl<'p> Emitter<'p> {
         match coercion.clone() {
             // [rs-option] Optionals are physical in Rust.
             Coercion::WrapOption { .. } => format!("Some({code})"),
-            Coercion::WrapUnion { target, arm } => {
-                let value_arms = target.value_arms();
-                let n = value_arms.len();
-                self.union_sizes.insert(n);
-                let args: Vec<String> = value_arms
-                    .iter()
-                    .map(|a| {
-                        let a = (*a).clone();
-                        self.rust_ty(&a)
-                    })
-                    .collect();
-                let wrapped = format!("Union{n}::<{}>::U{}({code})", args.join(", "), arm + 1);
-                if target.has_none_arm() {
-                    format!("Some({wrapped})")
-                } else {
-                    wrapped
-                }
-            }
+            Coercion::WrapUnion { target, arm } => self.wrap_union_value(&target, arm, code),
             Coercion::Rewrap { from, to } => self.emit_rewrap(code, &from, &to),
+        }
+    }
+
+    /// Wraps a value into arm `arm` of a wrapper union
+    /// [union-arm-identity]: `Union2::<i32, String>::U1(value)`, in a
+    /// `Some(...)` when the target also has a `None` arm.
+    fn wrap_union_value(&mut self, target: &Ty, arm: usize, code: String) -> String {
+        let value_arms = target.value_arms();
+        let n = value_arms.len();
+        if n < 2 {
+            return code;
+        }
+        self.union_sizes.insert(n);
+        let args: Vec<String> = value_arms
+            .iter()
+            .map(|a| {
+                let a = (*a).clone();
+                self.rust_ty(&a)
+            })
+            .collect();
+        let wrapped = format!("Union{n}::<{}>::U{}({code})", args.join(", "), arm + 1);
+        if target.has_none_arm() {
+            format!("Some({wrapped})")
+        } else {
+            wrapped
         }
     }
 
@@ -4412,6 +4681,26 @@ impl<'p> Emitter<'p> {
         args: &[Expr],
         span: Span,
     ) -> String {
+        // [abort] [rs-abort-controlflow] A call that may abort is not an
+        // ordinary call: `abort` itself *is* the control transfer, and a
+        // call that propagates one unwraps its `ControlFlow`.
+        if let Some(site) = self.checked.may_abort.get(&(self.file_idx, span)).cloned() {
+            if site.performs {
+                return self.emit_abort_call(&site, args, self.expr_indent);
+            }
+            let call = self.emit_call_inner(callee, type_args, args, span);
+            return self.wrap_may_abort_call(&site, call, self.expr_indent);
+        }
+        self.emit_call_inner(callee, type_args, args, span)
+    }
+
+    fn emit_call_inner(
+        &mut self,
+        callee: &Expr,
+        type_args: &[Type],
+        args: &[Expr],
+        span: Span,
+    ) -> String {
         // Normalize dot-notation [fn-dot].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
@@ -4500,7 +4789,8 @@ impl<'p> Emitter<'p> {
                 let params = m.params.clone();
                 self.reject_fused_fn_args(name, &params, &arg_code);
             }
-            let (prelude, arg_code) = self.hoist_fused_args(arg_code);
+            let (prelude, arg_code) =
+                self.hoist_effect_args(Some(&[handler.clone()]), arg_code);
             let mut all = vec![handler];
             all.extend(arg_code);
             return Self::wrap_hoisted(
@@ -4870,12 +5160,20 @@ impl<'p> Emitter<'p> {
         {
             Some(effs) if effs.iter().all(ty_is_concrete) => {
                 for ty in &effs {
+                    // [rs-abort-controlflow] Aborting is a return shape,
+                    // not a capability the caller hands over.
+                    if is_abort_effect_ty(ty) {
+                        continue;
+                    }
                     all.push(self.thread_effect_by_ty(ty));
                 }
             }
             _ => {
                 for eff in f.effects.iter().flatten() {
                     if let EffectRef::Effect(r) = eff {
+                        if r.name.name == salvo_core::ABORT_EFFECT {
+                            continue;
+                        }
                         let ty = self.emit_type_ref(r);
                         all.push(self.thread_effect_by_key(&ty));
                     }
@@ -4897,7 +5195,8 @@ impl<'p> Emitter<'p> {
                 (Vec::new(), rendered)
             } else {
                 self.reject_fused_fn_args(name, &f.params, &rendered);
-                self.hoist_fused_args(rendered)
+                let threaded = all.clone();
+                self.hoist_effect_args(Some(&threaded), rendered)
             }
         };
         all.extend(args);
@@ -4941,13 +5240,42 @@ impl<'p> Emitter<'p> {
     /// value carries every effect, so `fx.a(&fx.b())` is two overlapping
     /// `&mut` (`E0499`) where the per-effect parameters were disjoint.
     fn hoist_fused_args(&mut self, args: Vec<String>) -> (Vec<String>, Vec<String>) {
-        let Some((var, _)) = self.fused_var() else {
-            return (Vec::new(), args);
+        self.hoist_effect_args(None, args)
+    }
+
+    /// [rs-effects] Hoists the arguments that reach an effect value *this
+    /// call threads* into a prelude, so an effectful call inside an
+    /// effectful call's arguments does not borrow the same `&mut dyn`
+    /// parameter twice (`E0499`) — a shape Kotlin accepts and Rust rejects.
+    /// `threaded` is the call's own effect-argument code; `None` means every
+    /// effect in scope (the fusion's single value, or a constructor whose
+    /// arguments reach the provider).
+    fn hoist_effect_args(
+        &mut self,
+        threaded: Option<&[String]>,
+        args: Vec<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let mut vars: Vec<String> = match self.fused_var() {
+            Some((var, _)) => vec![var],
+            None => Vec::new(),
         };
+        for entry in &self.effect_env {
+            let used = match threaded {
+                // The effect value is threaded by this very call.
+                Some(codes) => codes.iter().any(|c| mentions_ident(c, &entry.var)),
+                None => true,
+            };
+            if used && !vars.contains(&entry.var) {
+                vars.push(entry.var.clone());
+            }
+        }
+        if vars.is_empty() {
+            return (Vec::new(), args);
+        }
         let mut prelude: Vec<String> = Vec::new();
         let mut out: Vec<String> = Vec::new();
         for code in args {
-            if mentions_ident(&code, &var) {
+            if vars.iter().any(|var| mentions_ident(&code, var)) {
                 self.hoist_id += 1;
                 let name = format!("__a{}", self.hoist_id);
                 prelude.push(format!("let {name} = {code};"));
@@ -5931,8 +6259,24 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
-/// [rs-defer-splice] Whether the block's own statements always leave it
-/// (`return`/`break`/`continue`, or a branching construct all of whose
+/// Whether an effect instance is the abort effect [abort]: it is not a
+/// capability parameter, it is a return-shape change
+/// [rs-abort-controlflow].
+fn is_abort_effect_ty(ty: &Ty) -> bool {
+    matches!(ty, Ty::Named { name, .. } if name == salvo_core::ABORT_EFFECT)
+}
+
+/// The message type of an `Abort<M>` effect instance [abort].
+fn abort_message_of(ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Named { name, args } if name == salvo_core::ABORT_EFFECT => {
+            Some(args.first().cloned().unwrap_or(Ty::Unknown))
+        }
+        _ => None,
+    }
+}
+
+/// [rs-defer-splice] Whether the block's own statements always leave it/// (`return`/`break`/`continue`, or a branching construct all of whose
 /// branches do). Deferred blocks were already spliced at those exits, so
 /// splicing them again at the block's end would be dead code — and, for a
 /// body that gave a value away, dead code rustc still borrow-checks.

@@ -21,7 +21,7 @@ use std::process::ExitCode;
 /// partition is exact (no missing, no unknown, no duplicates) [cli-lang].
 const CONTROL_KEYWORDS: &[&str] = &[
     "if", "elif", "else", "when", "while", "for", "in", "return", "break", "continue", "yield",
-    "defer",
+    "defer", "try",
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "type", "internal", "external",

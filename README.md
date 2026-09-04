@@ -111,6 +111,11 @@ fn main() [use] {
   in signatures. A handler may itself depend on another effect (declared as
   a constructor parameter of effect type); the compiler supplies it from
   the enclosing scope, so callers never mention it.
+- **Non-resumption**: a function that may leave early declares
+  `[Abort<Str>]` and keeps its own return type; `abort(message)` returns
+  `Nothing`, so intermediate frames stay silent. The delimiter is
+  `try { ... }`, whose value is `Ok T | Aborted M` — an ordinary union, so
+  `when` reads it like any result.
 - **Deductions**: `-> [list: Mut] T` annotations describing what a function
   does to its parameters — the ownership contract for the Rust backend.
 - **Interop**: `external`/`define` blocks map std functions onto native code

@@ -237,6 +237,8 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Ident(id) => {
             used.insert(&id.name);
         }
+        // [try] The delimiter's body is ordinary code.
+        Expr::Try { body, .. } => block_names(body, used),
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             expr_names(base, used)
         }

@@ -3007,3 +3007,206 @@ fn rustc_compiles_and_runs_defer() {
     let files = generate(&[("main.sv", DEFER_DEMO, false)]);
     run_rust_files(&files, "defer", DEFER_OUTPUT);
 }
+
+// ===== E3 step 2: abort and `try` [abort] [try] [rs-abort-controlflow] =====
+
+/// The whole of non-resumption in one program: propagation through a frame
+/// that declares the effect, a linear resource released by a deferred block
+/// *on the abort path*, two message types meeting at one delimiter
+/// (`Aborted (Str | Int)`), a may-abort call inside a loop, and a nested
+/// delimiter that must not swallow the outer abort.
+const ABORT_DEMO: &str = r#"
+struct FileHandle canbe Linear {
+    fd: Int
+}
+
+fn open_file(n: Int) [Console] -> [] FileHandle {
+    println("open ${n}")
+    return FileHandle {fd: n}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn parse(line: Str) [Abort<Str>, Console] -> [] Int {
+    println("parse ${line}")
+    if size(line) == 0 {
+        abort("empty line")
+    }
+    return size(line)
+}
+
+fn limit(n: Int) [Abort<Int>] -> [] Int {
+    if n > 4 {
+        abort(n)
+    }
+    return n
+}
+
+fn measure(line: Str) [Abort<Str>, Console] -> [] Int {
+    let h = open_file(1)
+    defer { close_file(h) }
+    let n = parse(line)
+    return n + h.fd
+}
+
+fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
+    let sum = 0
+    for line in lines {
+        let inner = try {
+            limit(size(line))
+        }
+        when inner {
+            is Ok {
+                println("within limit ${inner}")
+            }
+            is Aborted {
+                println("over limit ${inner}")
+            }
+        }
+        sum = sum + parse(line)
+    }
+    return sum
+}
+
+fn report_text(outcome: Ok Int | Aborted Str) [Console] -> [] None {
+    when outcome {
+        is Ok {
+            println("ok ${outcome}")
+        }
+        is Aborted {
+            println("aborted: ${outcome}")
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    report_text(try { measure("hello") })
+    report_text(try { measure("") })
+    let mixed = try {
+        let n = measure("longer line")
+        limit(n)
+    }
+    when mixed {
+        is Ok {
+            println("mixed ok ${mixed}")
+        }
+        is Aborted {
+            println("mixed aborted")
+        }
+    }
+    let counted = try {
+        total(["ab", "cdefg"])
+    }
+    when counted {
+        is Ok {
+            println("counted ${counted}")
+        }
+        is Aborted {
+            println("counted aborted: ${counted}")
+        }
+    }
+    println("done")
+}
+"#;
+
+const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
+                            open 1\nparse \nclose fd=1\naborted: empty line\n\
+                            open 1\nparse longer line\nclose fd=1\nmixed aborted\n\
+                            within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
+                            counted 7\ndone\n";
+
+/// [rs-abort-controlflow] A fn that may abort returns `ControlFlow<M, T>`:
+/// the message type *is* the `Break` payload, so `abort` is a plain return
+/// and propagation is `?` — no handler, no dispatch, no allocation. `Abort`
+/// is never a `&mut dyn` parameter.
+#[test]
+fn abort_lowers_to_controlflow() {
+    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content
+            .contains("pub fn parse(console: &mut dyn Console, line: String) -> ControlFlow<String, i32>"),
+        "expected a ControlFlow return shape in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("return ControlFlow::Break(\"empty line\".to_string());"),
+        "expected `abort` to return Break in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("return ControlFlow::Continue("),
+        "expected returns to wrap in Continue in:\n{}",
+        main.content
+    );
+    // [abort] The effect emits no trait: there are no handlers to implement.
+    let std_abort = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("core/abort.rs"))
+        .map(|f| f.content.clone())
+        .unwrap_or_default();
+    assert!(
+        !std_abort.contains("trait Abort"),
+        "expected no trait for the abort effect in:\n{std_abort}"
+    );
+    // Propagation with a pending deferred block cannot use `?`: the
+    // deferred release has to run before the frame is left [defer].
+    let measure = main
+        .content
+        .split("pub fn measure")
+        .nth(1)
+        .and_then(|s| s.split("pub fn").next())
+        .unwrap();
+    assert!(
+        measure.contains("ControlFlow::Break(__m) => {")
+            && measure.contains("close_file(console, h);"),
+        "expected the deferred release on the abort path in:\n{measure}"
+    );
+}
+
+/// [rs-try-label] `try` is a *labelled block*, not a closure: nothing is
+/// captured (the body reads the fn's effect parameters directly), and an
+/// abort inside it breaks the label with the outcome's aborted arm.
+#[test]
+fn try_lowers_to_a_labelled_block() {
+    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("'try_1: {"),
+        "expected a labelled block in:\n{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("|| -> ControlFlow"),
+        "expected no closure lowering in:\n{}",
+        main.content
+    );
+    // Two message types meeting at one delimiter wrap into the message
+    // union's arms [union-arm-identity]; a single type stays bare.
+    assert!(
+        main.content
+            .contains("Union2::<String, i32>::U2(__m)"),
+        "expected the message wrapped into its arm in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_abort() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    run_rust_files(&files, "abort", ABORT_OUTPUT);
+}

@@ -64,6 +64,38 @@ pub enum Coercion {
     WrapOption { target: Ty },
 }
 
+/// The effect whose operation is non-resumptive [abort]. Declared in std
+/// (`std/core/abort.sv`), known by name to the compiler: it has no handler
+/// — `try` delimits it — and it is not threaded as an effect parameter.
+pub const ABORT_EFFECT: &str = "Abort";
+/// The value arm of a `try` outcome, from `core.result` [try].
+pub const OK_QUALIFIER: &str = "Ok";
+/// The message arm of a `try` outcome, from `core.abort` [try].
+pub const ABORTED_QUALIFIER: &str = "Aborted";
+
+/// One site that may abort [abort]: the `abort` operation itself, or a
+/// call to a fn declaring `[Abort<M>]` that propagates one.
+#[derive(Clone, Debug)]
+pub struct AbortSite {
+    /// True for `abort(message)` itself; false for a call that merely
+    /// propagates an abort performed further down.
+    pub performs: bool,
+    /// The message type at this site.
+    pub message: Ty,
+    /// Where the abort lands: `Some(span)` is the enclosing `try`
+    /// expression's span (the innermost one [try-innermost]); `None` means
+    /// it propagates out of the enclosing fn, which therefore declares
+    /// `[Abort<M>]`.
+    pub delimiter: Option<Span>,
+    /// The message type at the *landing* site: the delimiter's computed
+    /// `M`, or the fn's declared one. Equal to `message` unless the target
+    /// is a union of several message types (user decision 2026-09-04).
+    pub target: Ty,
+    /// The arm of `target` to wrap the message into, when `target` is a
+    /// wrapper union. `None` when no wrapping is needed.
+    pub arm: Option<usize>,
+}
+
 /// The checker's output.
 #[derive(Default)]
 pub struct Checked {
@@ -113,6 +145,12 @@ pub struct Checked {
     pub call_type_args: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
+    /// Calls that may abort [abort], keyed by the call span: the `abort`
+    /// operation itself and every call whose callee declares `[Abort<M>]`.
+    /// The emitters need each one because the control transfer is *their*
+    /// job: a Rust `ControlFlow::Break` (or a labelled-block break), a
+    /// Kotlin `throw`.
+    pub may_abort: HashMap<Key, AbortSite>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
     /// a call gives the value back to the caller and which of its declared
     /// qualifiers are still known afterwards. Written lists are stored as
@@ -349,6 +387,8 @@ fn check_once<'p>(
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
             defers: Vec::new(),
+            try_stack: Vec::new(),
+            in_defer_body: false,
         };
         checker.check_module(ast);
     }
@@ -568,6 +608,25 @@ struct Checker<'p, 'r> {
     /// registration order (innermost/latest last). Each is applied at
     /// every exit of the frame it belongs to.
     defers: Vec<PendingDefer>,
+    /// Enclosing `try` delimiters [try], innermost last: each collects the
+    /// message types of the aborts performed in its body.
+    try_stack: Vec<TryCtx>,
+    /// Whether a *deferred* block's body is being checked [defer-no-escape]:
+    /// an abort there would unwind out of an unwind path.
+    in_defer_body: bool,
+}
+
+/// One enclosing `try` delimiter while its body is checked [try].
+struct TryCtx {
+    /// `locals.len()` at entry: an abort leaves every frame above this
+    /// one, which is the floor for the linear-obligation check
+    /// [linear-obligation] and for running deferred blocks [defer].
+    entry_depth: usize,
+    /// The sites that abort into this delimiter, in first-seen order:
+    /// their span and message type. The outcome's `Aborted M` is the union
+    /// of those types (user decision 2026-09-04), which is only known once
+    /// the body is checked — so each site's wrap is filled in afterwards.
+    sites: Vec<(Span, Ty)>,
 }
 
 /// One `defer { ... }` awaiting the exits of the block it was written in
@@ -703,6 +762,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }                Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
                     let of_ty = self.lower_type(&h.of);
+                    // [abort] There is no handler for aborting: the
+                    // delimiter is `try`, and a handler would have to
+                    // *resume* the operation, which `Nothing` forbids.
+                    if matches!(
+                        of_ty.strip_quals(),
+                        Ty::Named { name, .. } if name == ABORT_EFFECT
+                    ) {
+                        self.error(
+                            h.of.span(),
+                            format!(
+                                "`{ABORT_EFFECT}` has no handlers: an abort is delimited by a \
+                                 `try {{ ... }}` block, not handled"
+                            ),
+                        );
+                    }
                     for p in &h.params {
                         // [effect-handler-deps] A constructor parameter of
                         // effect type is a *dependency*, not data: the one
@@ -970,6 +1044,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
         let (mut fn_effects, can_use) = self.check_effect_list(f);
+        // [abort-not-main] The entry point has nowhere to abort *to*: Rust
+        // cannot express a `main` returning `ControlFlow` and Kotlin would
+        // die on an uncaught signal, so the delimiter must be inside.
+        if f.name.name == "main" && self.own_fn.is_some() {
+            if let Some(span) = f
+                .effects
+                .iter()
+                .flatten()
+                .filter_map(|e| match e {
+                    EffectRef::Effect(r) if r.name.name == ABORT_EFFECT => Some(r.span),
+                    _ => None,
+                })
+                .next()
+            {
+                self.error(
+                    span,
+                    format!(
+                        "`main` cannot declare `{ABORT_EFFECT}`: there is no caller to \
+                         receive the abort — delimit it inside `main` with a \
+                         `try {{ ... }}` block instead"
+                    ),
+                );
+            }
+        }
         // [effect-handler-deps] A handler member body may use the effects
         // its handler declares as constructor dependencies, exactly as if
         // the member had declared them — which it may not
@@ -1067,7 +1165,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.ret_ty.is_none_ty()
             && !matches!(self.ret_ty, Ty::Unknown)
             && !block_contains_yield(body)
-            && !block_always_returns(body)
+            && !self.block_returns(body)
         {
             self.error(
                 f.name.span,
@@ -2355,7 +2453,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let entry = self.snapshot_narrows();
+        let saved_in_defer = std::mem::replace(&mut self.in_defer_body, true);
         let _ = self.check_branch_block(body, Vec::new());
+        self.in_defer_body = saved_in_defer;
         // What the body did to the enclosing state, summarized.
         let mut consumes: Vec<String> = Vec::new();
         let mut weakens: Vec<(String, Option<Ty>, Option<Poison>)> = Vec::new();
@@ -2563,6 +2663,364 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !seen {
             self.error(span, message);
         }
+    }
+
+    // ================= abort and `try` [abort] [try] =================
+
+    /// The enclosing fn's declared abort message type, if it declared
+    /// `[Abort<M>]`.
+    fn declared_abort_message(&self) -> Option<Ty> {
+        self.effect_env.iter().find_map(|e| match e {
+            Ty::Named { name, args } if name == ABORT_EFFECT => {
+                Some(args.first().cloned().unwrap_or(Ty::Unknown))
+            }
+            _ => None,
+        })
+    }
+
+    /// Records a site that may abort [abort] and reports the cases where
+    /// nothing can receive it. Every such site is also an *exit*: the code
+    /// between it and its delimiter does not run, so deferred blocks run
+    /// and no linear obligation may be live [linear-obligation].
+    fn record_abort(&mut self, span: Span, message: Ty, performs: bool) {
+        // [defer-no-escape] Unwinding out of an unwind path is a hole
+        // neither backend's lowering wants.
+        if self.in_defer_body {
+            let what = if performs {
+                "an `abort`"
+            } else {
+                "a call that may abort"
+            };
+            self.error(
+                span,
+                format!(
+                    "{what} is not allowed in a deferred block: the block runs \
+                     while the enclosing block is being left, so there is no \
+                     delimiter left to abort to"
+                ),
+            );
+            return;
+        }
+        match self.try_stack.last_mut() {
+            // Inside a `try`: the delimiter collects the message type; the
+            // wrap into its `M` is filled in once the body is checked.
+            Some(ctx) => {
+                let floor = ctx.entry_depth;
+                ctx.sites.push((span, message.clone()));
+                self.out.may_abort.insert(
+                    self.key(span),
+                    AbortSite {
+                        performs,
+                        message,
+                        // Filled in by `check_try` (the innermost `try` is
+                        // the one being checked) [try-innermost].
+                        delimiter: None,
+                        target: Ty::Unknown,
+                        arm: None,
+                    },
+                );
+                self.with_exit_defers(floor, |c| c.check_linear_abort(floor, span));
+            }
+            // Outside every `try`: the enclosing fn must declare it.
+            None => {
+                let Some(target) = self.declared_abort_message() else {
+                    self.error(
+                        span,
+                        format!(
+                            "nothing here can receive an abort: wrap the call in a \
+                             `try {{ ... }}` block, or declare `[{ABORT_EFFECT}<{message}>]` \
+                             in this function's effect list to pass it on"
+                        ),
+                    );
+                    return;
+                };
+                let arm = self.abort_message_arm(span, &message, &target);
+                self.out.may_abort.insert(
+                    self.key(span),
+                    AbortSite {
+                        performs,
+                        message,
+                        delimiter: None,
+                        target,
+                        arm,
+                    },
+                );
+                self.with_exit_defers(0, |c| c.check_linear_abort(0, span));
+            }
+        }
+    }
+
+    /// The arm of the target message type a site's message wraps into
+    /// [union-arm-identity], reporting a message the target cannot carry.
+    fn abort_message_arm(&mut self, span: Span, message: &Ty, target: &Ty) -> Option<usize> {
+        if target.is_unknown() || message.is_unknown() {
+            return None;
+        }
+        if target.is_wrapper_union() {
+            let arms = target.value_arms();
+            match arms.iter().position(|arm| **arm == *message) {
+                Some(i) => {
+                    self.out.union_sizes.insert(arms.len());
+                    return Some(i);
+                }
+                None => {
+                    if !is_subtype(message, target) {
+                        self.error(
+                            span,
+                            format!(
+                                "this abort carries a `{message}` message, but the \
+                                 abort it lands in carries `{target}`"
+                            ),
+                        );
+                    }
+                    return None;
+                }
+            }
+        }
+        if !is_subtype(message, target) {
+            self.error(
+                span,
+                format!(
+                    "this abort carries a `{message}` message, but the abort it \
+                     lands in carries `{target}`"
+                ),
+            );
+        }
+        None
+    }
+
+    /// The linear-obligation check at an abort [linear-obligation]: the
+    /// same walk as an early `return`, with a diagnostic that names
+    /// `defer` — the only way to discharge on a path the author does not
+    /// write.
+    fn check_linear_abort(&mut self, from_frame: usize, span: Span) {
+        let owed: Vec<String> = self
+            .locals
+            .iter()
+            .skip(from_frame)
+            .flat_map(|frame| {
+                frame
+                    .iter()
+                    .filter(|(name, var)| self.owes_linear(name, var))
+                    .map(|(name, _)| name.clone())
+            })
+            .collect();
+        for name in owed {
+            self.error_once(
+                span,
+                format!(
+                    "`{name}` still owns a linear value across a call that may \
+                     abort: the code after it does not run on the abort path, so \
+                     release it in a `defer {{ ... }}` block (which runs on every \
+                     path) or move it onward first"
+                ),
+            );
+            if let Some(var) = self.lookup_mut(&name) {
+                var.narrowed = Ty::Nothing;
+            }
+        }
+    }
+
+    /// `abort(message)` [abort]. Not an ordinary effect-member call: there
+    /// is no handler to resolve — the delimiter is `try` — and the result
+    /// is the bottom type, so the code after it never runs.
+    fn check_abort_call(&mut self, member: &'p FnDecl, args: &[&'p Expr], span: Span) -> Ty {
+        let message = match args.first() {
+            Some(a) => {
+                let ty = self.check_expr(a, None);
+                // The message is moved into the outcome, like the value
+                // passed to `err` [deduce-consume].
+                self.fate_move(a, "abort with", "an `abort`", span);
+                ty
+            }
+            None => {
+                self.error(
+                    span,
+                    format!(
+                        "`{}` takes the abort message as its only argument",
+                        member.name.name
+                    ),
+                );
+                Ty::Unknown
+            }
+        };
+        for extra in args.iter().skip(1) {
+            self.check_expr(extra, None);
+        }
+        self.record_abort(span, message, true);
+        Ty::Nothing
+    }
+
+    /// `try { ... }` [try]: the delimiter. The body's value becomes the
+    /// `Ok T` arm and the aborts it performs the `Aborted M` arm, with `M`
+    /// the union of their message types (user decision 2026-09-04) — which
+    /// is why the outcome is an ordinary union: `is`, `when` and
+    /// exhaustiveness need no new rules.
+    fn check_try(&mut self, body: &'p Block, span: Span) -> Ty {
+        let (Some(ok_qual), Some(aborted_qual)) = (
+            self.core_qualifier(span, OK_QUALIFIER),
+            self.core_qualifier(span, ABORTED_QUALIFIER),
+        ) else {
+            // The diagnostic is reported by `core_qualifier`; check the
+            // body so its own errors still surface.
+            let _ = self.check_branch_block(body, Vec::new());
+            return Ty::Unknown;
+        };
+        self.try_stack.push(TryCtx {
+            entry_depth: self.locals.len(),
+            sites: Vec::new(),
+        });
+        let (value_ty, _) = self.check_branch_block(body, Vec::new());
+        let ctx = self.try_stack.pop().expect("try ctx pushed above");
+        if ctx.sites.is_empty() {
+            self.error(
+                span,
+                format!(
+                    "nothing in this `try` block can abort, so it has no outcome \
+                     to produce: drop the `try`, or call something that declares \
+                     `[{ABORT_EFFECT}<M>]`"
+                ),
+            );
+            return Ty::Unknown;
+        }
+        // [try] `M` is the union of the message types performed in the
+        // body, deduplicated in first-seen order; a single type stays bare.
+        let mut messages: Vec<Ty> = Vec::new();
+        for (_, ty) in &ctx.sites {
+            if !messages.contains(ty) {
+                messages.push(ty.clone());
+            }
+        }
+        let message_ty = self.mk_union(messages);
+        // Fill in each site's landing information now that `M` is known.
+        for (site_span, site_message) in &ctx.sites {
+            let arm = self.abort_message_arm(*site_span, site_message, &message_ty);
+            if let Some(site) = self.out.may_abort.get_mut(&self.key(*site_span)) {
+                site.delimiter = Some(span);
+                site.target = message_ty.clone();
+                site.arm = arm;
+            }
+        }
+        // The body's value is the `Ok` arm; a body that always exits
+        // (`return`, an unconditional abort) contributes `Ok None`.
+        let value_ty = if matches!(value_ty, Ty::Nothing) {
+            Ty::none()
+        } else {
+            value_ty
+        };
+        let ok_arm = value_ty.qualify(vec![ok_qual]);
+        let aborted_arm = message_ty.qualify(vec![aborted_qual]);
+        self.mk_union(vec![ok_arm, aborted_arm])
+    }
+
+    /// Resolves one of the two qualifier names the `try` intrinsic needs
+    /// from the implicitly imported core [try]: `Ok` for the value arm,
+    /// `Aborted` for the message arm. Absent means std is broken or not on
+    /// the source path, which is worth saying out loud rather than
+    /// producing a nameless union.
+    fn core_qualifier(&mut self, span: Span, name: &str) -> Option<Qual> {
+        let decl = self.scope.qualifiers.get(name).copied();
+        match decl {
+            // Written as `Ok Int` / `Aborted Str`, so the qualifier's own
+            // type argument stays implicit — exactly as `lower_quals`
+            // produces it, which is what makes the outcome type equal to a
+            // hand-written `Ok T | Aborted M`.
+            Some(_) => Some(Qual {
+                name: name.to_string(),
+                args: Vec::new(),
+            }),
+            None => {
+                self.error(
+                    span,
+                    format!(
+                        "`try` needs the `{name}` qualifier from the core library, \
+                         which is not in scope (is `std` on the source path?)"
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    // ================= path analysis =================
+
+    /// Whether a block always leaves the enclosing construct — every path
+    /// hits a `return`, `break`, `continue`, or a **diverging expression**
+    /// — so its state never reaches the code *after* a branching construct
+    /// [deduce-consume].
+    ///
+    /// [abort] is why this is type-aware: `abort(m)` is an ordinary call
+    /// whose type is `Nothing`, so a branch ending in one exits exactly as
+    /// a `return` does. Only sound *after* the block has been checked (the
+    /// types it reads are the ones just recorded), which is where both
+    /// callers stand.
+    fn block_exits(&self, block: &Block) -> bool {
+        block.stmts.iter().any(|stmt| match stmt {
+            Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
+            Stmt::Expr(e) => self.expr_exits(e),
+            _ => false,
+        })
+    }
+
+    fn expr_exits(&self, expr: &Expr) -> bool {
+        if self.diverges(expr) {
+            return true;
+        }
+        match expr {
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
+                else_block.as_ref().is_some_and(|b| self.block_exits(b))
+                    && branches.iter().all(|(_, b)| self.block_exits(b))
+            }
+            Expr::When { branches, .. } => {
+                !branches.is_empty() && branches.iter().all(|b| self.block_exits(&b.body))
+            }
+            _ => false,
+        }
+    }
+
+    /// [fn-must-return] Whether a block always returns from the enclosing
+    /// fn. Same shape as `block_exits` without the loop exits — a `break`
+    /// leaves a loop, not the function — and with the same [abort]
+    /// divergence rule: a path that aborts never falls off the end.
+    fn block_returns(&self, block: &Block) -> bool {
+        block.stmts.iter().any(|stmt| match stmt {
+            Stmt::Return { .. } => true,
+            Stmt::Expr(e) => self.expr_returns(e),
+            _ => false,
+        })
+    }
+
+    fn expr_returns(&self, expr: &Expr) -> bool {
+        if self.diverges(expr) {
+            return true;
+        }
+        match expr {
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
+                else_block.as_ref().is_some_and(|b| self.block_returns(b))
+                    && branches.iter().all(|(_, b)| self.block_returns(b))
+            }
+            Expr::When { branches, .. } => {
+                !branches.is_empty() && branches.iter().all(|b| self.block_returns(&b.body))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the checker typed this expression as `Nothing` — it
+    /// diverges, so nothing after it runs [type-any-nothing].
+    fn diverges(&self, expr: &Expr) -> bool {
+        matches!(
+            self.out.ty_of(self.file_idx, expr.span()),
+            Some(Ty::Nothing)
+        )
     }
 
     /// `ty_transitively_mut` over written (AST) types — struct fields
@@ -3200,6 +3658,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // alias itself rather than its target.
         let name_span = base.name.span;
         self.record_def_ref(name_span, name);
+        // [type-any-nothing] The written `Nothing` *is* the bottom type,
+        // not a nominal type that happens to be called that: `abort`
+        // declares `-> [] Nothing` and its callers must see a value that
+        // fits everywhere and ends the path.
+        if name == "Nothing" && base.args.is_empty() {
+            return Ty::Nothing;
+        }
         let args: Vec<Ty> = base
             .args
             .iter()
@@ -4902,6 +5367,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 span,
             } => self.check_when(subject, branches, *span),
+            // [try] The abort delimiter: an intrinsic, not an effect.
+            Expr::Try { body, span } => self.check_try(body, *span),
             Expr::While {
                 cond,
                 body,
@@ -5939,7 +6406,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let (ty, tail) = self.with_narrows(&narrows, |c| {
                 c.check_branch_block(block, info.bindings.clone())
             });
-            if !block_always_exits(block) {
+            if !self.block_exits(block) {
                 fallthrough.push(self.snapshot_narrows());
             }
             self.restore_narrows(&entry);
@@ -5952,7 +6419,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let entry = self.snapshot_narrows();
                 let (ty, tail) =
                     self.with_narrows(&acc_else.clone(), |c| c.check_branch_block(block, Vec::new()));
-                if !block_always_exits(block) {
+                if !self.block_exits(block) {
                     fallthrough.push(self.snapshot_narrows());
                 }
                 self.restore_narrows(&entry);
@@ -6066,7 +6533,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let (ty, tail) = self.with_narrows(&narrows, |c| {
                 c.check_branch_block(&branch.body, bindings)
             });
-            if !block_always_exits(&branch.body) {
+            if !self.block_exits(&branch.body) {
                 fallthrough.push(self.snapshot_narrows());
             }
             self.restore_narrows(&entry);
@@ -7215,6 +7682,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             self.generics = saved;
             let want = substitute_vars(&lowered, subst, callee_generics);
+            // [abort] A callee that may abort does not need a handler — it
+            // needs a delimiter. The call is an *exit* of everything up to
+            // it, which `record_abort` accounts for.
+            if let Ty::Named { name: eff, args } = &want {
+                if eff == ABORT_EFFECT {
+                    let message = args.first().cloned().unwrap_or(Ty::Unknown);
+                    self.record_abort(span, message, false);
+                    continue;
+                }
+            }
             // Exact instance first, then a unique compatible match (the
             // callee's requirement may still contain unresolved parts).
             let found = self.effect_env.iter().find(|c| **c == want).cloned();
@@ -7263,6 +7740,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
+        // [abort] The abort effect has no handler: the delimiter is `try`,
+        // so its operation resolves through its own path.
+        if effect.name.name == ABORT_EFFECT {
+            return self.check_abort_call(member, args, span);
+        }
         // The member's signature, lowered with the effect's generics as
         // `Var`s — and the member's *own* generics too
         // [effect-member-generics]: they bind per call from the argument
@@ -7502,30 +7984,6 @@ fn op_symbol(op: BinaryOp) -> &'static str {
     }
 }
 
-fn block_always_exits(block: &Block) -> bool {
-    block.stmts.iter().any(|stmt| match stmt {
-        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
-        Stmt::Expr(e) => expr_always_exits(e),
-        _ => false,
-    })
-}
-
-fn expr_always_exits(expr: &Expr) -> bool {
-    match expr {
-        Expr::If {
-            branches,
-            else_block,
-            ..
-        } => {
-            else_block.as_ref().is_some_and(block_always_exits)
-                && branches.iter().all(|(_, b)| block_always_exits(b))
-        }
-        Expr::When { branches, .. } => {
-            !branches.is_empty() && branches.iter().all(|b| block_always_exits(&b.body))
-        }
-        _ => false,
-    }
-}
 
 // ================= missing-return analysis [fn-must-return] =================
 
@@ -7533,34 +7991,6 @@ fn expr_always_exits(expr: &Expr) -> bool {
 /// `return`). Conservative: loops never count (they may run zero times),
 /// `if` needs an `else`, `when` needs every branch to exit (exhaustiveness
 /// over union arms is enforced separately [when-exhaustive]).
-fn block_always_returns(block: &Block) -> bool {
-    block.stmts.iter().any(stmt_always_returns)
-}
-
-fn stmt_always_returns(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::Return { .. } => true,
-        Stmt::Expr(e) => expr_always_returns(e),
-        _ => false,
-    }
-}
-
-fn expr_always_returns(expr: &Expr) -> bool {
-    match expr {
-        Expr::If {
-            branches,
-            else_block,
-            ..
-        } => {
-            else_block.as_ref().is_some_and(block_always_returns)
-                && branches.iter().all(|(_, b)| block_always_returns(b))
-        }
-        Expr::When { branches, .. } => {
-            !branches.is_empty() && branches.iter().all(|b| block_always_returns(&b.body))
-        }
-        _ => false,
-    }
-}
 
 /// Whether the fn body contains a `yield` statement — iterator fns build
 /// their `Iter` return value from yields and are exempt from
@@ -7670,6 +8100,9 @@ fn expr_defer_escape(expr: &Expr, loop_depth: usize) -> Option<(&'static str, Sp
             }),
         // A lambda is its own function: its `return` is not an escape.
         Expr::Lambda { .. } => None,
+        // [try] A `try` body is ordinary code; a `return` inside it still
+        // leaves the deferred block.
+        Expr::Try { body, .. } => block_defer_escape(body, loop_depth),
         Expr::Call { callee, args, .. } => expr_defer_escape(callee, loop_depth)
             .or_else(|| args.iter().find_map(|a| expr_defer_escape(a, loop_depth))),
         Expr::Field { base, .. }

@@ -83,6 +83,58 @@ interleaves them. That cut predates `defer` (a plain `println` after a
 `yield` diverges the same way) and is already recorded under
 [rs-iter-vec].
 
+**E3 step 2 landed 2026-09-04: `abort` + the intrinsic `try` on both
+backends.** Non-resumption works end to end: a fn that may abort declares
+`[Abort<M>]` and keeps its own return type, `abort(m)` returns `Nothing` so
+the frames in between stay silent, and `try { ... }` — a compiler
+intrinsic, not an effect — yields `Ok T | Aborted M`. Four user decisions
+shaped the open questions (all 2026-09-04): **`M` is the union** of the
+body's message types (chosen for consistency with `if`/`when` branch types,
+with generated code wrapping only when a union is present), a **`try` whose
+body cannot abort is an error** rather than `Aborted None`, **`main` may not
+declare `[Abort<M>]`**, and `Abort`/`Aborted` are **declared in std**
+(`std/core/abort.sv`) with the compiler knowing only their names.
+
+The roadmap said to hand-write and run the three deciding Rust shapes first;
+that paid for itself twice. It confirmed `?` on `ControlFlow` is stable and
+that a may-abort call inside a loop stays a loop (no trampoline — the reason
+CPS-splitting was rejected for this rung). And it showed the sketch's
+closure lowering for `try` is the wrong shape: a closure would capture the
+fn's effect parameters, so **`try` is a labelled block** instead
+([rs-try-label]) — no captures at all. The price is that `?` cannot be used
+inside a `try` body, so a may-abort call there becomes an inline `match`
+that breaks the label. The same `match` form is what lets a deferred release
+run on the abort path, since `?` returns without running the splice — which
+is the third shape, and the concrete payoff of building `defer` first.
+
+Kotlin diverges in mechanism, as expected: the JVM's unwinding *is* the
+propagation, so `abort` throws a generated stack-trace-less
+`salvo.AbortSignal` and an intermediate frame does nothing at all. One
+consequence was not obvious and is worth remembering: **the aborted arm has
+to be chosen at the `catch`, not at the throw.** Rust wraps a message into
+the delimiter's union arm at the propagation site; the JVM has no such site,
+and a throwing frame cannot know which `try` will catch it. So the signal
+carries the Salvo type name of the message as a `tag` and the delimiter
+dispatches on it, with an `else -> throw __signal` rethrow for a signal from
+outside its set ([kt-abort-signal]). Comparing Salvo type *names* rather
+than JVM classes keeps it erasure-proof.
+
+Verified by compiling and running the same program on both: the value path,
+the abort path with a linear handle released by `defer` *on it*, two message
+types meeting at one delimiter (`Aborted (Str | Int)`), a may-abort call
+inside a loop, and a nested delimiter that does not swallow the outer abort
+— byte-identical stdout under `rustc` and `kotlinc`.
+
+Two latent bugs fell out of the work, both fixed. `TokenKind::symbol()`
+carried a hand-maintained copy of the keyword list and `unreachable!()`d on
+anything missing from it, so *any diagnostic* mentioning `defer` or `try`
+panicked the compiler; it now resolves through `KEYWORDS`, the single source
+of truth. And the Rust backend only hoisted effect-reaching call arguments
+under the *fusion*, so two effectful calls in one expression (`outer(inner(1))`,
+or the natural `report(try { … })`) emitted `E0499` — a live parity
+divergence, since Kotlin accepts it. Hoisting is now per-call and general
+([effect-args-hoisted]).
+
 **Type arguments joined the "no trust" list (2026-09-04).** A generic
 call's type arguments must be *determined* — by the arguments, an explicit
 list, or the expected type ([call-type-args], user decision A). What the
@@ -294,14 +346,14 @@ surfaced: the `${T}` in a state field's `mutable_list()` had nothing to
 interpolate. State initializers are now checked against the declared type
 like struct defaults [effect-handler].
 
-**Next effects slice: E3 step 1 (`defer`) landed 2026-09-04; step 2 next.**
-Handler *control* beyond "always resumes": `defer` first (**done** — see
-the entry above), then `abort` returning `Nothing` with a
-compiler-intrinsic `try` yielding
-`Ok T | Aborted M`. The decisions, both lowerings, the reason `defer`
-precedes `abort`, and four consequences to settle first (including a
-collision with the brand-new [call-type-args] rule over inferring `M`) are
-under E3. Async is explicitly *not* part of it: no silent
+**Next effects slice: E3 steps 1 (`defer`) and 2 (`abort` + `try`) landed
+2026-09-04; step 3 next.** Handler *control* beyond "always resumes":
+`defer` (**done** — see the entry above), then `abort` returning `Nothing`
+with a compiler-intrinsic `try` yielding `Ok T | Aborted M` (**done** — see
+the entry above). What remains under E3 is step 3 (enforce fn-type effect
+lists, pass effects *into* fn values, forbid their escape — which also
+lifts the fusion cut) and step 4 (transformers, with async as the second
+one). Async is explicitly *not* part of this arc: no silent
 `async`/`suspend` colouring, and async arrives later as an explicit
 effect.
 
@@ -2183,35 +2235,65 @@ now builds on. Reason 3 (exercising the capture machinery the `try` body
 needs) is *not* discharged: nothing was captured, so `try`'s body closure
 is still unexercised ground.
 
-#### Consequences to settle before building
+#### Consequences to settle before building — **all settled 2026-09-04**
 
-- **`M` inference collides with [call-type-args].** The rule landed the
-  same day rejects a call whose type arguments nothing determines — and
-  `try { println("x") }` with no `abort` in the body determines no `M`.
-  Since `try` is an intrinsic the checker can *compute* it: unify the
-  message types of the aborts the body performs, and use `None` when there
-  are none. (A generalization worth considering: let `M` be their union,
-  so a body aborting with a `Str` and an `Int` yields
-  `Aborted (Str | Int)` — qualifiers over unions are already legal.)
-- **A `Nothing`-typed expression statement must count as terminating.**
-  `abort(...)` diverges, so a fn body ending in one satisfies "must return
-  on every path" — but the checker's path analysis currently recognizes
-  only `return`/`break`/`continue` statements. Small, concrete addition.
-- **The intrinsic couples the compiler to two core qualifier names.**
-  `Ok` and `Aborted` live in `core.result`-style std, not in the compiler,
-  and nothing is built in today except `None`/`Nothing`/`Any`. Resolving
-  both by name from the implicitly imported core (erroring if absent, as
-  `check_core_define_coverage` already does for defines) keeps the "four
-  lines of std, nothing built in" property.
+- **`M` inference collides with [call-type-args].** ✅ Settled by the
+  generalization: `M` is the **union** of the message types the body
+  performs (user decision), and a body that cannot abort at all is an
+  *error* rather than `Aborted None` (user decision) — so nothing has to be
+  inferred from an empty set. The union costs a wrap at each propagation
+  site on Rust (`?` needs identical `Break` types) and a tag dispatch at the
+  catch on Kotlin; both are in the backend specs.
+- **A `Nothing`-typed expression statement must count as terminating.** ✅
+  Done, and it went further than "small": both path analyses
+  (`block_returns` for [fn-must-return], `block_exits` for branch merging)
+  became *type-aware* Checker methods reading the recorded types, and a
+  written `Nothing` now lowers to the bottom type rather than a nominal
+  type spelled that way. Without the second half, `abort(n)` in a branch
+  leaked its consumption of `n` to the fall-through path.
+- **The intrinsic couples the compiler to two core qualifier names.** ✅
+  `Ok` and `Aborted` are resolved by name from the implicitly imported core,
+  with a diagnostic naming the missing one; the compiler knows three names
+  in total (`Abort` the effect, `Ok` and `Aborted` the arms) and nothing
+  else about them.
 - **Nested qualification is the honest consequence of wrapping in `Ok`.**
-  A body that already returns a result yields
-  `Ok (Ok Int | Err Str) | Aborted M`, and a `None`-returning body yields
-  `Ok None`. Both are expressible and both want a test rather than an
-  assumption — two levels of `is Ok` narrowing on the same qualifier name
-  is the shape to check.
-- **Abort targets the innermost `try`.** No labelled aborts; the Kotlin
-  token then only ever rethrows for an escaped function value, which the
-  escape rule below is meant to make impossible.
+  ✅ Half-confirmed, and it turned up a **gap worth a decision** (see
+  below): `Ok None` works and is tested, but `Ok (Ok Int | Err Str)` cannot
+  be *destructured* — `when` rejects a qualified-group subject, so the inner
+  result is unreachable without a rule change. The same wall blocks reading
+  a union *message* out of `Aborted (Str | Int)`.
+- **Abort targets the innermost `try`.** ✅ [try-innermost]. Rust needs no
+  token at all (the block label decides where a `break` lands); Kotlin's
+  catch-all is innermost by construction, and its `else -> throw` rethrow is
+  what an escaped function value would hit.
+
+#### Open **DECISION** (found 2026-09-04, while testing the above)
+
+**Should `when` see through a qualified group?** `try`'s outcome makes two
+qualified-union shapes reachable that the language cannot take apart:
+
+```
+let nested = try { wrapped(7) }     // Ok (Ok Int | Err Str) | Aborted Str
+when nested { is Ok { ... } }       // fine
+// inside that branch, `nested` is `Ok (Ok Int | Err Str)`:
+when nested { is Ok { ... } }       // ERROR: `when` requires a union-typed
+                                    // subject (found `Ok (Ok Int | Err Str)`)
+```
+
+The same applies to a union message: inside `is Aborted`, the value is
+`Aborted (Str | Int)` and there is no way to ask which arm. Options:
+
+1. **`when` strips qualifiers from its subject** when the base is a union
+   (the qualifier is a claim *about* the union, not an arm of it). Cheapest,
+   and it matches how `is Ok` already reads through the wrapper.
+2. **A binding form** that unwraps: `is Ok inner` gives `inner: Ok Int | Err Str`
+   with the qualifier dropped — closer to today's `is Type name` form.
+3. **Leave it**: the outcome of a result-returning body has to be
+   destructured by re-wrapping (`if nested is Ok (Ok Int)`), which
+   [is-precise] may or may not already accept for a group.
+
+Not urgent — no test needed it, and the abort demo works without it — but it
+is the one place where E3's outcome type is currently a dead end.
 
 #### Why the intrinsic dodges a gate the library form would need
 
@@ -2249,7 +2331,13 @@ transformer if that reads better.
 1. ~~`defer` — standalone, testable, settles linear-on-abort first.~~
    **Done 2026-09-04** ([defer], [defer-no-escape], [kt-defer-finally],
    [rs-defer-splice]).
-2. `abort` returning `Nothing` + intrinsic `try`, with `Aborted<M>` in std.
+2. ~~`abort` returning `Nothing` + intrinsic `try`, with `Aborted<M>` in
+   std.~~ **Done 2026-09-04** ([abort], [try], [try-innermost],
+   [abort-not-main], [abort-linear], [rs-abort-controlflow],
+   [rs-try-label], [kt-abort-signal]). What the design got right and wrong
+   is in the decision-log entry at the top; the short version is that the
+   `ControlFlow` propagation and the `defer`-first ordering both held, and
+   the closure lowering for `try` did not.
 3. Enforce fn-type effect lists; pass effects into fn values; forbid
    escape. (Lifts the fusion cut, opens transformers.)
 4. Transformers, and async as the second one.
@@ -3028,9 +3116,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 405)
+## Test inventory (all green: 428)
 
-- `salvo-core`: 133 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 149 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3133,6 +3221,19 @@ spec rule; consolidated here for findability):
   one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
   per call, which is what `${T}` interpolates
   [backend-define-generics])
+  + 16 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
+  outcome type read off an annotation mismatch (`Ok Int | Aborted Str`),
+  several message types unioning (`Aborted (Str | Int)`), an always-leaving
+  body still carrying `Ok None`, a `try` that cannot abort rejected, an
+  abort with nowhere to land rejected while declaring the effect
+  propagates, a message the target cannot carry rejected, `main` declaring
+  `Abort` rejected [abort-not-main], a handler *for* `Abort` rejected, an
+  aborting branch counting as returning [fn-must-return] and not leaking
+  its consumption to the fall-through path [type-any-nothing], a linear
+  value across a may-abort call rejected with the `defer` remedy accepted
+  [abort-linear], `abort` *and* a may-abort call inside a deferred block
+  rejected [defer-no-escape], and an inner delimiter taking only its own
+  aborts [try-innermost])
   + 12 deferred-block tests (`tests/defer_tests.rs` [defer]
   [defer-no-escape]: a linear obligation discharged on both paths of a fn
   with an early `return` — with the no-`defer` control proving the
@@ -3267,7 +3368,9 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 43 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 45 (the corpus grew two LANGUAGE.md examples with E3: a
+  `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`) - std +
+  LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
   error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
@@ -3290,10 +3393,12 @@ spec rule; consolidated here for findability):
   indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
-  `provenance` must precede `qualifier`), and 2 `defer` tests ([defer]:
+  `provenance` must precede `qualifier`), 2 `defer` tests ([defer]:
   `defer { ... }` parses into a block statement; a bodyless `defer` is a
-  parse error naming the form).
-- `salvo-backend-kotlin`: 101 - golden snapshots of the M2 demo, the M3
+  parse error naming the form), and 2 `try` tests ([try]: `try { ... }`
+  parses as a block *expression*; a bodyless `try` is a parse error naming
+  the form).
+- `salvo-backend-kotlin`: 103 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3365,6 +3470,13 @@ spec rule; consolidated here for findability):
   the last four are the handler-dependency programs the Rust fusion runs —
   the same sources, the same asserted stdout, which is what parity means
   here [effect-handler-deps] [rs-effect-fusion]);
+  and 2 abort tests ([abort] [try] [kt-abort-signal]:
+  `abort_lowers_to_a_signal_and_try_to_a_catch` asserting the generated
+  stack-trace-less signal, a tagged `throw`, a *plain* call in the
+  propagating frame (no colouring), the delimiter's tag dispatch with its
+  rethrow fallback, and no interface emitted for the effect; plus the
+  kotlinc run of the abort demo, whose stdout matches the Rust run byte for
+  byte);
   and 2 `defer` tests ([defer] [kt-defer-finally]:
   `defer_lowers_to_try_finally` asserting one `try` per `defer`, nested
   latest-first, and a single `finally` covering both `return`s of a
@@ -3372,7 +3484,7 @@ spec rule; consolidated here for findability):
   end, an early `return`, `continue`/`break` out of a loop body, and a
   linear handle released on both paths — whose stdout matches the Rust
   run byte for byte).
-- `salvo-backend-rust`: 72 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 75 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3448,7 +3560,14 @@ spec rule; consolidated here for findability):
   `defer_splices_at_every_exit` asserting LIFO order at a block end with no
   scaffolding, the hoisted `return` value, and the loop body's deferred
   code appearing at its `continue`, its `break` and the block end; plus the
-  rustc run of the same demo Kotlin runs, with the same stdout).
+  rustc run of the same demo Kotlin runs, with the same stdout); and 3
+  abort tests ([abort] [try] [rs-abort-controlflow] [rs-try-label]:
+  `abort_lowers_to_controlflow` asserting the `ControlFlow<M, T>` return
+  shape, `abort` as a `Break` return, `Continue`-wrapped returns, no trait
+  for the effect, and the deferred release on the abort path of a
+  propagating call; `try_lowers_to_a_labelled_block` asserting the label,
+  the *absence* of a closure, and the message wrapped into its union arm;
+  plus the rustc run of the demo Kotlin also runs).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -3456,6 +3575,35 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A new file under `std/` needs a touch to be seen.** `std/` is embedded
+  into the CLI with `include_dir`, which has no rerun-if-changed trigger for
+  *added* files: `cargo run -- analyze` kept reporting "7 std files" after
+  `std/core/abort.sv` appeared. `touch crates/salvo-cli/src/main.rs` (or any
+  edit to the crate) picks it up.
+- **A hand-maintained copy of a keyword list will drift, and this one
+  panicked the compiler.** `TokenKind::symbol()` matched every keyword
+  explicitly and `unreachable!()`d otherwise, so *any diagnostic* mentioning
+  the new `defer`/`try` tokens crashed instead of reporting — and the crash
+  looked like a parser bug, not a diagnostic bug. It now resolves through
+  `KEYWORDS`. When adding a token, grep for the enum name: a second match
+  arm somewhere is a liability.
+- **Write the target-language shape by hand before choosing a lowering.**
+  The roadmap's `try` sketch used a closure returning `ControlFlow`; hand-
+  writing it showed the closure has to capture the fn's effect parameters
+  (the same exclusivity trap the fusion hits), while a *labelled block*
+  captures nothing. Ten minutes of `rustc` saved a rewrite — and the same
+  probe confirmed `?` on `ControlFlow` is stable and that a may-abort call
+  in a loop stays a loop.
+- **`?` is not usable where deferred code must run**: it returns without
+  running the splice. That is why a may-abort call with pending `defer`s
+  becomes an inline `match` — and it is the concrete reason `defer` had to
+  be built before `abort` rather than after.
+- **Where a union arm gets wrapped is a backend-shaped decision.** Rust
+  wraps at the propagation site (it has one); the JVM does not have one, so
+  Kotlin must choose the arm at the `catch` — which the throwing frame
+  cannot know. The fix is a type-*name* tag on the signal, not an `is` test
+  on the payload: erasure makes `List<Int>` and `List<Str>` the same class,
+  and the wrapper encoding exists precisely to avoid such tests.
 - **A lowering sketched in a roadmap can be unbuildable — check the
   motivating program against it.** E3's `defer` sketch called for a Rust
   `Drop` guard ("reverse declaration order gives LIFO for free"). It cannot

@@ -686,5 +686,401 @@ Module {
                 span: 422..627,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[abort] A fn that may leave early declares the effect and keeps its own",
+                    "return type; `abort` returns `Nothing`, so nothing after it runs.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "parse_length",
+                    span: 776..788,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "line",
+                            span: 789..793,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 795..798,
+                                },
+                                args: [],
+                                span: 795..798,
+                            },
+                        },
+                        variadic: false,
+                        span: 789..798,
+                    },
+                ],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Abort",
+                                    span: 801..806,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Str",
+                                                span: 807..810,
+                                            },
+                                            args: [],
+                                            span: 807..810,
+                                        },
+                                    },
+                                ],
+                                span: 801..811,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 816..819,
+                            },
+                            args: [],
+                            span: 816..819,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Binary {
+                                                op: Eq,
+                                                lhs: Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "size",
+                                                            span: 829..833,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Ident(
+                                                            Ident {
+                                                                name: "line",
+                                                                span: 834..838,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    span: 829..839,
+                                                },
+                                                rhs: Int {
+                                                    value: 0,
+                                                    long: false,
+                                                    span: 843..844,
+                                                },
+                                                span: 829..844,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "abort",
+                                                                    span: 855..860,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "empty line",
+                                                                        ),
+                                                                    ],
+                                                                    span: 861..873,
+                                                                },
+                                                            ],
+                                                            span: 855..874,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 845..880,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 826..880,
+                                },
+                            ),
+                            Return {
+                                value: Some(
+                                    Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "size",
+                                                span: 892..896,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "line",
+                                                    span: 897..901,
+                                                },
+                                            ),
+                                        ],
+                                        span: 892..902,
+                                    },
+                                ),
+                                span: 885..902,
+                            },
+                        ],
+                        span: 820..904,
+                    },
+                ),
+                span: 773..904,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[try] The delimiter is an intrinsic expression whose value is an ordinary",
+                    "union: `Ok Int | Aborted Str`.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "describe_length",
+                    span: 1020..1035,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "line",
+                            span: 1036..1040,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1042..1045,
+                                },
+                                args: [],
+                                span: 1042..1045,
+                            },
+                        },
+                        variadic: false,
+                        span: 1036..1045,
+                    },
+                ],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1048..1055,
+                                },
+                                args: [],
+                                span: 1048..1055,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1060..1064,
+                            },
+                            args: [],
+                            span: 1060..1064,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "outcome",
+                                        span: 1075..1082,
+                                    },
+                                ),
+                                ty: None,
+                                value: Try {
+                                    body: Block {
+                                        stmts: [
+                                            Expr(
+                                                Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "parse_length",
+                                                            span: 1099..1111,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Ident(
+                                                            Ident {
+                                                                name: "line",
+                                                                span: 1112..1116,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    span: 1099..1117,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1089..1123,
+                                    },
+                                    span: 1085..1123,
+                                },
+                                span: 1071..1123,
+                            },
+                            Expr(
+                                When {
+                                    subject: Ident(
+                                        Ident {
+                                            name: "outcome",
+                                            span: 1133..1140,
+                                        },
+                                    ),
+                                    branches: [
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Ok",
+                                                        span: 1154..1156,
+                                                    },
+                                                    args: [],
+                                                    span: 1154..1156,
+                                                },
+                                            ],
+                                            binding: None,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 1171..1178,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "length ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "outcome",
+                                                                                    span: 1189..1196,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                    span: 1179..1198,
+                                                                },
+                                                            ],
+                                                            span: 1171..1199,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1157..1209,
+                                            },
+                                            span: 1151..1209,
+                                        },
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Aborted",
+                                                        span: 1221..1228,
+                                                    },
+                                                    args: [],
+                                                    span: 1221..1228,
+                                                },
+                                            ],
+                                            binding: None,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 1243..1250,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "could not parse: ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "outcome",
+                                                                                    span: 1271..1278,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                    span: 1251..1280,
+                                                                },
+                                                            ],
+                                                            span: 1243..1281,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1229..1291,
+                                            },
+                                            span: 1218..1291,
+                                        },
+                                    ],
+                                    span: 1128..1297,
+                                },
+                            ),
+                        ],
+                        span: 1065..1299,
+                    },
+                ),
+                span: 1017..1299,
+            },
+        ),
     ],
 }

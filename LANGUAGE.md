@@ -509,7 +509,7 @@ Details worth knowing:
 - **The block, not the function, is the scope.** A `defer` inside a loop body runs at the end of each iteration; one inside an `if` runs when that `if` block ends.
 - **Latest first.** Several `defer`s in one block run in reverse order of registration, so a value acquired later is released first.
 - **The block's value is computed first.** A deferred block runs after the `return` value (or the block's own value) has been evaluated, so it can release what that value was read from.
-- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual.
+- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Aborting](#aborting-leaving-early-with-a-message) from one is an error for the same reason.
 - **It is checked where it stands.** The body sees the scope and the flow facts at the `defer` statement, and those facts must still hold at each exit: if a call in between takes the value away, or invalidates a narrowing the deferred block relied on, the deferred block is rejected there (bind the narrowed value to a local and defer that instead).
 
 ## Functions
@@ -781,6 +781,62 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
     let number = next_random<Int>()
 }
 ```
+
+### Aborting: leaving early with a message
+
+Handlers so far always *resume*: an effect operation runs and control comes back. `abort` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
+
+```
+effect Abort<M> {
+    fn abort(message: M) -> [] Nothing
+}
+```
+
+A function that may abort says so in its effect list, and keeps its own return type:
+
+```
+fn parse(line: Str) [Abort<Str>] -> Int {
+    if size(line) == 0 {
+        abort("empty line")        // does not return
+    }
+    return size(line)
+}
+```
+
+`abort` returns `Nothing`, the bottom type, so the code after it never runs — which is what keeps the frames in between silent. `parse` returns `Int`, not an outcome union: no `Result` plumbing, no unwrapping at each call. A function that calls `parse` either declares `[Abort<Str>]` too, passing the abort on, or delimits it.
+
+The delimiter is `try`, a **compiler intrinsic** rather than an effect — there is no `Try` handler to register, just as there is nothing to register for loops or `if`. It evaluates to an outcome:
+
+```
+let outcome = try {
+    let n = parse(line)
+    n * 2
+}
+// outcome: Ok Int | Aborted Str
+
+when outcome {
+    is Ok {
+        println("length doubled: ${outcome}")
+    }
+    is Aborted {
+        println("could not parse: ${outcome}")
+    }
+}
+```
+
+Both arms are qualified, and the outcome is an ordinary union, so `is`, `when` and exhaustiveness work exactly as they do on `Ok Int | Err Str`. `Ok` is the same tag `core.result` uses; `Err` is deliberately *not* reused, because an abort is not an error value.
+
+Details worth knowing:
+
+- **`M` is the union of the message types the body can abort with.** A body that aborts with a `Str` in one place and an `Int` in another yields `Ok T | Aborted (Str | Int)`, the same way an `if` with two branch types yields their union. With one message type it stays bare.
+- **An abort lands in the innermost `try`.** There are no labelled aborts; a nested delimiter takes its own body's aborts and lets an outer one pass through.
+- **A `try` whose body cannot abort is an error.** Nothing can produce the `Aborted` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
+- **`main` cannot declare `[Abort<M>]`**: there is no caller to receive the abort, so the delimiter has to be inside.
+- **`Aborted M` is forgeable, deliberately.** The qualifier carries no authority — `core.abort`'s `aborted(message)` constructor produces a value in the aborted arm without transferring control. The authority to abort is `[Abort<M>]` availability alone.
+- **Nothing linear may be live across a call that may abort** unless it is released in a [`defer`](#deferred-blocks): the code after the call does not run on the abort path, so the deferred block is what discharges the obligation on both paths. This is the reason `defer` exists before `abort`.
+- **An abort inside a deferred block is an error**: that block runs *while* a scope is being left, so there is no delimiter left to abort to.
+
+Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Abort<M>]` (an abort is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches. Deferred blocks run on the way out either way.
 
 ### Deductions
 

@@ -11,7 +11,10 @@ pub mod resolve;
 pub mod source;
 pub mod types;
 
-pub use check::{check_program, Checked, Coercion, UnionTest};
+pub use check::{
+    check_program, AbortSite, Checked, Coercion, UnionTest, ABORTED_QUALIFIER, ABORT_EFFECT,
+    OK_QUALIFIER,
+};
 pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;
 pub use place::{Place, Proj};

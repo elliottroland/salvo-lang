@@ -292,6 +292,38 @@ derives them mechanically:
     decision 2026-09-04): a panic out of a std define unwinds *past* the
     splice, so deferred code does not run on a crash path, where the JVM's
     `finally` would run it. See [kt-defer-finally].
+* [abort] [rs-abort-controlflow] A fn declaring `[Abort<M>]` returns
+  `ControlFlow<M, T>` — the message type *is* `ControlFlow`'s `Break`
+  payload, so the propagation falls out of the design rather than being
+  imposed on it. `Abort` is filtered out of the effect *parameters* (it is a
+  return shape, not a capability), and the effect declaration itself emits
+  no trait: it has no handlers to implement.
+  * `abort(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch,
+    no allocation. `return v` becomes `ControlFlow::Continue(v)`, and a
+    `None`-returning fn ends with `return ControlFlow::Continue(())`.
+  * A call that may abort unwraps with `?` — but only when the abort would
+    leave *this* fn unchanged. Inside a `try`, when the message must be
+    wrapped into a union arm, or when deferred blocks have to run first, the
+    propagation is written out as `match call { Continue(__v) => __v,
+    Break(__m) => <transfer> }`. That is an *expression*, so it works in
+    argument position with no hoisting — and it is the only way the deferred
+    release can run on the abort path, since `?` returns without it.
+  * Verified by hand before implementation (`?` on `ControlFlow` is stable;
+    a may-abort call in a loop stays a loop, no trampoline): the three
+    compositions the roadmap asked for are in the E3 notes.
+* [try] [rs-try-label] `try { ... }` is a **labelled block**
+  (`'try_N: { ... }`), not a closure. The sketch's closure
+  (`(|| -> ControlFlow<..> { .. })()`) would have to capture the fn's
+  effect parameters and any local the body mutates — the same exclusivity
+  trap the fusion hits; a labelled block captures nothing.
+  * The price is that `?` cannot be used inside a `try` body (it would
+    return from the *fn*), so every may-abort call there takes the `match`
+    form above and `break`s the label with the outcome's aborted arm. The
+    body's tail is wrapped into the `Ok` arm (arm 0); a body that always
+    leaves still needs a value for the block, which the checker made
+    `Ok None` [try].
+  * Nesting needs no token: the label decides where a `break` lands, so an
+    inner delimiter cannot swallow an outer abort [try-innermost].
 
 ## Qualifiers
 
@@ -315,7 +347,18 @@ derives them mechanically:
 ## Effects [rs-effects]
 
 * [effect-decl] Effects emit as Rust `pub trait`s whose methods take
-  `&mut self` (handlers are stateful).
+  `&mut self` (handlers are stateful). The abort effect is the exception:
+  it emits nothing, since it has no handlers [rs-abort-controlflow].
+* [effect-args-hoisted] An argument whose code reaches an effect value the
+  *same call* threads is hoisted into a `let` before the call
+  (`{ let __a1 = inner(&mut console, 1); outer(&mut console, __a1) }`).
+  Without it, two effectful calls in one expression borrow the same
+  `&mut dyn` parameter twice (`E0499`) — a shape Kotlin accepts and Rust
+  rejects, so it was a live parity divergence (found and fixed 2026-09-04
+  while building [try], whose delimiter reads naturally as a call
+  argument). The hoist predicate is per-call: an argument mentioning a
+  *different* effect value is left alone, so output churn is limited to the
+  shapes that would not compile.
 * [effect-handler] Handlers emit as `pub struct H<..> { ctor-params,
   state }` + `impl H { pub fn new(ctor-params) -> Self }` (state fields
   initialized from their declared defaults) + `impl Effect for H`.

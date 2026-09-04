@@ -3681,3 +3681,192 @@ fn kotlin_compiles_and_runs_defer() {
     });
     run_kotlin_files(&files, "defer", DEFER_OUTPUT);
 }
+
+// ===== E3 step 2: abort and `try` [abort] [try] [kt-abort-signal] =====
+
+/// The whole of non-resumption in one program: propagation through a frame
+/// that declares the effect, a linear resource released by a deferred block
+/// *on the abort path*, two message types meeting at one delimiter
+/// (`Aborted (Str | Int)`), a may-abort call inside a loop, and a nested
+/// delimiter that must not swallow the outer abort.
+const ABORT_DEMO: &str = r#"
+struct FileHandle canbe Linear {
+    fd: Int
+}
+
+fn open_file(n: Int) [Console] -> [] FileHandle {
+    println("open ${n}")
+    return FileHandle {fd: n}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn parse(line: Str) [Abort<Str>, Console] -> [] Int {
+    println("parse ${line}")
+    if size(line) == 0 {
+        abort("empty line")
+    }
+    return size(line)
+}
+
+fn limit(n: Int) [Abort<Int>] -> [] Int {
+    if n > 4 {
+        abort(n)
+    }
+    return n
+}
+
+fn measure(line: Str) [Abort<Str>, Console] -> [] Int {
+    let h = open_file(1)
+    defer { close_file(h) }
+    let n = parse(line)
+    return n + h.fd
+}
+
+fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
+    let sum = 0
+    for line in lines {
+        let inner = try {
+            limit(size(line))
+        }
+        when inner {
+            is Ok {
+                println("within limit ${inner}")
+            }
+            is Aborted {
+                println("over limit ${inner}")
+            }
+        }
+        sum = sum + parse(line)
+    }
+    return sum
+}
+
+fn report_text(outcome: Ok Int | Aborted Str) [Console] -> [] None {
+    when outcome {
+        is Ok {
+            println("ok ${outcome}")
+        }
+        is Aborted {
+            println("aborted: ${outcome}")
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    report_text(try { measure("hello") })
+    report_text(try { measure("") })
+    let mixed = try {
+        let n = measure("longer line")
+        limit(n)
+    }
+    when mixed {
+        is Ok {
+            println("mixed ok ${mixed}")
+        }
+        is Aborted {
+            println("mixed aborted")
+        }
+    }
+    let counted = try {
+        total(["ab", "cdefg"])
+    }
+    when counted {
+        is Ok {
+            println("counted ${counted}")
+        }
+        is Aborted {
+            println("counted aborted: ${counted}")
+        }
+    }
+    println("done")
+}
+"#;
+
+const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
+                            open 1\nparse \nclose fd=1\naborted: empty line\n\
+                            open 1\nparse longer line\nclose fd=1\nmixed aborted\n\
+                            within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
+                            counted 7\ndone\n";
+
+/// [kt-abort-signal] The JVM's unwinding *is* the propagation: `abort`
+/// throws a generated stack-trace-less signal, an intermediate frame does
+/// nothing at all (no `ControlFlow`, no colouring), and `try` is Kotlin's
+/// own `try`/`catch` *expression*, so the outcome falls out of it. `Abort`
+/// is never a handler parameter.
+#[test]
+fn abort_lowers_to_a_signal_and_try_to_a_catch() {
+    let program = build_program(&[("main.sv", ABORT_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    // The signal class is generated once for the program.
+    let signal = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("abort.kt"))
+        .expect("expected a generated abort.kt");
+    assert!(
+        signal.content.contains("class AbortSignal(val payload: Any?, val tag: String)")
+            && signal.content.contains("RuntimeException(null, null, false, false)"),
+        "expected a stack-trace-less signal in:\n{}",
+        signal.content
+    );
+    // [abort] The effect itself emits nothing: there are no handlers to
+    // implement, so an interface for it would be dead code.
+    let std_abort = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("core/abort.kt"))
+        .map(|f| f.content.clone())
+        .unwrap_or_default();
+    assert!(
+        !std_abort.contains("interface Abort"),
+        "expected no interface for the abort effect in:\n{std_abort}"
+    );
+    // `abort` throws; the message is *not* wrapped at the throw (the
+    // throwing frame cannot know which `try` will catch it).
+    assert!(
+        main.content.contains("throw AbortSignal(\"empty line\", \"Str\")"),
+        "expected a tagged throw in:\n{}",
+        main.content
+    );
+    // A propagating frame carries nothing: `parse` is called plainly.
+    let measure = main
+        .content
+        .split("fun measure")
+        .nth(1)
+        .and_then(|s| s.split("\nfun ").next())
+        .unwrap();
+    assert!(
+        measure.contains("val n = parse(console, line)"),
+        "expected plain propagation in:\n{measure}"
+    );
+    // The delimiter picks the arm at the catch, by tag.
+    assert!(
+        main.content.contains("catch (__signal: AbortSignal)")
+            && main.content.contains("when (__signal.tag)")
+            && main.content.contains("else -> throw __signal"),
+        "expected tag dispatch with a rethrow fallback in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlin_compiles_and_runs_abort() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", ABORT_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "abort", ABORT_OUTPUT);
+}

@@ -476,8 +476,7 @@ pub enum Stmt {
     /// [defer]. Its meaning is *splice at exit*: the body runs at every
     /// exit of the enclosing block (the end of the block, and each
     /// `return`/`break`/`continue` that leaves it), latest `defer` first.
-    Defer { body: Block, span: Span },
-    /// A bare expression statement.
+    Defer { body: Block, span: Span },    /// A bare expression statement.
     Expr(Expr),
 }
 
@@ -628,6 +627,11 @@ pub enum Expr {
         body: LambdaBody,
         span: Span,
     },
+    /// `try { ... }` — the abort delimiter [try]. A compiler intrinsic
+    /// rather than an effect: the block's value becomes the `Ok T` arm of
+    /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
+    /// becomes the `Aborted M` arm.
+    Try { body: Block, span: Span },
     /// `...expr` — spread in call arguments or struct literals.
     Spread { operand: Box<Expr>, span: Span },
     /// Placeholder produced on parse errors so parsing can continue.
@@ -730,6 +734,7 @@ impl Expr {
             | Expr::While { span, .. }
             | Expr::For { span, .. }
             | Expr::Lambda { span, .. }
+            | Expr::Try { span, .. }
             | Expr::Spread { span, .. }
             | Expr::Error { span } => *span,
             Expr::Ident(ident) => ident.span,

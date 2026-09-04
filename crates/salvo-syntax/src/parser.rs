@@ -2077,6 +2077,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwWhen => self.parse_when(),
             TokenKind::KwWhile => self.parse_while(),
             TokenKind::KwFor => self.parse_for(),
+            TokenKind::KwTry => self.parse_try(),
             _ => {
                 let found = self.kind().describe();
                 let span = self.peek().span;
@@ -2367,8 +2368,21 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_when(&mut self) -> Option<Expr> {
-        let start = self.expect(&TokenKind::KwWhen)?.span;
+    /// `try { ... }` — the abort delimiter [try]. Always a block, like
+    /// every other body-taking construct.
+    fn parse_try(&mut self) -> Option<Expr> {
+        let start = self.expect(&TokenKind::KwTry)?.span;
+        if !self.at(&TokenKind::LBrace) {
+            let span = self.peek().span;
+            self.error("`try` takes a block: `try { ... }`", span);
+            return None;
+        }
+        let body = self.parse_block()?;
+        let span = start.to(body.span);
+        Some(Expr::Try { body, span })
+    }
+
+    fn parse_when(&mut self) -> Option<Expr> {        let start = self.expect(&TokenKind::KwWhen)?.span;
         let subject = self.parse_condition()?;
         self.expect(&TokenKind::LBrace)?;
         let mut branches = Vec::new();

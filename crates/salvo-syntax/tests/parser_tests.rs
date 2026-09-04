@@ -629,3 +629,40 @@ fn defer_without_a_block_is_an_error() {
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+// [try] `try` takes a block and is an *expression* — the abort delimiter.
+#[test]
+fn try_parses_as_a_block_expression() {
+    let source = "fn f() {\n    let outcome = try {\n        parse(line)\n    }\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    let body = f.body.as_ref().expect("fn has a body");
+    let salvo_syntax::ast::Stmt::Let { value, .. } = &body.stmts[0] else {
+        panic!("expected a let statement, got {:?}", body.stmts[0]);
+    };
+    let salvo_syntax::ast::Expr::Try { body: inner, .. } = value else {
+        panic!("expected a try expression, got {value:?}");
+    };
+    assert_eq!(inner.stmts.len(), 1);
+}
+
+// [try] A bodyless `try` is a parse error naming the form.
+#[test]
+fn try_without_a_block_is_an_error() {
+    let source = "fn f() {\n    let outcome = try parse(line)\n}\n";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("`try` takes a block")),
+        "expected a block-required error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

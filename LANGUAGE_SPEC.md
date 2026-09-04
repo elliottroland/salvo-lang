@@ -106,6 +106,15 @@ Conventions:
     `Ty::Array` before the implicit-`iter` lookup.
 * [type-any-nothing] `Any` is the top type; `Nothing` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
+  * A *written* `Nothing` lowers to the bottom type, not to a nominal type
+    that happens to be spelled that way: `abort`'s declared
+    `-> [] Nothing` [abort] means callers see a value that fits everywhere
+    and ends the path.
+  * **A `Nothing`-typed expression statement terminates its path**, which
+    both path analyses read from the checker's recorded types rather than
+    syntax: a branch ending in `abort(m)` satisfies [fn-must-return], and
+    its consumption never reaches the code after the branch
+    [deduce-consume]. Any diverging call qualifies, not just `abort`.
 * [type-alias] `type Name<G> = ...` declares a type alias; aliases can be
   generic and must be imported like other declarations.
   * Aliases expand *structurally* at use sites (with generic
@@ -465,9 +474,11 @@ Conventions:
   out of its block, so there is no path to leave through. Loops written in
   the body own their own `break`/`continue`; a lambda owns its own
   `return`.
-  * Aborting from a deferred body will be rejected the same way once
-    `abort` exists (roadmap E3): unwinding out of an unwind path is a hole
-    neither lowering wants.
+  * **Aborting from a deferred body is an error too** [abort]: both the
+    `abort` operation and a call that merely *may* abort, since the block
+    runs while its scope is being left — there is no delimiter left to
+    abort to, and unwinding out of an unwind path is a hole neither
+    lowering wants.
 
 ## Functions
 
@@ -500,9 +511,11 @@ Conventions:
     a contract, and must pair one-to-one with an `external fn` (see
     [backend-define-inline]) whose declaration supplies the contract.
 * [fn-must-return] A fn with a non-`None` return type must return on
-  every path. Definitely-returning constructs: `return`, `if` with an
-  `else` where every branch returns, `when` where every branch returns
-  (exhaustiveness is enforced separately [when-exhaustive]).
+  every path. Definitely-returning constructs: `return`, a **diverging
+  expression** ([type-any-nothing]: a statement the checker typed
+  `Nothing`, e.g. `abort(m)`), `if` with an `else` where every branch
+  returns, `when` where every branch returns (exhaustiveness is enforced
+  separately [when-exhaustive]).
   * Conservative by design: loops never count as returning (they may run
     zero times).
   * Yield-based iterator fns are exempt — their body produces elements,
@@ -705,6 +718,70 @@ Conventions:
   end of the enclosing block.
   * Checker `effect_env` and emitter environments truncate at block
     boundaries identically.
+
+### Non-resumption: `abort` and `try`
+
+* [abort] `abort(message)` leaves the enclosing delimiter instead of
+  resuming. It is declared in std (`core.abort`) as the sole member of
+  `effect Abort<M> { fn abort(message: M) -> [] Nothing }` and known to the
+  compiler by name; the message is *moved* into the outcome.
+  * Its type is `Nothing`, the bottom type: nothing after it runs, so the
+    intermediate frames stay silent. A fn that may abort declares
+    `[Abort<M>]` and keeps its **own** return type — it never also returns
+    an outcome union, which would be `Result` plumbing with extra steps
+    and would defeat abort being an effect.
+  * **The ability to not resume is declared, never discovered from a
+    handler**, which is what keeps the colouring honest: the shape of a fn
+    cannot depend on which handler flows in, so it is exactly the effect
+    annotation the author already writes.
+  * `Abort` has **no handlers**: `handler X of Abort` is an error, and it
+    is never threaded as an effect parameter (both backends exclude it).
+    What *provides* it is an enclosing `try`, or a caller that declares it
+    in turn.
+  * A site that may abort is every `abort` call **and** every call whose
+    callee declares `[Abort<M>]`; each is recorded in `Checked::may_abort`,
+    since taking the abort is the emitters' job.
+  * The message type must fit the landing site's: an `Str` abort inside a
+    fn declaring `[Abort<Int>]` is an error naming both.
+* [abort-not-main] `main` may not declare `[Abort<M>]`: there is no caller
+  to receive it, Rust cannot express a `main` returning `ControlFlow`, and
+  Kotlin would die on an uncaught signal. The delimiter goes inside.
+* [try] `try { block }` is the delimiter: a **compiler intrinsic**, not an
+  effect (user decision 2026-09-04 — "there's not much value in a function
+  declaring the `Try` effect in its signature any more than there is in
+  declaring that it uses loops or if-expressions"). So no `Try` handler, no
+  `[Try]` in signatures, and no collision with the fusion.
+  * It is an **expression** of type `Ok T | Aborted M`, where `T` is the
+    body's value type and `M` the message type. Both arms are qualified,
+    reusing `Ok` from `core.result`, so `is`, `when` and exhaustiveness
+    need no new rules — the outcome is structurally an `Ok T | Err M`.
+    `Err` is deliberately *not* reused: an abort is not an error value.
+  * **`M` is the union of the message types the body performs** (user
+    decision 2026-09-04, chosen for consistency with `if`/`when` branch
+    types): one type stays bare, several form a union, and the generated
+    code only wraps when a union is present.
+  * `Aborted M` is **forgeable**, deliberately: the qualifier carries no
+    authority, so `core.abort`'s `aborted(message)` constructor produces a
+    value in the aborted arm without transferring control. The authority is
+    `[Abort<M>]` availability alone.
+  * A body whose every path leaves still has an `Ok` arm — `Ok None`.
+  * **A `try` whose body cannot abort is an error** (user decision
+    2026-09-04): nothing can produce the aborted arm, so it is dead
+    scaffolding. The alternative (`Aborted None`) would force callers to
+    handle an arm nothing can make.
+  * A `return` inside a `try` body returns from the enclosing *fn*: the
+    delimiter catches aborts, not returns.
+* [try-innermost] An abort lands in the **innermost** enclosing `try`.
+  There are no labelled aborts; a nested delimiter takes its own body's
+  aborts and lets an outer one pass through.
+* [abort-linear] Nothing linear may be live across a site that may abort
+  unless a `defer` releases it [linear-obligation] [defer]: the code after
+  the site does not run on the abort path. The diagnostic names `defer`,
+  since it is the only way to discharge on a path the author does not
+  write — which is why `defer` was built first.
+  * The frames that die are those inside the delimiter (an abort caught by
+    an enclosing `try` does not leave the fn), so the check's floor is the
+    `try` body's scope, or the fn's when the abort propagates out.
 
 ## Deductions
 

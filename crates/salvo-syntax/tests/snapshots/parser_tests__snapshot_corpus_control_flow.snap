@@ -1352,5 +1352,289 @@ Module {
                 span: 1132..1303,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[defer] The block runs when the enclosing block ends — at its end and at",
+                    "every `return`/`break`/`continue` that leaves it, latest first.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "read_config",
+                    span: 1453..1464,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "path",
+                            span: 1465..1469,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1471..1474,
+                                },
+                                args: [],
+                                span: 1471..1474,
+                            },
+                        },
+                        variadic: false,
+                        span: 1465..1474,
+                    },
+                ],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1477..1484,
+                                },
+                                args: [],
+                                span: 1477..1484,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 1489..1492,
+                            },
+                            args: [],
+                            span: 1489..1492,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "file",
+                                        span: 1503..1507,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "open",
+                                            span: 1510..1514,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "path",
+                                                span: 1515..1519,
+                                            },
+                                        ),
+                                    ],
+                                    span: 1510..1520,
+                                },
+                                span: 1499..1520,
+                            },
+                            Defer {
+                                body: Block {
+                                    stmts: [
+                                        Expr(
+                                            Call {
+                                                callee: Ident(
+                                                    Ident {
+                                                        name: "close",
+                                                        span: 1533..1538,
+                                                    },
+                                                ),
+                                                type_args: [],
+                                                args: [
+                                                    Ident(
+                                                        Ident {
+                                                            name: "file",
+                                                            span: 1539..1543,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1533..1544,
+                                            },
+                                        ),
+                                    ],
+                                    span: 1531..1546,
+                                },
+                                span: 1525..1546,
+                            },
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Call {
+                                                callee: Ident(
+                                                    Ident {
+                                                        name: "is_empty",
+                                                        span: 1554..1562,
+                                                    },
+                                                ),
+                                                type_args: [],
+                                                args: [
+                                                    Ident(
+                                                        Ident {
+                                                            name: "file",
+                                                            span: 1563..1567,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1554..1568,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Return {
+                                                        value: Some(
+                                                            Str {
+                                                                parts: [
+                                                                    Text(
+                                                                        "",
+                                                                    ),
+                                                                ],
+                                                                span: 1586..1588,
+                                                            },
+                                                        ),
+                                                        span: 1579..1588,
+                                                    },
+                                                ],
+                                                span: 1569..1594,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 1551..1594,
+                                },
+                            ),
+                            Expr(
+                                For {
+                                    pattern: Ident(
+                                        Ident {
+                                            name: "line",
+                                            span: 1603..1607,
+                                        },
+                                    ),
+                                    iterable: Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "lines",
+                                                span: 1611..1616,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "file",
+                                                    span: 1617..1621,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1611..1622,
+                                    },
+                                    body: Block {
+                                        stmts: [
+                                            Defer {
+                                                body: Block {
+                                                    stmts: [
+                                                        Expr(
+                                                            Call {
+                                                                callee: Ident(
+                                                                    Ident {
+                                                                        name: "println",
+                                                                        span: 1641..1648,
+                                                                    },
+                                                                ),
+                                                                type_args: [],
+                                                                args: [
+                                                                    Str {
+                                                                        parts: [
+                                                                            Text(
+                                                                                "line done",
+                                                                            ),
+                                                                        ],
+                                                                        span: 1649..1660,
+                                                                    },
+                                                                ],
+                                                                span: 1641..1661,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    span: 1639..1663,
+                                                },
+                                                span: 1633..1663,
+                                            },
+                                            Expr(
+                                                Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "println",
+                                                            span: 1672..1679,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Ident(
+                                                            Ident {
+                                                                name: "line",
+                                                                span: 1680..1684,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    span: 1672..1685,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1623..1691,
+                                    },
+                                    else_block: None,
+                                    span: 1599..1691,
+                                },
+                            ),
+                            Return {
+                                value: Some(
+                                    Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "contents",
+                                                span: 1703..1711,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "file",
+                                                    span: 1712..1716,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1703..1717,
+                                    },
+                                ),
+                                span: 1696..1717,
+                            },
+                        ],
+                        span: 1493..1719,
+                    },
+                ),
+                span: 1450..1719,
+            },
+        ),
     ],
 }

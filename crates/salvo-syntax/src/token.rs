@@ -58,6 +58,7 @@ pub enum TokenKind {
     KwYield,
     KwUse,
     KwDefer,
+    KwTry,
     KwTrue,
     KwFalse,
 
@@ -141,6 +142,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("yield", TokenKind::KwYield),
     ("use", TokenKind::KwUse),
     ("defer", TokenKind::KwDefer),
+    ("try", TokenKind::KwTry),
     ("true", TokenKind::KwTrue),
     ("false", TokenKind::KwFalse),
 ];
@@ -171,7 +173,13 @@ impl TokenKind {
         }
     }
 
+    /// The source spelling of a symbol or keyword token. Keywords resolve
+    /// through `KEYWORDS`, the single source of truth, so adding one to the
+    /// table is enough — a missing arm here used to panic a diagnostic.
     fn symbol(&self) -> &'static str {
+        if let Some((text, _)) = KEYWORDS.iter().find(|(_, kind)| kind == self) {
+            return text;
+        }
         match self {
             TokenKind::KwFn => "fn",
             TokenKind::KwLet => "let",

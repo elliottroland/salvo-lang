@@ -173,6 +173,35 @@ Conventions:
     during a crash are not part of a program's meaning; tightening this
     would mean catching the abort signal specifically and rethrowing
     (revisit with roadmap E3's `abort`).
+* [abort] [kt-abort-signal] The JVM's unwinding *is* the propagation, so
+  aborting needs no return-shape change and no colouring: `abort(m)` throws
+  a generated `salvo.AbortSignal`, an intermediate frame does nothing at
+  all, and `try` catches. `Abort` is never a handler parameter, and the
+  effect declaration emits no interface (it has no handlers).
+  * The signal is `class AbortSignal(val payload: Any?, val tag: String) :
+    RuntimeException(null, null, false, false)` — no stack trace, no
+    suppression bookkeeping: it is a control transfer, not an error. It is
+    generated once per program into `abort.kt` (package `salvo`), like the
+    union wrappers.
+  * `try { ... }` is Kotlin's own `try`/`catch`, which is an **expression**,
+    so the outcome falls out of it: the body's tail wrapped in the `Ok` arm,
+    or the caught payload wrapped in the `Aborted` arm. Catching the
+    innermost signal *is* [try-innermost].
+  * **The arm is chosen at the `catch`, not at the throw** — the divergence
+    from [rs-abort-controlflow], and a forced one: Rust wraps a message into
+    the delimiter's arm at the *propagation* site, which the JVM does not
+    have (the exception flies through untouched), and a throwing frame
+    cannot know which `try` will catch it. So the signal carries the Salvo
+    type of the message as a `tag`, and a union-typed `M` dispatches on it
+    (`when (__signal.tag) { "Str" -> …; "Int" -> …; else -> throw __signal }`).
+    Comparing Salvo type *names* is erasure-proof, unlike `is` tests on the
+    payload; the `else` rethrow means a signal from outside this delimiter's
+    set is passed on rather than mis-wrapped [backend-never-wrong].
+  * A single message type needs no tag dispatch: the payload is cast
+    directly (user decision 2026-09-04 — wrap only when a union is present).
+  * A `defer` inside a `try` body runs while the signal unwinds, because it
+    is a `finally` [kt-defer-finally]. That is the whole reason `defer`
+    came first.
 
 ## Qualifiers
 
@@ -210,7 +239,8 @@ Conventions:
 
 ## Effects
 
-* [effect-decl] Effects emit as Kotlin `interface`s.
+* [effect-decl] Effects emit as Kotlin `interface`s. The abort effect is the
+  exception: it emits nothing, since it has no handlers [kt-abort-signal].
 * [kt-handler-class] All handlers — external ones included — emit as
   Kotlin *classes* (never `object`s) and are instantiated at their `use`
   site; state fields become `private var`, constructor params
