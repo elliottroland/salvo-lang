@@ -536,30 +536,67 @@ Conventions:
   dispatch call sites go through the handler instance and cannot thread
   extra handler args. Members must still declare their deductions and
   return type [decl-explicit].
-  * Roadmap E1 lifts this for *handlers*, whose dependencies will be
-    declared as constructor parameters of effect type and supplied by the
-    per-scope fusion (user decision 2026-09-04; mechanism in
+  * Roadmap E1 lifts this for *handlers*, whose dependencies are declared
+    as constructor parameters of effect type and supplied by the per-scope
+    fusion (user decision 2026-09-04; mechanism in
     [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
     effects stays an error: the dependency belongs to the implementation,
     not the interface.
 * [effect-handler] `handler H<G>(ctor params) of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
+* [effect-state-store] Assigning a value into a handler **state** field is a
+  *store*: the field outlives every member call, so the handler takes
+  ownership, exactly as a struct literal does ([deduce-consume]). Ordinary
+  locals only *link* ([fate-link]) — the difference matters because a link
+  that outlives its call is representable on one backend and not the other.
+  * Consequence: a member that promises a parameter back
+  (`-> [list: Mut]`) may not store it; the honest contract for a storing
+  member moves it (`-> []`), and callers then give up ownership.
+  * Handler member bodies are validated against their written lists like any
+    fn's ([deduce-infer]), which is what makes the rule bite. Before both
+    halves existed, `held = list` under a keeping contract diverged
+    observably: Kotlin aliased the list into the state (later caller
+    mutations visible) while Rust cloned it — the same program printed 2 and
+    1.
 * [effect-not-data] An effect names a *capability*, not a type of values.
   It may appear in a fn's effect list (`[Console]`) and in a handler's `of`
   clause; every data position — struct field, parameter, return type,
   `let` annotation, type alias, union or tuple component — is an error
   (user decision 2026-09-03). The value would have to be a handler
   instance, and those are reached through `use`.
-  * Handler *dependencies* (a constructor parameter of effect type) are the
-    exception this rule will grow when roadmap E1 lands with the fusion
-    emission; until then they are rejected like any other data position, so
-    nothing reaches a backend that cannot render it
-    ([backend-never-wrong] — Rust emitted a bare trait, `E0782`).
+  * The one exception is a handler *dependency*
+    ([effect-handler-deps]).
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:
   the emitted `Name()` is not a constructor, `E0423`.)
+* [effect-handler-deps] A handler constructor parameter of **effect type**
+  is a *dependency*: the one position where an effect names something a
+  handler holds ([effect-not-data]). It is declared on the *handler*, not
+  the effect — implementations differ in what they need (user decision
+  2026-09-04).
+  * The handler's member bodies may use that effect, exactly as if they had
+    declared it — which they may not ([effect-member-no-effects]): the
+    dependency belongs to the implementation, so it is stated once.
+  * A dependency is **not written at the `use` site**: the compiler supplies
+    it from the enclosing scope, so it does not count as a constructor
+    argument, and a `use` whose dependency has no handler in scope is an
+    error naming it ("register one before it").
+  * A handler may not depend on the effect it implements — registering it
+    would require itself.
+  * Dependency **cycles need no separate check**: a dependency must already
+    be registered when its dependent is, so a cycle cannot be constructed
+    in any order (verified both ways). The availability rule *is* the
+    acyclicity guarantee, which is what the fusion emission relies on.
+  * Emission is the fusion strategy ([rs-effect-fusion],
+    [kt-effect-fusion]). Kotlin injects the dependency at construction
+    (objects alias, so nothing more is needed); Rust builds one *fusion*
+    per `use` scope which owns the handler, implements every effect in
+    scope, and hands the dependency to the member body from a disjoint
+    borrow — because capturing it in the handler would lock it for the
+    handler's lifetime where Kotlin shares it freely. Both backends run
+    the same programs to the same output.
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
@@ -676,6 +713,11 @@ Conventions:
     *stricter* than the body (drop qualifiers, move parameters the body
     gives back), but promising a parameter back that the body moves, or
     a qualifier the body may remove, is an error.
+    * **Handler members** are validated the same way. They carry no
+      `FnKey` (not top-level items), so they are checked outside the
+      fixpoint — sound because the dependency runs one way: a member's body
+      facts depend on other fns' contracts, and a fn's contract depends on
+      members' *declared* lists, never their bodies.
 * [deduce-consume] Deduction lists are enforced flow-sensitively at call
   sites on bare identifier arguments — written lists directly, and
   unannotated fns through their *inferred* facts: checking and inference

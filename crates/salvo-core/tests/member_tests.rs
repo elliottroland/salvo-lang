@@ -341,19 +341,89 @@ fn use_still_registers_handlers() {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [effect-not-data] Handler *dependencies* (a ctor param of effect type)
-/// are roadmap E1 and rejected until the fusion emission exists — today
-/// they emit a bare trait in Rust (`E0782`).
+/// [effect-handler-deps] A constructor parameter of effect type is the one
+/// position where an effect names something a handler may hold: it is a
+/// *dependency*, and the member bodies may use that effect.
 #[test]
-fn handler_dependencies_are_not_yet_accepted() {
+fn handler_dependencies_are_accepted() {
+    let src = "effect Logger {\n    fn log(m: Str) -> [m] None\n}\n\n\
+               handler CountingLogger(counter: Counter) of Logger {\n    \
+               fn log(m: Str) -> [m] None {\n        let n = bump()\n    }\n}\n";
+    let errs = effect_messages(src);
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
+/// [effect-handler-deps] A handler cannot depend on the effect it
+/// implements: registering it would require itself.
+#[test]
+fn handler_cannot_depend_on_its_own_effect() {
     let errs = effect_messages(
         "handler Wrapper(inner: Counter) of Counter {\n    \
          fn bump() -> [] Int {\n        return 0\n    }\n}\n",
     );
     assert!(
-        errs.iter()
-            .any(|m| m.starts_with("`Counter` is an effect, not a data type")),
+        errs.iter().any(|m| m
+            == "handler `Wrapper` cannot depend on `Counter`, the effect it implements"),
         "got {errs:?}"
+    );
+}
+
+/// [effect-handler-deps] Dependency *cycles* need no separate check: a
+/// dependency must already be registered, so a cycle cannot be constructed
+/// in either order. Verified both ways round, since "it happens to fail"
+/// and "it cannot be written" are different claims.
+#[test]
+fn dependency_cycles_cannot_be_registered() {
+    let cyclic = "internal type Str\n\n\
+        effect Alpha {\n    fn a(m: Str) -> [m] None\n}\n\n\
+        effect Beta {\n    fn b(m: Str) -> [m] None\n}\n\n\
+        handler AlphaViaBeta(beta: Beta) of Alpha {\n    \
+        fn a(m: Str) -> [m] None {\n        b(m)\n    }\n}\n\n\
+        handler BetaViaAlpha(alpha: Alpha) of Beta {\n    \
+        fn b(m: Str) -> [m] None {\n        a(m)\n    }\n}\n";
+    for (first, second, blamed) in [
+        ("AlphaViaBeta", "BetaViaAlpha", "Beta"),
+        ("BetaViaAlpha", "AlphaViaBeta", "Alpha"),
+    ] {
+        let src = format!(
+            "{cyclic}\nfn main() [use] -> [] None {{\n    use {first}()\n    \
+             use {second}()\n}}\n"
+        );
+        let errs = messages(&src);
+        assert!(
+            errs.iter().any(|m| m.contains(&format!(
+                "handler `{first}` depends on effect `{blamed}`, which has no handler"
+            ))),
+            "registering `{first}` first should fail: {errs:?}"
+        );
+    }
+}
+
+/// [effect-handler-deps] Dependencies are supplied by the compiler from the
+/// enclosing scope, so they are not written at the `use` site — and one must
+/// be available there.
+#[test]
+fn handler_dependencies_come_from_the_use_scope() {
+    let prelude = "effect Logger {\n    fn log(m: Str) -> [m] None\n}\n\n\
+                   handler CountingLogger(counter: Counter) of Logger {\n    \
+                   fn log(m: Str) -> [m] None {\n        let n = bump()\n    }\n}\n";
+    // Registered *after* its dependency: fine, and no argument is written.
+    let ok = effect_messages(&format!(
+        "{prelude}\nfn main() [use] -> [] None {{\n    use MemCounter()\n    \
+         use CountingLogger()\n    log(\"x\")\n}}\n"
+    ));
+    assert!(ok.is_empty(), "got {ok:?}");
+
+    // Without the dependency in scope: rejected at the registration.
+    let missing = effect_messages(&format!(
+        "{prelude}\nfn main() [use] -> [] None {{\n    use CountingLogger()\n    \
+         log(\"x\")\n}}\n"
+    ));
+    assert!(
+        missing.iter().any(|m| m.contains(
+            "handler `CountingLogger` depends on effect `Counter`, which has no handler"
+        )),
+        "got {missing:?}"
     );
 }
 

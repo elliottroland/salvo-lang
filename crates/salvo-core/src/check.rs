@@ -89,6 +89,11 @@ pub struct Checked {
     /// constructor arguments (e.g. `Random<Int>` for
     /// `use CyclicRandom([1,2,3])`).
     pub use_effects: HashMap<Key, Ty>,
+    /// Effect instances resolved for a `use`d handler's *dependencies*
+    /// [effect-handler-deps], in the handler's declaration order (keyed by
+    /// the `use` statement span). Only present when the handler declares
+    /// dependencies: the emitters supply these at construction.
+    pub use_deps: HashMap<Key, Vec<Ty>>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -383,6 +388,11 @@ struct LocalVar {
     /// [fn-contract]: the value belongs to the caller — read-only-ish
     /// (mutation is type-gated by `Mut`), never consumable.
     lambda_kept: bool,
+    /// A handler *state* field [effect-handler]: it outlives every member
+    /// call, so assigning a value into it is a **store** — the handler
+    /// takes ownership, exactly as a struct literal does
+    /// [effect-state-store]. Ordinary locals link instead [fate-link].
+    is_handler_state: bool,
     /// Narrowed *projections* out of this variable [flow-place]: flow
     /// facts about `h.field`, keyed by the projection path. The
     /// variable's own narrowing stays in `narrowed`; keeping the
@@ -656,8 +666,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.own_contract = None;
                 }                Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
+                    let of_ty = self.lower_type(&h.of);
                     for p in &h.params {
-                        self.validate_type(&p.ty);
+                        // [effect-handler-deps] A constructor parameter of
+                        // effect type is a *dependency*, not data: the one
+                        // position where an effect names something a handler
+                        // may hold ([effect-not-data]).
+                        match self.handler_dep_effect(&p.ty) {
+                            Some(dep) => {
+                                // A handler cannot depend on the effect it
+                                // implements: registering it would need
+                                // itself.
+                                if dep.strip_quals() == of_ty.strip_quals() {
+                                    self.error(
+                                        p.name.span,
+                                        format!(
+                                            "handler `{}` cannot depend on `{dep}`, \
+                                             the effect it implements",
+                                            h.name.name
+                                        ),
+                                    );
+                                }
+                            }
+                            None => self.validate_type(&p.ty),
+                        }
                     }
                     for field in &h.state {
                         self.validate_type(&field.ty);
@@ -882,7 +914,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
-        let (fn_effects, can_use) = self.check_effect_list(f);
+        let (mut fn_effects, can_use) = self.check_effect_list(f);
+        // [effect-handler-deps] A handler member body may use the effects
+        // its handler declares as constructor dependencies, exactly as if
+        // the member had declared them — which it may not
+        // ([effect-member-no-effects]): the dependency belongs to the
+        // implementation, so it is declared once on the handler.
+        for p in extra_params {
+            if let Some(dep) = self.handler_dep_effect(&p.ty) {
+                if !fn_effects.contains(&dep) {
+                    fn_effects.push(dep);
+                }
+            }
+        }
         if let Some(key) = self.own_fn {
             self.out.fn_effects.insert(key, fn_effects.clone());
         }
@@ -925,6 +969,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for_origin: None,
                     decl_span: p.name.span,
                     lambda_kept: false,
+                    is_handler_state: false,
                     place_narrows: Vec::new(),
                 },
             );
@@ -950,6 +995,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for_origin: None,
                     decl_span: field.name.span,
                     lambda_kept: false,
+                    is_handler_state: true,
                     place_narrows: Vec::new(),
                 },
             );
@@ -1086,20 +1132,47 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         let saved = self.enter_generics(&decl.generics);
-        let param_tys: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        // [effect-handler-deps] Split the constructor parameters: those of
+        // effect type are *dependencies* the compiler supplies from the
+        // enclosing scope, and are not written at the `use` site; the rest
+        // are ordinary arguments.
+        let deps: Vec<(usize, Ty)> = decl
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| self.handler_dep_effect(&p.ty).map(|d| (i, d)))
+            .collect();
+        let value_params: Vec<&Param> = decl
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !deps.iter().any(|(d, _)| d == i))
+            .map(|(_, p)| p)
+            .collect();
+        let param_tys: Vec<Ty> =
+            value_params.iter().map(|p| self.lower_type(&p.ty)).collect();
         let of_ty = self.lower_type(&decl.of);
         self.generics = saved;
         // [lsp-definition] the handler name points at its declaration.
         self.record_def_ref(id.span, &id.name);
 
-        let has_variadic = decl.params.iter().any(|p| p.variadic);
-        if !has_variadic && args.len() != decl.params.len() {
+        let has_variadic = value_params.iter().any(|p| p.variadic);
+        if !has_variadic && args.len() != value_params.len() {
+            let dep_note = if deps.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " (its {} effect dependenc{} come from the enclosing scope)",
+                    deps.len(),
+                    if deps.len() == 1 { "y" } else { "ies" }
+                )
+            };
             self.error(
                 span,
                 format!(
-                    "handler `{}` expects {} constructor argument(s), found {}",
+                    "handler `{}` expects {} constructor argument(s), found {}{dep_note}",
                     id.name,
-                    decl.params.len(),
+                    value_params.len(),
                     args.len()
                 ),
             );
@@ -1131,6 +1204,46 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!("a handler for `{concrete}` is already registered in this scope"),
             );
             return;
+        }
+        // [effect-handler-deps] Every dependency must already have a handler
+        // here: the registration is what wires them together, so this is the
+        // point where "who provides it" is decided. Resolved instances are
+        // recorded for the emitters, in declaration order.
+        let mut resolved_deps: Vec<Ty> = Vec::new();
+        for (_, dep) in &deps {
+            let want = substitute_vars(dep, &subst, &generic_set);
+            let found = self
+                .effect_env
+                .iter()
+                .find(|c| **c == want)
+                .cloned()
+                .or_else(|| {
+                    let compatible: Vec<&Ty> = self
+                        .effect_env
+                        .iter()
+                        .filter(|c| unify(&want, c, &mut HashMap::new()))
+                        .collect();
+                    match compatible.len() {
+                        1 => Some(compatible[0].clone()),
+                        _ => None,
+                    }
+                });
+            match found {
+                Some(instance) => resolved_deps.push(instance),
+                None => self.error(
+                    span,
+                    format!(
+                        "handler `{}` depends on effect `{want}`, which has no \
+                         handler in scope here: register one before it",
+                        id.name
+                    ),
+                ),
+            }
+        }
+        if !resolved_deps.is_empty() {
+            self.out
+                .use_deps
+                .insert(self.key(span), resolved_deps);
         }
         self.out.use_effects.insert(self.key(span), concrete.clone());
         self.effect_env.push(concrete);
@@ -1242,6 +1355,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for_origin,
                 decl_span: name.span,
                 lambda_kept: false,
+                is_handler_state: false,
                 place_narrows: Vec::new(),
             },
         );
@@ -2866,6 +2980,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.error_unresolved(r.span, format!("unknown {what} `{name}`{hint}"), &name);
     }
 
+    /// [effect-handler-deps] The effect a handler constructor parameter
+    /// declares as a *dependency*, or `None` when the parameter is ordinary
+    /// data. A dependency is a bare effect name (arity-validated here);
+    /// a *qualified* effect type falls through to [effect-not-data], since
+    /// qualifiers describe values and an effect is not one.
+    fn handler_dep_effect(&mut self, ty: &ast::Type) -> Option<Ty> {
+        let ast::Type::Named { qualifiers, base } = ty else {
+            return None;
+        };
+        if !qualifiers.is_empty() || !self.scope.effects.contains_key(base.name.name.as_str())
+        {
+            return None;
+        }
+        self.lower_effect_ref(base)
+    }
+
     // ================= qualifier validation =================
 
     /// [effect-not-data] An effect names a *capability*, not a type of
@@ -2876,10 +3006,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// can render it (Rust emits a bare trait, `E0782`).
     ///
     /// Handler *dependencies* — a handler constructor parameter of effect
-    /// type — are the deliberate exception this rule will grow (roadmap
-    /// E1, [rs-effect-fusion]); until the fusion emission exists they are
-    /// rejected here like any other data position, so nothing can reach a
-    /// backend that cannot emit it [backend-never-wrong].
+    /// type — are the one exception, handled before this runs
+    /// ([effect-handler-deps]).
     fn reject_effect_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
         if self.generics.contains(name) || !self.scope.effects.contains_key(name) {
@@ -3654,13 +3782,37 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     }
+                    // [effect-state-store] Assigning into a handler *state*
+                    // field is a **store**, not a binding: the field
+                    // outlives every member call, so the handler takes
+                    // ownership — exactly as a struct literal does. A
+                    // *link* here would outlive the call it was made in,
+                    // which Kotlin can represent (aliasing) and Rust
+                    // cannot; before this rule the Rust backend silently
+                    // cloned, and mutable data diverged observably between
+                    // the backends.
+                    let is_state = self
+                        .lookup(&id.name)
+                        .is_some_and(|var| var.is_handler_state);
+                    if is_state {
+                        self.fate_move(
+                            value,
+                            "store",
+                            "a handler state assignment",
+                            value.span(),
+                        );
+                    }
                     // Reassignment: the variable's old value is gone, so
                     // variables derived from it are poisoned
                     // [fate-poison]; the variable itself revives with
                     // fresh links to the new value's sources [fate-link].
                     // An assignment is a bind event: move-mode applies
                     // [fate-move-mode].
-                    let links = self.links_for_value(value, *span);
+                    let links = if is_state {
+                        Vec::new()
+                    } else {
+                        self.links_for_value(value, *span)
+                    };
                     let links = self.apply_binding_mode(&id.name, links);
                     let root = self
                         .lookup(&id.name)

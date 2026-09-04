@@ -55,6 +55,167 @@ implemented (std array functions; optionals rejected at operators and in
 interpolation), leaving `when` on non-identifier subjects and the wider
 operator-typing rules open.
 
+**E1 handler dependencies landed on both backends 2026-09-04.** A handler
+may now declare a dependency as a **constructor parameter of effect type**
+([effect-handler-deps]) — declared on the *handler*, per the user's
+interface-design objection to putting it on the effect. What the checker
+does: member bodies get the dependency's effect in their environment (so
+`ConsoleLogger.log` may call `println`), the `use` site resolves each
+dependency from the enclosing scope and reports one that is missing
+("register one before it"), dependencies are excluded from the constructor
+*argument* count (the compiler supplies them, so `use ConsoleLogger()`
+takes none), and a handler depending on the effect it implements is
+rejected outright. Resolved instances land in a new `Checked::use_deps`
+table.
+
+Kotlin emits it by **injection**: the dependency stays the `private val` it
+already was, member bodies resolve that effect to the *field* rather than a
+leading parameter (an `override` signature must match the interface), and
+the `use` site passes the handler from scope —
+`ConsoleLogger(console)` — with callers of the outer effect never
+mentioning it. Verified end to end with kotlinc.
+
+The Rust backend fuses instead (same session, see below): capturing the
+dependency in the handler is exactly B1's exclusivity trap (`E0499`) where
+Kotlin shares freely, so the handler keeps no reference and the fusion hands
+the dependency in per call ([rs-effect-fusion]).
+
+**Parity bug found and fixed 2026-09-04: handler state stores.** Chasing
+the last E1 item (validating handler bodies against their member contracts)
+turned up a *demonstrated* backend divergence, not just a missing check.
+This program was accepted with no errors and printed **2 on Kotlin, 1 on
+Rust**:
+
+```
+effect Sink {
+    fn keep(list: Mut List<Int>) -> [list: Mut] None    // promises it back
+    fn size_kept() -> [] Int
+}
+handler Bin of Sink {
+    held: Mut List<Int> = mutable_list()
+    fn keep(list: Mut List<Int>) -> [list: Mut] None { held = list }
+    fn size_kept() -> [] Int { return size(held) }
+}
+// caller: keep(xs); add(xs, 2); size_kept()
+```
+
+Two defects, both needed for the divergence. First, `held = list` was
+treated as a *fate link* rather than a store, so the link outlived the call
+that made it — Kotlin represents that (aliasing), Rust cannot, so it
+silently cloned mutable data, which the parity principle explicitly forbids
+as a strategy. Second, handler member bodies were **never validated**
+against their declared lists, because the deduction pass collected only
+`Item::Fn`; the contract said "kept" while the body moved.
+
+Fixed on both sides: a handler state field is now marked as such on its
+`LocalVar`, and assigning into one is a store in both the checker and the
+deduction walker ([effect-state-store]); and handler members are validated
+against their written lists ([deduce-infer]), outside the fixpoint, which is
+sound because members' *bodies* never feed other fns' contracts. The
+program above is now rejected at the member's own declaration ("deduction
+promises `list` back to the caller, but the body moves it"), and the
+honest version — the member declaring `-> []`, moving the list — prints 2
+on both backends.
+
+Known remaining gap, recorded in BACKEND_SPEC.rust.md under [rs-effects]:
+the Rust backend derives effect *member* parameter modes from the default
+kept rule rather than from the member's deductions, so a moved member
+parameter still emits as `&mut` plus a clone. That is sound — the checker
+consumed the caller's value, so nothing can observe the copy — but it is a
+missed optimization and the natural companion to the fusion work.
+
+**Dependency cycles need no check (verified 2026-09-04).** Chasing the
+prerequisite the fusion's soundness rests on — a DAG — turned up that the
+availability rule already provides it: a dependency must be registered
+*before* its dependent, so a cycle cannot be constructed in any order
+(tested both ways round; each order fails on the first `use`). One less
+pass to write, and the reason is worth remembering: an ordering requirement
+on registration is an acyclicity guarantee.
+
+**E1 is complete: the Rust fusion landed 2026-09-04.** Both backends now
+run handler dependencies to the same output. Rust builds one *fusion* per
+`use` scope which owns the registered handler, implements every effect in
+scope, and hands a dependent handler's member its dependency from a
+disjoint field borrow. The full emission — and the reasoning that each
+shape rests on — is under [rs-effect-fusion]; the parts worth carrying
+away, because they cost the most to re-derive:
+
+- **A fused fn parameter must be a Sized generic, not `dyn`.** A fn needing
+  `[Console, Logger]` takes `__fx: &mut __Fx` with `__Fx: Console + Logger`;
+  only a fn needing exactly one effect keeps `&mut dyn E`. The reason is
+  *subset forwarding*: a fn must be able to hand its fused value to a callee
+  needing fewer effects, and `&mut dyn Conj_A_B_C` → `&mut dyn Conj_A_B` is
+  not expressible — trait upcasting reaches supertraits only, and a
+  conjunction of two is not a supertrait of a conjunction of three. The
+  originally recorded plan preferred the `dyn` form for code size; it does
+  not work, and this was found by compiling it.
+- **Nested scopes chain, they do not rebuild flat** (revises the
+  2026-09-04 decision, which was recorded before implementation). Flat
+  rebuilding over the outer scope's *handler locals* fails twice: effects
+  inherited from a fn's parameter are not locals at all (there is only one
+  fused value), and an inner fusion re-borrowing the same locals makes the
+  **outer** fusion unusable after the inner block — the very case nesting
+  exists to allow. Chaining through a single
+  `__outer: &'a mut dyn <E | Conj>` field keeps what the decision wanted
+  (dependency threading is identical at every depth) and makes lexical
+  nesting equal borrow nesting. It also yields a small theorem: a
+  dependency is *always* in `__outer` and never a sibling field, because it
+  had to be registered first — the acyclicity guarantee doing a second job.
+- **`dyn` in that one field is load-bearing**: it keeps monomorphization
+  finite when a recursive fn registers a handler and recurses (the fusion
+  type maps to itself instead of nesting forever).
+- **The fusion is generic over the handler it owns** (`__H`), which is what
+  lets a *generic* handler be fused without re-deriving its type arguments
+  from the effect instance.
+- **Dependent handler bodies move into a generated `__Impl_H` trait**
+  (`&mut self` kept, so `self.state` still works). It is only ever a bound,
+  never `dyn`, so its methods may be generic — which is how a two-dependency
+  member gets a Sized fused value, via a per-handler `__Deps_H` adapter over
+  the provider.
+- **Two new hazards appear only under the fusion**, both because one value
+  now carries every effect: member calls need UFCS
+  (`Random::<i32>::next_random(recv)`) or they are ambiguous, and an argument
+  that itself reaches the fused value must be hoisted into a temporary or
+  the call borrows it twice (`E0499`).
+
+The gate is program-wide and narrow: a program where no handler declares a
+dependency keeps the per-effect `&mut dyn` parameters untouched, which is
+why none of the existing goldens or e2e tests moved.
+
+**Two pre-existing defects surfaced while probing the fusion** (both
+reproduced with the fusion *off*, so neither is caused by it; both are
+loud, so neither violates [backend-never-wrong] — but both are worth their
+own slice):
+
+- **Kotlin: `let xs = mutable_list()` does not compile.** It emits
+  `val xs = mutableListOf()` and kotlinc cannot infer `T` from a later
+  `add(xs, 1)`, where Rust infers it fine — so this program builds on one
+  backend and not the other. Minimal repro: `use StdOutConsole` +
+  `let xs = mutable_list()` + `add(xs, 1)` + `println("${size(xs)}")`. The
+  fix is to render the checker's inferred element type as an explicit type
+  argument (`mutableListOf<Int>()`), which the checker already knows.
+- **Two effects cannot share a member name.** `Symbols::effect_of_fn` maps
+  a member name to *one* effect, so declaring `emit` on both `Logger` and
+  `Metrics` resolves every `emit` call to whichever was collected last
+  (`no handler for effect Metrics<Logger>`), and there is no syntax to
+  disambiguate — `emit<Logger>(…)` parses as *member* type arguments, not as
+  an effect selection. Both backends fail identically. Deciding this needs a
+  language call: reject the collision at declaration ([mod-collision]'s
+  reasoning), or add a disambiguation form.
+
+Three cuts remain inside the fusion, all reported
+([backend-never-wrong]). Two are about type arguments the fusion does not
+derive — a dependent handler using its own generic parameters in a member
+signature, and a `use` whose effect instance is still generic. The third is
+structural and the only program shape the fusion *loses* to Kotlin: a
+**function value that uses an effect, passed to a callee that needs one
+too**. A closure keeps the borrow it captured, so it overlaps the call's own
+borrow of the same fused value, and argument hoisting — which rescues every
+other case — cannot separate them. Lifting it means passing the fused value
+*into* the closure (fn-type contracts carrying effects) instead of
+capturing it. Kotlin accepts all three (objects alias, generics erase), so
+each is a live divergence, documented under [rs-effect-fusion].
+
 **E1 prerequisite landed 2026-09-04: effects and handlers are not data.**
 The first buildable slice of the effects arc, and a live
 [backend-never-wrong] violation on its own: an effect type in a data
@@ -78,7 +239,8 @@ dependencies are its constructor parameters of effect type (already
 parseable today); one *fusion* per `use` scope holds the handlers and
 hides dependencies by passing them from its own fields — in Rust via
 disjoint field borrows, which is what lets a *shared* dependency work at
-all; nested scopes rebuild flat; facets are Kotlin-only, since erasure
+all; nested scopes rebuild flat on Kotlin and chain on Rust (revised
+during implementation — see E1a); facets are Kotlin-only, since erasure
 forbids one class implementing `Random<Int>` and `Random<Double>`.
 Mechanism and rationale: [rs-effect-fusion], [kt-effect-fusion]; six
 explored alternatives and why they failed: E1a. Consequences worth
@@ -363,7 +525,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 351 tests; includes twenty-six kotlinc and twenty-two rustc
+cargo test                  # 359 tests; includes twenty-seven kotlinc and twenty-two rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1553,12 +1715,12 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 
 ## Roadmap: effects
 
-### E1 — Effect-to-effect dependencies (user decisions 2026-09-03/04)
+### E1 — Effect-to-effect dependencies (✅ complete 2026-09-04)
 
-A handler may depend on another effect. Today
-[effect-member-no-effects] forbids members declaring effects at all,
-because dispatch goes through the handler instance and the call site has
-no way to thread extra handler arguments.
+A handler may depend on another effect. [effect-member-no-effects] still
+forbids *members* declaring effects, because dispatch goes through the
+handler instance and the call site has no way to thread extra handler
+arguments; a handler's dependency is declared on the handler instead.
 
 **Where the dependency is declared changed during design** (user decision
 2026-09-04). The first sketch put it on the *effect* (every handler
@@ -1575,20 +1737,27 @@ handler ConsoleLogger(console: Console) of Logger {
 ```
 
 This already parses and type-checks (handler ctor params exist; only the
-Rust emission of handler-typed values is broken — see the prerequisites in
-E1a), so the declaration side of E1 needs almost no new syntax. What it
-needs is: an effect-typed ctor param resolved from the ambient `use` set,
+Rust emission of handler-typed values was broken — see the prerequisites in
+E1a), so the declaration side of E1 needed almost no new syntax. What it
+needed was: an effect-typed ctor param resolved from the ambient `use` set,
 those effects placed in the member bodies' effect environment, and the
-fusion emission ([rs-effect-fusion] / [kt-effect-fusion]).
+fusion emission ([rs-effect-fusion] / [kt-effect-fusion]) — all of which
+landed 2026-09-04, on both backends, verified by running the same programs
+under kotlinc and rustc to the same stdout.
 
 - The mirroring principle still applies where the compiler cannot see an
   implementation: a handler must implement every member of its effect, and
   an `external handler`'s templates are trusted exactly like a `define
   fn`'s — declaration is the contract, no inference.
-- Sequencing note: effect *member* deduction contracts (declared on the
-  member, applied at call sites) already landed with [decl-explicit], and
-  the deduce pass now reads them too ([call-resolve]). Validating each
-  *handler body* against its member's contract remains E1 work.
+- Effect *member* deduction contracts (declared on the member, applied at
+  call sites) landed with [decl-explicit], the deduce pass reads them
+  ([call-resolve]), and handler bodies are validated against them
+  ([deduce-infer], [effect-state-store]).
+- Three cuts remain on the Rust side, all reported: a dependent handler
+  using its own generic parameters in a member signature, a `use` whose
+  effect instance is still generic, and a fn *value* that uses an effect
+  passed to a callee that needs one ([rs-effect-fusion]). Kotlin accepts
+  all three.
 
 ### E1a — Ownership strategy: explored options (✅ settled 2026-09-04)
 
@@ -1689,9 +1858,10 @@ binding it is reachable under — was rejected because it duplicates
 arbitrarily large functions. B9 keeps per-handler dependencies without any
 duplication of user code.
 
-#### B9 — handler fusion ✅ chosen (user decisions 2026-09-03/04)
+#### B9 — handler fusion ✅ chosen (user decisions 2026-09-03/04), shipped 2026-09-04
 
-The strategy of record. Full mechanism, with the borrow reasoning and the
+The strategy of record, now implemented on both backends. Full mechanism,
+with the borrow reasoning and the
 verified shapes, is in **BACKEND_SPEC.rust.md [rs-effect-fusion]** (the
 constraint is Rust's) and **BACKEND_SPEC.kotlin.md [kt-effect-fusion]**.
 In brief:
@@ -1700,20 +1870,31 @@ In brief:
   emitted **once** no matter which handlers flow in.
 - A handler's dependencies are its **constructor parameters of effect
   type** — `handler ConsoleLogger(console: Console) of Logger`, which
-  already parses and type-checks today, so E1 needs almost no new
-  declaration syntax. Handler bodies take those as parameters
-  (`fn log(console: Console, m: Str)`).
+  already parses and type-checks today, so E1 needed almost no new
+  declaration syntax. The dependency reaches the member body as an extra
+  parameter — on Rust through a generated `__Impl_H` trait carrying the
+  bodies, since `impl Logger for H` has no room for it.
 - One **fusion** per `use` scope holds the registered handlers and exposes
   each member, hiding dependencies by passing them from its own fields.
   In Rust the forwarding impl destructures `&mut self` into **disjoint
   field borrows**, which is what makes a *shared* dependency work — every
   earlier option needed two `&mut` to the same place.
 - A fn needing several effects takes **one fusion value**: a multi-bounded
-  generic in Kotlin, a generic bound or a blanket-impl conjunction trait
-  in Rust.
+  generic on both backends. Rust cannot use `dyn` here — a `dyn` fused value
+  cannot be forwarded to a callee needing a *subset* of the effects — so the
+  blanket-impl conjunction trait survives only as the type of the fusion's
+  provider field ([rs-effect-fusion]).
 - Nested `use` scopes **rebuild flat** (the inner fusion holds the outer
   scope's *handlers*, not the outer *fusion*): depth-independent
   threading, no forwarding hops, resolution explicit in the construction.
+  **Revised at implementation time on Rust** (2026-09-04): flatness is not
+  achievable there — effects inherited from a fn's fused *parameter* are not
+  handler locals, and an inner fusion re-borrowing the outer scope's locals
+  makes the outer fusion unusable after the inner block. Rust chains through
+  one `__outer` field instead, which preserves the property this bullet was
+  really about (threading is identical at every depth) at the cost of one
+  forwarding hop per level; see [rs-effect-fusion]. Kotlin still rebuilds
+  flat [kt-effect-fusion].
 - **Facets are Kotlin-only**: erasure forbids one class implementing
   `Random<Int>` and `Random<Double>`, so Kotlin generates a non-generic
   facet interface per instance with the type argument in the member name.
@@ -2522,9 +2703,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 351)
+## Test inventory (all green: 372)
 
-- `salvo-core`: 104 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 110 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -2532,13 +2713,16 @@ spec rule; consolidated here for findability):
   `narrowable` accepting field chains only) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 16 deduction
+  skipped with the root exempt) + 19 deduction
   tests (`tests/deduce_tests.rs`: exhaustive lists dropping *undeclared*
   qualifiers and delta lists passing them through, mutating bodies
   requiring the exhaustive form, `Nothing` meaning moved
   [deduce-syntax], move inference, call-graph fixpoint
   transitivity, effect-member contracts reaching inference [call-resolve]
-  and a keeping member still borrowing, written-list body validation,
+  and a keeping member still borrowing, handler *state* stores counting as
+  moves so a keeping member that stores its parameter is rejected while a
+  moving one is accepted [effect-state-store], written-list body
+  validation,
   written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
   reads through the alias are free, `copy` severs [fate-link] — and
@@ -2607,7 +2791,11 @@ spec rule; consolidated here for findability):
   positions with the diagnostic naming `use`, effect lists and `of` clauses
   still accepting effects, a handler constructor rejected as a value while
   `use` still registers it, and a handler dependency — E1's future feature
-  — rejected until the fusion emission exists).
+  accepted with its effect available in the member body, a handler
+  depending on its own effect rejected, and dependencies resolved from the
+  `use` scope — absent one, an error at the registration; and a mutual
+  dependency unregisterable in *either* order, so cycles need no check
+  [effect-handler-deps]).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -2754,7 +2942,7 @@ spec rule; consolidated here for findability):
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
   `provenance` must precede `qualifier`).
-- `salvo-backend-kotlin`: 91 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 96 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -2807,15 +2995,22 @@ spec rule; consolidated here for findability):
   handler registered under the canonical type
   [effect-disambiguation], and the std array functions with the
   LANGUAGE.md `CyclicRandom` handler [type-array]);
-  and twenty-three kotlinc compile+run tests
+  handler-dependency assertions
+  ([effect-handler-deps]: the dependency as a constructor field, the
+  member signature still matching the interface, the `use` site supplying
+  it, callers not mentioning it);
+  and twenty-six kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
   resource demo, and the L7a–L7d linear-generics, `Once`,
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
-  [fate-move-mode] [fate-link] [linear-static] [once-fn]).
-- `salvo-backend-rust`: 59 - golden snapshots of the same five demos
+  [fate-move-mode] [fate-link] [linear-static] [once-fn];
+  the last four are the handler-dependency programs the Rust fusion runs —
+  the same sources, the same asserted stdout, which is what parity means
+  here [effect-handler-deps] [rs-effect-fusion]).
+- `salvo-backend-rust`: 69 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -2849,7 +3044,7 @@ spec rule; consolidated here for findability):
   ambiguity error [backend-never-wrong], and an aliased effect type
   resolving to the handler registered under the canonical type
   [effect-disambiguation], and the std array functions with the
-  LANGUAGE.md `CyclicRandom` handler [type-array]); and nineteen rustc
+  LANGUAGE.md `CyclicRandom` handler [type-array]); and twenty-four rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
@@ -2861,13 +3056,66 @@ spec rule; consolidated here for findability):
   [readonly-return], and the L7d contracts demo, with
   `fn_type_contracts_emit_modes` asserting `&mut impl FnMut`
   signatures with contract-mode argument types and the named-fn
-  adapter [fn-contract]).
+  adapter [fn-contract]);
+  fusion assertions ([rs-effect-fusion]: the dependency absent from the
+  struct and from `new`, member bodies in the generated `__Impl_H` trait,
+  the fusion chaining through `__outer` and owning the handler, the
+  disjoint-field-borrow destructuring, a generic fused parameter forwarded
+  to a smaller callee, the two-dependency `__Deps_H` adapter, a
+  conjunction trait with its blanket impl, UFCS dispatch for a generic
+  effect, nested effect calls hoisted — plus
+  `programs_without_handler_dependencies_do_not_fuse`, which pins the
+  gate: no dependency anywhere means the per-effect `&mut dyn` parameters
+  are untouched; and `generic_dependent_handler_is_a_codegen_error`
+  [backend-never-wrong]); and five further rustc compile+run tests for
+  the fusion (the handler-deps program Kotlin also runs, a stress program
+  with handler state behind a dependency, a two-dependency handler,
+  nested `use` scopes with the outer one reused, a `use` inside a fn that
+  already has effects and inside a loop body, a dependency chain, a
+  qualifier's `qualifies` effects, the `use` site in a different module
+  from the handler, constructor parameters mixing a dependency with plain
+  data, a dependent member calling a fn that does its own `use`, an
+  effect-using lambda passed to an effect-free higher-order fn, three
+  effects in one signature, a `use` in a `while` body, and an effect member
+  taking a `Mut` parameter); and
+  `effect_using_fn_value_at_an_effectful_call_is_a_codegen_error`
+  [backend-never-wrong].
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A design recorded before implementation is a hypothesis.** The fusion
+  strategy was written up in detail, with rustc-verified snippets, *before*
+  being built — and two of its load-bearing choices turned out to be wrong
+  in ways the snippets could not show, because a snippet exercises one
+  shape and a program exercises their composition. `dyn` fused parameters
+  cannot forward to a callee needing a *subset* of the effects (trait
+  upcasting reaches supertraits only), and flat rebuilding over the outer
+  scope's handler locals makes the *outer* fusion unusable after an inner
+  block. Both were found within an hour of writing the whole shape out as
+  one compiling program. The write-up still paid for itself many times
+  over: the reasoning it recorded is what made the fixes obvious. Record
+  the design *and* expect to revise it — and prototype the composition,
+  not the pieces.
+- **Under a fusion, "one value with every capability" creates aliasing
+  where there was none.** Two habits that were safe with one parameter per
+  effect become `E0499`: an effect call inside another call's arguments
+  (`fx.a(&fx.b())`), and a method call that is ambiguous because two
+  effects in scope share a member name. The fixes are mechanical (hoist
+  arguments into a temporary; dispatch by UFCS), but they are only
+  *discoverable* by compiling a program that does both — a single-effect
+  test program never trips either.
+- **Environment entries that get rewritten cannot be restored by
+  truncation.** The emitter's effect environment was scoped by
+  `truncate(depth)`, which is correct only while entries are immutable. The
+  fusion *rewrites* outer entries (every effect now threads through the
+  inner fusion), so leaving a block had to restore a saved clone —
+  otherwise the outer scope kept pointing at a fusion local that had gone
+  out of scope. Whenever a scope-restore mechanism is a depth counter, ask
+  whether anything mutates the entries below the mark.
 
 - **"Loud" is not the same as "an error".** The interop leniency did not
   emit *wrong* code — kotlinc and rustc both rejected what it produced —

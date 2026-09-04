@@ -105,7 +105,9 @@ fn main() [use] {
   `yield`-based iterator functions.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible
-  in signatures.
+  in signatures. A handler may itself depend on another effect (declared as
+  a constructor parameter of effect type); the compiler supplies it from
+  the enclosing scope, so callers never mention it.
 - **Deductions**: `-> [list: Mut] T` annotations describing what a function
   does to its parameters — the ownership contract for the Rust backend.
 - **Interop**: `external`/`define` blocks map std functions onto native code

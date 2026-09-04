@@ -328,6 +328,69 @@ fn caller<T>(list: A B List<T>) [Logger] -> Int {{
     );
 }
 
+// [effect-state-store] [deduce-infer] Storing a value into a handler *state*
+// field is a move — the field outlives every member call — so a member that
+// promises its parameter back while storing it is rejected. This was a real
+// parity divergence: the member declared `[list: Mut]`, Kotlin aliased the
+// list into the state (later caller mutations visible) while Rust cloned it
+// (invisible), and the same program printed 2 and 1. Handler member bodies
+// were never validated against their contracts, because the deduction pass
+// only collected top-level fns.
+#[test]
+fn handler_state_stores_are_moves_and_members_are_validated() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+external fn fresh() [] -> [] List<Int>
+
+effect Sink {{
+    fn keep(list: A List<Int>) -> [list: A] None
+}}
+
+handler Bin of Sink {{
+    held: List<Int> = fresh()
+
+    fn keep(list: A List<Int>) -> [list: A] None {{
+        held = list
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m == "deduction promises `list` back to the caller, but the body moves it"),
+        "got {messages:?}"
+    );
+}
+
+// [effect-state-store] A member that declares the parameter *moved* may store
+// it: that is the honest contract, and callers then give up ownership.
+#[test]
+fn handler_state_stores_are_legal_when_the_contract_moves() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+external fn fresh() [] -> [] List<Int>
+
+effect Sink {{
+    fn keep(list: A List<Int>) -> [] None
+}}
+
+handler Bin of Sink {{
+    held: List<Int> = fresh()
+
+    fn keep(list: A List<Int>) -> [] None {{
+        held = list
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(messages.is_empty(), "got {messages:?}");
+}
+
 // [deduce-syntax] A written list promising a parameter back that the body
 // moves is an error; so is promising a qualifier the body may remove.
 #[test]

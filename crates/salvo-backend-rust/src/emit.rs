@@ -99,6 +99,10 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
+    // [rs-effect-fusion] The fusion switch is program-wide: a fn's
+    // signature cannot depend on which of its callers happens to hold a
+    // fusion, so either every effect site fuses or none does.
+    let fusion = program_needs_fusion(&symbols);
     for (file_idx, unit) in program.units().enumerate() {
         if unit.file.kind != SourceKind::Language
             || !reachable.contains(&unit.file.module)
@@ -114,6 +118,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
             root_module,
         );
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        emitter.fusion = fusion;
         emitter.generated_imports = generated;
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
@@ -415,6 +420,35 @@ fn module_produces_code(module: &Module) -> bool {
     })
 }
 
+/// [rs-effect-fusion] Does any handler in the program declare an effect
+/// dependency (a constructor parameter of effect type,
+/// [effect-handler-deps])? If so the whole program switches to the fusion
+/// emission; otherwise effects thread as one `&mut dyn` parameter each
+/// [rs-effects] and nothing below this line runs.
+fn program_needs_fusion(symbols: &Symbols<'_>) -> bool {
+    symbols
+        .handlers
+        .values()
+        .any(|h| !handler_dep_params(h, symbols).is_empty())
+}
+
+/// The constructor parameters of `h` that are effect dependencies, in
+/// declaration order [effect-handler-deps]. Matches the checker's rule
+/// exactly — a *bare* effect name; a qualified or optional one is data, and
+/// the checker has already rejected it ([effect-not-data]) — so the fusion
+/// never has to render a dependency it cannot name.
+fn handler_dep_params<'a>(h: &'a HandlerDecl, symbols: &Symbols<'_>) -> Vec<&'a Param> {
+    h.params
+        .iter()
+        .filter(|p| match &p.ty {
+            Type::Named { qualifiers, base } => {
+                qualifiers.is_empty() && symbols.effects.contains_key(base.name.name.as_str())
+            }
+            _ => false,
+        })
+        .collect()
+}
+
 /// Rust reserved words that need escaping as identifiers.
 const RUST_KEYWORDS: &[&str] = &[
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue",
@@ -515,6 +549,25 @@ struct Emitter<'p> {
     derived_return_fn: bool,
     taken_names: HashSet<String>,
     generated_imports: BTreeSet<String>,
+    /// [rs-effect-fusion] Program-wide: some handler declares an effect
+    /// dependency, so every effect site threads one *fused* value.
+    fusion: bool,
+    /// Items the fusion generates for this file (conjunction traits,
+    /// fusion structs and their forwarding impls, dependency adapters),
+    /// appended after the module body [rs-effect-fusion].
+    generated_items: Vec<String>,
+    /// Conjunction traits already generated in this file, by name, with
+    /// their supertrait list (to catch a name claimed by two effect sets).
+    conj_traits: BTreeMap<String, String>,
+    /// Fusion-struct counter for this file.
+    fusion_id: usize,
+    /// Hoisted-temporary counter for the current fn [rs-effect-fusion].
+    hoist_id: usize,
+    /// The fn currently being emitted, for readable generated names.
+    current_fn: String,
+    /// Generic-parameter substitutions while rendering a forwarding impl
+    /// for an *instantiated* effect (`Random<T>` members at `Random<i32>`).
+    type_subst: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -553,6 +606,13 @@ impl<'p> Emitter<'p> {
             derived_return_fn: false,
             taken_names: HashSet::new(),
             generated_imports: BTreeSet::new(),
+            fusion: false,
+            generated_items: Vec::new(),
+            conj_traits: BTreeMap::new(),
+            fusion_id: 0,
+            hoist_id: 0,
+            current_fn: String::new(),
+            type_subst: HashMap::new(),
         }
     }
 
@@ -629,6 +689,12 @@ impl<'p> Emitter<'p> {
             }
         }
         out.push_str(&body);
+        // [rs-effect-fusion] Generated items go last: they are plain items
+        // and Rust has no ordering requirement, so nothing above needs to
+        // know they exist.
+        for item in std::mem::take(&mut self.generated_items) {
+            out.push_str(&item);
+        }
         out
     }
 
@@ -696,15 +762,39 @@ impl<'p> Emitter<'p> {
         if h.backing == Some(BackingMod::External) {
             return self.emit_define_handler(h);
         }
+        // [effect-handler-deps] A dependency is a constructor parameter of
+        // effect type. The compiler supplies it, so it is neither a field
+        // nor a `new` parameter: the member bodies receive it as a fused
+        // value from the `use` site's fusion [rs-effect-fusion].
+        let deps: Vec<Param> = handler_dep_params(h, self.symbols)
+            .into_iter()
+            .cloned()
+            .collect();
+        if !deps.is_empty() && !self.fusion {
+            // The gate is *exactly* "some handler declares a dependency",
+            // so this is an internal inconsistency, not a language cut.
+            self.error(format!(
+                "internal: handler `{}` declares effect dependencies but the \
+                 fusion emission is off",
+                h.name.name
+            ));
+            return String::new();
+        }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
         let generic_args = self.emit_generic_args_plain(&h.generics);
         let of = self.emit_type(&h.of);
         let name = rs_ident(&h.name.name);
+        let own: Vec<Param> = h
+            .params
+            .iter()
+            .filter(|p| !deps.iter().any(|d| d.name.name == p.name.name))
+            .cloned()
+            .collect();
 
-        // Struct: ctor params + state fields.
+        // Struct: own ctor params + state fields.
         let mut out = format!("\npub struct {name}{generics} {{\n");
-        for p in &h.params {
+        for p in &own {
             let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
         }
@@ -717,8 +807,7 @@ impl<'p> Emitter<'p> {
         // Constructor: `new` takes ctor params owned (a `use` argument is
         // a move [deduce-infer]) and initializes state from defaults.
         out.push_str(&format!("\nimpl{generics} {name}{generic_args} {{\n"));
-        let ctor_params: Vec<String> = h
-            .params
+        let ctor_params: Vec<String> = own
             .iter()
             .map(|p| {
                 format!(
@@ -732,7 +821,7 @@ impl<'p> Emitter<'p> {
             "    pub fn new({}) -> Self {{\n        Self {{\n",
             ctor_params.join(", ")
         ));
-        for p in &h.params {
+        for p in &own {
             out.push_str(&format!("            {},\n", rs_ident(&p.name.name)));
         }
         for field in &h.state {
@@ -753,14 +842,191 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("        }\n    }\n}\n");
 
-        // Trait impl with the member bodies.
-        out.push_str(&format!("\nimpl{generics} {of} for {name}{generic_args} {{\n"));
-        for f in &h.fns {
-            out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+        if deps.is_empty() {
+            // Trait impl with the member bodies.
+            out.push_str(&format!("\nimpl{generics} {of} for {name}{generic_args} {{\n"));
+            for f in &h.fns {
+                out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+            }
+            out.push_str("}\n");
+        } else {
+            out.push_str(&self.emit_dependent_members(h, &deps));
         }
-        out.push_str("}\n");
         self.generics = saved;
         out
+    }
+
+    /// [rs-effect-fusion] The member bodies of a *dependent* handler. They
+    /// cannot live in `impl Effect for H` — the trait signature has no room
+    /// for the dependencies — so they move into a generated
+    /// `trait __Impl_H` whose methods take the dependencies as one fused
+    /// value. `&mut self` is kept, so `self.state` still works.
+    ///
+    /// A single dependency travels as `&mut dyn D`; two or more need a
+    /// Sized generic (`__Fx: D1 + D2`), because a `dyn` value cannot
+    /// satisfy a Sized bound and a `?Sized` one could not be narrowed
+    /// again further down. The `__Deps_H` adapter is what makes such a
+    /// value out of the fusion's single provider field.
+    fn emit_dependent_members(&mut self, h: &HandlerDecl, deps: &[Param]) -> String {
+        let name = rs_ident(&h.name.name);
+        let generics = self.emit_generic_params(&h.generics);
+        let generic_args = self.emit_generic_args_plain(&h.generics);
+        let mut dep_effects: Vec<(String, Vec<String>)> = Vec::new();
+        for p in deps {
+            if let Some(parts) = self.named_type_parts(&p.ty) {
+                dep_effects.push(parts);
+            }
+        }
+        let trait_name = format!("__Impl_{name}");
+        let mut sigs = String::new();
+        for f in &h.fns {
+            sigs.push_str(&self.emit_fn_inner(f, FnStyle::DepMemberSig(h, deps), 1));
+        }
+        // The generated trait is *not* generic: the fusion owns the handler
+        // behind an opaque `__H` and never derives its type arguments, so it
+        // could not supply one. A member signature or dependency that names
+        // the handler's own generics is therefore a reported cut, not a
+        // mis-emission [backend-never-wrong].
+        for g in &h.generics {
+            if mentions_ident(&sigs, &g.name) {
+                self.error(format!(
+                    "handler `{}` declares effect dependencies and uses its own \
+                     generic parameters (`{}`) in a member signature — the rust \
+                     backend cannot fuse that yet",
+                    h.name.name, g.name
+                ));
+                return String::new();
+            }
+        }
+        let mut out = String::new();
+        if dep_effects.len() >= 2 {
+            out.push_str(&self.emit_deps_adapter(&name, &dep_effects));
+        }
+        out.push_str(&format!("\npub trait {trait_name} {{\n{sigs}}}\n"));
+        out.push_str(&format!(
+            "\nimpl{generics} {trait_name} for {name}{generic_args} {{\n"
+        ));
+        for f in &h.fns {
+            out.push_str(&self.emit_fn_inner(f, FnStyle::DepMember(h, deps), 1));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// [rs-effect-fusion] `__Deps_H`: a Sized view over one provider that
+    /// implements every dependency of `H`, so a multi-dependency member can
+    /// take a single Sized fused value.
+    fn emit_deps_adapter(&mut self, handler: &str, deps: &[(String, Vec<String>)]) -> String {
+        let name = format!("__Deps_{handler}");
+        let mut out = format!(
+            "\npub struct {name}<'a, __P: ?Sized> {{\n    __p: &'a mut __P,\n}}\n"
+        );
+        for (base, args) in deps {
+            let bound = trait_path(base, args);
+            out.push_str(&self.emit_forward_impl(
+                &format!("<'a, __P: {bound} + ?Sized>"),
+                &format!("{name}<'a, __P>"),
+                base,
+                args,
+                &Forward::Provider,
+            ));
+        }
+        out
+    }
+
+    /// [rs-effect-fusion] `impl Effect for <fusion or adapter>`: every
+    /// member forwards, with the effect's own type parameters substituted
+    /// by the instance's arguments.
+    fn emit_forward_impl(
+        &mut self,
+        impl_generics: &str,
+        self_ty: &str,
+        effect_name: &str,
+        effect_args: &[String],
+        forward: &Forward,
+    ) -> String {
+        let Some(decl) = self.symbols.effects.get(effect_name).copied() else {
+            self.error(format!(
+                "internal: no effect `{effect_name}` to forward from a fusion"
+            ));
+            return String::new();
+        };
+        let saved_subst = std::mem::take(&mut self.type_subst);
+        for (g, arg) in decl.generics.iter().zip(effect_args) {
+            self.type_subst.insert(g.name.clone(), arg.clone());
+        }
+        let saved_generics = self.enter_generics(&decl.generics);
+        let path = trait_path(effect_name, effect_args);
+        let mut out = format!(
+            "\nimpl{impl_generics} {} for {self_ty} {{\n",
+            trait_type(effect_name, effect_args)
+        );
+        for f in &decl.fns {
+            if !f.generics.is_empty() {
+                continue; // already reported by `emit_effect`
+            }
+            let params = self.emit_member_param_list(&f.params);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let member = rs_ident(&f.name.name);
+            let arg_names: Vec<String> = f
+                .params
+                .iter()
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            let mut body = String::new();
+            let recv = match forward {
+                Forward::Outer => "&mut *self.__outer".to_string(),
+                Forward::Handler => "&mut self.__h".to_string(),
+                Forward::Provider => "&mut *self.__p".to_string(),
+                Forward::Dependent { trait_name, deps } => {
+                    body.push_str("        let Self { __outer, __h } = self;\n");
+                    if *deps >= 2 {
+                        body.push_str(&format!(
+                            "        let mut __deps = __Deps_{}{{ __p: &mut **__outer }};\n",
+                            trait_name.trim_start_matches("__Impl_")
+                        ));
+                    }
+                    let dep_arg = if *deps >= 2 {
+                        "&mut __deps".to_string()
+                    } else {
+                        "&mut **__outer".to_string()
+                    };
+                    let mut all = vec!["__h".to_string(), dep_arg];
+                    all.extend(arg_names.iter().cloned());
+                    body.push_str(&format!(
+                        "        {trait_name}::{member}({})\n",
+                        all.join(", ")
+                    ));
+                    String::new()
+                }
+            };
+            if body.is_empty() {
+                let mut all = vec![recv];
+                all.extend(arg_names);
+                body = format!("        {path}::{member}({})\n", all.join(", "));
+            }
+            out.push_str(&format!(
+                "    fn {member}(&mut self{params}){ret} {{\n{body}    }}\n"
+            ));
+        }
+        out.push_str("}\n");
+        self.type_subst = saved_subst;
+        self.generics = saved_generics;
+        out
+    }
+
+    /// The base name and rendered type arguments of a named type
+    /// (`Random<Int>` -> `("Random", ["i32"])`).
+    fn named_type_parts(&mut self, ty: &Type) -> Option<(String, Vec<String>)> {
+        match ty {
+            Type::Named { base, .. } => {
+                let name = base.name.name.clone();
+                let args: Vec<Type> = base.args.clone();
+                let rendered = args.iter().map(|a| self.emit_type(a)).collect();
+                Some((name, rendered))
+            }
+            _ => None,
+        }
     }
 
     /// An `external handler` implemented by `define handler` templates
@@ -955,10 +1221,23 @@ impl<'p> Emitter<'p> {
         let top_level = matches!(style, FnStyle::TopLevel);
         let is_main = top_level && f.name.name == "main";
         let fn_key = if top_level { self.key_of_fn(f) } else { None };
+        let sig_only = matches!(style, FnStyle::DepMemberSig(..));
+        let saved_fn = std::mem::replace(&mut self.current_fn, f.name.name.clone());
+        let saved_hoist = std::mem::replace(&mut self.hoist_id, 0);
 
-        // Handler members see ctor params and state as `self.` fields.
-        if let FnStyle::HandlerMember(h) = style {
+        // Handler members see ctor params and state as `self.` fields —
+        // except a dependency, which is not a field at all under the fusion
+        // [rs-effect-fusion]: it arrives as the fused parameter.
+        let handler_of_style = match style {
+            FnStyle::HandlerMember(h) => Some((h, &[] as &[Param])),
+            FnStyle::DepMember(h, deps) | FnStyle::DepMemberSig(h, deps) => Some((h, deps)),
+            _ => None,
+        };
+        if let Some((h, deps)) = handler_of_style {
             for p in &h.params {
+                if deps.iter().any(|d| d.name.name == p.name.name) {
+                    continue;
+                }
                 self.bindings.insert(p.name.name.clone(), BindKind::SelfField);
             }
             for field in &h.state {
@@ -967,52 +1246,104 @@ impl<'p> Emitter<'p> {
             }
         }
 
-        let generics = self.emit_generic_params(&f.generics);
+        let mut generic_parts: Vec<String> = f
+            .generics
+            .iter()
+            .map(|g| format!("{}: Clone", g.name))
+            .collect();
         let mut params: Vec<String> = Vec::new();
-        if matches!(style, FnStyle::HandlerMember(_)) {
+        if handler_of_style.is_some() {
             params.push("&mut self".to_string());
         }
-        // Effect dependencies become leading `&mut dyn` parameters
-        // [rs-effects], sourced from the checker's lowered effect list
-        // when available (checker-`Ty` keys; the AST rendering is the
-        // unchecked fallback).
-        if !is_main {
+        // Effect dependencies become leading parameters [rs-effects],
+        // sourced from the checker's lowered effect list when available
+        // (checker-`Ty` keys; the AST rendering is the unchecked fallback).
+        // Under the fusion they collapse into *one* value [rs-effect-fusion].
+        if let Some((_, deps)) = handler_of_style.filter(|(_, d)| !d.is_empty()) {
+            let mut dep_effects: Vec<(String, Vec<String>)> = Vec::new();
+            for p in deps {
+                if let Some(parts) = self.named_type_parts(&p.ty) {
+                    dep_effects.push(parts);
+                }
+            }
+            let bounds: Vec<String> = dep_effects
+                .iter()
+                .map(|(b, a)| trait_type(b, a))
+                .collect();
+            let var = self.unique_name("__fx".to_string());
+            let param_ty = if bounds.len() == 1 {
+                format!("&mut dyn {}", bounds[0])
+            } else {
+                generic_parts.push(format!("__Fx: {}", bounds.join(" + ")));
+                "&mut __Fx".to_string()
+            };
+            for bound in bounds {
+                self.effect_env.push(EffectEntry {
+                    ty: None,
+                    key: bound,
+                    var: var.clone(),
+                    is_local: false,
+                });
+            }
+            self.bindings.insert(var.clone(), BindKind::RefMut);
+            params.push(format!("{var}: {param_ty}"));
+        } else if !is_main && handler_of_style.is_none() {
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
                 .fn_refs
                 .get(&(self.file_idx, f.name.span))
                 .and_then(|key| self.checked.fn_effects.get(key))
                 .cloned();
+            let mut effects: Vec<(Option<Ty>, String)> = Vec::new();
             match checked_effects {
                 Some(tys) => {
                     for ty in tys {
                         let rendered = self.rust_ty(&ty);
-                        let param = self.unique_name(effect_param_name(&rendered));
-                        self.effect_env.push(EffectEntry {
-                            ty: Some(ty),
-                            key: rendered.clone(),
-                            var: param.clone(),
-                            is_local: false,
-                        });
-                        self.bindings.insert(param.clone(), BindKind::RefMut);
-                        params.push(format!("{param}: &mut dyn {rendered}"));
+                        effects.push((Some(ty), rendered));
                     }
                 }
                 None => {
                     for eff in f.effects.iter().flatten() {
                         if let EffectRef::Effect(r) = eff {
-                            let ty = self.emit_type_ref(r);
-                            let param = self.unique_name(effect_param_name(&ty));
-                            self.effect_env.push(EffectEntry {
-                                ty: None,
-                                key: ty.clone(),
-                                var: param.clone(),
-                                is_local: false,
-                            });
-                            self.bindings.insert(param.clone(), BindKind::RefMut);
-                            params.push(format!("{param}: &mut dyn {ty}"));
+                            let rendered = self.emit_type_ref(r);
+                            effects.push((None, rendered));
                         }
                     }
+                }
+            }
+            if self.fusion {
+                if !effects.is_empty() {
+                    let var = self.unique_name("__fx".to_string());
+                    let param_ty = if effects.len() == 1 {
+                        format!("&mut dyn {}", effects[0].1)
+                    } else {
+                        let bounds: Vec<String> =
+                            effects.iter().map(|(_, r)| r.clone()).collect();
+                        generic_parts.push(format!("__Fx: {}", bounds.join(" + ")));
+                        "&mut __Fx".to_string()
+                    };
+                    for (ty, rendered) in effects {
+                        self.effect_env.push(EffectEntry {
+                            ty,
+                            key: rendered,
+                            var: var.clone(),
+                            is_local: false,
+                        });
+                    }
+                    self.bindings.insert(var.clone(), BindKind::RefMut);
+                    params.push(format!("{var}: {param_ty}"));
+                }
+            } else {
+                for (ty, rendered) in effects {
+                    let param = self.unique_name(effect_param_name(&rendered));
+                    self.effect_env.push(EffectEntry {
+                        ty,
+                        key: rendered.clone(),
+                        var: param.clone(),
+                        is_local: false,
+                    });
+                    self.bindings.insert(param.clone(), BindKind::RefMut);
+                    params.push(format!("{param}: &mut dyn {rendered}"));
                 }
             }
         }
@@ -1110,19 +1441,35 @@ impl<'p> Emitter<'p> {
         } else {
             rs_ident(&f.name.name)
         };
-        let vis = if matches!(style, FnStyle::HandlerMember(_)) {
+        let vis = if handler_of_style.is_some() {
             ""
         } else {
             "pub "
         };
-        let generics = if lifetime_generics.is_empty() {
-            generics
-        } else if generics.is_empty() {
-            format!("<{lifetime_generics}>")
+        let mut all_generics: Vec<String> = Vec::new();
+        if !lifetime_generics.is_empty() {
+            all_generics.push(lifetime_generics.clone());
+        }
+        all_generics.extend(generic_parts);
+        let generics = if all_generics.is_empty() {
+            String::new()
         } else {
-            // `<T>` -> `<'a, T>`
-            format!("<{lifetime_generics}, {}", &generics[1..])
+            format!("<{}>", all_generics.join(", "))
         };
+        if sig_only {
+            self.generics = saved_generics;
+            self.effect_env = saved_env;
+            self.bindings = saved_bindings;
+            self.mutated = saved_mutated;
+            self.derived_return_fn = saved_derived;
+            self.taken_names = saved_taken;
+            self.current_fn = saved_fn;
+            self.hoist_id = saved_hoist;
+            return format!(
+                "\n{pad}{vis}fn {name}{generics}({}){ret};\n",
+                params.join(", ")
+            );
+        }
         let mut out = format!(
             "\n{pad}{vis}fn {name}{generics}({}){ret} {{\n",
             params.join(", ")
@@ -1160,6 +1507,8 @@ impl<'p> Emitter<'p> {
         self.mutated = saved_mutated;
         self.derived_return_fn = saved_derived;
         self.taken_names = saved_taken;
+        self.current_fn = saved_fn;
+        self.hoist_id = saved_hoist;
         out
     }
 
@@ -1425,6 +1774,14 @@ impl<'p> Emitter<'p> {
     /// Maps a named type to Rust: internal types [backend-internal],
     /// `define type` templates [backend-define-type], or pass-through.
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
+        // [rs-effect-fusion] Inside a forwarding impl for an instantiated
+        // effect, the effect's own type parameters render as the instance's
+        // arguments (`T` -> `i32` for `Random<i32>`).
+        if arg_strs.is_empty() {
+            if let Some(rendered) = self.type_subst.get(name) {
+                return rendered.clone();
+            }
+        }
         let args = if arg_strs.is_empty() {
             String::new()
         } else {
@@ -1601,12 +1958,78 @@ impl<'p> Emitter<'p> {
     }
 }
 
+/// [rs-effect-fusion] Where a generated forwarding impl sends its members.
+enum Forward {
+    /// The fusion's provider field: `&mut *self.__outer`.
+    Outer,
+    /// The handler the fusion owns: `&mut self.__h`.
+    Handler,
+    /// A `__Deps_H` adapter's provider: `&mut *self.__p`.
+    Provider,
+    /// A dependent handler: destructure `&mut self` into disjoint field
+    /// borrows, then call through the handler's `__Impl_H` trait.
+    Dependent { trait_name: String, deps: usize },
+}
+
+/// An effect as a *type* (impl target, trait bound): `Random<i32>`.
+fn trait_type(name: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        rs_ident(name)
+    } else {
+        format!("{}<{}>", rs_ident(name), args.join(", "))
+    }
+}
+
+/// An effect as a *call path* (UFCS member dispatch): `Random::<i32>`.
+fn trait_path(name: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        rs_ident(name)
+    } else {
+        format!("{}::<{}>", rs_ident(name), args.join(", "))
+    }
+}
+
+/// The same, from an already rendered effect type (`Random<i32>`) — the
+/// unchecked fallback path, where no `Ty` is available.
+fn trait_path_of_rendered(rendered: &str) -> String {
+    match rendered.split_once('<') {
+        Some((base, rest)) => format!("{base}::<{rest}"),
+        None => rendered.to_string(),
+    }
+}
+
+/// Does `code` use `name` as a whole identifier?
+fn mentions_ident(code: &str, name: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(at) = code[from..].find(name) {
+        let start = from + at;
+        let end = start + name.len();
+        let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
+        let after_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
 /// What kind of fn is being emitted (parameter-mode and naming rules).
 #[derive(Clone, Copy)]
 enum FnStyle<'p> {
     TopLevel,
     QualifierFn,
     HandlerMember(&'p HandlerDecl),
+    /// [rs-effect-fusion] A *dependent* handler's member, emitted into
+    /// `impl __Impl_H for H` with the dependencies as one fused parameter.
+    DepMember(&'p HandlerDecl, &'p [Param]),
+    /// The same, signature only, for the generated `trait __Impl_H`.
+    DepMemberSig(&'p HandlerDecl, &'p [Param]),
 }
 
 impl<'p> Emitter<'p> {
@@ -1614,11 +2037,14 @@ impl<'p> Emitter<'p> {
 
     fn emit_block_stmts(&mut self, block: &Block, indent: usize, ctx: StmtCtx) -> String {
         let mut out = String::new();
-        let env_depth = self.effect_env.len();
+        // [rs-effect-fusion] Save the whole environment, not just its
+        // depth: a `use` inside the block *rewrites* the outer entries to
+        // thread through the inner fusion, which dies with the block.
+        let saved_env = self.effect_env.clone();
         for stmt in &block.stmts {
             out.push_str(&self.emit_stmt(stmt, indent, ctx));
         }
-        self.effect_env.truncate(env_depth);
+        self.effect_env = saved_env;
         out
     }
 
@@ -1866,6 +2292,16 @@ impl<'p> Emitter<'p> {
         };
         // Ctor args are owned (a `use` argument is a move [deduce-infer]).
         let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        if self.fusion {
+            return self.emit_fusion_use(
+                decl,
+                &handler_name,
+                arg_code,
+                checked_ty,
+                effect_ty,
+                indent,
+            );
+        }
         let var = self.unique_name(effect_param_name(&effect_ty));
         self.effect_env.push(EffectEntry {
             ty: checked_ty,
@@ -1879,6 +2315,246 @@ impl<'p> Emitter<'p> {
             rs_ident(&handler_name),
             arg_code.join(", ")
         )
+    }
+
+    /// [rs-effect-fusion] `use H(...)` under the fusion: one generated
+    /// struct owning the handler, chained to whatever provided the effects
+    /// already in scope, and implementing all of them.
+    ///
+    /// Chaining (rather than holding the outer scope's handlers as
+    /// individual fields) is what lets an inner scope's fusion coexist with
+    /// an outer one that is used again after the inner block: lexical
+    /// nesting becomes borrow nesting. It also means a dependency is
+    /// *always* reachable through `__outer` — it had to be registered
+    /// before its dependent ([effect-handler-deps]), so it can never be a
+    /// sibling field.
+    fn emit_fusion_use(
+        &mut self,
+        decl: &HandlerDecl,
+        handler_name: &str,
+        arg_code: Vec<String>,
+        checked_ty: Option<Ty>,
+        effect_ty: String,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
+        let covered: Vec<EffectEntry> = self.effect_env.clone();
+        let provider = self.fused_recv();
+        let deps: Vec<Param> = handler_dep_params(decl, self.symbols)
+            .into_iter()
+            .cloned()
+            .collect();
+        if !deps.is_empty() && covered.is_empty() {
+            self.error(format!(
+                "internal: handler `{handler_name}` has dependencies but no \
+                 effect is in scope at its `use`"
+            ));
+            self.register_failed_fusion(checked_ty, effect_ty);
+            return String::new();
+        }
+        // The effect this handler adds, preferring the checker's instance.
+        let new_effect = match &checked_ty {
+            Some(Ty::Named { name, args }) => {
+                let name = name.clone();
+                let args = args.clone();
+                let rendered: Vec<String> =
+                    args.iter().map(|a| self.rust_ty(a)).collect();
+                (name, rendered)
+            }
+            _ => match self.named_type_parts(&decl.of) {
+                Some(parts) => parts,
+                None => {
+                    self.error(format!(
+                        "handler `{handler_name}` implements a type the rust \
+                         backend cannot fuse"
+                    ));
+                    return String::new();
+                }
+            },
+        };
+        // A fusion names its effects in impl headers, so every one of them
+        // must be a *concrete* instance. An unresolved type argument (a
+        // generic handler whose arguments the checker could not infer, or an
+        // effect list generic in the enclosing fn) is reported rather than
+        // emitted as an undeclared `T` [backend-never-wrong].
+        let mut named: Vec<String> = covered.iter().map(|e| e.key.clone()).collect();
+        named.push(trait_type(&new_effect.0, &new_effect.1));
+        let unresolved: Option<String> = decl
+            .generics
+            .iter()
+            .map(|g| g.name.clone())
+            .chain(self.generics.iter().cloned())
+            .find(|g| named.iter().any(|n| mentions_ident(n, g)));
+        if let Some(g) = unresolved {
+            self.error(format!(
+                "`use {handler_name}` fuses effects whose type arguments are still \
+                 generic (`{g}`) — the rust backend needs a concrete effect \
+                 instance here"
+            ));
+            self.register_failed_fusion(checked_ty, effect_ty);
+            return String::new();
+        }
+        // The `__outer` field type: the single inherited effect, or a
+        // generated conjunction over all of them (one field, because N
+        // reborrows of the same provider would alias).
+        let outer_ty = match covered.len() {
+            0 => None,
+            1 => Some(covered[0].key.clone()),
+            _ => Some(self.conj_trait(&covered)),
+        };
+        self.fusion_id += 1;
+        let struct_name = format!(
+            "__Fx_{}_{}",
+            sanitize_ident(&self.current_fn),
+            self.fusion_id
+        );
+        let (impl_generics, self_ty) = match &outer_ty {
+            Some(_) => (
+                "<'a, __H>".to_string(),
+                format!("{struct_name}<'a, __H>"),
+            ),
+            None => ("<__H>".to_string(), format!("{struct_name}<__H>")),
+        };
+        let mut item = match &outer_ty {
+            Some(ty) => format!(
+                "\npub struct {struct_name}<'a, __H> {{\n    __outer: &'a mut dyn {ty},\n    \
+                 __h: __H,\n}}\n"
+            ),
+            None => format!("\npub struct {struct_name}<__H> {{\n    __h: __H,\n}}\n"),
+        };
+        // Inherited effects forward to the provider.
+        for entry in &covered {
+            let (base, args) = self.entry_effect_parts(entry);
+            item.push_str(&self.emit_forward_impl(
+                &impl_generics,
+                &self_ty,
+                &base,
+                &args,
+                &Forward::Outer,
+            ));
+        }
+        // The new effect forwards to the owned handler: directly for an
+        // independent one, through the handler's `__Impl_H` trait (and
+        // disjoint field borrows) for a dependent one.
+        let handler_ident = rs_ident(handler_name);
+        let (bound, forward) = if deps.is_empty() {
+            (
+                trait_type(&new_effect.0, &new_effect.1),
+                Forward::Handler,
+            )
+        } else {
+            let trait_name = format!("__Impl_{handler_ident}");
+            (
+                trait_name.clone(),
+                Forward::Dependent {
+                    trait_name,
+                    deps: deps.len(),
+                },
+            )
+        };
+        let bounded_generics = match &outer_ty {
+            Some(_) => format!("<'a, __H: {bound}>"),
+            None => format!("<__H: {bound}>"),
+        };
+        item.push_str(&self.emit_forward_impl(
+            &bounded_generics,
+            &self_ty,
+            &new_effect.0,
+            &new_effect.1,
+            &forward,
+        ));
+        self.generated_items.push(item);
+
+        // The fusion local. Constructor arguments that reach the provider
+        // must be evaluated before the struct literal borrows it.
+        let (prelude, arg_code) = self.hoist_fused_args(arg_code);
+        let var = self.unique_name("__fx".to_string());
+        let mut out = String::new();
+        for line in &prelude {
+            out.push_str(&format!("{pad}{line}\n"));
+        }
+        let fields = match provider {
+            Some(p) => format!("__outer: {p}, __h: {handler_ident}::new({})", arg_code.join(", ")),
+            None => format!("__h: {handler_ident}::new({})", arg_code.join(", ")),
+        };
+        out.push_str(&format!("{pad}let mut {var} = {struct_name} {{ {fields} }};\n"));
+        // Every effect in scope now threads through the new fusion.
+        for entry in self.effect_env.iter_mut() {
+            entry.var = var.clone();
+            entry.is_local = true;
+        }
+        self.effect_env.push(EffectEntry {
+            ty: checked_ty,
+            key: effect_ty,
+            var: var.clone(),
+            is_local: true,
+        });
+        self.bindings.insert(var, BindKind::Owned);
+        out
+    }
+
+    /// After a reported fusion failure, still register the effect so the
+    /// rest of the scope reports its *own* problems rather than a cascade of
+    /// "no handler for effect" [type-unknown-lenient].
+    fn register_failed_fusion(&mut self, checked_ty: Option<Ty>, effect_ty: String) {
+        self.effect_env.push(EffectEntry {
+            ty: checked_ty,
+            key: effect_ty,
+            var: "__fx_unemittable".to_string(),
+            is_local: true,
+        });
+    }
+
+    /// [rs-effect-fusion] The conjunction trait for a set of effects — the    /// only place a fused value needs a *nameable* type. Generated per file
+    /// that needs it; the blanket impl makes duplication across files
+    /// harmless, since any type satisfying the parts satisfies every copy.
+    fn conj_trait(&mut self, covered: &[EffectEntry]) -> String {
+        let mut parts: Vec<String> = covered.iter().map(|e| e.key.clone()).collect();
+        parts.sort();
+        parts.dedup();
+        let name = format!(
+            "__Conj_{}",
+            parts
+                .iter()
+                .map(|p| sanitize_ident(p))
+                .collect::<Vec<_>>()
+                .join("_")
+        );
+        let supers = parts.join(" + ");
+        match self.conj_traits.get(&name) {
+            Some(existing) if *existing != supers => {
+                // Sanitizing `<`/`,` to `_` is not injective (an effect
+                // literally named `Random_i32` collides with `Random<i32>`).
+                // Vanishingly unlikely, and silently reusing the wrong trait
+                // would be wrong code, so it is reported [backend-never-wrong].
+                self.error(format!(
+                    "the generated conjunction trait `{name}` is claimed by two \
+                     different effect sets (`{existing}` and `{supers}`) — rename \
+                     one of the effects"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                self.conj_traits.insert(name.clone(), supers.clone());
+                self.generated_items.push(format!(
+                    "\npub trait {name}: {supers} {{}}\nimpl<T: {supers} + ?Sized> {name} for T {{}}\n"
+                ));
+            }
+        }
+        name
+    }
+
+    /// The effect base name and rendered type arguments behind an effect
+    /// environment entry, preferring the checker's `Ty` (the rendered key
+    /// is the unchecked fallback).
+    fn entry_effect_parts(&mut self, entry: &EffectEntry) -> (String, Vec<String>) {
+        if let Some(Ty::Named { name, args }) = &entry.ty {
+            let name = name.clone();
+            let args = args.clone();
+            let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+            return (name, rendered);
+        }
+        split_rendered_generic(&entry.key)
     }
 
     fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize, ctx: StmtCtx) -> String {
@@ -2750,6 +3426,11 @@ impl<'p> Emitter<'p> {
             } else {
                 self.error(format!("unknown qualifier `{q}` in predicate check"));
             }
+            // [rs-effect-fusion] One fused value covers the whole set.
+            if self.fusion {
+                args.dedup();
+                args.truncate(1);
+            }
             args.push(subj.clone());
             parts.push(format!("{q}_qualifies({})", args.join(", ")));
         }
@@ -3043,7 +3724,10 @@ impl<'p> Emitter<'p> {
     /// as the block's value.
     fn emit_value_block(&mut self, block: &Block) -> String {
         let mut out = String::new();
-        let env_depth = self.effect_env.len();
+        // [rs-effect-fusion] Save the whole environment, not just its
+        // depth: a `use` inside the block *rewrites* the outer entries to
+        // thread through the inner fusion, which dies with the block.
+        let saved_env = self.effect_env.clone();
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -3062,7 +3746,7 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
         }
-        self.effect_env.truncate(env_depth);
+        self.effect_env = saved_env;
         out
     }
 
@@ -3316,7 +4000,10 @@ impl<'p> Emitter<'p> {
     ) -> String {
         self.loop_optional.insert(result.to_string(), join_optional);
         let mut out = String::new();
-        let env_depth = self.effect_env.len();
+        // [rs-effect-fusion] Save the whole environment, not just its
+        // depth: a `use` inside the block *rewrites* the outer entries to
+        // thread through the inner fusion, which dies with the block.
+        let saved_env = self.effect_env.clone();
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -3327,7 +4014,7 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
         }
-        self.effect_env.truncate(env_depth);
+        self.effect_env = saved_env;
         out
     }
 
@@ -3612,9 +4299,14 @@ impl<'p> Emitter<'p> {
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
-        // [rs-effects] ([effect-disambiguation], `effect_calls`).
+        // [rs-effects] ([effect-disambiguation], `effect_calls`). Under the
+        // fusion one value implements every effect in scope, so dispatch is
+        // UFCS: plain method syntax would be ambiguous between two effects
+        // with a same-named member, and between two instances of a generic
+        // effect [rs-effect-fusion].
         if let Some(effect) = self.symbols.effect_of_fn.get(name).copied() {
-            let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
+            let checked_effect = self.checked.effect_calls.get(&(self.file_idx, span)).cloned();
+            let handler = match &checked_effect {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
                     self.member_dispatch_by_ty(&ty)
@@ -3634,7 +4326,31 @@ impl<'p> Emitter<'p> {
                 }
                 None => args.iter().map(|a| self.emit_expr(a)).collect(),
             };
-            return format!("{handler}.{}({})", rs_ident(name), arg_code.join(", "));
+            if !self.fusion {
+                return format!("{handler}.{}({})", rs_ident(name), arg_code.join(", "));
+            }
+            let path = match &checked_effect {
+                Some(ty) if ty_is_concrete(ty) => {
+                    let ty = ty.clone();
+                    let (base, args) = self.ty_effect_parts(&ty);
+                    trait_path(&base, &args)
+                }
+                _ => {
+                    let rendered = self.member_dispatch_key(effect, type_args);
+                    trait_path_of_rendered(&rendered)
+                }
+            };
+            if let Some(m) = member {
+                let params = m.params.clone();
+                self.reject_fused_fn_args(name, &params, &arg_code);
+            }
+            let (prelude, arg_code) = self.hoist_fused_args(arg_code);
+            let mut all = vec![handler];
+            all.extend(arg_code);
+            return Self::wrap_hoisted(
+                &prelude,
+                format!("{path}::{}({})", rs_ident(name), all.join(", ")),
+            );
         }
 
         // 2. Checker-resolved fn target (type-based overloads win)
@@ -3962,24 +4678,129 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        all.extend(self.emit_args_for_params(&f.params, args, key));
+        // [rs-effect-fusion] The callee takes *one* fused value, whatever
+        // the size of its effect set: every effect in scope threads through
+        // the same value, so the per-effect arguments collapse to one. A
+        // Sized fused value unsizes to the callee's `dyn` when the callee
+        // needs fewer effects.
+        if self.fusion {
+            all.dedup();
+            all.truncate(1);
+        }
+        let (prelude, args) = {
+            let rendered = self.emit_args_for_params(&f.params, args, key);
+            if all.is_empty() {
+                (Vec::new(), rendered)
+            } else {
+                self.reject_fused_fn_args(name, &f.params, &rendered);
+                self.hoist_fused_args(rendered)
+            }
+        };
+        all.extend(args);
         // A call through an import alias keeps the alias [rs-imports].
         let rs_name = if name != f.name.name {
             rs_ident(name)
         } else {
             self.rust_fn_name(f)
         };
-        format!("{rs_name}({})", all.join(", "))
+        Self::wrap_hoisted(&prelude, format!("{rs_name}({})", all.join(", ")))
     }
 
     // ================= effect environment =================
 
+    /// [rs-effect-fusion] The variable every effect in scope threads
+    /// through under the fusion: the current scope's fusion local, or the
+    /// enclosing fn's fused parameter.
+    fn fused_var(&self) -> Option<(String, bool)> {
+        if !self.fusion {
+            return None;
+        }
+        self.effect_env
+            .last()
+            .map(|e| (e.var.clone(), e.is_local))
+    }
+
+    /// The receiver expression for the fused value: a fresh reborrow, so
+    /// the value stays usable afterwards.
+    fn fused_recv(&self) -> Option<String> {
+        self.fused_var().map(|(var, is_local)| {
+            if is_local {
+                format!("&mut {var}")
+            } else {
+                format!("&mut *{var}")
+            }
+        })
+    }
+
+    /// [rs-effect-fusion] An argument that itself reaches the fused value
+    /// must be evaluated *before* the call borrows it: under the fusion one
+    /// value carries every effect, so `fx.a(&fx.b())` is two overlapping
+    /// `&mut` (`E0499`) where the per-effect parameters were disjoint.
+    fn hoist_fused_args(&mut self, args: Vec<String>) -> (Vec<String>, Vec<String>) {
+        let Some((var, _)) = self.fused_var() else {
+            return (Vec::new(), args);
+        };
+        let mut prelude: Vec<String> = Vec::new();
+        let mut out: Vec<String> = Vec::new();
+        for code in args {
+            if mentions_ident(&code, &var) {
+                self.hoist_id += 1;
+                let name = format!("__a{}", self.hoist_id);
+                prelude.push(format!("let {name} = {code};"));
+                out.push(name);
+            } else {
+                out.push(code);
+            }
+        }
+        (prelude, out)
+    }
+
+    /// Wraps a call whose arguments were hoisted in a block expression, so
+    /// it stays usable in expression position.
+    fn wrap_hoisted(prelude: &[String], call: String) -> String {
+        if prelude.is_empty() {
+            call
+        } else {
+            format!("{{ {} {call} }}", prelude.join(" "))
+        }
+    }
+
+    /// [rs-effect-fusion] [backend-never-wrong] A **fn-typed** argument that
+    /// reaches the fused value cannot be rescued by hoisting: a closure
+    /// *keeps* the borrow it captured, so it is still alive while the call
+    /// borrows the same value for its own effects (`E0499`). This is the one
+    /// place the fusion loses a program Kotlin runs (objects alias), so it
+    /// is reported.
+    ///
+    /// It covers both an effect-using lambda and a named effectful fn passed
+    /// by value (its adapter closure captures the fused value the same way).
+    fn reject_fused_fn_args(&mut self, callee: &str, params: &[Param], args: &[String]) {
+        let Some((var, _)) = self.fused_var() else {
+            return;
+        };
+        for (p, code) in params.iter().zip(args) {
+            let fn_typed = matches!(p.ty, Type::Fn { .. }) || is_fn_group(&p.ty);
+            if fn_typed && mentions_ident(code, &var) {
+                self.error(format!(
+                    "the function passed as `{}` to `{callee}` uses an effect, and \
+                     `{callee}` needs one too — the rust backend cannot fuse that \
+                     yet (the closure would hold the fused value while the call \
+                     borrows it); pass the effect's result instead, or give \
+                     `{callee}` no effects",
+                    p.name.name
+                ));
+            }
+        }
+    }
+
     /// The expression a member call dispatches through for an effect
     /// instance (local handler variables and `&mut dyn` parameters both
-    /// auto-reborrow on method calls) [rs-effects].
+    /// auto-reborrow on method calls) [rs-effects]. Under the fusion,
+    /// dispatch is UFCS, so the receiver is spelled out as an explicit
+    /// reborrow [rs-effect-fusion].
     fn member_dispatch_by_ty(&mut self, ty: &Ty) -> String {
         match self.effect_entry_by_ty(ty) {
-            Some(entry) => entry.var,
+            Some(entry) => self.entry_recv(&entry),
             None => {
                 self.error(format!(
                     "no handler for effect `{ty}` in scope (declare it in the \
@@ -3990,11 +4811,25 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// The receiver/threading expression for one environment entry.
+    fn entry_recv(&self, entry: &EffectEntry) -> String {
+        if !self.fusion {
+            return entry.var.clone();
+        }
+        if entry.is_local {
+            format!("&mut {}", entry.var)
+        } else {
+            format!("&mut *{}", entry.var)
+        }
+    }
+
     /// Threading variant of [`Self::member_dispatch_by_ty`].
     fn thread_effect_by_ty(&mut self, ty: &Ty) -> String {
         match self.effect_entry_by_ty(ty) {
             Some(entry) => {
-                if entry.is_local {
+                if self.fusion {
+                    self.entry_recv(&entry)
+                } else if entry.is_local {
                     format!("&mut {}", entry.var)
                 } else {
                     entry.var
@@ -4012,7 +4847,7 @@ impl<'p> Emitter<'p> {
 
     fn member_dispatch_by_key(&mut self, effect_ty: &str) -> String {
         match self.effect_entry(effect_ty) {
-            Some(entry) => entry.var,
+            Some(entry) => self.entry_recv(&entry),
             None => {
                 self.error(format!(
                     "no handler for effect `{effect_ty}` in scope (declare it in the \
@@ -4029,7 +4864,9 @@ impl<'p> Emitter<'p> {
     fn thread_effect_by_key(&mut self, effect_ty: &str) -> String {
         match self.effect_entry(effect_ty) {
             Some(entry) => {
-                if entry.is_local {
+                if self.fusion {
+                    self.entry_recv(&entry)
+                } else if entry.is_local {
                     format!("&mut {}", entry.var)
                 } else {
                     entry.var
@@ -4082,12 +4919,33 @@ impl<'p> Emitter<'p> {
     /// Fallback dispatch for unchecked effect-member calls: unique
     /// base-name match (with explicit type args when given).
     fn member_dispatch_fallback(&mut self, effect: &str, type_args: &[Type]) -> String {
-        if !type_args.is_empty() {
-            let args: Vec<String> = type_args.iter().map(|t| self.emit_type(t)).collect();
-            let full = format!("{effect}<{}>", args.join(", "));
-            return self.member_dispatch_by_key(&full);
+        let key = self.member_dispatch_key(effect, type_args);
+        self.member_dispatch_by_key(&key)
+    }
+
+    /// The environment key an unchecked effect-member call looks up.
+    fn member_dispatch_key(&mut self, effect: &str, type_args: &[Type]) -> String {
+        if type_args.is_empty() {
+            return effect.to_string();
         }
-        self.member_dispatch_by_key(effect)
+        let args: Vec<String> = type_args.iter().map(|t| self.emit_type(t)).collect();
+        format!("{effect}<{}>", args.join(", "))
+    }
+
+    /// The effect base name and rendered type arguments of a checker `Ty`.
+    fn ty_effect_parts(&mut self, ty: &Ty) -> (String, Vec<String>) {
+        match ty {
+            Ty::Named { name, args } => {
+                let name = name.clone();
+                let args = args.clone();
+                let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+                (name, rendered)
+            }
+            other => {
+                let rendered = self.rust_ty(other);
+                split_rendered_generic(&rendered)
+            }
+        }
     }
 
     // ================= templates =================
@@ -4390,6 +5248,57 @@ fn effect_param_name(effect_ty: &str) -> String {
         }
     }
     out
+}
+
+/// A rendered type turned into an identifier fragment for a generated
+/// name (`Random<i32>` -> `Random_i32`) [rs-effect-fusion].
+fn sanitize_ident(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            out.push(c);
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+/// Splits a rendered generic type into its base and top-level arguments
+/// (`Random<List<i32>, u8>` -> `("Random", ["List<i32>", "u8"])`). The
+/// unchecked fallback for effect environment entries with no checker `Ty`.
+fn split_rendered_generic(rendered: &str) -> (String, Vec<String>) {
+    let Some(open) = rendered.find('<') else {
+        return (rendered.to_string(), Vec::new());
+    };
+    let base = rendered[..open].to_string();
+    let inner = rendered[open + 1..]
+        .strip_suffix('>')
+        .unwrap_or(&rendered[open + 1..]);
+    let mut args: Vec<String> = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for c in inner.chars() {
+        match c {
+            '<' => {
+                depth += 1;
+                current.push(c);
+            }
+            '>' => {
+                depth = depth.saturating_sub(1);
+                current.push(c);
+            }
+            ',' if depth == 0 => {
+                args.push(current.trim().to_string());
+                current = String::new();
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.trim().is_empty() {
+        args.push(current.trim().to_string());
+    }
+    (base, args)
 }
 
 fn escape_string(text: &str) -> String {

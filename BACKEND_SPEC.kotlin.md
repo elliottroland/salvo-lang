@@ -218,27 +218,35 @@ Conventions:
     unchecked contexts (see PROGRESS.md "Emitter effect-environment
     fallback" under architectural facts).
 
-### Planned — effect dependencies via handler fusion [kt-effect-fusion]
+### Effect dependencies [kt-effect-fusion]
 
-**Not implemented.** Kotlin's half of roadmap E1; the mechanism and its
-rationale live in [rs-effect-fusion] (Rust is where the constraint bites),
-and PROGRESS.md's E1a holds the decision log. Kotlin's job is easier:
-objects alias, so a fusion may simply hold its handlers, and dependency
-hiding is a plain forwarding call.
+**Implemented 2026-09-04** for dependency *injection*; the fusion proper
+(one `fx` value per scope) remains planned, and is *only* a uniformity
+refinement here. Kotlin needs far less than Rust here because objects
+alias: a handler can simply **hold** its dependency, and dependency hiding
+is an ordinary field read — where Rust had to build the fusion to get the
+same programs running ([rs-effect-fusion]).
 
-* A **fusion class** per `use` scope holds the registered handlers and
-  exposes each effect member, passing dependencies from its own fields:
-  `override fun log(m: String) = logger.log(console, m)`. Handler members
-  take their handler's constructor parameters of effect type as
-  *parameters* (`fun log(console: Console, m: String)`), matching Rust's
-  free-function shape.
-* Functions requiring several effects take one fusion value behind a
-  **multi-bounded generic**: `fun <T> work(fx: T) where T : Console, T : Logger`.
-  Erasure makes this a single emitted function.
+* [effect-handler-deps] A constructor parameter of effect type emits as the
+  `private val` it already was — `class ConsoleLogger(private val console: Console) : Logger`
+  — and the handler's member bodies resolve that effect to the *field*
+  rather than to a leading parameter, since an `override` signature must
+  match the interface (`override fun log(message: String)`).
+* The `use` site supplies the dependency from the effect environment, in the
+  handler's declaration order, interleaved with any written constructor
+  arguments: `val logger: Logger = ConsoleLogger(console)`. Callers of the
+  outer effect never mention it (`fun work(logger: Logger)`).
+* Still planned, and only for parameter *uniformity* rather than
+  correctness: collapsing a fn's N handler parameters into one fusion value
+  behind a **multi-bounded generic**
+  (`fun <T> work(fx: T) where T : Console, T : Logger`), which erasure makes
+  a single emitted function.
 * Nested `use` scopes **rebuild** flat (user decision): the inner fusion
   holds the outer scope's handlers as its own fields rather than a
-  reference to the outer fusion. Same reasoning as [rs-effect-fusion],
-  minus the borrow analysis.
+  reference to the outer fusion. Rust could not keep this — see
+  [rs-effect-fusion], where flatness is unachievable and inner scopes chain
+  through a single provider field — but Kotlin has no borrow analysis to
+  satisfy, so the flat form stands here.
 * [kt-effect-facets] **Facets are Kotlin-only** (user decision
   2026-09-04). One class cannot implement `Random<Int>` and
   `Random<Double>` — erasure rejects it ("type parameter 'T' … has

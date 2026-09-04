@@ -297,36 +297,51 @@ derives them mechanically:
   initialized from their declared defaults) + `impl Effect for H`.
   Handler member bodies access ctor params and state through `self.`.
   External handlers inline their `define handler` templates as method
-  bodies, same shape.
+  bodies, same shape. A ctor param that is a *dependency* is neither a
+  field nor a `new` parameter, and the trait impl is replaced by a
+  generated one — see [rs-effect-fusion].
 * [kt-effect-params]-equivalent: effect dependencies become leading
   parameters `name: &mut dyn Effect<...>`; effect member calls dispatch
   through the parameter (`console.print(...)` — auto-reborrow), and
   callee dependencies thread as arguments (`draw(random_int, console)`,
-  with `&mut local` for handlers `use`d in the current scope).
+  with `&mut local` for handlers `use`d in the current scope). **When any
+  handler in the program declares a dependency, all of this changes
+  shape** — see [rs-effect-fusion].
   * Effect member parameters follow the default kept rule: `&T` for
     non-Copy, by value for scalars [rs-borrows]; member fns with their
     own generic parameters are a codegen error (`dyn` traits cannot
     have generic methods) [backend-never-wrong].
+  * **Known gap** (2026-09-04): the default kept rule ignores the member's
+    *declared* deductions, so a member that **moves** a parameter still
+    emits `&mut T` and its body clones. Sound — the checker consumed the
+    caller's value, so no alias can observe the copy
+    ([effect-state-store] is what makes that true) — but a missed
+    optimization. The fusion reshaped member *dispatch*, not member
+    parameter modes, so this gap survived it.
 * [effect-use] `use Handler(...)` emits
   `let mut <name> = Handler::new(args);` and registers `&mut <name>` in
   the effect environment for the rest of the scope [effect-scope]; ctor
   arguments are owned (a `use` argument is a move, [deduce-infer]).
   Handler generics are inferred by rustc from the `new` arguments (the
-  checker already validated the instance, `use_effects`).
+  checker already validated the instance, `use_effects`). Under the fusion
+  the local is the *fusion* that owns the handler
+  (`let mut __fx2 = __Fx_main_3 { __outer: &mut __fx, __h: H::new(args) };`)
+  and every effect in scope threads through it from there on
+  ([rs-effect-fusion]).
 * Handler resolution prefers the checker's effect tables
   (`use_effects`/`effect_calls`/`call_effects`) rendered through
   `rust_ty`, with the same string-keyed environment fallback as the
   Kotlin backend (see PROGRESS.md "Emitter effect-environment fallback"
   under architectural facts).
 
-### Planned — effect dependencies via handler fusion [rs-effect-fusion]
+### Effect dependencies via handler fusion [rs-effect-fusion]
 
-**Not implemented.** This is the agreed strategy for roadmap E1
-(effect-to-effect dependencies), recorded before implementation because
-the reasoning is easy to lose and expensive to re-derive; every shape
-below was verified by compiling it with `rustc`. The user decision is
-"B9, rebuilding, no facets in Rust" (2026-09-03/04); PROGRESS.md's E1a
-holds the decision log and the rejected alternatives.
+**Implemented 2026-09-04.** A handler may declare a dependency
+([effect-handler-deps]); Rust renders it by *fusing* the handlers of a
+scope into one value. The user decision was "B9, rebuilding, no facets in
+Rust" (2026-09-03/04); PROGRESS.md's E1a holds the decision log and the
+rejected alternatives. Every shape below was verified by compiling and
+running it with `rustc` before the emitter was taught to produce it.
 
 **The problem.** A dependent handler must reach its dependency when its
 member runs, without the *caller* of that member supplying one. Kotlin
@@ -342,76 +357,169 @@ borrow *stored* in a struct instead lasts as long as the holder, so it
 overlaps the lender's own later use — `E0499`. Everything below follows
 from putting borrows in the first category.
 
-Three layers:
+#### The emission
 
-1. **Handler bodies become free functions** taking the handler's own state
-   plus its dependencies as separate parameters:
-   `fn console_logger__log(h: &mut ConsoleLogger, console: &mut StdOutConsole, m: &String)`.
-   Dependencies are the handler's *constructor parameters* of effect type
-   — no new declaration syntax; `handler H(console: Console) of Logger`
-   already parses.
-2. **Effect traits stay dependency-free** — `trait Logger { fn log(&mut self, m: &String); }`
-   — so user functions never mention dependencies and are emitted **once**,
-   whatever handlers flow in. A fn requiring several effects takes one
-   fusion value; Rust can express that as a generic bound
-   (`fn work<T: Console + Logger>(fx: &mut T)`, monomorphized) or as a
-   generated conjunction trait with a blanket impl
-   (`trait FxConsoleLogger: Console + Logger {}` +
-   `impl<T: Console + Logger> FxConsoleLogger for T {}`) for a single
-   `dyn` copy. Prefer the `dyn` form where code size matters: it keeps one
-   emitted copy per user fn regardless of fusion count.
-3. **One fusion struct per `use` scope** owns (or borrows) the registered
-   handlers and forwards each effect member, supplying dependencies from
-   its own fields. The forwarding impl destructures `&mut self` into
-   **disjoint field borrows** — this is the step that makes dependency
-   hiding possible at all:
+**Gated program-wide.** If no handler declares a dependency, nothing here
+runs and effects thread as one `&mut dyn E` parameter each [rs-effects] —
+existing output is untouched. The switch cannot be per-scope: a fn's
+signature must not depend on which of its callers holds a fusion.
 
-   ```rust
-   impl Logger for Fx1 {
-       fn log(&mut self, m: &String) {
-           let Self { console, logger, .. } = self;   // disjoint borrows
-           console_logger__log(logger, console, m)
-       }
-   }
-   ```
-
-   Every earlier strategy failed because it needed two `&mut` to the *same*
-   place; here the handlers are distinct fields of one owner, so the shared
-   dependency is threaded once and reborrowed down the chain.
-
-**Nested scopes use *rebuilding*, not nesting** (user decision): an inner
-fusion holds the outer scope's **handlers** as individual borrowed fields,
-flattened — not a reference to the outer *fusion*.
+**One fused parameter per fn.** A fn needing one effect keeps
+`__fx: &mut dyn E`; a fn needing two or more takes a *generic* fused
+value:
 
 ```rust
-struct Fx2<'a> { console: &'a mut StdOutConsole, logger: ConsoleLogger }
+pub fn banner<__Fx: Console + Logger>(__fx: &mut __Fx) { … }
 ```
 
-Flat rebuilding keeps dependency threading identical at every nesting
-depth (no `outer.outer.console` chains), costs no forwarding hop per
-facet the inner scope does not itself provide, and makes handler
-resolution explicit in the fusion's construction rather than implicit in
-lookup order through a chain. The lifetime is internal to generated Rust;
-Salvo never sees it. Lexical nesting matches borrow nesting, so the outer
-scope is usable again after the inner block ends.
+Generic rather than `dyn` for one reason, and it is the reason worth
+remembering: a fn must be able to forward its fused value to a callee
+needing a **subset** of its effects (`shout(&mut *__fx)` for
+`[Console]`). With `dyn`, that needs `&mut dyn Conj_A_B_C` →
+`&mut dyn Conj_A_B`, which trait upcasting *cannot* do — upcasting only
+reaches supertraits, and a conjunction of two is not a supertrait of a
+conjunction of three. A Sized generic unsizes to any of its bounds, so
+every subset call is trivial. The cost is monomorphization per fusion
+type; it stays finite because fusion structs are not generic in their
+provider (see below).
+
+**One fusion struct per `use` site**, chained to whatever provided the
+effects already in scope:
+
+```rust
+pub struct __Fx_main_3<'a, __H> {
+    __outer: &'a mut dyn Console,   // or `dyn __Conj_…` for two or more
+    __h: __H,                       // the handler this `use` registers
+}
+```
+
+* **One `__outer` field**, not one per inherited effect: N reborrows of
+  the same provider would alias. That single field is the only place a
+  fused value needs a *nameable* type, and therefore the only reason
+  conjunction traits exist:
+  `pub trait __Conj_A_B: A + B {} impl<T: A + B + ?Sized> __Conj_A_B for T {}`
+  — emitted per file that needs one, where the blanket impl makes
+  duplication harmless (a fusion built in module `M` satisfies
+  `N::__Conj_A_B` too).
+* **`dyn` in `__outer`** keeps monomorphization finite: a recursive fn
+  that registers a handler and recurses maps its fusion type to itself
+  instead of nesting `__Fx<__Fx<…>>` forever.
+* **Generic over the handler** (`__H`), so a *generic* handler needs no
+  re-derivation of its type arguments: `CyclicRandom::new(vec![…])` infers
+  them, and the fusion's impls bound `__H` by the effect it provides.
+* The fusion **owns** the handler, so there is no separate handler local
+  and no second borrow to manage.
+
+**Chaining, not flat rebuilding.** The 2026-09-04 decision said inner
+scopes rebuild *flat* over the outer scope's handler locals; implementation
+showed that flatness cannot hold and is not what the decision was
+protecting. Two facts forced the change: effects inherited from a fn's
+*parameter* are not handler locals at all (there is only the one fused
+value), and an inner fusion borrowing the same locals as an outer one
+makes the **outer** fusion unusable after the inner block (`E0499`) —
+exactly the case nesting is supposed to allow. Chaining fixes both, keeps
+the property the decision actually wanted (dependency threading is
+identical at every depth: always `&mut **__outer`), and makes lexical
+nesting equal borrow nesting. The price is one dynamic forwarding hop per
+level.
+
+A dependency is therefore *always* reachable through `__outer` and never a
+sibling field: it had to be registered before its dependent
+([effect-handler-deps]), so it is always in the outer set. That is the
+same acyclicity guarantee the strategy rested on, now doing a second job.
+
+**Dependent handlers.** The dependency is neither a struct field nor a
+`new` parameter — the compiler supplies it per call. The member bodies
+cannot live in `impl Effect for H` (the trait signature has no room for
+it), so they move into a generated trait:
+
+```rust
+pub trait __Impl_ConsoleLogger {
+    fn log(&mut self, __fx: &mut dyn Console, message: &String);
+}
+impl __Impl_ConsoleLogger for ConsoleLogger { /* the written body */ }
+```
+
+`&mut self` is kept, so `self.state` still works, and the trait is only
+ever a *bound* — never `dyn` — so its methods may be generic. A single
+dependency travels as `&mut dyn D`; two or more need a Sized generic
+(`__Fx: D1 + D2`), because a `dyn` cannot satisfy a Sized bound and a
+`?Sized` one could not be unsized again further down. The Sized value is
+built by a per-handler adapter over the one provider field:
+
+```rust
+pub struct __Deps_CountingAudit<'a, __P: ?Sized> { __p: &'a mut __P }
+impl<'a, __P: Console + ?Sized> Console for __Deps_CountingAudit<'a, __P> { … }
+```
+
+The fusion's forwarding impl is where the trick lands — `&mut self` is
+destructured into **disjoint field borrows** first, so the handler's state
+and its dependency are two separate `&mut`:
+
+```rust
+impl<'a, __H: __Impl_ConsoleLogger> Logger for __Fx_main_3<'a, __H> {
+    fn log(&mut self, message: &String) {
+        let Self { __outer, __h } = self;
+        __Impl_ConsoleLogger::log(__h, &mut **__outer, message)
+    }
+}
+```
+
+Independent handlers keep today's `impl Effect for H`, and the fusion
+forwards to `&mut self.__h`.
+
+**Member dispatch is UFCS** in fusion mode (`Console::print(recv, m)`,
+`Random::<i32>::next_random(recv)`): one value implements every effect in
+scope, so plain method syntax would be ambiguous between two effects with a
+same-named member, and between two instances of a generic effect.
+
+**Arguments that reach the fused value are hoisted** into a temporary:
+
+```rust
+{ let __a1 = &(format!("drew {} at {}", Counter::total(&mut __fx2))); println(&mut __fx2, __a1) }
+```
+
+`fx.a(&fx.b())` is two overlapping `&mut` (`E0499`). With per-effect
+parameters the two receivers were disjoint variables, so this hazard is new
+with the fusion — and it is why the emitter renders such calls as block
+expressions.
 
 **No facets in Rust** (user decision 2026-09-04): each backend leverages
-its own language. Rust has no erasure, so a fusion can implement
-`Random<i32>` and `Random<f64>` directly and multi-instance generic
+its own language. Rust has no erasure, so one fusion implements
+`Random<i32>` and `Random<String>` directly and multi-instance generic
 effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
 
-**Prerequisites**, both worth doing on their own merits:
+#### Deliberate cuts inside the fusion ([backend-never-wrong])
 
-* ~~Handler values must not escape.~~ **Done 2026-09-04**: the checker now
-  rejects effect types in data positions [effect-not-data] and handler
-  constructor calls outside `use` [handler-not-value], so neither invalid
-  shape (`inner: Counter` → `E0782`, `MemCounter()` → `E0423`) can reach
-  the emitter. E1 will *re-admit* the one useful case — a handler
-  constructor parameter of effect type — together with the fusion emission
-  that can render it.
-* **Effect dependency cycles must be rejected** at declaration time, so
-  the dependency graph is a DAG and every call chain is a properly nested
-  path down it.
+* A **function value that uses an effect, passed to a callee that needs one
+  too**. A closure keeps the borrow it captured, so it is still alive while
+  the call borrows the same fused value for its own effects (`E0499`), and
+  hoisting — which rescues every other argument — cannot separate them. This
+  covers an inline lambda and a named effectful fn passed by value (whose
+  adapter closure captures the same way). Reported at the call, naming the
+  parameter and the callee. Kotlin runs these (objects alias), so it is the
+  one program shape the fusion loses; the fix, if it is ever wanted, is to
+  pass the fused value *into* the closure — a fn-type contract carrying
+  effects — rather than capturing it.
+* A **dependent handler that uses its own generic parameters** in a member
+  signature: the generated `__Impl_H` trait is not generic (the fusion owns
+  the handler behind an opaque `__H` and never derives its type arguments,
+  so it could not supply one). Reported, naming the handler and the
+  parameter. Kotlin accepts these (erasure), so this is a real divergence,
+  and the way to lift it is to derive the handler's arguments at the `use`
+  site by unifying its `of` clause against the checker's instance.
+* A `use` whose **effect instance is still generic** — a handler whose type
+  arguments the checker could not infer (`use Relay<Int>()`), or an effect
+  list generic in the enclosing fn (`fn f<T>() [Random<T>, use]`). The
+  fusion names its effects in impl headers, so an unresolved `T` would be
+  an undeclared type. Lifting this means threading the enclosing fn's
+  generics into the generated items.
+* A generated **conjunction trait name claimed by two different effect
+  sets**: sanitizing `<`/`,` to `_` is not injective, so an effect literally
+  named `Random_i32` collides with `Random<i32>`. Vanishingly unlikely, but
+  silently reusing the wrong trait would be wrong code.
+
+Both are reported at the `use`/handler that causes them, never mis-emitted.
 
 ## Functions and calls
 
@@ -478,6 +586,10 @@ Reported as codegen errors, never silent wrong code:
 * struct literal without an inferable type;
 * referencing the `Any` type in emitted positions;
 * effect member fns with their own generic parameters;
+* a dependent handler using its own generic parameters in a member
+  signature, a `use` whose effect instance is still generic, and a
+  function value that uses an effect passed to a callee that needs one
+  ([rs-effect-fusion]);
 * struct destructuring in `for` patterns (same as Kotlin).
 
 Known acceptable divergences (documented, not errors): eager iterator

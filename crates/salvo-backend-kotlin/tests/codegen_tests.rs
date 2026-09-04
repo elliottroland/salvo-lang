@@ -2414,6 +2414,360 @@ fn kotlinc_compiles_and_runs_tuple_index() {
     );
 }
 
+// ===== effect dependencies on handlers [effect-handler-deps] =====
+// A handler constructor parameter of effect type is a dependency: the
+// member body may use that effect, the `use` site supplies it from scope,
+// and callers of the outer effect never mention it.
+
+const HANDLER_DEPS_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+fn work() [Logger] -> None {
+    log("from work")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    work()
+    log("from main")
+}
+"#;
+
+/// [effect-handler-deps] The dependency becomes a constructor field, the
+/// member reaches it through that field (its signature must match the
+/// interface), the `use` site passes the handler in scope, and `work` takes
+/// only the Logger.
+#[test]
+fn handler_dependencies_inject_at_construction() {
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content
+            .contains("class ConsoleLogger(private val console: Console) : Logger"),
+        "expected the dependency as a constructor field in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("override fun log(message: String)"),
+        "the member signature must match the interface in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("ConsoleLogger(console)"),
+        "expected the `use` site to supply the dependency in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("fun work(logger: Logger)"),
+        "callers should not mention the dependency in:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_handler_dependencies() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "handler-deps", "LOG: from work\nLOG: from main\n");
+}
+
+// [effect-handler-deps] The same programs the Rust backend runs through its
+// own emission, asserting the *same* stdout here: that is what backend
+// parity means for handler dependencies. Kotlin needs no fusion — objects
+// alias — so these also pin that the two strategies agree on handler state,
+// dependency chains, `use` in a loop, and nested effect calls.
+
+const HANDLER_DEPS_FUSION_DEMO: &str = r#"
+effect Random<T> {
+    fn next_random() -> [] T
+}
+
+effect Counter {
+    fn bump() -> [] None
+    fn total() -> [] Int
+}
+
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Audit {
+    fn note(message: Str) -> [message] None
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        i = (i + 1) % values.size()
+        return values[i]
+    }
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() -> [] None { n = n + 1 }
+    fn total() -> [] Int { return n }
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    seen: Int = 0
+    fn log(message: Str) -> [message] None {
+        seen = seen + 1
+        println("LOG ${seen}: ${message}")
+    }
+}
+
+handler CountingAudit(console: Console, counter: Counter) of Audit {
+    fn note(message: Str) -> [message] None {
+        bump()
+        println("[${total()}] ${message}")
+    }
+}
+
+fn shout(message: Str) [Console] -> [message] None {
+    println("!! ${message}")
+}
+
+fn banner() [Console, Logger] -> [] None {
+    log("banner")
+    shout("done")
+}
+
+fn draw() [Console, Random<Int>, use] -> [] None {
+    use MemCounter
+    bump()
+    println("drew ${next_random<Int>()} at ${total()}")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    banner()
+    if true {
+        use MemCounter
+        use CountingAudit()
+        note("inner")
+        banner()
+    }
+    log("outer again")
+    use CyclicRandom([10, 20, 30])
+    draw()
+    draw()
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_handler_deps_in_anger() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(
+        &files,
+        "handler-deps-anger",
+        "LOG 1: banner\n!! done\n[1] inner\nLOG 2: banner\n!! done\n\
+         LOG 3: outer again\ndrew 20 at 1\ndrew 30 at 1\n",
+    );
+}
+
+const HANDLER_DEPS_CHAIN_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Audit {
+    fn note(message: Str) -> [message] None
+}
+
+effect Tally {
+    fn add_up(n: Int) -> [n] None
+    fn tally() -> [] Int
+}
+
+handler MemTally of Tally {
+    sum: Int = 0
+    fn add_up(n: Int) -> [n] None { sum = sum + n }
+    fn tally() -> [] Int { return sum }
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+handler LoggingAudit(logger: Logger) of Audit {
+    count: Int = 0
+    fn note(message: Str) -> [message] None {
+        count = count + 1
+        log("note ${count}: ${message}")
+    }
+}
+
+qualifier Loud of Str {
+    fn qualifies(text: Str) [Console] -> Bool {
+        println("checking ${text}")
+        return text.size() > 3
+    }
+}
+
+fn label(n: Int) [Console] -> [] Str {
+    println("labelling ${n}")
+    return "n=${n}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    use LoggingAudit()
+    note("first")
+    for i in [1, 2] {
+        use MemTally
+        add_up(i)
+        log("loop ${i} tally ${tally()}")
+    }
+    log(label(7))
+    let text = "hello"
+    if text is Loud {
+        note("loud")
+    }
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_handler_deps_chain() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(
+        &files,
+        "handler-deps-chain",
+        "LOG: note 1: first\nLOG: loop 1 tally 1\nLOG: loop 2 tally 2\n\
+         labelling 7\nLOG: n=7\nchecking hello\nLOG: note 2: loud\n",
+    );
+}
+
+const HANDLER_DEPS_MIXED_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Sink {
+    fn keep(items: Mut List<Int>) -> [] None
+    fn kept() -> [] Int
+}
+
+effect Counter {
+    fn bump() -> [] None
+    fn total() -> [] Int
+}
+
+handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("${prefix}[${level}] ${message}")
+        tallied(message)
+    }
+}
+
+handler MemSink of Sink {
+    held: Mut List<Int> = mutable_list()
+    fn keep(items: Mut List<Int>) -> [] None { held = items }
+    fn kept() -> [] Int { return size(held) }
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() -> [] None { n = n + 1 }
+    fn total() -> [] Int { return n }
+}
+
+fn tallied(text: Str) [Console, use] -> [text] None {
+    use MemSink
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, size(text))
+    keep(xs)
+    println("  tallied ${kept()}")
+}
+
+fn twice(f: (s: Str) -> [s] Str) -> [] Str {
+    return f("a")
+}
+
+fn report(label: Str) [Console, Logger, Counter] -> [label] None {
+    bump()
+    log("${label} #${total()}")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use PrefixLogger("L", 3)
+    use MemCounter
+    log(twice(s -> {
+        log("in lambda ${s}")
+        return "done ${s}"
+    }))
+    report("one")
+    let i = 0
+    while i < 2 {
+        use MemSink
+        let ys: Mut List<Int> = mutable_list()
+        add(ys, copy(i))
+        keep(ys)
+        report("loop ${kept()}")
+        i = i + 1
+    }
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_handler_deps_mixed() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(
+        &files,
+        "handler-deps-mixed",
+        "L[3] in lambda a\n  tallied 1\nL[3] done a\n  tallied 1\nL[3] one #1\n\
+         \x20 tallied 1\nL[3] loop 1 #2\n  tallied 1\nL[3] loop 1 #3\n  tallied 1\n",
+    );
+}
+
 // ===== union coercion inside arrays/tuples/lambda returns =====
 // [union-wrap] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.

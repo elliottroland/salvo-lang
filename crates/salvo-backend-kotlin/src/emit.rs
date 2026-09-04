@@ -267,6 +267,12 @@ struct Emitter<'p> {
     /// bindings): effect parameters and `use` variables pick names that
     /// avoid them [kt-effect-params].
     taken_names: HashSet<String>,
+    /// [effect-handler-deps] Effect dependencies of the handler whose
+    /// members are being emitted: a constructor parameter of effect type
+    /// becomes a `private val`, so member bodies reach the effect through
+    /// that field instead of a leading parameter (their signatures must
+    /// match the effect interface).
+    handler_deps: Vec<EffectEntry>,
     /// Statement context: inside an `iterator {}` builder, bare `return`
     /// re-targets to `return@iterator` [fn-iterator] — carried as state
     /// so value-position lowerings (value blocks, loop lowering, `when`
@@ -281,6 +287,7 @@ struct Emitter<'p> {
 /// One handler in scope: the checker effect type when known (the primary
 /// lookup key — immune to rendering drift), the Kotlin rendering of the
 /// effect type, and the expression providing the handler.
+#[derive(Clone)]
 struct EffectEntry {
     ty: Option<Ty>,
     rendered: String,
@@ -311,6 +318,7 @@ impl<'p> Emitter<'p> {
             loop_id: 0,
             destructure_id: 0,
             taken_names: HashSet::new(),
+            handler_deps: Vec::new(),
             stmt_ctx: StmtCtx::Normal,
             generated_imports: BTreeSet::new(),
         }
@@ -505,12 +513,37 @@ impl<'p> Emitter<'p> {
                 kt_ident(&field.name.name)
             ));
         }
+        let deps = self.handler_dep_entries(h);
+        let saved_deps = std::mem::replace(&mut self.handler_deps, deps);
         for f in &h.fns {
             out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
         }
+        self.handler_deps = saved_deps;
         out.push_str("}\n");
         self.generics = saved;
         out
+    }
+
+    /// [effect-handler-deps] The handler's effect dependencies as effect
+    /// environment entries pointing at their constructor fields.
+    fn handler_dep_entries(&mut self, h: &HandlerDecl) -> Vec<EffectEntry> {
+        let params: Vec<(String, Type)> = h
+            .params
+            .iter()
+            .filter(|p| {
+                type_base_name(&p.ty)
+                    .is_some_and(|n| self.symbols.effects.contains_key(n))
+            })
+            .map(|p| (p.name.name.clone(), p.ty.clone()))
+            .collect();
+        params
+            .into_iter()
+            .map(|(name, ty)| EffectEntry {
+                ty: None,
+                rendered: self.emit_type(&ty),
+                expr: kt_ident(&name),
+            })
+            .collect()
     }
 
     /// An `external handler`, implemented by a `define handler` template:
@@ -639,6 +672,15 @@ impl<'p> Emitter<'p> {
         // (checker-`Ty` keys; the AST rendering is the unchecked
         // fallback).
         let mut params: Vec<String> = Vec::new();
+        // [effect-handler-deps] A handler member reaches its handler's
+        // dependencies through constructor *fields*, so those effects are
+        // already provided and must not become leading parameters — the
+        // signature has to match the effect interface.
+        for entry in self.handler_deps.clone() {
+            self.effect_env.push(entry);
+        }
+        let provided: Vec<String> =
+            self.effect_env.iter().map(|e| e.rendered.clone()).collect();
         if !is_main {
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
@@ -650,6 +692,9 @@ impl<'p> Emitter<'p> {
                 Some(tys) => {
                     for ty in tys {
                         let rendered = self.kotlin_ty(&ty);
+                        if provided.contains(&rendered) {
+                            continue;
+                        }
                         let param = self.unique_name(effect_param_name(&rendered));
                         self.effect_env.push(EffectEntry {
                             ty: Some(ty),
@@ -663,6 +708,9 @@ impl<'p> Emitter<'p> {
                     for eff in f.effects.iter().flatten() {
                         if let EffectRef::Effect(r) = eff {
                             let rendered = self.emit_type_ref(r);
+                            if provided.contains(&rendered) {
+                                continue;
+                            }
                             let param = self.unique_name(effect_param_name(&rendered));
                             self.effect_env.push(EffectEntry {
                                 ty: None,
@@ -1364,10 +1412,13 @@ impl<'p> Emitter<'p> {
     /// declared `of` type is the fallback for unchecked contexts.
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let (handler_name, handler_code) = match handler {
-            Expr::Ident(id) => (id.name.clone(), format!("{}()", kt_ident(&id.name))),
-            Expr::Call { callee, .. } => match callee.as_ref() {
-                Expr::Ident(id) => (id.name.clone(), self.emit_expr(handler)),
+        let (handler_name, written_args) = match handler {
+            Expr::Ident(id) => (id.name.clone(), Vec::new()),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => (
+                    id.name.clone(),
+                    args.iter().map(|a| self.emit_expr(a)).collect(),
+                ),
                 _ => {
                     self.error("`use` expects a handler name or constructor call");
                     return String::new();
@@ -1382,6 +1433,40 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
+        // [effect-handler-deps] Dependencies are not written at the `use`
+        // site: the compiler supplies them from the enclosing scope, in the
+        // handler's declaration order, interleaved with the written
+        // arguments exactly as the constructor declares them.
+        let dep_tys: Vec<Ty> = self
+            .checked
+            .use_deps
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        let mut deps = dep_tys.iter();
+        let mut written = written_args.into_iter();
+        let mut ctor_args: Vec<String> = Vec::new();
+        for p in &decl.params {
+            let is_dep = type_base_name(&p.ty)
+                .is_some_and(|n| self.symbols.effects.contains_key(n));
+            if is_dep {
+                match deps.next() {
+                    Some(ty) => {
+                        let ty = ty.clone();
+                        ctor_args.push(self.lookup_effect_handler_by_ty(&ty));
+                    }
+                    None => {
+                        // Unchecked context: fall back to the rendered type.
+                        let rendered = self.emit_type(&p.ty);
+                        ctor_args.push(self.lookup_effect_handler_by_type(&rendered));
+                    }
+                }
+            } else if let Some(code) = written.next() {
+                ctor_args.push(code);
+            }
+        }
+        ctor_args.extend(written);
+        let handler_code = format!("{}({})", kt_ident(&handler_name), ctor_args.join(", "));
         let (effect_ty, rendered) = match self.checked.use_effects.get(&(self.file_idx, span)) {
             Some(ty) if ty_is_concrete(ty) => {
                 let ty = ty.clone();

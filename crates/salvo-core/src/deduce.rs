@@ -84,6 +84,7 @@ pub(crate) fn infer(
     mutations: &HashMap<FnKey, HashSet<String>>,
 ) {
     let no_mutations: HashSet<String> = HashSet::new();
+    let no_state: HashSet<String> = HashSet::new();
     // [qual-subject] Provenance qualifiers survive every call, so an
     // inferred entry must not claim to remove one. Collected program-wide:
     // the deduction machinery is qualifier-*name* keyed throughout, and
@@ -175,6 +176,7 @@ pub(crate) fn infer(
                 &provenance,
                 &effects,
                 &effect_calls,
+                &no_state,
             );
             exhaustive_for_mutated(
                 f.decl,
@@ -208,39 +210,49 @@ pub(crate) fn infer(
             &provenance,
             &effects,
             &effect_calls,
+            &no_state,
         );
         let written = &states[&f.key];
-        for ((w, i), p) in written.iter().zip(&inferred).zip(&f.decl.params) {
-            let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
-                continue;
-            };
-            if w.kept && !i.kept {
-                errors.push(FileDiagnostic::error(
-                    f.key.file,
-                    entry.span,
-                    format!(
-                        "deduction promises `{}` back to the caller, but the \
-                         body moves it",
-                        w.param
-                    ),
-                ));
-                continue;
-            }
-            let declared = declared_quals(&p.ty);
-            let promised = w.effect.kept_quals(&declared);
-            let survives = i.effect.kept_quals(&declared);
-            for q in &promised {
-                if w.kept && !survives.contains(q) {
-                    errors.push(FileDiagnostic::error(
-                        f.key.file,
-                        entry.span,
-                        format!(
-                            "deduction promises qualifier `{q}` on `{}`, but \
-                             the body may remove it",
-                            w.param
-                        ),
-                    ));
-                }
+        validate_written(f.key.file, f.decl, list, written, &inferred, &mut errors);
+    }
+
+    // [effect-handler] Handler members are declarations with bodies too, and
+    // their contract is applied at call sites like a named call's
+    // ([decl-explicit], [call-resolve]) — so a written list that promises
+    // more than the body delivers is the same bug there. They carry no
+    // `FnKey` (not top-level items), so they are validated here instead of
+    // joining the fixpoint, which is sound because the dependency runs one
+    // way: a member's body facts depend on other fns' contracts, and a fn's
+    // contract depends on members' *declared* lists, never their bodies.
+    for (file_idx, ast) in program.modules.iter().enumerate() {
+        for (item_idx, item) in ast.items.iter().enumerate() {
+            let Item::Handler(h) = item else { continue };
+            for m in &h.fns {
+                let (Some(list), Some(body)) = (&m.deductions, &m.body) else {
+                    continue;
+                };
+                let info = FnInfo {
+                    key: FnKey {
+                        file: file_idx,
+                        item: item_idx,
+                    },
+                    decl: m,
+                };
+                let written = from_written(m, list, &no_mutations, |_, _| {});
+                let state_names: HashSet<String> =
+                    h.state.iter().map(|s| s.name.name.clone()).collect();
+                let inferred = infer_body(
+                    &info,
+                    body,
+                    &checked.call_fn,
+                    &fn_decls,
+                    &states,
+                    &provenance,
+                    &effects,
+                    &effect_calls,
+                    &state_names,
+                );
+                validate_written(file_idx, m, list, &written, &inferred, &mut errors);
             }
         }
     }
@@ -442,6 +454,7 @@ fn infer_body<'a, 'p>(
     provenance: &'a HashSet<String>,
     effects: &'a HashMap<String, &'p EffectDecl>,
     effect_calls: &'a HashMap<Key, Ty>,
+    state_names: &'a HashSet<String>,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.key.file,
@@ -453,9 +466,56 @@ fn infer_body<'a, 'p>(
         provenance,
         effects,
         effect_calls,
+        state_names,
     };
     walk.block(body);
     walk.params
+}
+
+/// Validates a *written* deduction list against the facts inferred from the
+/// body [deduce-infer]: the contract may be stricter than the body (drop
+/// qualifiers, move parameters the body gives back), never looser.
+fn validate_written(
+    file: usize,
+    decl: &FnDecl,
+    list: &[Deduction],
+    written: &[ParamDeduction],
+    inferred: &[ParamDeduction],
+    errors: &mut Vec<FileDiagnostic>,
+) {
+    for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
+        let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
+            continue;
+        };
+        if w.kept && !i.kept {
+            errors.push(FileDiagnostic::error(
+                file,
+                entry.span,
+                format!(
+                    "deduction promises `{}` back to the caller, but the body \
+                     moves it",
+                    w.param
+                ),
+            ));
+            continue;
+        }
+        let declared = declared_quals(&p.ty);
+        let promised = w.effect.kept_quals(&declared);
+        let survives = i.effect.kept_quals(&declared);
+        for q in &promised {
+            if w.kept && !survives.contains(q) {
+                errors.push(FileDiagnostic::error(
+                    file,
+                    entry.span,
+                    format!(
+                        "deduction promises qualifier `{q}` on `{}`, but the \
+                         body may remove it",
+                        w.param
+                    ),
+                ));
+            }
+        }
+    }
 }
 
 /// The body walker applying use-constraints to the parameter facts.
@@ -476,6 +536,10 @@ struct Walk<'a, 'p> {
     /// Which effect instance each member call dispatches through (checker
     /// table `effect_calls`), keyed by call span.
     effect_calls: &'a HashMap<Key, Ty>,
+    /// Handler *state* field names when walking a handler member
+    /// [effect-state-store]: assigning into one is a store (the handler
+    /// takes ownership), not a binding. Empty for ordinary fns.
+    state_names: &'a HashSet<String>,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -612,7 +676,15 @@ impl<'p> Walk<'_, 'p> {
             }
             Stmt::Assign { target, value, .. } => {
                 self.expr(target);
-                if bare_ident(value).is_none() {
+                // [effect-state-store] Assigning into a handler state field
+                // stores the value for the handler's lifetime: that is a
+                // move, where an ordinary local would only link
+                // [fate-link].
+                let into_state = bare_ident(target)
+                    .is_some_and(|name| self.state_names.contains(name));
+                if into_state {
+                    self.moving_expr(value);
+                } else if bare_ident(value).is_none() {
                     self.expr(value);
                 }
             }

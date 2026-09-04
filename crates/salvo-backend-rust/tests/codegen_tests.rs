@@ -1689,6 +1689,585 @@ fn rustc_compiles_and_runs_tuple_index() {
     run_rust_files(&files, "tuple-index", "1 two true\nin 9\nsome here 6\n");
 }
 
+// ===== effect dependencies on handlers [effect-handler-deps] =====
+// A handler constructor parameter of effect type is a dependency: the
+// member body may use that effect, the `use` site supplies it from scope,
+// and callers of the outer effect never mention it.
+
+const HANDLER_DEPS_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+fn work() [Logger] -> None {
+    log("from work")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    work()
+    log("from main")
+}
+"#;
+
+/// [effect-handler-deps] [rs-effect-fusion] The dependency is neither a
+/// field nor a `new` parameter: the member bodies move into a generated
+/// `__Impl_H` trait that takes it as a fused value, and the `use` site
+/// builds a fusion owning the handler and forwarding the effect to it.
+#[test]
+fn handler_dependencies_fuse() {
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    assert!(
+        c.contains("pub struct ConsoleLogger {\n}") && c.contains("pub fn new() -> Self"),
+        "the dependency must not become a field or a `new` parameter:\n{c}"
+    );
+    assert!(
+        c.contains("pub trait __Impl_ConsoleLogger")
+            && c.contains("fn log(&mut self, __fx: &mut dyn Console, message: &String)"),
+        "expected the member bodies in a trait taking the fused dependency:\n{c}"
+    );
+    assert!(
+        c.contains("pub fn work(__fx: &mut dyn Logger)"),
+        "callers must not mention the dependency:\n{c}"
+    );
+    assert!(
+        c.contains("__outer: &'a mut dyn Console") && c.contains("__h: __H,"),
+        "expected a fusion chaining to the provider and owning the handler:\n{c}"
+    );
+    assert!(
+        c.contains("let Self { __outer, __h } = self;")
+            && c.contains("__Impl_ConsoleLogger::log(__h, &mut **__outer, message)"),
+        "the forwarding impl must split `&mut self` into disjoint field \
+         borrows before threading the dependency:\n{c}"
+    );
+}
+
+/// [rs-effect-fusion] The gate is program-wide but *narrow*: a program
+/// where no handler declares a dependency keeps the per-effect `&mut dyn`
+/// parameters, so nothing about existing output changes.
+#[test]
+fn programs_without_handler_dependencies_do_not_fuse() {
+    let files = generate(&[("main.sv", NO_DEPS_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    assert!(
+        c.contains("pub fn work(logger: &mut dyn Logger, console: &mut dyn Console)"),
+        "expected one `&mut dyn` parameter per effect:\n{c}"
+    );
+    assert!(
+        !c.contains("__Fx_") && !c.contains("__Conj_"),
+        "no fusion items should be generated:\n{c}"
+    );
+}
+
+const NO_DEPS_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler PlainLogger of Logger {
+    fn log(message: Str) -> [message] None { }
+}
+
+fn work() [Logger, Console] -> None {
+    log("hi")
+    println("there")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use PlainLogger
+    work()
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_handler_dependencies() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    // The same stdout the Kotlin backend produces for this program.
+    run_rust_files(&files, "handler-deps", "LOG: from work\nLOG: from main\n");
+}
+
+// ===== the fusion in anger [rs-effect-fusion] =====
+// Handler state behind a dependency, a *two*-dependency handler whose
+// second dependency is another handler's effect, a fn needing two effects
+// calling one needing a subset, nested `use` scopes with the outer one used
+// again afterwards, a `use` inside a fn that already has effects, and two
+// effect calls in one expression (which must not borrow the fused value
+// twice).
+
+const FUSION_DEMO: &str = r#"
+effect Random<T> {
+    fn next_random() -> [] T
+}
+
+effect Counter {
+    fn bump() -> [] None
+    fn total() -> [] Int
+}
+
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Audit {
+    fn note(message: Str) -> [message] None
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> T {
+        i = (i + 1) % values.size()
+        return values[i]
+    }
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() -> [] None { n = n + 1 }
+    fn total() -> [] Int { return n }
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    seen: Int = 0
+    fn log(message: Str) -> [message] None {
+        seen = seen + 1
+        println("LOG ${seen}: ${message}")
+    }
+}
+
+handler CountingAudit(console: Console, counter: Counter) of Audit {
+    fn note(message: Str) -> [message] None {
+        bump()
+        println("[${total()}] ${message}")
+    }
+}
+
+fn shout(message: Str) [Console] -> [message] None {
+    println("!! ${message}")
+}
+
+fn banner() [Console, Logger] -> [] None {
+    log("banner")
+    shout("done")
+}
+
+fn draw() [Console, Random<Int>, use] -> [] None {
+    use MemCounter
+    bump()
+    println("drew ${next_random<Int>()} at ${total()}")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    banner()
+    if true {
+        use MemCounter
+        use CountingAudit()
+        note("inner")
+        banner()
+    }
+    log("outer again")
+    use CyclicRandom([10, 20, 30])
+    draw()
+    draw()
+}
+"#;
+
+#[test]
+fn fusion_shapes() {
+    let files = generate(&[("main.sv", FUSION_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    // A fn needing two effects takes one *generic* fused value, so it can
+    // forward to a callee needing a subset (`dyn` could not: upcasting
+    // only reaches supertraits).
+    assert!(
+        c.contains("pub fn banner<__Fx: Console + Logger>(__fx: &mut __Fx)")
+            && c.contains("shout(&mut *__fx,"),
+        "expected a generic fused parameter forwarded to a smaller callee:\n{c}"
+    );
+    // Two dependencies need a Sized view over the single provider field.
+    assert!(
+        c.contains("pub struct __Deps_CountingAudit<'a, __P: ?Sized>")
+            && c.contains("let mut __deps = __Deps_CountingAudit{ __p: &mut **__outer };")
+            && c.contains("fn note<__Fx: Console + Counter>(&mut self, __fx: &mut __Fx"),
+        "expected the two-dependency adapter and a generic member:\n{c}"
+    );
+    // Conjunction traits exist only as `__outer` field types.
+    assert!(
+        c.contains("pub trait __Conj_Console_Logger: Console + Logger {}")
+            && c.contains("impl<T: Console + Logger + ?Sized> __Conj_Console_Logger for T {}"),
+        "expected a conjunction trait with its blanket impl:\n{c}"
+    );
+    // Member dispatch is UFCS: one value implements every effect in scope.
+    assert!(
+        c.contains("Random::<i32>::next_random(&mut __fx"),
+        "expected UFCS dispatch for a generic effect:\n{c}"
+    );
+    // Two effect calls in one expression: the inner one is hoisted, or the
+    // fused value would be borrowed twice (`E0499`).
+    assert!(
+        c.contains("{ let __a1 = &(format!(\"drew {} at {}\""),
+        "expected nested effect calls to be hoisted into a temporary:\n{c}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_fusion() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FUSION_DEMO, false)]);
+    run_rust_files(
+        &files,
+        "fusion",
+        "LOG 1: banner\n!! done\n[1] inner\nLOG 2: banner\n!! done\n\
+         LOG 3: outer again\ndrew 20 at 1\ndrew 30 at 1\n",
+    );
+}
+
+/// [backend-never-wrong] A dependent handler whose *generated* trait would
+/// have to name the handler's own generic parameters (a dependency or member
+/// signature mentioning them) is reported: the fusion cannot supply that
+/// type argument, because it never derives the handler's generics.
+#[test]
+fn generic_dependent_handler_is_a_codegen_error() {
+    const SRC: &str = r#"
+effect Sink<T> {
+    fn accept(value: T) -> [value] None
+}
+
+handler Relay<T>(console: Console) of Sink<T> {
+    fn accept(value: T) -> [value] None {
+        println("relayed")
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use Relay<Int>()
+    accept(1)
+}
+"#;
+    let program = build_program(&[("main.sv", SRC, false)]);
+    let errors = match salvo_backend_rust::emit_program(&program) {
+        Ok(_) => panic!("expected a codegen error for a generic dependent handler"),
+        Err(errors) => errors,
+    };
+    let msg = errors
+        .iter()
+        .find(|e| e.contains("generic parameters"))
+        .unwrap_or_else(|| panic!("got {errors:?}"));
+    assert!(
+        msg.contains("Relay") && msg.contains("fuse"),
+        "the cut should name the handler and the mechanism: {msg}"
+    );
+}
+
+// [rs-effect-fusion] A dependency *chain* (Audit needs Logger needs
+// Console), a `use` inside a loop body, effect calls nested in another
+// call's arguments, and a predicate qualifier whose `qualifies` declares an
+// effect — all through one fused value.
+
+const FUSION_CHAIN_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Audit {
+    fn note(message: Str) -> [message] None
+}
+
+effect Tally {
+    fn add_up(n: Int) -> [n] None
+    fn tally() -> [] Int
+}
+
+handler MemTally of Tally {
+    sum: Int = 0
+    fn add_up(n: Int) -> [n] None { sum = sum + n }
+    fn tally() -> [] Int { return sum }
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+handler LoggingAudit(logger: Logger) of Audit {
+    count: Int = 0
+    fn note(message: Str) -> [message] None {
+        count = count + 1
+        log("note ${count}: ${message}")
+    }
+}
+
+qualifier Loud of Str {
+    fn qualifies(text: Str) [Console] -> Bool {
+        println("checking ${text}")
+        return text.size() > 3
+    }
+}
+
+fn label(n: Int) [Console] -> [] Str {
+    println("labelling ${n}")
+    return "n=${n}"
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    use LoggingAudit()
+    note("first")
+    for i in [1, 2] {
+        use MemTally
+        add_up(i)
+        log("loop ${i} tally ${tally()}")
+    }
+    log(label(7))
+    let text = "hello"
+    if text is Loud {
+        note("loud")
+    }
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_fusion_chain() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FUSION_CHAIN_DEMO, false)]);
+    run_rust_files(
+        &files,
+        "fusion-chain",
+        "LOG: note 1: first\nLOG: loop 1 tally 1\nLOG: loop 2 tally 2\n\
+         labelling 7\nLOG: n=7\nchecking hello\nLOG: note 2: loud\n",
+    );
+}
+
+// [rs-effect-fusion] The `use` site and the dependent handler may live in
+// different modules: the generated `__Impl_H` trait travels with the
+// handler and arrives through the module's glob import [rs-imports].
+const FUSION_LOGGING_MODULE: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    tag: Str = "M"
+    fn log(message: Str) -> [message] None {
+        println("${tag}: ${message}")
+    }
+}
+
+fn work() [Logger] -> None {
+    log("from work")
+}
+"#;
+
+const FUSION_MAIN_MODULE: &str = r#"
+import logging.work
+import logging.Logger
+import logging.ConsoleLogger
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    work()
+    log("from main")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_cross_module_fusion() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[
+        ("logging.sv", FUSION_LOGGING_MODULE, false),
+        ("main.sv", FUSION_MAIN_MODULE, false),
+    ]);
+    run_rust_files(&files, "fusion-cross", "M: from work\nM: from main\n");
+}
+
+// [rs-effect-fusion] Constructor parameters mixing a dependency with plain
+// data, a dependent member calling a fn that does its own `use`, an
+// effect-using lambda passed to an effect-*free* higher-order fn (allowed:
+// the call threads nothing, so nothing aliases), three effects in one
+// signature, a `use` inside a `while` body, and an effect member taking a
+// `Mut` parameter.
+
+const FUSION_MIXED_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+effect Sink {
+    fn keep(items: Mut List<Int>) -> [] None
+    fn kept() -> [] Int
+}
+
+effect Counter {
+    fn bump() -> [] None
+    fn total() -> [] Int
+}
+
+handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("${prefix}[${level}] ${message}")
+        tallied(message)
+    }
+}
+
+handler MemSink of Sink {
+    held: Mut List<Int> = mutable_list()
+    fn keep(items: Mut List<Int>) -> [] None { held = items }
+    fn kept() -> [] Int { return size(held) }
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() -> [] None { n = n + 1 }
+    fn total() -> [] Int { return n }
+}
+
+fn tallied(text: Str) [Console, use] -> [text] None {
+    use MemSink
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, size(text))
+    keep(xs)
+    println("  tallied ${kept()}")
+}
+
+fn twice(f: (s: Str) -> [s] Str) -> [] Str {
+    return f("a")
+}
+
+fn report(label: Str) [Console, Logger, Counter] -> [label] None {
+    bump()
+    log("${label} #${total()}")
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use PrefixLogger("L", 3)
+    use MemCounter
+    log(twice(s -> {
+        log("in lambda ${s}")
+        return "done ${s}"
+    }))
+    report("one")
+    let i = 0
+    while i < 2 {
+        use MemSink
+        let ys: Mut List<Int> = mutable_list()
+        add(ys, copy(i))
+        keep(ys)
+        report("loop ${kept()}")
+        i = i + 1
+    }
+}
+"#;
+
+const FUSION_MIXED_STDOUT: &str = "L[3] in lambda a\n  tallied 1\nL[3] done a\n\
+     \x20 tallied 1\nL[3] one #1\n  tallied 1\nL[3] loop 1 #2\n  tallied 1\n\
+     L[3] loop 1 #3\n  tallied 1\n";
+
+#[test]
+fn rustc_compiles_and_runs_fusion_mixed() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FUSION_MIXED_DEMO, false)]);
+    run_rust_files(&files, "fusion-mixed", FUSION_MIXED_STDOUT);
+}
+
+/// [backend-never-wrong] The one program the fusion loses to Kotlin: a
+/// function *value* that uses an effect, passed to a callee that needs one
+/// too. A closure keeps the borrow it captured, so hoisting cannot separate
+/// it from the call's own borrow of the same fused value (`E0499`).
+#[test]
+fn effect_using_fn_value_at_an_effectful_call_is_a_codegen_error() {
+    const SRC: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+fn run_it(f: (s: Str) -> [s] Str) [Console] -> [] None {
+    println(f("x"))
+}
+
+fn demo() [Console, Logger] -> [] None {
+    run_it(s -> {
+        log("in lambda ${s}")
+        return "done ${s}"
+    })
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    demo()
+}
+"#;
+    let program = build_program(&[("main.sv", SRC, false)]);
+    let errors = match salvo_backend_rust::emit_program(&program) {
+        Ok(_) => panic!("expected a codegen error for an effect-using closure"),
+        Err(errors) => errors,
+    };
+    let msg = errors
+        .iter()
+        .find(|e| e.contains("uses an effect"))
+        .unwrap_or_else(|| panic!("got {errors:?}"));
+    assert!(
+        msg.contains("run_it") && msg.contains("borrows it"),
+        "the cut should name the callee and the reason: {msg}"
+    );
+}
+
 // ===== union coercion inside arrays/tuples/lambda returns =====
 // [union-wrap] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
