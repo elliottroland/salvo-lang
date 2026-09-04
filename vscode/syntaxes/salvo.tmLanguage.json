@@ -91,7 +91,7 @@
       "patterns": [
         {
           "name": "keyword.control.salvo",
-          "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|yield)\\b"
+          "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|yield|defer)\\b"
         },
         {
           "name": "keyword.declaration.salvo",

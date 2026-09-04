@@ -348,6 +348,7 @@ fn check_once<'p>(
             lambda_links: HashMap::new(),
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
+            defers: Vec::new(),
         };
         checker.check_module(ast);
     }
@@ -563,6 +564,36 @@ struct Checker<'p, 'r> {
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
+    /// Deferred blocks registered but not yet run [defer], in
+    /// registration order (innermost/latest last). Each is applied at
+    /// every exit of the frame it belongs to.
+    defers: Vec<PendingDefer>,
+}
+
+/// One `defer { ... }` awaiting the exits of the block it was written in
+/// [defer]. `defer` means *splice at exit*: the body is type-checked
+/// once, where the `defer` statement stands, and what running it does to
+/// the flow state is applied at each exit of that block — the end of the
+/// block, and every `return`/`break`/`continue` that leaves it.
+#[derive(Clone)]
+struct PendingDefer {
+    /// `locals.len()` at the `defer` statement: the body runs at the
+    /// exits of that frame.
+    depth: usize,
+    /// The `defer` statement's span — where its exit-time diagnostics land.
+    span: Span,
+    /// The flow facts the body was checked against: for every local it
+    /// mentions, the narrowed type and the narrowed projections it saw.
+    /// A fact that no longer holds at an exit would make the recorded
+    /// lowering wrong *there* [backend-never-wrong], so it is an error.
+    expects: Vec<(String, Ty, Vec<PlaceNarrow>)>,
+    /// Locals the body consumes: the obligation is discharged at each
+    /// exit [linear-obligation], and consuming one twice is an error.
+    consumes: Vec<String>,
+    /// Locals the body only weakens: `Some(ty)` when it invalidated the
+    /// narrowing (a mutating call [flow-place-invalidate]), plus a
+    /// poison reason when it poisoned a derived variable [fate-poison].
+    weakens: Vec<(String, Option<Ty>, Option<Poison>)>,
 }
 
 /// One enclosing lambda during body checking [fate-lambda].
@@ -2284,6 +2315,256 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    // ================= deferred blocks [defer] =================
+
+    /// Registers a `defer { ... }` [defer]. The body is type-checked
+    /// *here*, in the flow state at the `defer` statement, and the state
+    /// is restored afterwards — the code does not run at this point, so
+    /// nothing it consumes is consumed yet. What running it does is
+    /// summarized for the enclosing block's exits, where
+    /// `apply_defer` replays it.
+    ///
+    /// Checking once (rather than at every exit) keeps one recording of
+    /// the body's types for the emitters; the facts the check relied on
+    /// are recorded with it and verified at each exit.
+    fn check_defer(&mut self, body: &'p Block, span: Span) {
+        // [defer-no-escape] The body runs on the way out of the enclosing
+        // block: there is no path for it to leave through.
+        if let Some((what, at)) = block_defer_escape(body, 0) {
+            self.error(
+                at,
+                format!(
+                    "`{what}` is not allowed in a deferred block: the block runs \
+                     when the enclosing block exits, so there is nothing to \
+                     `{what}` out of"
+                ),
+            );
+        }
+        // Facts the body's check is about to rely on, for the locals it
+        // mentions.
+        let mentioned: Vec<String> = self
+            .locals
+            .iter()
+            .flat_map(|frame| frame.keys().cloned())
+            .filter(|name| block_mentions_name(body, name))
+            .collect();
+        let mut expects: Vec<(String, Ty, Vec<PlaceNarrow>)> = Vec::new();
+        for name in mentioned {
+            if let Some(var) = self.lookup(&name) {
+                expects.push((name, var.narrowed.clone(), var.place_narrows.clone()));
+            }
+        }
+        let entry = self.snapshot_narrows();
+        let _ = self.check_branch_block(body, Vec::new());
+        // What the body did to the enclosing state, summarized.
+        let mut consumes: Vec<String> = Vec::new();
+        let mut weakens: Vec<(String, Option<Ty>, Option<Poison>)> = Vec::new();
+        for (frame, saved) in self.locals.iter().zip(&entry) {
+            for (name, before) in saved {
+                let Some(var) = frame.get(name) else { continue };
+                let consumed =
+                    matches!(var.narrowed, Ty::Nothing) && !matches!(before.narrowed, Ty::Nothing);
+                if consumed {
+                    consumes.push(name.clone());
+                    continue;
+                }
+                let narrowing_changed = before.narrowed != var.narrowed;
+                let places_changed = before.place_narrows != var.place_narrows;
+                let poisoned = before.poison != var.poison;
+                if narrowing_changed || places_changed || poisoned {
+                    weakens.push((
+                        name.clone(),
+                        narrowing_changed.then(|| var.narrowed.clone()),
+                        var.poison.clone(),
+                    ));
+                }
+            }
+        }
+        self.restore_narrows(&entry);
+        self.defers.push(PendingDefer {
+            depth: self.locals.len(),
+            span,
+            expects,
+            consumes,
+            weakens,
+        });
+    }
+
+    /// Replays one deferred block's effect on the current flow state
+    /// [defer]: the facts it was checked against must still hold here,
+    /// and what it consumes is consumed here.
+    fn apply_defer(&mut self, d: &PendingDefer) {
+        for (name, expect, expect_places) in &d.expects {
+            let Some(var) = self.lookup(name) else { continue };
+            if matches!(var.narrowed, Ty::Nothing) {
+                let reason = var
+                    .consumed_by
+                    .map(|by| format!(" (consumed by {by})"))
+                    .unwrap_or_default();
+                self.error_once(
+                    d.span,
+                    format!(
+                        "the deferred block uses `{name}`, but `{name}` no longer \
+                         holds a value at this exit{reason}: the deferred block \
+                         runs *after* it was given away"
+                    ),
+                );
+                continue;
+            }
+            // A fact the body relied on that no longer holds would make
+            // the lowering recorded for it wrong here
+            // [backend-never-wrong].
+            if !is_subtype(&var.narrowed, expect) {
+                let found = var.narrowed.clone();
+                self.error_once(
+                    d.span,
+                    format!(
+                        "the deferred block was checked where `{name}` is \
+                         `{expect}`, but at this exit it is `{found}`: bind the \
+                         narrowed value to a local (`if {name} is ... {name}2`) \
+                         and defer that instead"
+                    ),
+                );
+                continue;
+            }
+            let stale = expect_places
+                .iter()
+                .find(|want| {
+                    !var.place_narrows.iter().any(|have| {
+                        have.path == want.path && is_subtype(&have.narrowed, &want.narrowed)
+                    })
+                })
+                .cloned();
+            if let Some(want) = stale {
+                let ty = want.narrowed;
+                self.error_once(
+                    d.span,
+                    format!(
+                        "the deferred block was checked where a place in `{name}` \
+                         is `{ty}`, but that no longer holds at this exit: bind \
+                         the narrowed value to a local and defer that instead"
+                    ),
+                );
+            }
+        }
+        for name in &d.consumes {
+            if let Some(var) = self.lookup_mut(name) {
+                if matches!(var.narrowed, Ty::Nothing) {
+                    // Already gone — reported above.
+                    continue;
+                }
+                var.narrowed = Ty::Nothing;
+                var.consumed_by = Some("a deferred block");
+                var.place_narrows.clear();
+            }
+        }
+        for (name, narrowed, poison) in &d.weakens {
+            let Some(var) = self.lookup(name) else { continue };
+            if matches!(var.narrowed, Ty::Nothing) {
+                continue;
+            }
+            // Only ever *lose* facts here: the exit state may be narrower
+            // than the one the summary was computed in (flow narrowing
+            // after the `defer`), and re-imposing the recorded type would
+            // resurrect a fact this path does not have.
+            let widen = narrowed
+                .as_ref()
+                .filter(|after| is_subtype(&var.narrowed, after))
+                .cloned();
+            let poison = poison.clone();
+            if let Some(var) = self.lookup_mut(name) {
+                if let Some(after) = widen {
+                    var.narrowed = after;
+                }
+                var.place_narrows.clear();
+                if let Some(p) = poison {
+                    var.poison = Some(p);
+                    var.narrowed = Ty::Nothing;
+                }
+            }
+        }
+    }
+
+    /// Runs — and drops — every deferred block belonging to the frame that
+    /// is about to end, latest first [defer].
+    fn run_defers_at_frame_end(&mut self) {
+        let depth = self.locals.len();
+        let mut pending: Vec<PendingDefer> = Vec::new();
+        while self.defers.last().is_some_and(|d| d.depth >= depth) {
+            pending.push(self.defers.pop().expect("checked by the loop condition"));
+        }
+        for d in pending {
+            self.apply_defer(&d);
+        }
+    }
+
+    /// Applies the deferred blocks an early exit *leaves* — those in
+    /// frames at or above `from_frame` — runs `f` with their effects in
+    /// place (so the linear-obligation check sees the obligations they
+    /// discharge), then restores the state of the variables they touched:
+    /// the frame's normal exit runs the same `defer`s on its own path
+    /// [defer].
+    fn with_exit_defers<R>(&mut self, from_frame: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+        let pending: Vec<PendingDefer> = self
+            .defers
+            .iter()
+            .filter(|d| d.depth > from_frame)
+            .rev()
+            .cloned()
+            .collect();
+        if pending.is_empty() {
+            return f(self);
+        }
+        let snap = self.snapshot_narrows();
+        let touched: Vec<String> = pending
+            .iter()
+            .flat_map(|d| {
+                d.consumes
+                    .iter()
+                    .cloned()
+                    .chain(d.weakens.iter().map(|(name, _, _)| name.clone()))
+            })
+            .collect();
+        for d in &pending {
+            self.apply_defer(d);
+        }
+        let out = f(self);
+        for (frame, saved) in self.locals.iter_mut().zip(&snap) {
+            for name in &touched {
+                if let (Some(var), Some(state)) = (frame.get_mut(name), saved.get(name)) {
+                    var.narrowed = state.narrowed.clone();
+                    var.links = state.links.clone();
+                    var.poison = state.poison.clone();
+                    var.consumed_by = state.consumed_by;
+                    var.place_narrows = state.place_narrows.clone();
+                }
+            }
+        }
+        out
+    }
+
+    /// The frame an early exit unwinds to for the purpose of deferred
+    /// blocks: a `return` inside a lambda leaves the lambda, not the
+    /// enclosing fn, so outer `defer`s are none of its business
+    /// [fate-lambda].
+    fn defer_exit_floor(&self) -> usize {
+        self.lambda_ctx.last().map(|c| c.boundary).unwrap_or(0)
+    }
+
+    /// `error`, unless an identical diagnostic was already reported: a
+    /// deferred block is applied at every exit of its block, so one
+    /// broken fact can be found twice on the same path [defer].
+    fn error_once(&mut self, span: Span, message: String) {
+        let seen = self
+            .out
+            .errors
+            .iter()
+            .any(|e| e.file == self.file_idx && e.span == span && e.message == message);
+        if !seen {
+            self.error(span, message);
+        }
+    }
+
     /// `ty_transitively_mut` over written (AST) types — struct fields
     /// are declared syntactically [fate-move-mode].
     fn ast_type_mut(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
@@ -3463,6 +3744,9 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
             Stmt::Return { value: Some(e), .. }
             | Stmt::Break { value: Some(e), .. }
             | Stmt::Yield { value: e, .. } => collect_assigned_expr(e, out),
+            // [defer] Assignments in a deferred body happen at the block's
+            // exits.
+            Stmt::Defer { body, .. } => collect_assigned(body, out),
             _ => {}
         }
     }
@@ -3508,26 +3792,32 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
+/// Whether any statement of `block` mentions the variable `name` — the
+/// block half of [`expr_mentions`].
+fn block_mentions_name(block: &Block, name: &str) -> bool {
+    block.stmts.iter().any(|stmt| match stmt {
+        Stmt::Let { value, .. } => expr_mentions(value, name),
+        Stmt::Assign { target, value, .. } => {
+            expr_mentions(target, name) || expr_mentions(value, name)
+        }
+        Stmt::Return { value: Some(e), .. }
+        | Stmt::Break { value: Some(e), .. }
+        | Stmt::Yield { value: e, .. } => expr_mentions(e, name),
+        Stmt::Use { handler, .. } => expr_mentions(handler, name),
+        // [defer] The body's code runs at the block's exits.
+        Stmt::Defer { body, .. } => block_mentions_name(body, name),
+        Stmt::Expr(e) => expr_mentions(e, name),
+        _ => false,
+    })
+}
+
 /// Whether `expr` mentions the variable `name` anywhere — any read,
 /// projection base, interpolation, nested branch/loop body, or lambda
 /// capture. Used for same-call ordering [deduce-same-call]: arguments
 /// are evaluated left to right, so mentioning a value that an earlier
 /// argument of the same call consumed is a use-after-move.
 fn expr_mentions(expr: &Expr, name: &str) -> bool {
-    let block_mentions = |block: &Block| -> bool {
-        block.stmts.iter().any(|stmt| match stmt {
-            Stmt::Let { value, .. } => expr_mentions(value, name),
-            Stmt::Assign { target, value, .. } => {
-                expr_mentions(target, name) || expr_mentions(value, name)
-            }
-            Stmt::Return { value: Some(e), .. }
-            | Stmt::Break { value: Some(e), .. }
-            | Stmt::Yield { value: e, .. } => expr_mentions(e, name),
-            Stmt::Use { handler, .. } => expr_mentions(handler, name),
-            Stmt::Expr(e) => expr_mentions(e, name),
-            _ => false,
-        })
-    };
+    let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
         Expr::Ident(id) => id.name == name,
         Expr::Str { parts, .. } => parts.iter().any(|p| match p {
@@ -3666,6 +3956,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut value = Ty::none();
         let mut tail = None;
         for stmt in &block.stmts {
+            // [defer] A `defer` neither produces nor consumes the block's
+            // value: registering one leaves the tail where it was, which
+            // is what both emitters do with it too.
+            if matches!(stmt, Stmt::Defer { .. }) {
+                self.check_stmt(stmt);
+                continue;
+            }
             value = self.check_stmt(stmt);
             tail = match stmt {
                 Stmt::Expr(e) => Some(TailInfo {
@@ -3676,6 +3973,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             };
         }
+        // [defer] Deferred blocks registered in this frame run as it ends.
+        self.run_defers_at_frame_end();
         // [linear-obligation] Nothing linear may die with the scope.
         self.check_linear_frame_drop();
         self.locals.pop();
@@ -3889,7 +4188,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         // [linear-obligation] Nothing linear may be
                         // alive anywhere when the fn exits.
-                        self.check_linear_exit(0, *span, "return");
+                        // [defer] The deferred blocks this exit leaves run
+                        // first: what they discharge is discharged here.
+                        let floor = self.defer_exit_floor();
+                        self.with_exit_defers(floor, |c| {
+                            c.check_linear_exit(0, *span, "return")
+                        });
                     }
                     None => {
                         if !expected.is_none_ty()
@@ -3901,8 +4205,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 format!("bare `return` in a function returning `{expected}`"),
                             );
                         }
-                        // [linear-obligation]
-                        self.check_linear_exit(0, *span, "return");
+                        // [linear-obligation] [defer]
+                        let floor = self.defer_exit_floor();
+                        self.with_exit_defers(floor, |c| {
+                            c.check_linear_exit(0, *span, "return")
+                        });
                     }
                 }
                 Ty::Nothing
@@ -3939,18 +4246,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [linear-obligation] Frames inside the loop die at a
                 // `break`: nothing linear may still be owed in them.
-                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
-                    self.check_linear_exit(depth, *span, "break");
-                }
+                // [defer] The loop body's deferred blocks run on the way
+                // out, so what they discharge is discharged here.
                 // The loop's exit is reachable from every `break`: record
                 // this path's flow state so the after-loop merge sees
                 // values consumed on break paths [deduce-consume] (an
                 // always-exiting branch containing the `break` contributes
                 // nothing to the merge *inside* the body, but the loop
                 // exit is exactly where its state lands).
-                let snap = self.snapshot_narrows();
-                if let Some(ctx) = self.loop_stack.last_mut() {
-                    ctx.break_states.push(snap);
+                match self.loop_stack.last().map(|c| c.entry_depth) {
+                    Some(depth) => {
+                        self.with_exit_defers(depth, |c| {
+                            c.check_linear_exit(depth, *span, "break");
+                            let snap = c.snapshot_narrows();
+                            if let Some(ctx) = c.loop_stack.last_mut() {
+                                ctx.break_states.push(snap);
+                            }
+                        });
+                    }
+                    None => {
+                        let snap = self.snapshot_narrows();
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.break_states.push(snap);
+                        }
+                    }
                 }
                 Ty::Nothing
             }
@@ -3960,9 +4279,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     None => self.error(*span, "`continue` outside of a loop"),
                 }
                 // [linear-obligation] Frames inside the loop iteration
-                // die at a `continue`.
+                // die at a `continue`. [defer] Their deferred blocks run
+                // on the way out.
                 if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
-                    self.check_linear_exit(depth, *span, "continue");
+                    self.with_exit_defers(depth, |c| {
+                        c.check_linear_exit(depth, *span, "continue")
+                    });
                 }
                 Ty::Nothing
             }
@@ -3992,6 +4314,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 }
                 self.check_use(handler, *span);
+                Ty::none()
+            }
+            // [defer] Registered here, run at every exit of this block.
+            Stmt::Defer { body, span } => {
+                self.check_defer(body, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => {
@@ -4976,6 +5303,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.ret_ty = saved_ret;
         // [linear-obligation] Lambda parameters are owned by the body:
         // a linear one must be discharged before the body ends.
+        // [defer] A lambda block body is its own frame: its deferred
+        // blocks run as it ends.
+        self.run_defers_at_frame_end();
         self.check_linear_frame_drop();
         self.locals.pop();
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
@@ -7263,5 +7593,114 @@ fn expr_contains_yield(expr: &Expr) -> bool {
             body, else_block, ..
         } => block_contains_yield(body) || else_block.as_ref().is_some_and(block_contains_yield),
         _ => false,
+    }
+}
+
+// ================= deferred blocks [defer] =================
+
+/// The first control-flow statement in a deferred block that would leave
+/// it [defer-no-escape]: `return`/`yield` anywhere, and
+/// `break`/`continue` outside a loop *inside* the body (a loop written in
+/// the body owns its own). Lambda bodies are their own functions and are
+/// not descended into.
+fn block_defer_escape(block: &Block, loop_depth: usize) -> Option<(&'static str, Span)> {
+    block.stmts.iter().find_map(|stmt| match stmt {
+        Stmt::Return { span, .. } => Some(("return", *span)),
+        Stmt::Yield { span, .. } => Some(("yield", *span)),
+        Stmt::Break { span, .. } if loop_depth == 0 => Some(("break", *span)),
+        Stmt::Continue { span } if loop_depth == 0 => Some(("continue", *span)),
+        Stmt::Break { .. } | Stmt::Continue { .. } => None,
+        Stmt::Let { value, .. } => expr_defer_escape(value, loop_depth),
+        Stmt::Assign { target, value, .. } => expr_defer_escape(target, loop_depth)
+            .or_else(|| expr_defer_escape(value, loop_depth)),
+        Stmt::Use { handler, .. } => expr_defer_escape(handler, loop_depth),
+        // A nested `defer` runs at the end of *this* body: its own
+        // registration checks it.
+        Stmt::Defer { .. } => None,
+        Stmt::Expr(e) => expr_defer_escape(e, loop_depth),
+    })
+}
+
+fn expr_defer_escape(expr: &Expr, loop_depth: usize) -> Option<(&'static str, Span)> {
+    match expr {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => branches
+            .iter()
+            .find_map(|(c, b)| {
+                expr_defer_escape(c, loop_depth).or_else(|| block_defer_escape(b, loop_depth))
+            })
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|b| block_defer_escape(b, loop_depth))
+            }),
+        Expr::When {
+            subject, branches, ..
+        } => expr_defer_escape(subject, loop_depth).or_else(|| {
+            branches
+                .iter()
+                .find_map(|b| block_defer_escape(&b.body, loop_depth))
+        }),
+        Expr::While {
+            cond,
+            body,
+            else_block,
+            ..
+        } => expr_defer_escape(cond, loop_depth)
+            .or_else(|| block_defer_escape(body, loop_depth + 1))
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|b| block_defer_escape(b, loop_depth))
+            }),
+        Expr::For {
+            iterable,
+            body,
+            else_block,
+            ..
+        } => expr_defer_escape(iterable, loop_depth)
+            .or_else(|| block_defer_escape(body, loop_depth + 1))
+            .or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|b| block_defer_escape(b, loop_depth))
+            }),
+        // A lambda is its own function: its `return` is not an escape.
+        Expr::Lambda { .. } => None,
+        Expr::Call { callee, args, .. } => expr_defer_escape(callee, loop_depth)
+            .or_else(|| args.iter().find_map(|a| expr_defer_escape(a, loop_depth))),
+        Expr::Field { base, .. }
+        | Expr::TupleIndex { base, .. }
+        | Expr::Unary { operand: base, .. }
+        | Expr::NonNull { operand: base, .. }
+        | Expr::PostIncrement { operand: base, .. }
+        | Expr::Spread { operand: base, .. }
+        | Expr::Is { subject: base, .. } => expr_defer_escape(base, loop_depth),
+        Expr::Index { base, index, .. } => expr_defer_escape(base, loop_depth)
+            .or_else(|| expr_defer_escape(index, loop_depth)),
+        Expr::Binary { lhs, rhs, .. } => expr_defer_escape(lhs, loop_depth)
+            .or_else(|| expr_defer_escape(rhs, loop_depth)),
+        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => elems
+            .iter()
+            .find_map(|e| expr_defer_escape(e, loop_depth)),
+        Expr::ArrayInit { size, init, .. } => expr_defer_escape(size, loop_depth)
+            .or_else(|| expr_defer_escape(init, loop_depth)),
+        Expr::StructLit { fields, .. } => fields.iter().find_map(|f| match &f.kind {
+            StructLitFieldKind::Named { value, .. } => expr_defer_escape(value, loop_depth),
+            StructLitFieldKind::Spread(e) => expr_defer_escape(e, loop_depth),
+        }),
+        Expr::Str { parts, .. } => parts.iter().find_map(|p| match p {
+            StrExprPart::Interp(e) => expr_defer_escape(e, loop_depth),
+            StrExprPart::Text(_) => None,
+        }),
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Ident(_)
+        | Expr::Error { .. } => None,
     }
 }

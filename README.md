@@ -100,6 +100,9 @@ fn main() [use] {
   under a struct (`Environment.Id`), giving wrapper types without nesting.
 - **Everything is an expression**: `if`/`when` produce values; branch types
   union together.
+- **Scope exits**: `defer { ... }` runs a block when the enclosing block
+  ends — at its end and at every `return`/`break`/`continue` that leaves
+  it, latest first — so a resource is released once, on every path.
 - **Functions**: overloading by argument types, dot-notation
   (`list.size()` ≡ `size(list)`), variadics, lambdas, generics, and
   `yield`-based iterator functions.

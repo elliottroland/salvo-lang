@@ -427,6 +427,47 @@ Conventions:
   and re-binds per iteration at the top of the body.
 * [for-iter] `for x in e` iterates `iter(e)` implicitly when `e` is not
   already an `Iter<T>`; missing/ambiguous `iter` resolution is an error.
+* [defer] `defer { block }` runs the block when the **enclosing block**
+  ends (user decisions 2026-09-04: block-only syntax, block scope,
+  splice-at-exit semantics). Its meaning is *splice at exit*: the body runs
+  at every exit of the block it was written in — the end of the block and
+  each `return`/`break`/`continue` that leaves it — so it is exactly the
+  code written at each of those points. Several `defer`s in one block run
+  latest first (LIFO); a `defer` in a loop body runs per iteration.
+  * **No capture question.** There is no closure: the body is code at the
+    exits, so `defer { close(f) }` leaves `f` usable in the rest of the
+    block and consumes it *there*. That is what makes it discharge a
+    linear obligation on every path [linear-obligation] — reason enough to
+    build it before non-resumption (roadmap E3), where a value live across
+    a may-abort call needs a discharge on the abort path.
+  * **Checked once, where it stands.** The body is type-checked in the
+    scope and flow state at the `defer` statement (nothing is consumed
+    *there* — the state is restored), and what running it does is applied
+    at each exit: the values it consumes are consumed there, so a manual
+    consume plus a deferred one is a use-after-move.
+  * **The facts it relied on must survive.** For every local the body
+    mentions, the narrowed type and place facts it was checked against
+    must still hold at each exit (a call that took the value away, or a
+    mutating call that invalidated a narrowing, is an error naming the
+    remedy: bind the narrowed value to a local and defer that). The
+    lowering recorded for the body would otherwise be wrong at that exit
+    [backend-never-wrong].
+  * **Neither produces nor consumes the block's value**: a trailing
+    `defer` leaves the block's value where it was, and the value is
+    computed before the deferred code runs.
+  * A `defer` inside an *iterator* fn body inherits [rs-iter-vec]'s
+    pre-existing cut: Rust collects eagerly and Kotlin is lazy, so the
+    deferred prints interleave with the consumer differently. Same values,
+    different side-effect *timing* — a plain `println` after a `yield`
+    diverges identically, so this is not a `defer` property.
+* [defer-no-escape] `return`, `yield`, and a `break`/`continue` not bound
+  by a loop *inside* the deferred body are errors: the body runs on the way
+  out of its block, so there is no path to leave through. Loops written in
+  the body own their own `break`/`continue`; a lambda owns its own
+  `return`.
+  * Aborting from a deferred body will be rejected the same way once
+    `abort` exists (roadmap E3): unwinding out of an unwind path is a hole
+    neither lowering wants.
 
 ## Functions
 

@@ -1261,12 +1261,33 @@ impl<'p> Emitter<'p> {
     // ================= statements =================
 
     fn emit_block_stmts(&mut self, block: &Block, indent: usize) -> String {
-        let mut out = String::new();
         let env_depth = self.effect_env.len();
-        for stmt in &block.stmts {
+        let out = self.emit_stmts(&block.stmts, indent);
+        self.effect_env.truncate(env_depth);
+        out
+    }
+
+    /// [kt-defer-finally] A `defer { ... }` wraps *the rest of its block*
+    /// in `try { … } finally { body }`: the JVM runs `finally` on the
+    /// normal path and on every `return`/`break`/`continue` that leaves
+    /// the block, which is exactly [defer]'s splice-at-exit meaning. A
+    /// second `defer` nests inside the first, so the bodies run latest
+    /// first. `try` is an expression in Kotlin, so a block used for its
+    /// value keeps working: the value is the `try` block's tail.
+    fn emit_stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
+        let mut out = String::new();
+        for (i, stmt) in stmts.iter().enumerate() {
+            if let Stmt::Defer { body, .. } = stmt {
+                let pad = "    ".repeat(indent);
+                let rest = self.emit_stmts(&stmts[i + 1..], indent + 1);
+                let deferred = self.emit_block_stmts(body, indent + 1);
+                out.push_str(&format!("{pad}try {{\n{rest}{pad}}} finally {{\n"));
+                out.push_str(&deferred);
+                out.push_str(&format!("{pad}}}\n"));
+                return out;
+            }
             out.push_str(&self.emit_stmt(stmt, indent));
         }
-        self.effect_env.truncate(env_depth);
         out
     }
 
@@ -1327,6 +1348,16 @@ impl<'p> Emitter<'p> {
                 format!("{pad}yield({v})\n")
             }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
+            // [kt-defer-finally] Handled by `emit_stmts`, which wraps the
+            // rest of the block in `try`/`finally`; reaching it here means
+            // a block was emitted statement-by-statement somewhere else.
+            Stmt::Defer { body, .. } => {
+                self.error(
+                    "`defer` in this position is not supported yet (the enclosing \
+                     block is emitted without a scope to attach `finally` to)",
+                );
+                self.emit_block_stmts(body, indent)
+            }
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent),
         }
     }
@@ -2260,10 +2291,25 @@ impl<'p> Emitter<'p> {
     /// A block in value position: all statements plus the trailing
     /// expression as the block's value.
     fn emit_value_block(&mut self, block: &Block) -> String {
-        let mut out = String::new();
         let env_depth = self.effect_env.len();
-        let n = block.stmts.len();
-        for (i, stmt) in block.stmts.iter().enumerate() {
+        let out = self.emit_value_stmts(&block.stmts);
+        self.effect_env.truncate(env_depth);
+        out
+    }
+
+    /// The statements of a value-position block. [kt-defer-finally] A
+    /// `defer` wraps the rest in `try`/`finally`; `try` is an expression
+    /// in Kotlin, so the block's value still comes out of it.
+    fn emit_value_stmts(&mut self, stmts: &[Stmt]) -> String {
+        let mut out = String::new();
+        let n = stmts.len();
+        for (i, stmt) in stmts.iter().enumerate() {
+            if let Stmt::Defer { body, .. } = stmt {
+                let rest = self.emit_value_stmts(&stmts[i + 1..]);
+                let deferred = self.emit_block_stmts(body, 0);
+                out.push_str(&format!("try {{\n{rest}}} finally {{\n{deferred}}}\n"));
+                return out;
+            }
             // Kotlin loops are never expressions, so a trailing loop (the
             // block's value [while-value]) needs the value lowering.
             if i + 1 == n {
@@ -2276,7 +2322,38 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0));
         }
-        self.effect_env.truncate(env_depth);
+        out
+    }
+
+    /// The statements of a Kotlin lambda block body: the trailing
+    /// `return X` becomes the lambda's value, and a `defer` wraps the rest
+    /// in `try`/`finally` [kt-defer-finally].
+    fn emit_lambda_stmts(&mut self, stmts: &[Stmt]) -> String {
+        let mut out = String::new();
+        let n = stmts.len();
+        for (i, stmt) in stmts.iter().enumerate() {
+            if let Stmt::Defer { body, .. } = stmt {
+                let rest = self.emit_lambda_stmts(&stmts[i + 1..]);
+                let deferred = self.emit_block_stmts(body, 2);
+                out.push_str(&format!("    try {{\n{rest}    }} finally {{\n{deferred}    }}\n"));
+                return out;
+            }
+            if i + 1 == n {
+                if let Stmt::Return { value: Some(v), .. } = stmt {
+                    let code = self.emit_expr(v);
+                    out.push_str(&format!("    {code}\n"));
+                    continue;
+                }
+            }
+            if matches!(stmt, Stmt::Return { .. }) {
+                self.error(
+                    "early `return` inside a lambda is not supported yet \
+                     (only as the final statement)",
+                );
+                continue;
+            }
+            out.push_str(&self.emit_stmt(stmt, 1));
+        }
         out
     }
 
@@ -2414,10 +2491,25 @@ impl<'p> Emitter<'p> {
     /// A loop body (or loop `else` block) whose tail expression assigns
     /// the loop's result local [while-value].
     fn emit_loop_body_value(&mut self, block: &Block, result: &str) -> String {
-        let mut out = String::new();
         let env_depth = self.effect_env.len();
-        let n = block.stmts.len();
-        for (i, stmt) in block.stmts.iter().enumerate() {
+        let out = self.emit_loop_body_stmts(&block.stmts, result);
+        self.effect_env.truncate(env_depth);
+        out
+    }
+
+    /// The statements of a loop body in value position; a `defer` wraps the
+    /// rest in `try`/`finally` [kt-defer-finally]. The tail assigns the
+    /// result local, so the value flows out regardless.
+    fn emit_loop_body_stmts(&mut self, stmts: &[Stmt], result: &str) -> String {
+        let mut out = String::new();
+        let n = stmts.len();
+        for (i, stmt) in stmts.iter().enumerate() {
+            if let Stmt::Defer { body, .. } = stmt {
+                let rest = self.emit_loop_body_stmts(&stmts[i + 1..], result);
+                let deferred = self.emit_block_stmts(body, 0);
+                out.push_str(&format!("try {{\n{rest}}} finally {{\n{deferred}}}\n"));
+                return out;
+            }
             if i + 1 == n {
                 if let Stmt::Expr(e) = stmt {
                     out.push_str(&self.emit_tail_assign(e, result));
@@ -2426,7 +2518,6 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0));
         }
-        self.effect_env.truncate(env_depth);
         out
     }
 
@@ -2470,24 +2561,7 @@ impl<'p> Emitter<'p> {
                 let saved_ctx = self.stmt_ctx;
                 self.stmt_ctx = StmtCtx::Normal;
                 let mut out = format!("{{ {} ->\n", param_list.join(", "));
-                let n = block.stmts.len();
-                for (i, stmt) in block.stmts.iter().enumerate() {
-                    if i + 1 == n {
-                        if let Stmt::Return { value: Some(v), .. } = stmt {
-                            let code = self.emit_expr(v);
-                            out.push_str(&format!("    {code}\n"));
-                            continue;
-                        }
-                    }
-                    if matches!(stmt, Stmt::Return { .. }) {
-                        self.error(
-                            "early `return` inside a lambda is not supported yet \
-                             (only as the final statement)",
-                        );
-                        continue;
-                    }
-                    out.push_str(&self.emit_stmt(stmt, 1));
-                }
+                out.push_str(&self.emit_lambda_stmts(&block.stmts));
                 out.push('}');
                 self.stmt_ctx = saved_ctx;
                 out

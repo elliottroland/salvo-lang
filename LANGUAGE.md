@@ -486,6 +486,32 @@ for i in range(0, person.age) {
 
 `for` loops evaluate to values just like `while` loops. They support `break`, `continue` and `else`.
 
+### Deferred blocks
+
+`defer { ... }` registers a block to run when the *enclosing block* ends:
+
+```
+fn read_config(path: Str) [Console] -> Str {
+    let file = open(path)
+    defer { close(file) }        // runs however this block ends
+
+    if is_empty(file) {
+        return ""                // `close(file)` runs first
+    }
+    return contents(file)        // and here too
+}
+```
+
+The meaning is *splice at exit*: the deferred block runs at every exit of the block it was written in — the end of the block, and each `return`, `break` or `continue` that leaves it. Writing `defer { close(file) }` is exactly writing `close(file)` at each of those points, which is why the compiler counts it as discharging the handle's obligation on every path (see [Linear types](#linear-types-values-that-must-be-used)).
+
+Details worth knowing:
+
+- **The block, not the function, is the scope.** A `defer` inside a loop body runs at the end of each iteration; one inside an `if` runs when that `if` block ends.
+- **Latest first.** Several `defer`s in one block run in reverse order of registration, so a value acquired later is released first.
+- **The block's value is computed first.** A deferred block runs after the `return` value (or the block's own value) has been evaluated, so it can release what that value was read from.
+- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual.
+- **It is checked where it stands.** The body sees the scope and the flow facts at the `defer` statement, and those facts must still hold at each exit: if a call in between takes the value away, or invalidates a narrowing the deferred block relied on, the deferred block is rejected there (bind the narrowed value to a local and defer that instead).
+
 ## Functions
 
 Functions play an important role in Salvo lang:
@@ -970,6 +996,18 @@ The deliberate escape hatch is one word: `discard(x)` in the standard library co
 fn deliberate() {
     let h = open("data.txt")
     discard(h)                  // fine: an explicit drop
+}
+```
+
+The `maybe_leak` shape above — a value that must be released however the block ends — is what [`defer`](#deferred-blocks) is for: `defer { close(h) }` discharges the obligation at every exit, so early returns need no repetition.
+
+```
+fn no_leak(flag: Bool) {
+    let h = open("data.txt")
+    defer { close(h) }
+    if flag {
+        return                  // fine: the deferred block closes it
+    }
 }
 ```
 

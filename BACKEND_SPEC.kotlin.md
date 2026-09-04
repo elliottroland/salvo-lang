@@ -154,6 +154,25 @@ Conventions:
     globally unique per file. Bare `return` inside a value-position loop
     in an iterator body is not re-targeted to `return@iterator` yet
     (shared limitation with all value blocks).
+* [defer] [kt-defer-finally] Each `defer { body }` wraps *the rest of its
+  block* in `try { … } finally { body }`. The JVM runs `finally` on the
+  normal path and on every `return`/`break`/`continue` leaving the block,
+  which is exactly [defer]'s splice-at-exit meaning — one construct covers
+  all exits, so nothing is duplicated per exit the way the Rust splice is.
+  * Nesting *is* the LIFO order: a second `defer` opens its `try` inside
+    the first one's, so its `finally` runs first.
+  * `try` is an expression in Kotlin, so a value-position block keeps
+    working: the block's value is the `try` block's tail
+    (`emit_value_stmts`), and a loop-body value block assigns its result
+    local inside the `try` (`emit_loop_body_stmts`). Lambda block bodies
+    wrap the same way (`emit_lambda_stmts`).
+  * **Known divergence** (accepted, user decision 2026-09-04): `finally`
+    also runs while an *unexpected* exception unwinds — an index-out-of-
+    range out of a std define, say — where the Rust splice does not run
+    the deferred code on a panic. Salvo has no `catch`, so side effects
+    during a crash are not part of a program's meaning; tightening this
+    would mean catching the abort signal specifically and rethrowing
+    (revisit with roadmap E3's `abort`).
 
 ## Qualifiers
 

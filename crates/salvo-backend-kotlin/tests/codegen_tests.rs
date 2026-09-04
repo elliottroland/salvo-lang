@@ -3547,3 +3547,137 @@ fn provenance_survives_mutation_where_state_does_not() {
         "trusted 3\nplain 3\nchecked 2\n",
     );
 }
+
+// ===== E3: deferred blocks [defer] [kt-defer-finally] =====
+
+/// `defer { ... }` at work: LIFO order at the end of a block, on an early
+/// `return`, on `continue`/`break` out of a loop body, and discharging a
+/// linear obligation on every path of a fn with two exits.
+const DEFER_DEMO: &str = r#"
+struct FileHandle canbe Linear {
+    fd: Int
+}
+
+fn open_file(n: Int) [Console] -> [] FileHandle {
+    println("open ${n}")
+    return FileHandle {fd: n}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn scoped() [Console] -> [] None {
+    defer { println("outer defer") }
+    defer { println("inner defer") }
+    println("body")
+}
+
+fn early(flag: Bool) [Console] -> [] Int {
+    defer { println("early defer") }
+    if flag {
+        return 1
+    }
+    println("after if")
+    return 2
+}
+
+fn looping() [Console] -> [] None {
+    for i in [1, 2, 3] {
+        defer { println("iteration ${i} done") }
+        if i == 2 {
+            continue
+        }
+        if i == 3 {
+            break
+        }
+        println("body ${i}")
+    }
+}
+
+fn with_resource(flag: Bool) [Console] -> [] Int {
+    let h = open_file(7)
+    defer { close_file(h) }
+    if flag {
+        return 1
+    }
+    return h.fd
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    scoped()
+    let a = early(true)
+    let b = early(false)
+    println("results ${a} ${b}")
+    looping()
+    let r1 = with_resource(true)
+    println("resource ${r1}")
+    let r2 = with_resource(false)
+    println("resource ${r2}")
+}
+"#;
+
+const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
+                            early defer\nafter if\nearly defer\nresults 1 2\n\
+                            body 1\niteration 1 done\niteration 2 done\n\
+                            iteration 3 done\nopen 7\nclose fd=7\nresource 1\n\
+                            open 7\nclose fd=7\nresource 7\n";
+
+/// [kt-defer-finally] Each `defer` wraps the rest of its block in
+/// `try`/`finally`, so the JVM runs the body on the normal path and on
+/// every `return`/`break`/`continue` — one `try` per `defer`, nested,
+/// which is LIFO.
+#[test]
+fn defer_lowers_to_try_finally() {
+    let program = build_program(&[("main.sv", DEFER_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    let scoped = main
+        .content
+        .split("fun scoped")
+        .nth(1)
+        .and_then(|s| s.split("\nfun ").next())
+        .unwrap();
+    assert_eq!(
+        scoped.matches("try {").count(),
+        2,
+        "expected one `try` per `defer` in:\n{scoped}"
+    );
+    // Nested, innermost `defer` first: the inner `finally` is closer to
+    // the body than the outer one.
+    let inner = scoped.find("inner defer").expect("inner defer emitted");
+    let outer = scoped.find("outer defer").expect("outer defer emitted");
+    assert!(inner < outer, "expected LIFO nesting in:\n{scoped}");
+    // A single `finally` covers both exits of `early`.
+    let early = main
+        .content
+        .split("fun early")
+        .nth(1)
+        .and_then(|s| s.split("\nfun ").next())
+        .unwrap();
+    assert_eq!(
+        early.matches("early defer").count(),
+        1,
+        "expected one `finally` for both returns in:\n{early}"
+    );
+}
+
+#[test]
+fn kotlin_compiles_and_runs_defer() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", DEFER_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "defer", DEFER_OUTPUT);
+}

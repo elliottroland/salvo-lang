@@ -268,6 +268,30 @@ derives them mechanically:
   Kotlin).
 * [rs-postincrement] Rust has no `++`: statement-position `i++` emits
   `i += 1;`; value-position emits `({ let __t = i; i += 1; __t })`.
+* [defer] [rs-defer-splice] Rust has no `finally`, and a `Drop` guard
+  cannot be used: `close(f)` consumes the handle, so the guard would have
+  to own `f` from the `defer` onward, making it unusable for the rest of
+  the block (a `&mut` capture trades that for `E0499` at the next use).
+  So the body is **spliced** — emitted at every exit of its block — which
+  is [defer]'s meaning literally, and leaves no runtime construct behind.
+  * The body is rendered **once**, at the `defer` statement (in the scope
+    it was written in, with that point's effect environment and bindings),
+    and re-indented at each splice site. Sites: the end of the block
+    (`emit_block_stmts`, skipped when the block's last statement already
+    exits — the splice would be dead code rustc still borrow-checks), each
+    `return` (all deferred blocks of the fn, `defer_floor` stopping at a
+    closure boundary), and each `break`/`continue` (those registered
+    inside the loop, tracked by `loop_defer_floors`).
+  * A value given away at the exit is computed first, so `return v` with
+    deferred code behind it becomes
+    `let __deferred_valueN = v; <deferred>; return __deferred_valueN;` —
+    and a value-position block hoists its tail the same way
+    (`emit_value_block`), since the deferred statements would otherwise
+    become the block's value.
+  * **Known divergence** from Kotlin's `finally` lowering (accepted, user
+    decision 2026-09-04): a panic out of a std define unwinds *past* the
+    splice, so deferred code does not run on a crash path, where the JVM's
+    `finally` would run it. See [kt-defer-finally].
 
 ## Qualifiers
 

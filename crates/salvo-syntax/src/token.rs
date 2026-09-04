@@ -57,6 +57,7 @@ pub enum TokenKind {
     KwContinue,
     KwYield,
     KwUse,
+    KwDefer,
     KwTrue,
     KwFalse,
 
@@ -139,6 +140,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("continue", TokenKind::KwContinue),
     ("yield", TokenKind::KwYield),
     ("use", TokenKind::KwUse),
+    ("defer", TokenKind::KwDefer),
     ("true", TokenKind::KwTrue),
     ("false", TokenKind::KwFalse),
 ];

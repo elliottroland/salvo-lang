@@ -23,6 +23,66 @@ parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse.
 
+**E3 step 1 landed 2026-09-04: `defer { ... }` on both backends.** The
+first slice of handler control beyond "always resumes" starts with the
+piece the rest of it depends on: a way to run code on the way out of a
+block. Four user decisions shaped it (all 2026-09-04): **block-only
+syntax** (`defer { ... }`, consistent with every other body form),
+**block scope** (not function scope — a `defer` in a loop body runs per
+iteration), **splice-at-exit semantics**, and **no control flow out of a
+deferred body**.
+
+Splice-at-exit is the load-bearing one, and it *dissolved* the open
+question the roadmap recorded ("does a deferred body capture by move or by
+reference?"). `defer S` means: `S` is checked and emitted as if written at
+every exit of the enclosing block — its end, and each
+`return`/`break`/`continue` leaving it. There is no closure, so there is
+nothing to capture, and `defer { close(f) }` discharges the linear
+obligation exactly as writing `close(f)` at each exit would
+[linear-obligation]. The proposed Rust lowering in the roadmap sketch (a
+`Drop` guard) was dropped for a concrete reason: `close(f)` consumes the
+handle, so the guard must own `f` from the `defer` onward — which makes
+`f` unusable for the rest of the block, i.e. exactly the code the feature
+exists to enable (a `&mut` capture trades that for `E0499` at the next
+use).
+
+Lowerings: Kotlin wraps the rest of the block in `try { … } finally {
+body }`, where nesting gives LIFO for free and `try` being an *expression*
+keeps value-position blocks working [kt-defer-finally]; Rust splices the
+body — rendered once at the `defer`, re-indented at each exit
+[rs-defer-splice]. Verified end to end: the same demo (LIFO at a block
+end, an early `return`, `continue`/`break` out of a loop body, a linear
+handle released on both paths of a two-exit fn) prints byte-identical
+output under `kotlinc` and `rustc`.
+
+Checker design worth remembering: the body is checked **once**, in the
+flow state at the `defer` statement (snapshot/restored, so nothing is
+consumed *there*), and the *effect* of running it is replayed at each
+exit — the values it consumes are consumed there, so a manual `close(h)`
+plus a deferred one is a use-after-move, reported once per `defer`. The
+facts the single check relied on are recorded with it and verified at every
+exit: if a call in between takes the value away or invalidates a narrowing
+the body used, that exit is an error naming the remedy. Without that check
+a deferred `!!`/unwrap could be emitted for a fact that no longer holds
+[backend-never-wrong].
+
+One divergence is accepted and recorded for future work: Kotlin's
+`finally` also runs while an *unexpected* exception unwinds (a panic out of
+a std define), where the Rust splice does not. Salvo has no `catch`, so
+side effects during a crash are not part of a program's meaning; tightening
+it means catching the abort signal specifically once `abort` exists.
+
+Probed by hand on both backends beyond the test demo (identical output
+except where noted): a `defer` in a value-position block, a `defer` nested
+inside a deferred body, a deferred call through an *effect* member with the
+handler registered by `use`, a `defer` inside a lambda block body passed to
+a fn-typed parameter — and a `defer` in an *iterator* body, which is the
+one that differs: Rust's eager collection ([rs-iter-vec]) runs the deferred
+prints before the consumer sees any element while Kotlin's lazy sequence
+interleaves them. That cut predates `defer` (a plain `println` after a
+`yield` diverges the same way) and is already recorded under
+[rs-iter-vec].
+
 **Type arguments joined the "no trust" list (2026-09-04).** A generic
 call's type arguments must be *determined* — by the arguments, an explicit
 list, or the expected type ([call-type-args], user decision A). What the
@@ -233,6 +293,17 @@ That is also why the emitters had no types for it, which is how the gap
 surfaced: the `${T}` in a state field's `mutable_list()` had nothing to
 interpolate. State initializers are now checked against the declared type
 like struct defaults [effect-handler].
+
+**Next effects slice: E3 step 1 (`defer`) landed 2026-09-04; step 2 next.**
+Handler *control* beyond "always resumes": `defer` first (**done** — see
+the entry above), then `abort` returning `Nothing` with a
+compiler-intrinsic `try` yielding
+`Ok T | Aborted M`. The decisions, both lowerings, the reason `defer`
+precedes `abort`, and four consequences to settle first (including a
+collision with the brand-new [call-type-args] rule over inferring `M`) are
+under E3. Async is explicitly *not* part of it: no silent
+`async`/`suspend` colouring, and async arrives later as an explicit
+effect.
 
 - **Still open: two effects cannot share a member name.**
   `Symbols::effect_of_fn` maps a member name to *one* effect, so declaring
@@ -1982,6 +2053,219 @@ the backend define template:
   source), so findings should be *warnings* with an opt-out, never hard
   errors — a false positive must not block a legitimate define.
 
+### E3 — Non-resumption: `defer`, `abort`, and an intrinsic `try` (user decisions 2026-09-04)
+
+The first slice of *handler control* beyond "always resumes at the tail",
+which is all E1 supports. The exploration ran through four rungs of handler
+power — tail-resumptive (today, free), abort (resume zero or one time),
+suspend (resume later), multi-shot (resume repeatedly) — and settled on
+building the second, with the third deferred to an *explicit* async effect
+and the fourth ruled out.
+
+**Multi-shot is closed on principle, not for want of a mechanism**:
+resuming twice duplicates a use obligation, so it cannot coexist with
+`canbe Linear`. (It is also unavailable on both targets: a Kotlin
+`Continuation` throws on a second resume, and a Rust `Future` cannot be
+cloned.)
+
+**No silent function colouring** (user decision 2026-09-04). Some colouring
+is *inherent* to non-resumption — the code between the operation and the
+delimiter must not run, so either the return shape changes, the stack
+unwinds, or the function is split. The rule that keeps it honest: the
+ability to not resume is **declared on the effect member**, never
+discovered from the handler. That is forced anyway by the E1 principle that
+a user fn is emitted once whatever handlers flow in — the shape of `work()`
+cannot depend on which `Logger` is registered — and it means the colouring
+is exactly the effect annotation the author already writes. The Rust
+backend's `async`/`suspend` transform is *not* how this is built; async
+arrives later as an explicit effect (likely a compiler intrinsic).
+
+#### The design as decided
+
+```
+qualifier Aborted<M> of M            // mirrors `Err<T> of T` in core.result
+
+effect Abort<M> {                    // intrinsic; message is moved, like `err`
+    fn abort(message: M) [] -> [] Nothing
+}
+
+// `try` is a compiler intrinsic, not an effect:
+try { body } : Ok T | Aborted M
+```
+
+- **`try` is an intrinsic, not an effect** (user decision 2026-09-04):
+  "there's not much value in a function declaring the `Try` effect in its
+  signature any more than there is in declaring that it uses loops or
+  if-expressions". So no `Try` handler to register, no `[Try]` in
+  signatures, and — see below — no collision with the fusion.
+- **Both arms are qualified: `Ok T | Aborted M`** (user decision
+  2026-09-04), reusing `Ok` from `core.result` so ordinary `is` checks and
+  exhaustive `when` work on the outcome exactly as they do on a result.
+  `Err` is deliberately *not* reused: an abort is not an error value.
+- **`Aborted M` is parameterized by a message type** (user decision
+  2026-09-04), mirroring `Err`. It follows that the outcome union is
+  structurally an `Ok T | Err M`, so union arm identity, narrowing and
+  exhaustiveness need no new rules.
+- **`Aborted M` is forgeable, deliberately** (user decision 2026-09-04):
+  the qualifier carries no *authority* — a hand-written `-> M as Aborted`
+  produces a value in the aborted arm but transfers no control. The
+  authority is `[Abort<M>]` availability alone, which is why the original
+  sketch's "only `abort()` may construct it" rule turned out to be
+  unnecessary. No provenance semantics, no intrinsic qualifier.
+- **`abort` returns `Nothing`**, which is what keeps intermediate frames
+  silent: a fn that may abort declares `[Abort<Str>]` and returns `Int`.
+  It does *not* also return `Aborted` — that would be `Result` plumbing
+  with extra steps and would defeat abort being an effect. `Aborted M`
+  appears in exactly one place: the `try` outcome.
+
+#### Lowering
+
+Rust: the message type *is* `ControlFlow`'s `Break` type, so the
+propagation falls out of the design rather than being imposed on it.
+`abort(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch, no
+allocation — every call in a fn with `[Abort<M>]` is `f(..)?`, and the
+intrinsic converts at the delimiter:
+
+```rust
+pub fn parse(line: &String) -> ControlFlow<String, i32> { … }
+
+// try { … }
+match (|| -> ControlFlow<String, i32> { … })() {
+    ControlFlow::Continue(v) => Union2::U1(v),
+    ControlFlow::Break(m)    => Union2::U2(m),
+}
+```
+
+Kotlin: a private stack-trace-less signal, with the delimiter's identity as
+an unforgeable token — nesting must not let an inner `try` swallow an outer
+abort:
+
+```kotlin
+private class Abort_Signal(val message: Any?, val token: Any) :
+    RuntimeException(null, null, false, false)
+```
+
+Mechanism divergence with behavioural parity, the same reasoning as facets
+and unions: `?` returns through each Rust frame running `Drop`, the JVM
+unwinds running `finally`, and nothing user-visible happens on the way out
+either way — *provided* `defer` is what puts code on that path.
+
+#### `defer` comes first (user decision 2026-09-04) — **done 2026-09-04**
+
+Not tidiness; three reasons:
+
+1. **It turns a prohibition into a pattern.** Without it, a linear value
+   live across a may-abort call cannot discharge its obligation on the
+   abort path, so the checker would have to forbid the combination. With
+   `defer close(f)` the author discharges on every path and the existing
+   flow analysis can count it.
+2. **It proves both backends can run code on an abort path** before
+   anything depends on that. The two lowerings are exactly the two abort
+   mechanisms' unwind paths: a `Drop` guard in Rust (whose reverse
+   declaration order gives LIFO for free) and nested `try/finally` in
+   Kotlin.
+3. **It exercises the capture machinery** the `try` body needs, on a
+   smaller independently testable feature. Its own open question is
+   whether a deferred body captures by move or by reference — the
+   fn-boundary contract question again.
+
+Doing abort first would mean revisiting its lowering to add guards and
+`finally` afterwards: the interesting part, twice.
+
+**Built 2026-09-04** — see the decision-log entry at the top for the four
+user decisions and the shape it landed in. What the sketch above got wrong:
+the `Drop` guard is not a usable Rust lowering (it must own the value from
+the `defer` onward, killing the very pattern), and the capture question
+does not arise at all under splice-at-exit. What it got right: it does turn
+the linear-across-an-exit prohibition into a pattern, and both backends
+demonstrably run code on the way out of a block — the guarantee `abort`
+now builds on. Reason 3 (exercising the capture machinery the `try` body
+needs) is *not* discharged: nothing was captured, so `try`'s body closure
+is still unexercised ground.
+
+#### Consequences to settle before building
+
+- **`M` inference collides with [call-type-args].** The rule landed the
+  same day rejects a call whose type arguments nothing determines — and
+  `try { println("x") }` with no `abort` in the body determines no `M`.
+  Since `try` is an intrinsic the checker can *compute* it: unify the
+  message types of the aborts the body performs, and use `None` when there
+  are none. (A generalization worth considering: let `M` be their union,
+  so a body aborting with a `Str` and an `Int` yields
+  `Aborted (Str | Int)` — qualifiers over unions are already legal.)
+- **A `Nothing`-typed expression statement must count as terminating.**
+  `abort(...)` diverges, so a fn body ending in one satisfies "must return
+  on every path" — but the checker's path analysis currently recognizes
+  only `return`/`break`/`continue` statements. Small, concrete addition.
+- **The intrinsic couples the compiler to two core qualifier names.**
+  `Ok` and `Aborted` live in `core.result`-style std, not in the compiler,
+  and nothing is built in today except `None`/`Nothing`/`Any`. Resolving
+  both by name from the implicitly imported core (erroring if absent, as
+  `check_core_define_coverage` already does for defines) keeps the "four
+  lines of std, nothing built in" property.
+- **Nested qualification is the honest consequence of wrapping in `Ok`.**
+  A body that already returns a result yields
+  `Ok (Ok Int | Err Str) | Aborted M`, and a `None`-returning body yields
+  `Ok None`. Both are expressible and both want a test rather than an
+  assumption — two levels of `is Ok` narrowing on the same qualifier name
+  is the shape to check.
+- **Abort targets the innermost `try`.** No labelled aborts; the Kotlin
+  token then only ever rethrows for an escaped function value, which the
+  escape rule below is meant to make impossible.
+
+#### Why the intrinsic dodges a gate the library form would need
+
+An earlier sketch had `Try` as an ordinary effect whose member takes the
+body as a lambda. That form needs work this one does not:
+
+- Fn-type **effect lists are parsed and dropped** today, and lambda bodies
+  check under the enclosing fn's effect environment (lexically). "The
+  lambda gets an effect its enclosing scope does not have" — the core of an
+  *effect transformer* — is therefore not expressible yet, and neither is
+  the dual guarantee that a body carrying `[Abort<M>]` cannot outlive its
+  delimiter. [effect-not-data] already stops the capability escaping as a
+  *value*; the lambda case is what remains.
+- It collides head-on with the fusion cut landed 2026-09-04: a realistic
+  body performs other effects (`try { println("x"); abort("bad") }`), so
+  the lambda would capture the fused value while the call to the `try`
+  *member* borrows it too — exactly the reported `E0499` shape.
+
+Both point at one piece of work: enforce fn-type effect lists, pass effects
+*into* fn values instead of capturing them, and forbid their escape. That
+gate is also what rung 3 needs and what would lift the fusion cut, so three
+motivations converge on it — but the intrinsic `try` needs none of it,
+because the compiler generates the body closure and can pass the fused
+value in.
+
+**Effect transformers** — an effect member that runs a fn-typed parameter
+with *additional* effects available, its body having registered handlers
+for them — remain the general prize (`Retry`, `Timeout`, and async itself
+are the same shape). Worth building once the gate exists and there are two
+customers rather than one; `try` could then be re-expressed as a library
+transformer if that reads better.
+
+#### Sequencing
+
+1. ~~`defer` — standalone, testable, settles linear-on-abort first.~~
+   **Done 2026-09-04** ([defer], [defer-no-escape], [kt-defer-finally],
+   [rs-defer-splice]).
+2. `abort` returning `Nothing` + intrinsic `try`, with `Aborted<M>` in std.
+3. Enforce fn-type effect lists; pass effects into fn values; forbid
+   escape. (Lifts the fusion cut, opens transformers.)
+4. Transformers, and async as the second one.
+
+Before (2), hand-write and run the Rust shapes for the three compositions
+that decide whether propagation stays clean: a may-abort call inside a
+loop, one inside a nested `try`, and one with a live linear value plus a
+`defer` across it. Loops are the specific reason CPS-splitting into
+continuation legs was rejected for this rung — a `perform` inside a loop
+becomes recursion through the continuation, and neither target guarantees
+tail calls, so ten thousand iterations means ten thousand frames unless you
+hand-build a trampoline, which is the async machinery under another name.
+The legs idea is right for rung 3, where the continuation must be reified
+anyway; there its cost (a boxed closure per call, answer-type erasure) buys
+something.
+
 ## Roadmap: shared mutable state (`Cell`)
 
 An idea developed 2026-09-03 while looking for a way to keep *immutable*
@@ -2744,9 +3028,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 386)
+## Test inventory (all green: 405)
 
-- `salvo-core`: 124 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 133 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -2848,7 +3132,19 @@ spec rule; consolidated here for findability):
   an unknown-typed argument keeping the call lenient so one mistake yields
   one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
   per call, which is what `${T}` interpolates
-  [backend-define-generics]).
+  [backend-define-generics])
+  + 12 deferred-block tests (`tests/defer_tests.rs` [defer]
+  [defer-no-escape]: a linear obligation discharged on both paths of a fn
+  with an early `return` — with the no-`defer` control proving the
+  acceptance means something — and per iteration on a loop body's
+  `continue` path; a manual consume plus a deferred one reported as a
+  use-after-move, exactly *once* even though the block is applied at two
+  exits; a read after a deferred consume staying legal (the deferred code
+  runs later); a narrowing the body relied on rejected when a `Mut` call
+  invalidates it before the exit, with the surviving-fact control accepted;
+  `return`/`break`/`continue` in a deferred body rejected while a loop
+  written *inside* it keeps its own; and the body's own linear value owed
+  inside the body).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -2971,7 +3267,7 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 41 - std + LANGUAGE.md-corpus parse-clean assertions with
+- `salvo-syntax`: 43 - std + LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
   error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
@@ -2994,8 +3290,10 @@ spec rule; consolidated here for findability):
   indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
-  `provenance` must precede `qualifier`).
-- `salvo-backend-kotlin`: 99 - golden snapshots of the M2 demo, the M3
+  `provenance` must precede `qualifier`), and 2 `defer` tests ([defer]:
+  `defer { ... }` parses into a block statement; a bodyless `defer` is a
+  parse error naming the form).
+- `salvo-backend-kotlin`: 101 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3066,8 +3364,15 @@ spec rule; consolidated here for findability):
   [fate-move-mode] [fate-link] [linear-static] [once-fn];
   the last four are the handler-dependency programs the Rust fusion runs —
   the same sources, the same asserted stdout, which is what parity means
-  here [effect-handler-deps] [rs-effect-fusion]).
-- `salvo-backend-rust`: 70 - golden snapshots of the same five demos
+  here [effect-handler-deps] [rs-effect-fusion]);
+  and 2 `defer` tests ([defer] [kt-defer-finally]:
+  `defer_lowers_to_try_finally` asserting one `try` per `defer`, nested
+  latest-first, and a single `finally` covering both `return`s of a
+  two-exit fn; plus the kotlinc run of the defer demo — LIFO at a block
+  end, an early `return`, `continue`/`break` out of a loop body, and a
+  linear handle released on both paths — whose stdout matches the Rust
+  run byte for byte).
+- `salvo-backend-rust`: 72 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3139,13 +3444,52 @@ spec rule; consolidated here for findability):
   effects in one signature, a `use` in a `while` body, and an effect member
   taking a `Mut` parameter); and
   `effect_using_fn_value_at_an_effectful_call_is_a_codegen_error`
-  [backend-never-wrong].
+  [backend-never-wrong]; and 2 `defer` tests ([defer] [rs-defer-splice]:
+  `defer_splices_at_every_exit` asserting LIFO order at a block end with no
+  scaffolding, the hoisted `return` value, and the loop body's deferred
+  code appearing at its `continue`, its `break` and the block end; plus the
+  rustc run of the same demo Kotlin runs, with the same stdout).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A lowering sketched in a roadmap can be unbuildable — check the
+  motivating program against it.** E3's `defer` sketch called for a Rust
+  `Drop` guard ("reverse declaration order gives LIFO for free"). It cannot
+  work: the deferred call *consumes* the handle, so the guard has to own it
+  from the `defer` statement onward, which makes the handle unusable for
+  the rest of the block — the exact code `defer` exists to enable. Writing
+  the three-line target program by hand before implementing would have
+  shown it immediately (and did, once asked).
+- **Splicing at exits means the block-end splice can be dead code — and
+  rustc borrow-checks dead code.** A fn whose last statement is `return`
+  got the deferred body twice: once before the `return`, once after it. The
+  second copy used a value the first had moved. `unreachable_code` is only
+  a lint, but a use-after-move there is an error, so blocks whose own
+  statements always exit skip the trailing splice (`block_terminates`).
+- **Kotlin's `try` is an *expression*, which is what makes the `finally`
+  lowering fit everywhere.** Wrapping "the rest of the block" in
+  `try { … } finally { … }` keeps working in value position — the block's
+  value is the `try` block's tail — so `defer` needed no result-local
+  machinery on that side, unlike the Rust splice, which has to hoist the
+  tail into a temporary.
+- **Check a deferred body once, replay its effect at each exit.** The
+  tempting alternative (re-check the body at every exit) writes the
+  checker's type/coercion side tables repeatedly, and if two exits disagree
+  on a narrowing the emitters get whichever recording came last — a
+  silently wrong `!!` or unwrap. Checking once (in the flow state at the
+  `defer`, snapshot/restored) and replaying a *summary* — what it consumes,
+  what it weakens, and the facts it relied on — keeps one recording and
+  makes the disagreement a diagnostic instead of a miscompile.
+- **When replaying flow effects, only ever lose facts.** The summary is
+  computed in the state at the `defer`; at an exit the state may be
+  *narrower* (a later `if x is None { return }`), so re-imposing the
+  recorded narrowing would resurrect a fact that path does not have. The
+  replay widens only when the body genuinely invalidated the narrowing, and
+  never re-adds place facts.
 
 - **A codegen symptom can be a checker hole.** "Kotlin emits
   `mutableListOf()`" looked like a one-line template fix

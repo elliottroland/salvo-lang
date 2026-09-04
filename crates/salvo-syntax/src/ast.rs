@@ -472,6 +472,11 @@ pub enum Stmt {
     Yield { value: Expr, span: Span },
     /// `use HandlerExpr(...)` — register a handler for the current context.
     Use { handler: Expr, span: Span },
+    /// `defer { ... }` — run the block when the enclosing block ends
+    /// [defer]. Its meaning is *splice at exit*: the body runs at every
+    /// exit of the enclosing block (the end of the block, and each
+    /// `return`/`break`/`continue` that leaves it), latest `defer` first.
+    Defer { body: Block, span: Span },
     /// A bare expression statement.
     Expr(Expr),
 }

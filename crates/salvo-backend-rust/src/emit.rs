@@ -568,6 +568,21 @@ struct Emitter<'p> {
     /// Generic-parameter substitutions while rendering a forwarding impl
     /// for an *instantiated* effect (`Random<T>` members at `Random<i32>`).
     type_subst: HashMap<String, String>,
+    /// [rs-defer-splice] Deferred blocks registered so far in the fn being
+    /// emitted, innermost/latest last, each already rendered at indent 0.
+    /// `defer` has no runtime representation in Rust: the body is spliced
+    /// at every exit of its block, so it is rendered once — in the scope
+    /// it was written in — and re-indented at each splice site.
+    defers: Vec<String>,
+    /// Index into `defers` below which entries belong to an enclosing
+    /// function: a `return` inside a closure only runs the closure's own
+    /// deferred blocks.
+    defer_floor: usize,
+    /// `defers` length at each enclosing loop's body entry: `break` and
+    /// `continue` run the deferred blocks registered inside the loop.
+    loop_defer_floors: Vec<usize>,
+    /// `return`-value temporary counter [rs-defer-splice].
+    defer_id: usize,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -613,6 +628,10 @@ impl<'p> Emitter<'p> {
             hoist_id: 0,
             current_fn: String::new(),
             type_subst: HashMap::new(),
+            defers: Vec::new(),
+            defer_floor: 0,
+            loop_defer_floors: Vec::new(),
+            defer_id: 0,
         }
     }
 
@@ -1474,6 +1493,10 @@ impl<'p> Emitter<'p> {
             "\n{pad}{vis}fn {name}{generics}({}){ret} {{\n",
             params.join(", ")
         );
+        // [rs-defer-splice] Deferred blocks never cross a fn boundary.
+        let saved_defers = std::mem::take(&mut self.defers);
+        let saved_defer_floor = std::mem::replace(&mut self.defer_floor, 0);
+        let saved_loop_floors = std::mem::take(&mut self.loop_defer_floors);
 
         // Iterator functions collect eagerly [rs-iter-vec] [fn-iterator].
         if contains_yield(body) {
@@ -1509,6 +1532,9 @@ impl<'p> Emitter<'p> {
         self.taken_names = saved_taken;
         self.current_fn = saved_fn;
         self.hoist_id = saved_hoist;
+        self.defers = saved_defers;
+        self.defer_floor = saved_defer_floor;
+        self.loop_defer_floors = saved_loop_floors;
         out
     }
 
@@ -2041,11 +2067,59 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
+        // [rs-defer-splice] Deferred blocks registered inside this block
+        // run when it ends.
+        let defer_floor = self.defers.len();
         for stmt in &block.stmts {
             out.push_str(&self.emit_stmt(stmt, indent, ctx));
         }
+        // A block whose last statement exits already ran them there.
+        if block_terminates(block) {
+            self.defers.truncate(defer_floor);
+        } else {
+            out.push_str(&self.splice_defers(defer_floor, indent, true));
+        }
         self.effect_env = saved_env;
         out
+    }
+
+    /// [rs-defer-splice] Renders the deferred blocks registered at or
+    /// above `floor`, latest first, re-indented to `indent`. `pop`
+    /// discards them (the block they belong to is ending); an early exit
+    /// leaves them in place, since the block's own exit runs them too.
+    fn splice_defers(&mut self, floor: usize, indent: usize, pop: bool) -> String {
+        if self.defers.len() <= floor {
+            return String::new();
+        }
+        let pad = "    ".repeat(indent);
+        let mut out = String::new();
+        for body in self.defers[floor..].iter().rev() {
+            for line in body.lines() {
+                if line.trim().is_empty() {
+                    out.push('\n');
+                } else {
+                    out.push_str(&format!("{pad}{line}\n"));
+                }
+            }
+        }
+        if pop {
+            self.defers.truncate(floor);
+        }
+        out
+    }
+
+    /// [rs-defer-splice] The deferred blocks an early exit runs: every one
+    /// registered inside the construct being left.
+    fn exit_defers(&mut self, indent: usize, loop_exit: bool) -> String {
+        let floor = if loop_exit {
+            self.loop_defer_floors
+                .last()
+                .copied()
+                .unwrap_or(self.defer_floor)
+        } else {
+            self.defer_floor
+        };
+        self.splice_defers(floor, indent, false)
     }
 
     fn emit_stmt(&mut self, stmt: &Stmt, indent: usize, ctx: StmtCtx) -> String {
@@ -2069,88 +2143,128 @@ impl<'p> Emitter<'p> {
                 (StmtCtx::IteratorBody, None) => {
                     // [rs-iter-vec] short-circuit returns what was
                     // collected so far.
-                    format!("{pad}return __yielded;\n")
+                    let defers = self.exit_defers(indent, false);
+                    format!("{defers}{pad}return __yielded;\n")
                 }
                 (StmtCtx::IteratorBody, Some(_)) => {
                     self.error("`return` with a value is not allowed in an iterator function");
                     format!("{pad}return __yielded;\n")
                 }
                 (_, Some(v)) => {
-                    // [readonly-return] Derived-return fns return
-                    // borrows: the place is borrowed (bare for
-                    // already-`&` bindings), `Some(...)`-wrapped when
-                    // the checker recorded the optional coercion, and
-                    // `None` passes through.
-                    if self.derived_return_fn
-                        && !matches!(v, Expr::Ident(id) if id.name == "None")
-                    {
-                        // A forwarded derived-return call already
-                        // produces a borrow: pass it through.
-                        let forwarded = matches!(
-                            v,
-                            Expr::Call { span, .. }
-                                if self
-                                    .checked
-                                    .derived_calls
-                                    .contains_key(&(self.file_idx, *span))
-                        );
-                        if forwarded {
-                            let code = self.emit_expr(v);
-                            return format!("{pad}return {code};\n");
-                        }
-                        let wrap = matches!(
-                            self.coercion_of(v.span()),
-                            Some(Coercion::WrapOption { .. })
-                        );
-                        if let Some(borrowed) = self.borrow_place(v) {
-                            let code = if wrap {
-                                format!("Some({borrowed})")
-                            } else {
-                                borrowed
-                            };
-                            return format!("{pad}return {code};\n");
-                        }
-                        self.error(format!(
-                            "a `ReadOnly[from: ...]` return value must be a \
-                             projection or alias of the annotated parameter \
-                             (got `{v:?}`)"
-                        ));
+                    let code = self.emit_return_value(v);
+                    // [rs-defer-splice] The value is evaluated before the
+                    // deferred blocks run, so it is hoisted into a
+                    // temporary when any of them follow it.
+                    let defers = self.exit_defers(indent, false);
+                    if defers.is_empty() {
+                        format!("{pad}return {code};\n")
+                    } else {
+                        let tmp = self.fresh_defer_var();
+                        format!("{pad}let {tmp} = {code};\n{defers}{pad}return {tmp};\n")
                     }
-                    let v = self.emit_expr(v);
-                    format!("{pad}return {v};\n")
                 }
-                (_, None) => format!("{pad}return;\n"),
+                (_, None) => {
+                    let defers = self.exit_defers(indent, false);
+                    format!("{defers}{pad}return;\n")
+                }
             },
             Stmt::Break { value, .. } => {
                 let target = self.loop_results.last().cloned().flatten();
+                // [rs-defer-splice] Leaving the loop runs the deferred
+                // blocks registered inside it; the break value is
+                // evaluated first.
                 match (value, target) {
                     // [while-value] route the value into the enclosing
                     // loop's result local before breaking [rs-loop-value].
                     (Some(v), Some(result)) => {
                         if self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) {
                             let stmt = self.emit_expr_stmt(v, indent, ctx);
-                            format!("{stmt}{pad}{result} = None;\n{pad}break;\n")
+                            let defers = self.exit_defers(indent, true);
+                            format!("{stmt}{pad}{result} = None;\n{defers}{pad}break;\n")
                         } else {
                             let code = self.emit_loop_value_assign(v, &result);
-                            format!("{pad}{code}\n{pad}break;\n")
+                            let defers = self.exit_defers(indent, true);
+                            format!("{pad}{code}\n{defers}{pad}break;\n")
                         }
                     }
                     (Some(v), None) => {
                         let stmt = self.emit_expr_stmt(v, indent, ctx);
-                        format!("{stmt}{pad}break;\n")
+                        let defers = self.exit_defers(indent, true);
+                        format!("{stmt}{defers}{pad}break;\n")
                     }
-                    (None, _) => format!("{pad}break;\n"),
+                    (None, _) => {
+                        let defers = self.exit_defers(indent, true);
+                        format!("{defers}{pad}break;\n")
+                    }
                 }
             }
-            Stmt::Continue { .. } => format!("{pad}continue;\n"),
+            Stmt::Continue { .. } => {
+                let defers = self.exit_defers(indent, true);
+                format!("{defers}{pad}continue;\n")
+            }
             Stmt::Yield { value, .. } => {
                 // [rs-iter-vec]
                 let v = self.emit_expr(value);
                 format!("{pad}__yielded.push({v});\n")
             }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
+            // [rs-defer-splice] `defer` emits nothing here: the body is
+            // rendered now (in the scope it was written in) and spliced at
+            // every exit of the enclosing block.
+            Stmt::Defer { body, .. } => {
+                let code = self.emit_block_stmts(body, 0, ctx);
+                self.defers.push(code);
+                String::new()
+            }
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent, ctx),
         }
+    }
+
+    /// The code for a `return`'s value expression.
+    ///
+    /// [readonly-return] Derived-return fns return borrows: the place is
+    /// borrowed (bare for already-`&` bindings), `Some(...)`-wrapped when
+    /// the checker recorded the optional coercion, and `None` passes
+    /// through.
+    fn emit_return_value(&mut self, v: &Expr) -> String {
+        if self.derived_return_fn && !matches!(v, Expr::Ident(id) if id.name == "None") {
+            // A forwarded derived-return call already produces a borrow:
+            // pass it through.
+            let forwarded = matches!(
+                v,
+                Expr::Call { span, .. }
+                    if self
+                        .checked
+                        .derived_calls
+                        .contains_key(&(self.file_idx, *span))
+            );
+            if forwarded {
+                return self.emit_expr(v);
+            }
+            let wrap = matches!(
+                self.coercion_of(v.span()),
+                Some(Coercion::WrapOption { .. })
+            );
+            if let Some(borrowed) = self.borrow_place(v) {
+                return if wrap {
+                    format!("Some({borrowed})")
+                } else {
+                    borrowed
+                };
+            }
+            self.error(format!(
+                "a `ReadOnly[from: ...]` return value must be a projection or \
+                 alias of the annotated parameter (got `{v:?}`)"
+            ));
+        }
+        self.emit_expr(v)
+    }
+
+    /// A fresh local for a value that must be computed before deferred
+    /// blocks run [rs-defer-splice].
+    fn fresh_defer_var(&mut self) -> String {
+        self.defer_id += 1;
+        format!("__deferred_value{}", self.defer_id)
     }
 
     fn emit_let(
@@ -2588,7 +2702,9 @@ impl<'p> Emitter<'p> {
                 }
                 out.push_str(&self.emit_is_bindings(cond, indent + 1));
                 self.loop_results.push(None);
+                self.loop_defer_floors.push(self.defers.len());
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                self.loop_defer_floors.pop();
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
@@ -2657,7 +2773,9 @@ impl<'p> Emitter<'p> {
                     out.push_str(&format!("{inner_pad}{ran} = true;\n"));
                 }
                 self.loop_results.push(None);
+                self.loop_defer_floors.push(self.defers.len());
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
+                self.loop_defer_floors.pop();
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
@@ -3728,6 +3846,11 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
+        let defer_floor = self.defers.len();
+        // [rs-defer-splice] Deferred blocks run *after* the block's value
+        // is computed, so a tail with deferred code behind it is hoisted
+        // into a temporary.
+        let mut tail_tmp: Option<String> = None;
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -3738,13 +3861,23 @@ impl<'p> Emitter<'p> {
                         out.push_str(&self.emit_expr_stmt(e, 0, StmtCtx::Normal));
                     } else {
                         let code = self.emit_expr(e);
-                        out.push_str(&code);
-                        out.push('\n');
+                        if self.defers.len() > defer_floor {
+                            let tmp = self.fresh_defer_var();
+                            out.push_str(&format!("let {tmp} = {code};\n"));
+                            tail_tmp = Some(tmp);
+                        } else {
+                            out.push_str(&code);
+                            out.push('\n');
+                        }
                     }
                     continue;
                 }
             }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
+        }
+        out.push_str(&self.splice_defers(defer_floor, 0, true));
+        if let Some(tmp) = tail_tmp {
+            out.push_str(&format!("{tmp}\n"));
         }
         self.effect_env = saved_env;
         out
@@ -3954,7 +4087,9 @@ impl<'p> Emitter<'p> {
             out.push_str(&self.emit_is_bindings(cond_or_iter, 0));
         }
         self.loop_results.push(Some(result.clone()));
+        self.loop_defer_floors.push(self.defers.len());
         out.push_str(&self.emit_loop_body_value(body, &result, join_optional));
+        self.loop_defer_floors.pop();
         self.loop_results.pop();
         out.push_str("}\n");
         if let Some(b) = else_block {
@@ -4004,6 +4139,7 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
+        let defer_floor = self.defers.len();
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -4014,6 +4150,9 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
         }
+        // [rs-defer-splice] The tail already assigned the result local, so
+        // deferred blocks run after it, like in any other block.
+        out.push_str(&self.splice_defers(defer_floor, 0, true));
         self.effect_env = saved_env;
         out
     }
@@ -4101,12 +4240,26 @@ impl<'p> Emitter<'p> {
                 // Closures return their last expression; a trailing
                 // `return X` becomes the value.
                 let mut out = format!("|{}| {{\n", param_list.join(", "));
+                // [rs-defer-splice] A closure is a function boundary: its
+                // `return` runs only the deferred blocks written inside it.
+                let saved_floor = self.defer_floor;
+                self.defer_floor = self.defers.len();
+                let saved_loop_floors = std::mem::take(&mut self.loop_defer_floors);
+                let body_floor = self.defers.len();
                 let n = block.stmts.len();
                 for (i, stmt) in block.stmts.iter().enumerate() {
                     if i + 1 == n {
                         if let Stmt::Return { value: Some(v), .. } = stmt {
                             let code = self.emit_expr(v);
-                            out.push_str(&format!("    {code}\n"));
+                            let defers = self.splice_defers(body_floor, 1, true);
+                            if defers.is_empty() {
+                                out.push_str(&format!("    {code}\n"));
+                            } else {
+                                let tmp = self.fresh_defer_var();
+                                out.push_str(&format!("    let {tmp} = {code};\n"));
+                                out.push_str(&defers);
+                                out.push_str(&format!("    {tmp}\n"));
+                            }
                             continue;
                         }
                     }
@@ -4119,6 +4272,9 @@ impl<'p> Emitter<'p> {
                     }
                     out.push_str(&self.emit_stmt(stmt, 1, StmtCtx::Normal));
                 }
+                out.push_str(&self.splice_defers(body_floor, 1, true));
+                self.loop_defer_floors = saved_loop_floors;
+                self.defer_floor = saved_floor;
                 out.push('}');
                 out
             }
@@ -5772,6 +5928,36 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         _ => {}
+    }
+}
+
+/// [rs-defer-splice] Whether the block's own statements always leave it
+/// (`return`/`break`/`continue`, or a branching construct all of whose
+/// branches do). Deferred blocks were already spliced at those exits, so
+/// splicing them again at the block's end would be dead code — and, for a
+/// body that gave a value away, dead code rustc still borrow-checks.
+fn block_terminates(block: &Block) -> bool {
+    block.stmts.iter().any(|stmt| match stmt {
+        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
+        Stmt::Expr(e) => expr_terminates(e),
+        _ => false,
+    })
+}
+
+fn expr_terminates(expr: &Expr) -> bool {
+    match expr {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
+            else_block.as_ref().is_some_and(block_terminates)
+                && branches.iter().all(|(_, b)| block_terminates(b))
+        }
+        Expr::When { branches, .. } => {
+            !branches.is_empty() && branches.iter().all(|b| block_terminates(&b.body))
+        }
+        _ => false,
     }
 }
 

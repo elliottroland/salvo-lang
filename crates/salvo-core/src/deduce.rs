@@ -702,6 +702,10 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Stmt::Expr(e) => self.expr(e),
+            // [defer] The body runs at the enclosing block's exits, so its
+            // calls contribute to the enclosing fn's inferred contract
+            // exactly as if written there.
+            Stmt::Defer { body, .. } => self.block(body),
             _ => {}
         }
     }

@@ -2863,3 +2863,147 @@ fn provenance_survives_mutation_where_state_does_not() {
         "trusted 3\nplain 3\nchecked 2\n",
     );
 }
+
+// ===== E3: deferred blocks [defer] [rs-defer-splice] =====
+
+/// `defer { ... }` at work: LIFO order at the end of a block, on an early
+/// `return`, on `continue`/`break` out of a loop body, and discharging a
+/// linear obligation on every path of a fn with two exits.
+const DEFER_DEMO: &str = r#"
+struct FileHandle canbe Linear {
+    fd: Int
+}
+
+fn open_file(n: Int) [Console] -> [] FileHandle {
+    println("open ${n}")
+    return FileHandle {fd: n}
+}
+
+fn close_file(h: FileHandle) [Console] -> [] None {
+    println("close fd=${h.fd}")
+    discard(h)
+}
+
+fn scoped() [Console] -> [] None {
+    defer { println("outer defer") }
+    defer { println("inner defer") }
+    println("body")
+}
+
+fn early(flag: Bool) [Console] -> [] Int {
+    defer { println("early defer") }
+    if flag {
+        return 1
+    }
+    println("after if")
+    return 2
+}
+
+fn looping() [Console] -> [] None {
+    for i in [1, 2, 3] {
+        defer { println("iteration ${i} done") }
+        if i == 2 {
+            continue
+        }
+        if i == 3 {
+            break
+        }
+        println("body ${i}")
+    }
+}
+
+fn with_resource(flag: Bool) [Console] -> [] Int {
+    let h = open_file(7)
+    defer { close_file(h) }
+    if flag {
+        return 1
+    }
+    return h.fd
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    scoped()
+    let a = early(true)
+    let b = early(false)
+    println("results ${a} ${b}")
+    looping()
+    let r1 = with_resource(true)
+    println("resource ${r1}")
+    let r2 = with_resource(false)
+    println("resource ${r2}")
+}
+"#;
+
+const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
+                            early defer\nafter if\nearly defer\nresults 1 2\n\
+                            body 1\niteration 1 done\niteration 2 done\n\
+                            iteration 3 done\nopen 7\nclose fd=7\nresource 1\n\
+                            open 7\nclose fd=7\nresource 7\n";
+
+/// [rs-defer-splice] Rust has no `finally`: the body is spliced at every
+/// exit of its block, so `defer` leaves no runtime construct behind. The
+/// `return` value is hoisted into a temporary, because it is computed
+/// before the deferred code runs.
+#[test]
+fn defer_splices_at_every_exit() {
+    let files = generate(&[("main.sv", DEFER_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    // LIFO at the end of a block, and no scaffolding.
+    let scoped = main
+        .content
+        .split("pub fn scoped")
+        .nth(1)
+        .and_then(|s| s.split("pub fn").next())
+        .unwrap();
+    let order: Vec<&str> = scoped
+        .lines()
+        .filter(|l| l.contains("println"))
+        .map(|l| l.trim())
+        .collect();
+    assert_eq!(order.len(), 3, "expected three prints in:\n{scoped}");
+    assert!(
+        order[0].contains("\"body\"")
+            && order[1].contains("inner defer")
+            && order[2].contains("outer defer"),
+        "expected LIFO order in:\n{scoped}"
+    );
+    // The early `return` runs the deferred code first, so the value is
+    // hoisted.
+    let early = main
+        .content
+        .split("pub fn early")
+        .nth(1)
+        .and_then(|s| s.split("pub fn").next())
+        .unwrap();
+    assert!(
+        early.contains("let __deferred_value1 = 1;")
+            && early.contains("return __deferred_value1;"),
+        "expected the return value hoisted in:\n{early}"
+    );
+    // `continue`/`break` splice the loop body's deferred code too.
+    let looping = main
+        .content
+        .split("pub fn looping")
+        .nth(1)
+        .and_then(|s| s.split("pub fn").next())
+        .unwrap();
+    assert_eq!(
+        looping.matches("iteration {} done").count(),
+        3,
+        "expected the body spliced at the two exits and the block end in:\n{looping}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_defer() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", DEFER_DEMO, false)]);
+    run_rust_files(&files, "defer", DEFER_OUTPUT);
+}
