@@ -63,9 +63,9 @@ fun main() {
     greet(console, person)
     val anon = person.copy(surname = null)
     greet(console, anon)
-    val names = listOf("a", "b")
+    val names = listOf<String>("a", "b")
     println(console, "first: ${names.firstOrNull()!!}")
-    val mut_names = mutableListOf("x")
+    val mut_names = mutableListOf<String>("x")
     mut_names.add("y")
     println(console, "size: ${mut_names.size}")
 }

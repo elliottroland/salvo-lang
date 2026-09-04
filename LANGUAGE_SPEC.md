@@ -481,6 +481,30 @@ Conventions:
     deliberately: `Ty::Var` identity is name-scoped per side, so a
     callee's `T` never appears inside argument types (a caller's
     same-named `T` is a different variable).
+* [call-type-args] A generic call's type arguments must be **determined**.
+  In order: an explicit list (`mutable_list<Int>()`) pins them; otherwise
+  the arguments bind them by unification; otherwise the **expected type**
+  at the call does — a `let` annotation, the enclosing fn's return type, or
+  a parameter type the result flows into. A type argument that appears in
+  the *result* type and that none of these determine is an error naming
+  both remedies (user decision 2026-09-04).
+  * *Why an error rather than leniency*: an undetermined argument used to
+    leave `Ty::Unknown` in the result, which swallowed later mistakes
+    (`add(xs, 1)` then `add(xs, "two")` on the same list, both accepted)
+    and pushed the problem onto the backends — where one target language
+    infers what the other cannot (`mutableListOf()` is not valid Kotlin;
+    rustc infers `vec![]` from a *later* use). Salvo does not look forward:
+    what the compiler knows must be visible at the call.
+  * A type argument reaching only the *parameters* needs no context —
+    nothing downstream observes it — and an argument of unknown type keeps
+    the call lenient, so one mistake still yields one diagnostic
+    [type-unknown-lenient].
+  * A *concrete* parameter type flows into a nested call as its expected
+    type; a pattern still mentioning the callee's own generics does not
+    (it would coerce against an unsubstituted `T`).
+  * The resolved bindings are recorded per call (`call_type_args`) in the
+    callee's declaration order, which is what `define fn` templates
+    interpolate [backend-define-generics].
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
   declared fn/define/effect member. There is no method-call fallback: an
   undeclared name is an unresolved call ([call-resolve]), and the
@@ -545,6 +569,12 @@ Conventions:
 * [effect-handler] `handler H<G>(ctor params) of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
+  * A state field's initializer is **checked against its declared type**,
+    like a struct field's default: it runs at construction with no locals
+    in scope. (Until 2026-09-04 it was not checked at all, so
+    `held: Mut List<Int> = "no"` was accepted and the emitters never saw
+    the expression's types — which a `define fn` template needs for `${T}`,
+    [backend-define-generics].)
 * [effect-state-store] Assigning a value into a handler **state** field is a
   *store*: the field outlives every member call, so the handler takes
   ownership, exactly as a struct literal does ([deduce-consume]). Ordinary
@@ -1270,7 +1300,8 @@ Conventions:
   generated file is an error.
 * [backend-define-inline] `define fn` bodies hold an `inline:`
   \`\` template \`\` interpolated at each call site: `${param}` splices the
-  argument's code, `${...variadic}` splices remaining arguments.
+  argument's code, `${...variadic}` splices remaining arguments, and
+  `${T}` splices a resolved type argument [backend-define-generics].
   Template output is written as-is (correctness not validated by Salvo).
   * Templates lex as raw dedented `Template` tokens. A template calling a
     same-named native fn must qualify it (`kotlin.io.print`) to avoid
@@ -1289,6 +1320,19 @@ Conventions:
     the checker-resolved declaration by parameter base types, then
     arity/shape (`define_for_decl`; the arity-only fallback can still
     mis-pick in unchecked contexts — known leftover).
+* [backend-define-generics] A `define fn` template interpolates the call's
+  **type arguments** as well as its parameters: `${T}` names one of the
+  define's own type parameters and expands to the type the call resolved it
+  to ([call-type-args]), exactly as in a `define type` template
+  [backend-define-type]. Positional against the paired external's
+  generics, which is what links the two declarations.
+  * This is how std pins an element type a target language cannot infer:
+    `mutableListOf<${T}>(${...elems})`, so `mutable_list()` emits
+    `mutableListOf<Int>()` instead of a bare call kotlinc would reject.
+  * An unresolved (`Unknown`) type argument at a `${T}` is a codegen error:
+    [call-type-args] makes it unreachable for valid programs, so reaching
+    it means a checker gap, and guessing would be silently wrong code
+    [backend-never-wrong].
 * [backend-define-imports] `imports:` sections list target-language
   imports, hoisted (deduped) to the top of any file whose code used the
   template.

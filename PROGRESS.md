@@ -23,6 +23,15 @@ parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse.
 
+**Type arguments joined the "no trust" list (2026-09-04).** A generic
+call's type arguments must be *determined* — by the arguments, an explicit
+list, or the expected type ([call-type-args], user decision A). What the
+compiler knows must be visible at the call, so Salvo does not look forward
+to a later use the way rustc does; and because the checker now always has
+the arguments, `define fn` templates interpolate them as `${T}`
+([backend-define-generics]), which is how Kotlin's list constructors get
+their element type.
+
 **The checker no longer takes anything on trust (2026-09-03).** Members
 must be declared, not assumed: unresolved calls and dot-calls, calls on
 non-fn values, fields on non-structs, `[]` on non-arrays, and `for` over
@@ -183,25 +192,57 @@ dependency keeps the per-effect `&mut dyn` parameters untouched, which is
 why none of the existing goldens or e2e tests moved.
 
 **Two pre-existing defects surfaced while probing the fusion** (both
-reproduced with the fusion *off*, so neither is caused by it; both are
-loud, so neither violates [backend-never-wrong] — but both are worth their
-own slice):
+reproduced with the fusion *off*, so neither was caused by it). The first is
+fixed; the second needs a language call.
 
-- **Kotlin: `let xs = mutable_list()` does not compile.** It emits
-  `val xs = mutableListOf()` and kotlinc cannot infer `T` from a later
-  `add(xs, 1)`, where Rust infers it fine — so this program builds on one
-  backend and not the other. Minimal repro: `use StdOutConsole` +
-  `let xs = mutable_list()` + `add(xs, 1)` + `println("${size(xs)}")`. The
-  fix is to render the checker's inferred element type as an explicit type
-  argument (`mutableListOf<Int>()`), which the checker already knows.
-- **Two effects cannot share a member name.** `Symbols::effect_of_fn` maps
-  a member name to *one* effect, so declaring `emit` on both `Logger` and
-  `Metrics` resolves every `emit` call to whichever was collected last
-  (`no handler for effect Metrics<Logger>`), and there is no syntax to
-  disambiguate — `emit<Logger>(…)` parses as *member* type arguments, not as
-  an effect selection. Both backends fail identically. Deciding this needs a
-  language call: reject the collision at declaration ([mod-collision]'s
-  reasoning), or add a disambiguation form.
+**Fixed 2026-09-04 — type arguments must be determined ([call-type-args],
+user decision A).** The symptom was a backend divergence:
+`let xs = mutable_list()` emitted `val xs = mutableListOf()`, which kotlinc
+rejects, while rustc infers `vec![]` from a *later* `add`. Diagnosis showed
+the template was not the problem — the **checker** never determined the
+element type either (an unbound callee generic became `Ty::Unknown` in the
+result), so no `define fn` could have interpolated one. Worse, the same hole
+swallowed real mistakes: `add(xs, 1)` followed by `add(xs, "two")` on that
+list was accepted with no error at all.
+
+Now a generic call's type arguments must be determined — by an explicit
+list, by the arguments, or by the **expected type** (a `let` annotation, the
+enclosing fn's return type, or a concrete parameter the result flows into,
+which now reaches nested calls). One that appears in the *result* type and
+that nothing determines is an error naming both remedies. Salvo deliberately
+does not look forward to a later use the way rustc does: what the compiler
+knows must be visible at the call. Nothing in the repository needed
+rewriting — every existing `mutable_list()`/`list()` was already annotated
+or given elements.
+
+**Also landed with it: `define fn` templates interpolate type arguments**
+([backend-define-generics], user request "I want the templating to be
+consistent"). `${T}` now resolves against the define's own type parameters
+using the checker's new `call_type_args` table, exactly as `define type`
+templates already did. std's Kotlin list defines use it
+(`mutableListOf<${T}>(${...elems})`), so the element type is *always*
+spelled out rather than left to kotlinc's context. Rust's templates keep
+`vec![]` deliberately — rustc infers there, and pinning it would churn
+output for nothing.
+
+**And a third hole fell out of the work: handler state initializers were
+never type-checked.** `held: Mut List<Int> = "definitely not a list"` was
+accepted, because the handler item only validated the field's *type* and
+skipped its default expression (struct fields have always been checked).
+That is also why the emitters had no types for it, which is how the gap
+surfaced: the `${T}` in a state field's `mutable_list()` had nothing to
+interpolate. State initializers are now checked against the declared type
+like struct defaults [effect-handler].
+
+- **Still open: two effects cannot share a member name.**
+  `Symbols::effect_of_fn` maps a member name to *one* effect, so declaring
+  `emit` on both `Logger` and `Metrics` resolves every `emit` call to
+  whichever was collected last (`no handler for effect Metrics<Logger>`),
+  and there is no syntax to disambiguate — `emit<Logger>(…)` parses as
+  *member* type arguments, not as an effect selection. Both backends fail
+  identically and loudly. Deciding this needs a language call: reject the
+  collision at declaration ([mod-collision]'s reasoning), or add a
+  disambiguation form.
 
 Three cuts remain inside the fusion, all reported
 ([backend-never-wrong]). Two are about type arguments the fusion does not
@@ -525,7 +566,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 359 tests; includes twenty-seven kotlinc and twenty-two rustc
+cargo test                  # 386 tests; includes twenty-seven kotlinc and twenty-five rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -2703,9 +2744,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 372)
+## Test inventory (all green: 386)
 
-- `salvo-core`: 110 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 124 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -2777,7 +2818,7 @@ spec rule; consolidated here for findability):
   [expr-tuple-index] — a constant index narrowing, siblings staying
   independent, an out-of-range index and a non-tuple base erroring, and
   assignment to an element rejected)
-  + 14 member-resolution tests (`tests/member_tests.rs` [call-resolve]
+  + 16 member-resolution tests (`tests/member_tests.rs` [call-resolve]
   [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
   dot-calls rejected — the latter naming `external fn` as the remedy, both
   carrying import suggestions — calling a non-fn value and a generic
@@ -2795,7 +2836,19 @@ spec rule; consolidated here for findability):
   depending on its own effect rejected, and dependencies resolved from the
   `use` scope — absent one, an error at the registration; and a mutual
   dependency unregisterable in *either* order, so cycles need no check
-  [effect-handler-deps]).
+  [effect-handler-deps]; and 2 handler-state tests [effect-handler]: a
+  state field initializer checked against its declared type, a well-typed
+  one accepted)
+  + 10 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
+  an undetermined type argument reported with both remedies; determined by
+  the arguments, by an explicit list, by a `let` annotation, by the
+  enclosing return type, and by a *concrete* parameter of a nested call;
+  a *generic* parameter determining nothing, so the nested call is still
+  reported; a type argument confined to the parameters needing no context;
+  an unknown-typed argument keeping the call lenient so one mistake yields
+  one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
+  per call, which is what `${T}` interpolates
+  [backend-define-generics]).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -2942,7 +2995,7 @@ spec rule; consolidated here for findability):
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
   `provenance` must precede `qualifier`).
-- `salvo-backend-kotlin`: 96 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 99 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -2999,7 +3052,11 @@ spec rule; consolidated here for findability):
   ([effect-handler-deps]: the dependency as a constructor field, the
   member signature still matching the interface, the `use` site supplying
   it, callers not mentioning it);
-  and twenty-six kotlinc compile+run tests
+  define-template type-argument assertions ([backend-define-generics]:
+  `${T}` interpolated from a `let` annotation and from an explicit type
+  argument, and std's list constructors carrying their element type —
+  `mutableListOf<Int>()`, which is the form kotlinc requires);
+  and twenty-seven kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
@@ -3010,7 +3067,7 @@ spec rule; consolidated here for findability):
   the last four are the handler-dependency programs the Rust fusion runs —
   the same sources, the same asserted stdout, which is what parity means
   here [effect-handler-deps] [rs-effect-fusion]).
-- `salvo-backend-rust`: 69 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 70 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3044,7 +3101,7 @@ spec rule; consolidated here for findability):
   ambiguity error [backend-never-wrong], and an aliased effect type
   resolving to the handler registered under the canonical type
   [effect-disambiguation], and the std array functions with the
-  LANGUAGE.md `CyclicRandom` handler [type-array]); and twenty-four rustc
+  LANGUAGE.md `CyclicRandom` handler [type-array]); and twenty-five rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
@@ -3057,6 +3114,9 @@ spec rule; consolidated here for findability):
   `fn_type_contracts_emit_modes` asserting `&mut impl FnMut`
   signatures with contract-mode argument types and the named-fn
   adapter [fn-contract]);
+  define-template type-argument assertions ([backend-define-generics]:
+  `${T}` interpolated into `Vec::<i32>::new()` from an annotation and from
+  an explicit type argument, with a rustc run);
   fusion assertions ([rs-effect-fusion]: the dependency absent from the
   struct and from `new`, member bodies in the generated `__Impl_H` trait,
   the fusion chaining through `__outer` and owning the handler, the
@@ -3086,6 +3146,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A codegen symptom can be a checker hole.** "Kotlin emits
+  `mutableListOf()`" looked like a one-line template fix
+  (`mutableListOf<${T}>()`). It was not: the *checker* had never determined
+  the element type either, so there was nothing to interpolate — and the
+  same hole was silently accepting `add(xs, 1); add(xs, "two")` on one list.
+  The template change only became possible *after* the checker learned to
+  demand the type. When a backend cannot render something, ask what the
+  checker knows about it before reaching for the emitter.
+- **The absence of a diagnostic is evidence.** Both holes found in that
+  session were found the same way: writing a program that *should* be an
+  error and watching it pass. `let xs = mutable_list(); add(xs, "two")` and
+  `held: Mut List<Int> = "definitely not a list"` were each accepted with no
+  errors at all — the second because handler state initializers were never
+  checked, only their declared types validated. A cheap habit with real
+  yield: for any construct, write the obviously-wrong version and confirm it
+  is rejected.
 
 - **A design recorded before implementation is a hypothesis.** The fusion
   strategy was written up in detail, with rustc-verified snippets, *before*

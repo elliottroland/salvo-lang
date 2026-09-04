@@ -51,8 +51,8 @@ fun lucky_number(random_int: Random<Int>): Int {
 
 fun main() {
     val console: Console = StdOutConsole()
-    val random_int: Random<Int> = CyclicRandom(listOf(10, 20, 30))
-    val random_string: Random<String> = CyclicRandom(listOf("a", "b"))
+    val random_int: Random<Int> = CyclicRandom(listOf<Int>(10, 20, 30))
+    val random_string: Random<String> = CyclicRandom(listOf<String>("a", "b"))
     draw(random_int, random_string, console)
     draw(random_int, random_string, console)
     println(console, "lucky: ${random_int.next_random()}")

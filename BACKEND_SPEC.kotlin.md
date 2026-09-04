@@ -288,6 +288,13 @@ same programs running ([rs-effect-fusion]).
 * [backend-define-inline] Define templates expand inline at call sites;
   `imports:` lines are hoisted per generated file
   ([backend-define-imports]).
+* [backend-define-generics] `${T}` in a `define fn` expands to the call's
+  resolved type argument. Kotlin *needs* this where the source never wrote
+  the type: `mutableListOf()` and `listOf()` are errors on their own
+  (kotlinc infers a type argument only from context, and an empty
+  constructor has none), so std's list defines render
+  `mutableListOf<${T}>(${...elems})`. [call-type-args] is what guarantees
+  the checker has an argument to interpolate.
 * [internal-fn] Internal fns bypass define templates: the emitter lowers
   the call directly from the checker's resolved argument type. Kotlin
   implements `copy` [copy-fn] as [kt-copy]; any other internal fn is a

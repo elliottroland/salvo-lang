@@ -277,6 +277,32 @@ fn effect_messages(src: &str) -> Vec<String> {
     messages(&format!("{EFFECT_PRELUDE}\n{src}"))
 }
 
+/// [effect-handler] A state field's initializer is checked against its
+/// declared type, like a struct field's default. Until 2026-09-04 it was not
+/// checked *at all*, which both hid type errors and left the emitters with
+/// no types for the expression (a `define fn` template needs them for
+/// `${T}`, [backend-define-generics]).
+#[test]
+fn handler_state_initializers_are_checked() {
+    let errs = messages(
+        "internal type Int\ninternal type Str\n\n\
+         effect Sink {\n    fn kept() -> [] Int\n}\n\n\
+         handler Bin of Sink {\n    held: Int = \"not an int\"\n\n    \
+         fn kept() -> [] Int {\n        return held\n    }\n}\n",
+    );
+    let diag = errs
+        .iter()
+        .find(|m| m.contains("expected `Int`, found `Str`"))
+        .unwrap_or_else(|| panic!("got {errs:?}"));
+    assert!(diag.contains("expected `Int`"), "{diag}");
+}
+
+#[test]
+fn a_well_typed_handler_state_initializer_is_accepted() {
+    let errs = effect_messages("fn main() [use] -> [] Int {\n    use MemCounter\n    return bump()\n}\n");
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
 /// [effect-not-data] An effect names a capability, not a type of values.
 /// Every data position rejects it; the diagnostic names the two positions
 /// that *do* accept an effect, and `use`.

@@ -650,7 +650,7 @@ fn main() [use] -> [] None {
         "unexpected: {}",
         main.content
     );
-    assert!(main.content.contains("val items: MutableList<Int> = mutableListOf(1)"));
+    assert!(main.content.contains("val items: MutableList<Int> = mutableListOf<Int>(1)"));
 }
 
 // [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
@@ -748,10 +748,10 @@ fn effects_resolve_through_checker_tables() {
     // generics are inferred from the constructor arguments.
     assert!(main
         .content
-        .contains("val random_int: Random<Int> = CyclicRandom(listOf(10, 20, 30))"));
+        .contains("val random_int: Random<Int> = CyclicRandom(listOf<Int>(10, 20, 30))"));
     assert!(main
         .content
-        .contains("val random_string: Random<String> = CyclicRandom(listOf(\"a\", \"b\"))"));
+        .contains("val random_string: Random<String> = CyclicRandom(listOf<String>(\"a\", \"b\"))"));
     // Callee effect dependencies are threaded in declaration order.
     assert!(main.content.contains("draw(random_int, random_string, console)"));
     assert!(main.content.contains("lucky_number(random_int)"));
@@ -2414,6 +2414,123 @@ fn kotlinc_compiles_and_runs_tuple_index() {
     );
 }
 
+// ===== `define fn` type parameters [backend-define-generics] =====
+// A `define fn` template interpolates the *call's* resolved type arguments
+// with `${T}`, exactly as a `define type` template does — which is how
+// `mutable_list()` renders `mutableListOf<Int>()`, since Kotlin cannot infer
+// a type argument that the source never wrote.
+
+const DEFINE_GENERICS_DEMO: &str = r#"
+external fn empty_box<T>() [] -> [] Box<T>
+external fn box_size<T>(box: Box<T>) [] -> [box] Int
+external type Box<T>
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let b: Box<Str> = empty_box()
+    let c = empty_box<Int>()
+    println("${box_size(b)} ${box_size(c)}")
+}
+"#;
+
+const DEFINE_GENERICS_DEFINES: &str = r#"
+define type Box<T> {
+    inline: ``
+    ArrayList<${T}>
+    ``
+}
+
+define fn empty_box<T>() -> Box<T> {
+    inline: ``
+    ArrayList<${T}>()
+    ``
+}
+
+define fn box_size<T>(box: Box<T>) -> Int {
+    inline: ``
+    ${box}.size
+    ``
+}
+"#;
+
+#[test]
+fn define_fn_templates_interpolate_type_arguments() {
+    let program = build_program(&[
+        ("main.sv", DEFINE_GENERICS_DEMO, false),
+        ("main.kotlin.sv", DEFINE_GENERICS_DEFINES, true),
+    ]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("val b: ArrayList<String> = ArrayList<String>()"),
+        "the type argument should come from the annotation:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("val c = ArrayList<Int>()"),
+        "an explicit type argument should reach the template:\n{}",
+        main.content
+    );
+}
+
+/// The std list defines use this: `mutable_list()` must not emit a bare
+/// `mutableListOf()`, which kotlinc cannot infer.
+#[test]
+fn list_constructors_carry_their_element_type() {
+    let src = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let xs: Mut List<Int> = mutable_list()
+    let ys = list<Str>()
+    add(xs, 1)
+    println("${size(xs)} ${size(ys)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("mutableListOf<Int>()")
+            && main.content.contains("listOf<String>()"),
+        "expected explicit element types:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_define_generics() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let src = r#"
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    add(xs, 2)
+    let ys = mutable_list<Str>()
+    add(ys, "a")
+    println("${size(xs)} ${size(ys)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "define-generics", "2 1\n");
+}
+
 // ===== effect dependencies on handlers [effect-handler-deps] =====
 // A handler constructor parameter of effect type is a dependency: the
 // member body may use that effect, the `use` site supplies it from scope,
@@ -3110,7 +3227,7 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
     // parameter and its call site must agree with it.
     assert!(
-        main.content.contains("val random_int: Random<Int> = CyclicRandom(listOf(7, 8))"),
+        main.content.contains("val random_int: Random<Int> = CyclicRandom(listOf<Int>(7, 8))"),
         "unexpected use lowering in:\n{}",
         main.content
     );

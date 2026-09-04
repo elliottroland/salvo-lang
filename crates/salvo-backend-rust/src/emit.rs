@@ -1092,7 +1092,7 @@ impl<'p> Emitter<'p> {
                 .iter()
                 .map(|p| rs_ident(&p.name.name))
                 .collect();
-            let body = self.expand_template(inline, &dfn.sig.params, &args);
+            let body = self.expand_template(inline, &dfn.sig.params, &args, &[], &[]);
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n",
                 rs_ident(&dfn.sig.name.name)
@@ -4367,7 +4367,7 @@ impl<'p> Emitter<'p> {
             }
             if f.body.is_none() {
                 if let Some(def) = self.define_for_decl(name, f) {
-                    return self.emit_define_call(name, def, args);
+                    return self.emit_define_call(name, def, args, span);
                 }
                 self.error(format!("external fn `{name}` has no rust `define fn`"));
                 return "todo!()".to_string();
@@ -4386,7 +4386,7 @@ impl<'p> Emitter<'p> {
                 |d| d.sig.params.as_slice(),
                 args,
             ) {
-                Some(def) => self.emit_define_call(name, def, args),
+                Some(def) => self.emit_define_call(name, def, args, span),
                 None => {
                     self.error(format!(
                         "call to `{name}` is ambiguous here: multiple same-arity \
@@ -4609,7 +4609,13 @@ impl<'p> Emitter<'p> {
     /// Inline expansion of a `define fn` template [backend-define-inline]:
     /// place arguments splice raw (method-style templates borrow them
     /// natively); everything else splices owned.
-    fn emit_define_call(&mut self, name: &str, def: &'p DefineFn, args: &[&Expr]) -> String {
+    fn emit_define_call(
+        &mut self,
+        name: &str,
+        def: &'p DefineFn,
+        args: &[&Expr],
+        span: Span,
+    ) -> String {
         if let Some(imports) = &def.body.imports {
             self.add_template_imports(imports);
         }
@@ -4637,13 +4643,55 @@ impl<'p> Emitter<'p> {
                 };
                 arg_code.push(code);
             }
+            let type_args = self.define_type_args(name, def, span);
             return self
-                .expand_template(&inline, &def.sig.params, &arg_code)
+                .expand_template(
+                    &inline,
+                    &def.sig.params,
+                    &arg_code,
+                    &def.sig.generics,
+                    &type_args,
+                )
                 .trim()
                 .to_string();
         }
         self.error(format!("define fn `{name}` has no inline section"));
         "todo!()".to_string()
+    }
+
+    /// [backend-define-generics] The rendered type arguments of this call,
+    /// in the define's generic order, from the checker's `call_type_args`
+    /// ([call-type-args]). Positional: a define's generics line up with its
+    /// external's, which is what pairs the two declarations.
+    fn define_type_args(&mut self, name: &str, def: &'p DefineFn, span: Span) -> Vec<String> {
+        if def.sig.generics.is_empty() {
+            return Vec::new();
+        }
+        let Some(tys) = self
+            .checked
+            .call_type_args
+            .get(&(self.file_idx, span))
+            .cloned()
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(tys.len());
+        for ty in &tys {
+            if ty.is_unknown() {
+                // Only reachable through a checker gap: [call-type-args]
+                // rejects a call whose type arguments nothing determines,
+                // so rendering a guess here would be silently wrong code
+                // [backend-never-wrong].
+                self.error(format!(
+                    "call to `{name}` has an unresolved type argument, which its \
+                     `define fn` template needs"
+                ));
+                out.push("()".to_string());
+                continue;
+            }
+            out.push(self.rust_ty(ty));
+        }
+        out
     }
 
     /// A call to a declared function: effect handlers thread as leading
@@ -4974,6 +5022,8 @@ impl<'p> Emitter<'p> {
         template: &Template,
         params: &[Param],
         args: &[String],
+        generics: &[Ident],
+        type_args: &[String],
     ) -> String {
         let mut out = String::new();
         for part in &template.parts {
@@ -4982,13 +5032,22 @@ impl<'p> Emitter<'p> {
                 TemplatePart::Interp(name) => {
                     match params.iter().position(|p| p.name.name == name.name) {
                         Some(idx) if idx < args.len() => out.push_str(&args[idx]),
-                        _ => {
-                            self.error(format!(
-                                "template refers to unknown or missing parameter `${{{}}}`",
-                                name.name
-                            ));
-                            out.push_str("todo!()");
-                        }
+                        // [backend-define-generics] A name that is not a
+                        // parameter may be one of the define's *type*
+                        // parameters, interpolated like `define type` does.
+                        _ => match generics.iter().position(|g| g.name == name.name) {
+                            Some(gi) if gi < type_args.len() => {
+                                out.push_str(&type_args[gi])
+                            }
+                            _ => {
+                                self.error(format!(
+                                    "template refers to unknown or missing parameter \
+                                     or type parameter `${{{}}}`",
+                                    name.name
+                                ));
+                                out.push_str("todo!()");
+                            }
+                        },
                     }
                 }
                 TemplatePart::InterpVariadic(name) => {

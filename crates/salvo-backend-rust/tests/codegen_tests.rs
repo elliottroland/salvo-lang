@@ -1689,6 +1689,65 @@ fn rustc_compiles_and_runs_tuple_index() {
     run_rust_files(&files, "tuple-index", "1 two true\nin 9\nsome here 6\n");
 }
 
+// ===== `define fn` type parameters [backend-define-generics] =====
+// A `define fn` template interpolates the call's resolved type arguments
+// with `${T}`, like a `define type` template. Rust rarely needs it (rustc
+// infers `vec![]`), but the capability is the same on both backends.
+
+#[test]
+fn define_fn_templates_interpolate_type_arguments() {
+    const SRC: &str = r#"
+external fn empty_box<T>() [] -> [] Box<T>
+external fn box_size<T>(box: Box<T>) [] -> [box] Int
+external type Box<T>
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let b: Box<Str> = empty_box()
+    let c = empty_box<Int>()
+    println("${box_size(b)} ${box_size(c)}")
+}
+"#;
+    const DEFINES: &str = r#"
+define type Box<T> {
+    inline: ``
+    Vec<${T}>
+    ``
+}
+
+define fn empty_box<T>() -> Box<T> {
+    inline: ``
+    Vec::<${T}>::new()
+    ``
+}
+
+define fn box_size<T>(box: Box<T>) -> Int {
+    inline: ``
+    (${box}.len() as i32)
+    ``
+}
+"#;
+    let files = generate(&[("main.sv", SRC, false), ("main.rust.sv", DEFINES, true)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    assert!(
+        main.content.contains("let mut b: Vec<String> = Vec::<String>::new();"),
+        "the type argument should come from the annotation:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("Vec::<i32>::new()"),
+        "an explicit type argument should reach the template:\n{}",
+        main.content
+    );
+    if Command::new("rustc").arg("--version").output().is_err() {
+        return;
+    }
+    run_rust_files(&files, "define-generics", "0 0\n");
+}
+
 // ===== effect dependencies on handlers [effect-handler-deps] =====
 // A handler constructor parameter of effect type is a dependency: the
 // member body may use that effect, the `use` site supplies it from scope,

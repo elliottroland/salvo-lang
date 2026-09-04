@@ -518,6 +518,20 @@ Using dot notation allows us to make method-looking functions without actual sup
 
 If a function return type is not specified, it is assumed to be `None`. When a function's return type is exactly `None`, then you can call `return` without a value to return from the function. Also, returning is not required in this case.
 
+**A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`mutable_list(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:
+
+```
+let xs = mutable_list()                  // ERROR: nothing says what T is
+let xs: Mut List<Int> = mutable_list()   // fine: the annotation says
+let xs = mutable_list<Int>()             // fine: written at the call
+takes_ints(mutable_list())               // fine: the parameter says
+fn fresh() -> [] Mut List<Int> {
+    return mutable_list()                // fine: the return type says
+}
+```
+
+Salvo does not look *forward* to a later use to decide a type argument, even where a target language would: what the compiler knows must be visible at the call itself. A type argument that never reaches the result type needs no context — nothing downstream could observe it.
+
 We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
 
 ### Variadic arguments
@@ -1396,7 +1410,20 @@ fun complicatedFunc(list: List<T>): String {
 
 The relevant Kotlin source file (`complicated.kt`) is then copied into the results if this file is ever needed.
 
-Outside of validating that the interpolated variables refer to declared variables, the resulting code is written as-is into the target source files of the backend language. Their correctness is not guaranteed or validated by Salvo.
+A `define fn` interpolates the call's **type arguments** the same way a `define type` does — `${T}` names one of the define's own type parameters and expands to the type the call resolved it to. This is how the standard library pins an element type the target language could not infer for itself:
+
+```
+// In file list.kotlin.sv
+define fn mutable_list<T>(...elems: T[]) -> Mut List<T> {
+    inline: ``
+    mutableListOf<${T}>(${...elems})
+    ``
+}
+```
+
+`mutable_list()` then emits `mutableListOf<Int>()` rather than a bare `mutableListOf()`, which Kotlin would refuse. Because every call's type arguments are determined (see [Syntax](#syntax)), the template always has something to interpolate.
+
+Outside of validating that the interpolated variables refer to declared variables or type parameters, the resulting code is written as-is into the target source files of the backend language. Their correctness is not guaranteed or validated by Salvo.
 
 ## Specific backend details
 

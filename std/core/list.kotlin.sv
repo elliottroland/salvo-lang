@@ -10,13 +10,13 @@ define type List<T> {
 
 define fn list<T>(...elems: T[]) -> List<T> {
     inline: ``
-    listOf(${...elems})
+    listOf<${T}>(${...elems})
     ``
 }
 
 define fn mutable_list<T>(...elems: T[]) -> Mut List<T> {
     inline: ``
-    mutableListOf(${...elems})
+    mutableListOf<${T}>(${...elems})
     ``
 }
 

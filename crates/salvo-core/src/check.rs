@@ -106,6 +106,11 @@ pub struct Checked {
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
     pub fn_effects: HashMap<FnKey, Vec<Ty>>,
+    /// [call-type-args] The type arguments a generic call resolved to, in
+    /// the callee's declaration order (keyed by the call span). Inferred
+    /// from the arguments, an explicit type-argument list, or the expected
+    /// type. `define fn` templates interpolate these as `${T}`.
+    pub call_type_args: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
@@ -693,6 +698,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for field in &h.state {
                         self.validate_type(&field.ty);
+                        // A state field's initializer is checked against its
+                        // declared type, exactly like a struct field's
+                        // default [effect-handler]: it runs in `new()` with
+                        // no locals in scope. (Until 2026-09-04 it was not
+                        // checked at all, so `held: Mut List<Int> = "no"`
+                        // was accepted and the emitters never saw the
+                        // expression's types.)
+                        if let Some(default) = &field.default {
+                            let expected = self.lower_type(&field.ty);
+                            self.locals.push(HashMap::new());
+                            let got = self.check_expr(default, Some(&expected));
+                            self.locals.pop();
+                            if !is_subtype(&got, &expected) {
+                                self.error(
+                                    default.span(),
+                                    format!("expected `{expected}`, found `{got}`"),
+                                );
+                            }
+                        }
                     }
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
@@ -6019,8 +6043,32 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
 
 /// Replaces the callee's generic parameters with their bindings (`Unknown`
 /// when unbound). Foreign `Var`s (the caller's generics) are left alone.
-fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
+/// Does `ty` mention the type variable `g` anywhere? [call-type-args]
+fn ty_mentions_var(ty: &Ty, g: &str) -> bool {
     match ty {
+        Ty::Var(v) => v == g,
+        Ty::Named { args, .. } => args.iter().any(|a| ty_mentions_var(a, g)),
+        Ty::Qualified { quals, base } => {
+            ty_mentions_var(base, g)
+                || quals
+                    .iter()
+                    .any(|q| q.args.iter().any(|a| ty_mentions_var(a, g)))
+        }
+        Ty::Union(arms) | Ty::Tuple(arms) => arms.iter().any(|a| ty_mentions_var(a, g)),
+        Ty::Array(elem) => ty_mentions_var(elem, g),
+        Ty::Fn { params, ret, .. } => {
+            params.iter().any(|p| ty_mentions_var(p, g)) || ty_mentions_var(ret, g)
+        }
+        _ => false,
+    }
+}
+
+/// Does `ty` mention any of `vars`? [call-type-args]
+fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
+    vars.iter().any(|v| ty_mentions_var(ty, v))
+}
+
+fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {    match ty {
         Ty::Var(g) if callee_generics.contains(g) => {
             subst.get(g).cloned().unwrap_or(Ty::Unknown)
         }
@@ -6324,6 +6372,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             None
         };
+        let single_generics: HashSet<String> = if candidates.len() == 1 {
+            candidates[0]
+                .1
+                .generics
+                .iter()
+                .map(|g| g.name.clone())
+                .collect()
+        } else {
+            HashSet::new()
+        };
         let arg_tys: Vec<Ty> = args
             .iter()
             .enumerate()
@@ -6332,10 +6390,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Only lambda literals benefit; other expressions keep
                 // the historical untyped probe (expected types can
                 // trigger coercion recording).
-                if matches!(a, Expr::Lambda { .. }) {
-                    self.check_expr(a, exp)
-                } else {
-                    self.check_expr(a, None)
+                match a {
+                    Expr::Lambda { .. } => self.check_expr(a, exp),
+                    // [call-type-args] A *concrete* parameter type flows
+                    // into a nested call, so that call can infer its own
+                    // type arguments from where its result is going
+                    // (`takes_ints(mutable_list())`). A pattern still
+                    // mentioning the callee's generics must not: coercion
+                    // would be recorded against an unsubstituted `T`.
+                    Expr::Call { .. } => {
+                        let concrete = exp.filter(|t| !ty_mentions_vars(t, &single_generics));
+                        self.check_expr(a, concrete)
+                    }
+                    _ => self.check_expr(a, None),
                 }
             })
             .collect();
@@ -6709,7 +6776,86 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved = self.enter_generics(&decl.generics);
         let ret = self.fn_return_ty(decl);
         self.generics = saved;
+        let subst = self.settle_type_args(name, decl, &ret, subst, expected, &arg_tys, span);
         substitute_vars(&ret, &subst, &callee_generics)
+    }
+
+    /// [call-type-args] Finishes a generic call's substitution and records
+    /// it for the emitters.
+    ///
+    /// A type argument the *arguments* did not determine is taken from the
+    /// **expected type** — the annotation on a `let`, the enclosing fn's
+    /// return type, or a concrete parameter the call's result flows into.
+    /// If it is still unbound and it reaches the result type, the call is an
+    /// error: the checker would hand the backends a `T` it never resolved,
+    /// which one target language may infer for itself and another may not
+    /// (`mutableListOf()` is not valid Kotlin, while rustc infers `vec![]`
+    /// backwards from a later use). Requiring the context here keeps the two
+    /// backends on the same programs and makes the type known to the
+    /// checker, which is what `${T}` in a `define fn` interpolates.
+    fn settle_type_args(
+        &mut self,
+        name: &str,
+        decl: &'p FnDecl,
+        ret: &Ty,
+        mut subst: HashMap<String, Ty>,
+        expected: Option<&Ty>,
+        arg_tys: &[Ty],
+        span: Span,
+    ) -> HashMap<String, Ty> {
+        if decl.generics.is_empty() {
+            return subst;
+        }
+        let callee_generics: HashSet<String> =
+            decl.generics.iter().map(|g| g.name.clone()).collect();
+        if let Some(exp) = expected.filter(|e| !e.is_unknown() && **e != Ty::Nothing) {
+            let mut from_expected: HashMap<String, Ty> = HashMap::new();
+            if unify(ret, exp, &mut from_expected) {
+                for (g, ty) in from_expected {
+                    if callee_generics.contains(&g)
+                        && !ty.is_unknown()
+                        && !subst.contains_key(&g)
+                    {
+                        subst.insert(g, ty);
+                    }
+                }
+            }
+        }
+        // An `Unknown` argument means an earlier diagnostic already fired
+        // (or a type the checker could not determine): stay lenient rather
+        // than reporting the same mistake twice [type-unknown-lenient].
+        let lenient = arg_tys.iter().any(|t| t.is_unknown());
+        let missing: Vec<&str> = decl
+            .generics
+            .iter()
+            .filter(|g| !subst.contains_key(&g.name) && ty_mentions_var(ret, &g.name))
+            .map(|g| g.name.as_str())
+            .collect();
+        if !missing.is_empty() && !lenient {
+            let list = missing
+                .iter()
+                .map(|g| format!("`{g}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let plural = if missing.len() == 1 { "" } else { "s" };
+            self.error(
+                span,
+                format!(
+                    "cannot infer type argument{plural} {list} of `{name}`: no \
+                     argument determines {} and neither does the context — write \
+                     the type argument{plural} (`{name}<...>(...)`) or annotate \
+                     where the result goes",
+                    if missing.len() == 1 { "it" } else { "them" }
+                ),
+            );
+        }
+        let recorded: Vec<Ty> = decl
+            .generics
+            .iter()
+            .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
+            .collect();
+        self.out.call_type_args.insert(self.key(span), recorded);
+        subst
     }
 
     /// Resolves each effect dependency of a called fn against the caller's

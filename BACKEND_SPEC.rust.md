@@ -539,6 +539,14 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   parameter declared `Mut` receives a mutable place (the raw argument) —
   method-style templates (`${list}.push(${elem})`) then borrow the place
   natively. `imports:` lines hoist per generated file.
+* [backend-define-generics] `${T}` in a `define fn` expands to the call's
+  resolved type argument, as on Kotlin. The Rust templates deliberately do
+  *not* use it where rustc infers as well as the checker knows: `vec![]`
+  stays `vec![]`, since [call-type-args] guarantees the element type is
+  either written or annotated, and both reach rustc through the rendered
+  `let` annotation or parameter type. The capability is there for a define
+  whose target construct needs the type spelled out
+  (`Vec::<${T}>::new()`).
 * [internal-fn] Internal fns bypass define templates: the emitter lowers
   the call directly. Rust implements `copy` [copy-fn] as [rs-copy]; any
   other internal fn is a codegen error.
