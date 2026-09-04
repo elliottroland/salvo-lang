@@ -319,6 +319,100 @@ derives them mechanically:
   Kotlin backend (see PROGRESS.md "Emitter effect-environment fallback"
   under architectural facts).
 
+### Planned — effect dependencies via handler fusion [rs-effect-fusion]
+
+**Not implemented.** This is the agreed strategy for roadmap E1
+(effect-to-effect dependencies), recorded before implementation because
+the reasoning is easy to lose and expensive to re-derive; every shape
+below was verified by compiling it with `rustc`. The user decision is
+"B9, rebuilding, no facets in Rust" (2026-09-03/04); PROGRESS.md's E1a
+holds the decision log and the rejected alternatives.
+
+**The problem.** A dependent handler must reach its dependency when its
+member runs, without the *caller* of that member supplying one. Kotlin
+gets this free (objects alias); Rust does not, because mutable state has
+one usable path at a time and handler members are `&mut self`
+([effect-decl]).
+
+**The governing fact** is *borrow duration*, not reachability. A `&mut`
+passed as an argument is a **reborrow** whose lifetime is the call: the
+lender is suspended for exactly that long, then resumes. A whole chain of
+frames may therefore reach one value while only the innermost uses it. A
+borrow *stored* in a struct instead lasts as long as the holder, so it
+overlaps the lender's own later use — `E0499`. Everything below follows
+from putting borrows in the first category.
+
+Three layers:
+
+1. **Handler bodies become free functions** taking the handler's own state
+   plus its dependencies as separate parameters:
+   `fn console_logger__log(h: &mut ConsoleLogger, console: &mut StdOutConsole, m: &String)`.
+   Dependencies are the handler's *constructor parameters* of effect type
+   — no new declaration syntax; `handler H(console: Console) of Logger`
+   already parses.
+2. **Effect traits stay dependency-free** — `trait Logger { fn log(&mut self, m: &String); }`
+   — so user functions never mention dependencies and are emitted **once**,
+   whatever handlers flow in. A fn requiring several effects takes one
+   fusion value; Rust can express that as a generic bound
+   (`fn work<T: Console + Logger>(fx: &mut T)`, monomorphized) or as a
+   generated conjunction trait with a blanket impl
+   (`trait FxConsoleLogger: Console + Logger {}` +
+   `impl<T: Console + Logger> FxConsoleLogger for T {}`) for a single
+   `dyn` copy. Prefer the `dyn` form where code size matters: it keeps one
+   emitted copy per user fn regardless of fusion count.
+3. **One fusion struct per `use` scope** owns (or borrows) the registered
+   handlers and forwards each effect member, supplying dependencies from
+   its own fields. The forwarding impl destructures `&mut self` into
+   **disjoint field borrows** — this is the step that makes dependency
+   hiding possible at all:
+
+   ```rust
+   impl Logger for Fx1 {
+       fn log(&mut self, m: &String) {
+           let Self { console, logger, .. } = self;   // disjoint borrows
+           console_logger__log(logger, console, m)
+       }
+   }
+   ```
+
+   Every earlier strategy failed because it needed two `&mut` to the *same*
+   place; here the handlers are distinct fields of one owner, so the shared
+   dependency is threaded once and reborrowed down the chain.
+
+**Nested scopes use *rebuilding*, not nesting** (user decision): an inner
+fusion holds the outer scope's **handlers** as individual borrowed fields,
+flattened — not a reference to the outer *fusion*.
+
+```rust
+struct Fx2<'a> { console: &'a mut StdOutConsole, logger: ConsoleLogger }
+```
+
+Flat rebuilding keeps dependency threading identical at every nesting
+depth (no `outer.outer.console` chains), costs no forwarding hop per
+facet the inner scope does not itself provide, and makes handler
+resolution explicit in the fusion's construction rather than implicit in
+lookup order through a chain. The lifetime is internal to generated Rust;
+Salvo never sees it. Lexical nesting matches borrow nesting, so the outer
+scope is usable again after the inner block ends.
+
+**No facets in Rust** (user decision 2026-09-04): each backend leverages
+its own language. Rust has no erasure, so a fusion can implement
+`Random<i32>` and `Random<f64>` directly and multi-instance generic
+effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
+
+**Prerequisites**, both worth doing on their own merits:
+
+* ~~Handler values must not escape.~~ **Done 2026-09-04**: the checker now
+  rejects effect types in data positions [effect-not-data] and handler
+  constructor calls outside `use` [handler-not-value], so neither invalid
+  shape (`inner: Counter` → `E0782`, `MemCounter()` → `E0423`) can reach
+  the emitter. E1 will *re-admit* the one useful case — a handler
+  constructor parameter of effect type — together with the fusion emission
+  that can render it.
+* **Effect dependency cycles must be rejected** at declaration time, so
+  the dependency graph is a DAG and every call chain is a properly nested
+  path down it.
+
 ## Functions and calls
 
 * [fn-dot] Dot-notation calls resolve to a declared fn/define/effect

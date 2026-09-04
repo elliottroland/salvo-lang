@@ -55,12 +55,77 @@ implemented (std array functions; optionals rejected at operators and in
 interpolation), leaving `when` on non-identifier subjects and the wider
 operator-typing rules open.
 
+**E1 prerequisite landed 2026-09-04: effects and handlers are not data.**
+The first buildable slice of the effects arc, and a live
+[backend-never-wrong] violation on its own: an effect type in a data
+position (struct field, parameter, return, `let` annotation, alias) and a
+handler constructor call outside `use` were both accepted by the checker
+and emitted **invalid Rust** — a bare trait (`E0782`) and a non-existent
+constructor (`E0423`) — while Kotlin happened to render both correctly.
+Now rejected with diagnostics naming the legitimate positions and the
+`use` remedy ([effect-not-data], [handler-not-value]). The two positions
+that legitimately name an effect (a fn's effect list, a handler's `of`
+clause) resolve through their own path and are untouched, verified by
+compiling and running an ordinary effect program on both backends. E1 will
+*re-admit* exactly one of the rejected shapes — a handler constructor
+parameter of effect type, its dependency — together with the fusion
+emission that can render it.
+
+**Effects arc: E1 strategy settled (user decisions 2026-09-03/04).**
+Effect-to-effect dependencies will use **handler fusion (B9)**: effect
+interfaces stay dependency-free so user fns are emitted once; a handler's
+dependencies are its constructor parameters of effect type (already
+parseable today); one *fusion* per `use` scope holds the handlers and
+hides dependencies by passing them from its own fields — in Rust via
+disjoint field borrows, which is what lets a *shared* dependency work at
+all; nested scopes rebuild flat; facets are Kotlin-only, since erasure
+forbids one class implementing `Random<Int>` and `Random<Double>`.
+Mechanism and rationale: [rs-effect-fusion], [kt-effect-fusion]; six
+explored alternatives and why they failed: E1a. Consequences worth
+knowing: no exclusivity, no runtime failure mode, no duplication of user
+code — and neither an immutable/mutable effect distinction nor `Cell` is
+needed for testability, since a handler member may mutate a dependency it
+receives as a parameter. `Cell` (shared mutable state as an intrinsic
+capability qualifier) therefore stands or falls on its own cases —
+accumulators across lambdas, memoization, counters — written up in its own
+roadmap section.
+
 **Next arc: place-based flow analysis.** **P1 is done** (see the decision
 log): flow state is keyed by *places*, `is` narrows field chains *and*
 tuple positions (`t.0`, new syntax added in the same session), and
 invalidation rides on the fate analysis's event set. **P2** (`when` on
 field subjects) was decided *against* — `when` stays variable-only. What
 still rides on the substrate: **L5**'s field-disjoint ownership.
+
+**Effect-member deductions reach inference too (2026-09-03).** A follow-up
+to the above, from a user question about why the Rust output was still
+sound: the checker enforces an effect member's declared deduction list at
+the call site (`check_effect_call` builds a contract and runs
+`apply_call_contract`), but `deduce.rs` did not — it resolves callees
+through `call_fn`, a span→`FnKey` map, and a member has no `FnKey` because
+the handler is chosen at run time. So the two disagreed about the same
+call: the body could not use an argument a member had taken, while the
+*inferred* contract still told callers it was kept.
+
+Nothing miscompiled, for an instructive reason: both under-claimed at once.
+Deduce said "kept" and the Rust backend emitted `&String` for the member
+too (member deductions do not drive its parameter modes yet), so the
+emitted program borrowed end to end — and rustc only rejects
+*over*-claiming (use-after-move, moving out of a borrow), never
+under-claiming. Fixing one side alone would have produced the over-claim it
+does catch (`E0507`), which is why the two halves are worth keeping in
+mind together.
+
+The fix is a second lookup path in `deduce.rs`: `effect_member_contract`
+finds the member through the checker's recorded `effect_calls` instance
+plus the callee name, then applies its written list through the same
+`apply_callee` loop resolved calls use ([call-resolve]). Verified: the
+example now errors at the caller ("`text` ... was consumed (moved)"), and
+with the caller corrected both backends compile and run — Rust emits
+`fn forward(sink, s: String)` with `sink.take(&s)`, an owned parameter lent
+to a borrowing member. Still open (E1-adjacent): the Rust backend deriving
+*member* parameter modes from their deductions, and validating each handler
+body against the member's contract.
 
 **Salvo assumes it can see everything (user decision 2026-09-03).** The
 checker's interop leniency is gone: a call, field read, subscript or `for`
@@ -298,7 +363,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 345 tests; includes twenty-six kotlinc and twenty-two rustc
+cargo test                  # 351 tests; includes twenty-six kotlinc and twenty-two rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1488,27 +1553,192 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 
 ## Roadmap: effects
 
-### E1 — Effect-to-effect dependencies (user decision 2026-09-03)
+### E1 — Effect-to-effect dependencies (user decisions 2026-09-03/04)
 
-An effect may depend on another effect: the *effect* declares the
-dependency and every handler must mirror the effect exactly. Today
+A handler may depend on another effect. Today
 [effect-member-no-effects] forbids members declaring effects at all,
 because dispatch goes through the handler instance and the call site has
-no way to thread extra handler arguments. Declaring the dependency on the
-effect (not the member) fixes that: the set is known from the effect
-declaration, so a handler's members can receive the dependencies the same
-way ordinary fns do, and call sites thread them like any other effect
-list.
+no way to thread extra handler arguments.
 
-- The mirroring principle generalizes: a handler must match its effect
-  exactly, just as a `define fn` must match an external exactly (D-defines
-  below). Anywhere the compiler cannot see an implementation, the
-  declaration is the contract and the implementation is validated against
-  it — one-to-one, no inference.
+**Where the dependency is declared changed during design** (user decision
+2026-09-04). The first sketch put it on the *effect* (every handler
+mirroring it exactly, as a `define fn` mirrors an external). The user's
+objection stands: dependencies are a property of *implementations* —
+`ConsoleLogger` needs a Console, a null logger needs nothing — and an
+effect declaring them forces every handler to pay for the union. So the
+dependency is a handler **constructor parameter of effect type**:
+
+```
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None { print(message) }
+}
+```
+
+This already parses and type-checks (handler ctor params exist; only the
+Rust emission of handler-typed values is broken — see the prerequisites in
+E1a), so the declaration side of E1 needs almost no new syntax. What it
+needs is: an effect-typed ctor param resolved from the ambient `use` set,
+those effects placed in the member bodies' effect environment, and the
+fusion emission ([rs-effect-fusion] / [kt-effect-fusion]).
+
+- The mirroring principle still applies where the compiler cannot see an
+  implementation: a handler must implement every member of its effect, and
+  an `external handler`'s templates are trusted exactly like a `define
+  fn`'s — declaration is the contract, no inference.
 - Sequencing note: effect *member* deduction contracts (declared on the
-  member, validated against each handler's body) are the smaller sibling
-  of this work and land first — see the bodyless-explicitness rule
-  [decl-explicit].
+  member, applied at call sites) already landed with [decl-explicit], and
+  the deduce pass now reads them too ([call-resolve]). Validating each
+  *handler body* against its member's contract remains E1 work.
+
+### E1a — Ownership strategy: explored options (✅ settled 2026-09-04)
+
+Kept as the record of *why* B9 was chosen; skip to B9 for the plan.
+
+E1's mechanics are all present (handlers already travel as leading
+arguments, resolved per call site from `call_effects`); what is *not*
+settled is how a dependent handler reaches its dependency in **Rust**,
+where mutable state has exactly one usable path at a time and every
+handler member is `&mut self` today. Kotlin has no problem here — objects
+alias — so this is a one-backend constraint that nevertheless decides the
+language rule, because the rule must hold on both.
+
+Six strategies were explored, each verified by compiling the emitted shape
+with `rustc` (and `kotlinc` where Kotlin was the constraint) rather than by
+reasoning. **B9 (handler fusion) was chosen**; the others are kept because
+their failure modes are the argument for it:
+
+- **B1 — capture as a borrow** (`struct LoudLogger<'a> { console: &'a mut dyn Console }`;
+  the lifetime stays inside generated Rust, invisible in Salvo).
+  Compiles, but `&mut` exclusivity means registering the logger *locks*
+  the console: a later direct `println` is `E0499`. Kotlin accepts the
+  same program, so parity requires Salvo to adopt the restriction as a
+  rule — expressible in existing vocabulary (capture = fate link, member
+  call = mutation, so the existing poison rules produce Rust's answer),
+  and block-scoped `use` is the remedy (`{ use LoudLogger(); … }`, then
+  direct use after the block — verified).
+- **B2 — shared ownership** (`Rc<RefCell<dyn Console>>`). Rejected: it
+  turns a compile-time question into a **runtime panic**, which breaks
+  parity by construction. Cycle detection is *not* sufficient, which was
+  the surprise: `println("${bump()} ${bump()}")` — legal Salvo today —
+  panics with "RefCell already borrowed" because Rust temporaries live to
+  the end of the *statement*, so two guards coexist with no cycle
+  anywhere. Reentrancy also arrives through ordinary functions, not just
+  declared dependency edges. Three separate guarantees would be needed
+  (cycle rejection, a handler-reachability rule, and a statement-hoisting
+  invariant in the emitter), and a gap in any of them is a crash in a
+  user's program instead of a diagnostic.
+- **B3 — ownership at construction** (`use LoudLogger(StdOutConsole())`,
+  handler owns a `Box<dyn Console>` or a monomorphized `C: Console`). No
+  lifetimes, no runtime checks, and Kotlin already emits this shape
+  correctly. Cost: the dependency comes from an explicit argument rather
+  than the ambient environment, and a *stateful* dependency cannot be
+  shared with the surrounding scope — you get two instances.
+- **B7 — "B semantics, A mechanics"**: store nothing; thread the
+  dependency closure through emitted signatures, checking the requirement
+  at the `use` site instead of the call site. Verified with a three-level
+  chain (`Audit` needing both `Logger` and `Console`, `Logger` needing
+  `Console`, `main` interleaving direct use): one console, state intact,
+  no exclusivity, no lifetimes. It works because a `&mut` passed as an
+  argument is a *reborrow* whose duration is the call — the lender is
+  suspended, so five frames can reach the value while only the innermost
+  uses it. The failure of B1 is the same fact seen from the other side:
+  a *held* borrow lasts as long as the holder, so it overlaps.
+  **B7's constraint** is that the dependency closure must be a static
+  property of the *effect type*, since a fn declaring `[Logger]` has one
+  emitted signature. That forces dependencies to be declared on the
+  effect, so every handler pays for the union (`NullLogger` receives a
+  Console it ignores).
+- **B8 — per-handler dependencies + specialization** (costed below).
+
+**The user's objection to B7** (2026-09-03): dependencies are a property
+of *handlers*, not effects — `LoudLogger` needs a Console, `FileLogger` a
+filesystem, `NullLogger` nothing. Correct as interface design, and it
+rules out B7's static closure. The tempting middle road (declare on
+handlers, thread the per-effect *union*) collapses: if the union for
+`Logger` includes Console, `use NullLogger()` would have to supply one,
+which is exactly the unpredictable rule to avoid.
+
+Framing that drove the exploration: **Rust appeared to demand one of
+exclusivity (B1), duplication (B3 / B8), or a runtime check (B2)** — every
+option a different concession. B9 escaped the trilemma by changing *what
+holds the dependency*: a fusion that owns the handlers as **distinct
+fields** can lend each one separately, so a shared dependency is threaded
+per call instead of held for a scope. The lesson worth keeping is that the
+binding constraint was never "who may reach this value" but **how long
+each borrow lasts**.
+
+#### B8 — per-handler dependencies with specialized consumers (superseded)
+
+Costed and then superseded by B9, but two findings from the costing carry
+over and are worth keeping:
+
+- **Handler selection is lexically static.** `check_use` accepts only a
+  handler *name* or a *constructor call*, resolved against
+  `scope.handlers` rather than locals, so a variable holding a
+  runtime-chosen handler cannot be registered. Every call site sits in a
+  statically known set of `use` scopes. Any strategy that resolves
+  handlers at compile time depends on this.
+- **Nothing in *checking* depends on which handler serves an effect.**
+  `[effect-disambiguation]` resolves by effect *instance type*, and a
+  member call's contract is the *member's* declared deduction list
+  ([decl-explicit]). So handler-aware work belongs to emission; type
+  checking stays single-pass and handler-agnostic.
+
+B8's own mechanism — one emitted copy of a *user function* per handler
+binding it is reachable under — was rejected because it duplicates
+arbitrarily large functions. B9 keeps per-handler dependencies without any
+duplication of user code.
+
+#### B9 — handler fusion ✅ chosen (user decisions 2026-09-03/04)
+
+The strategy of record. Full mechanism, with the borrow reasoning and the
+verified shapes, is in **BACKEND_SPEC.rust.md [rs-effect-fusion]** (the
+constraint is Rust's) and **BACKEND_SPEC.kotlin.md [kt-effect-fusion]**.
+In brief:
+
+- Effect traits/interfaces stay **dependency-free**, so a user fn is
+  emitted **once** no matter which handlers flow in.
+- A handler's dependencies are its **constructor parameters of effect
+  type** — `handler ConsoleLogger(console: Console) of Logger`, which
+  already parses and type-checks today, so E1 needs almost no new
+  declaration syntax. Handler bodies take those as parameters
+  (`fn log(console: Console, m: Str)`).
+- One **fusion** per `use` scope holds the registered handlers and exposes
+  each member, hiding dependencies by passing them from its own fields.
+  In Rust the forwarding impl destructures `&mut self` into **disjoint
+  field borrows**, which is what makes a *shared* dependency work — every
+  earlier option needed two `&mut` to the same place.
+- A fn needing several effects takes **one fusion value**: a multi-bounded
+  generic in Kotlin, a generic bound or a blanket-impl conjunction trait
+  in Rust.
+- Nested `use` scopes **rebuild flat** (the inner fusion holds the outer
+  scope's *handlers*, not the outer *fusion*): depth-independent
+  threading, no forwarding hops, resolution explicit in the construction.
+- **Facets are Kotlin-only**: erasure forbids one class implementing
+  `Random<Int>` and `Random<Double>`, so Kotlin generates a non-generic
+  facet interface per instance with the type argument in the member name.
+  Rust needs none of it. Each backend leverages its own language rather
+  than sharing one lowest-common-denominator shape.
+
+Why this beats everything above it: dependencies live on handlers (the
+user's interface-design objection to B7 is honoured), nothing is captured
+for a scope so there is **no exclusivity**, no `Rc`/`RefCell` so **no
+runtime failure mode**, no user-function duplication, no lifetimes visible
+in Salvo — and, because a handler member can mutate a dependency it
+receives as a parameter, **neither the immutable/mutable effect
+distinction nor `Cell` is needed** to keep effects testable. It is the
+only option whose supporting features turned out to be unnecessary rather
+than merely deferred.
+
+Prerequisites: **handler values** ✅ done 2026-09-04 (see the decision log
+entry below); **effect dependency cycles** must still be rejected at
+declaration time, which only becomes reachable once dependencies can be
+declared.
+
+Open sub-decision carried forward: **effectful fn values**. A named fn
+passed by value needs its fusion baked in (a closure). Fn-type effect
+lists parse but are unenforced today, so this is a pre-existing hole that
+B9 turns into a decision point rather than creating.
 
 ### E2 — Heuristics for validating external functions (user decision 2026-09-03)
 
@@ -1529,6 +1759,113 @@ the backend define template:
 - Necessarily heuristic and backend-specific (pattern matching on native
   source), so findings should be *warnings* with an opt-out, never hard
   errors — a false positive must not block a legitimate define.
+
+## Roadmap: shared mutable state (`Cell`)
+
+An idea developed 2026-09-03 while looking for a way to keep *immutable*
+effects testable (a recording double needs state). It stands on its own
+merits and is **not** tied to that use case — most of the patterns below
+have nothing to do with effects. Open **DECISION**.
+
+### The problem it addresses (and what it unlocks)
+
+Salvo's mutation rule is about the **handle**: you may mutate through a
+path only if that path is `Mut`, which is exclusive. Several ordinary
+patterns need the opposite — mutation through a *shared* path:
+
+- two lambdas appending to one accumulator (today the first one to mutate
+  a capture *consumes* it, so the second is an error and the original is
+  dead afterwards — verified: "`total` cannot be used here: it was
+  consumed (moved) by a lambda that captures and mutates it");
+- memoization / lazy initialization behind an immutable handle;
+- counters, metrics, id generators shared by several holders;
+- a stateful handler of an effect whose other handlers want to be shared.
+
+### The proposal: a capability qualifier, not a container type
+
+`Cell` joins the intrinsic capability qualifiers (`Mut`, `Linear`,
+`Once`, `ReadOnly`) rather than arriving as a std generic type
+`Cell<T>`. The family fits exactly — each intrinsic qualifier exists
+because it needs "a representation choice, a flow rule, a subtyping
+direction or a restricted position that no user declaration could
+supply", and `Cell` needs the first three:
+
+- `Mut T` — mutation permitted, only through *this* handle.
+- `Cell T` — mutation permitted through *any* handle.
+
+**Benefits over a container type:**
+
+- **No wrapper noise.** `count = count + 1` and `if count > 3`, rather
+  than `set(count, get(count) + 1)` and `if get(count) > 3`. Reads and
+  assignments keep ordinary syntax; only the *permission* differs.
+- **It inherits machinery instead of adding surface**: `canbe Cell`
+  opt-in on declarations, qualifier erasure, overload selection, and
+  D1's stripping rule — where `Cell`, being a capability rather than a
+  claim about contents, is never stripped (like `Mut` and provenance).
+- **Family membership is the documentation.** "Capability qualifiers say
+  what you may do with a handle" already exists as a concept; a std
+  container with its own API is a second thing to learn.
+- Danger stays visible in the type either way: `Cell Int` at every use
+  site, greppable, opt-in — unlike interior mutability hidden inside an
+  ordinary type.
+
+### Representation, and why it cannot panic
+
+- **Copyable contents → Rust `Cell<T>`**: `get`/`set` only, no borrow
+  guard exists, so no runtime check and no panic is *representable*
+  (verified: a shared id generator, `ids: 1 2 3`).
+- **Collections → Rust `RefCell<T>`**: a guard exists, but the only
+  operations are std primitives whose define templates the compiler
+  controls (`${list}.push(${value})`), so no Salvo code ever runs inside
+  the borrow (verified: a recording double shared by a capturing logger
+  *and* used directly, all three writes recorded).
+- Kotlin: a plain mutable field. No parity gap — both backends accept the
+  same programs.
+
+**The rule that keeps this true:** a cell may be mutated by assignment
+and by *standard-library* primitives, but never lent to a user-defined
+`Mut` parameter. Handing `&mut` into user code is what puts a borrow
+guard around a user call, which is precisely where B2's reentrancy panics
+came from (see E1a). One sentence to teach: "you can mutate a cell; you
+cannot hand its insides to a function you wrote."
+
+### Rules it drags in (the real design work)
+
+- **No state qualifiers on cell contents.** A claim like `NonEmpty` is
+  about contents, and contents can change through a handle the compiler
+  is not looking at — so `qualifier … of Cell …` must be rejected for
+  *state* claims. Provenance claims are fine (they are about where the
+  handle came from). This is the one genuine soundness rule, enforced at
+  the declaration.
+- **No shared-fate links.** Reads copy rather than lend, so
+  `let v = count` is an independent value: no link, no poison. Simpler
+  than the field case, and a direct consequence of "no handle into the
+  contents".
+- **Linear contents need `replace`.** Overwriting a cell holding a
+  `canbe Linear` value would silently drop an obligation; `replace(cell,
+  v) -> T` hands the old value back and transfers the obligation, while
+  plain assignment over linear contents stays an error.
+- **Deductions say nothing.** A fn taking a `Cell` and writing it needs
+  no `Mut`, so its signature cannot report the write — acceptable only
+  because the first rule leaves no claim worth preserving.
+
+### The concession being accepted
+
+`Cell` is a sanctioned hole in "no hidden shared mutable state": two
+holders can surprise each other, and the ownership analysis stops helping
+inside a cell. That is the price of shared mutable state in any language
+with an ownership discipline; what makes it defensible is that it is
+visible in the type rather than hidden behind an ordinary one.
+
+### Relationship to E1
+
+`Cell` is **not load-bearing** for effects. E1's chosen strategy (B9
+handler fusion) keeps handler members able to mutate dependencies they
+receive as parameters, so recording test doubles need no interior
+mutability and effects need no immutable/mutable distinction. `Cell`
+therefore stands on the lambda/memoization/counter cases, which are real
+limitations today, and can land independently of the effects work if it is
+wanted at all.
 
 ## Roadmap: place-based flow analysis
 
@@ -2185,9 +2522,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 345)
+## Test inventory (all green: 351)
 
-- `salvo-core`: 98 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 104 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -2200,7 +2537,8 @@ spec rule; consolidated here for findability):
   qualifiers and delta lists passing them through, mutating bodies
   requiring the exhaustive form, `Nothing` meaning moved
   [deduce-syntax], move inference, call-graph fixpoint
-  transitivity, lenient effect-member borrows, written-list body validation,
+  transitivity, effect-member contracts reaching inference [call-resolve]
+  and a keeping member still borrowing, written-list body validation,
   written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
   reads through the alias are free, `copy` severs [fate-link] — and
@@ -2264,7 +2602,12 @@ spec rule; consolidated here for findability):
   rejected while arrays still work, `for` over a non-iterable rejected
   while arrays still iterate, and — the leniency that remains — a member
   read off an un-inferred value adding *no* second diagnostic
-  [type-unknown-lenient]).
+  [type-unknown-lenient]; and 5 effect/handler-as-data tests
+  [effect-not-data] [handler-not-value]: an effect rejected in five data
+  positions with the diagnostic naming `use`, effect lists and `of` clauses
+  still accepting effects, a handler constructor rejected as a value while
+  `use` still registers it, and a handler dependency — E1's future feature
+  — rejected until the fusion emission exists).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics

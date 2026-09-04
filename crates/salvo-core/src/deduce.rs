@@ -40,13 +40,13 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
-    Block, Deduction, DeductionKind, Expr, FnDecl, Item, LambdaBody, Param, QualSubject, Stmt,
-    StrExprPart, StructLitFieldKind, Type,
+    Block, Deduction, DeductionKind, EffectDecl, Expr, FnDecl, Item, LambdaBody, Param,
+    QualSubject, Stmt, StrExprPart, StructLitFieldKind, Type,
 };
 use salvo_syntax::Span;
 
 use crate::check::{Checked, Key};
-use crate::types::QualEffect;
+use crate::types::{QualEffect, Ty};
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::resolve::FnKey;
@@ -115,6 +115,25 @@ pub(crate) fn infer(
         }
     }
     let fn_decls: HashMap<FnKey, &FnDecl> = fns.iter().map(|f| (f.key, f.decl)).collect();
+    // [call-resolve] Effect members have no `FnKey` — the handler is picked
+    // at run time — but they *declare* their deductions ([decl-explicit]),
+    // and the checker recorded which effect instance each member call
+    // dispatches through. Together those give the callee contract, so a
+    // member that takes ownership is seen as moving its argument here too
+    // (it already does at the call site, in `check_effect_call`).
+    // Effect names are program-wide keys, like the qualifier names this
+    // pass already uses: [mod-collision] rejects one name declared by two
+    // visible modules.
+    let effects: HashMap<String, &EffectDecl> = program
+        .modules
+        .iter()
+        .flat_map(|ast| ast.items.iter())
+        .filter_map(|item| match item {
+            Item::Effect(e) => Some((e.name.name.clone(), e)),
+            _ => None,
+        })
+        .collect();
+    let effect_calls = checked.effect_calls.clone();
 
     // Initial state: written lists as declared (validating their shape),
     // unwritten lists optimistic (everything kept with declared quals).
@@ -147,7 +166,16 @@ pub(crate) fn infer(
                 continue;
             }
             let Some(body) = &f.decl.body else { continue };
-            let mut new = infer_body(f, body, &checked.call_fn, &fn_decls, &states, &provenance);
+            let mut new = infer_body(
+                f,
+                body,
+                &checked.call_fn,
+                &fn_decls,
+                &states,
+                &provenance,
+                &effects,
+                &effect_calls,
+            );
             exhaustive_for_mutated(
                 f.decl,
                 &mut new,
@@ -171,7 +199,16 @@ pub(crate) fn infer(
         let (Some(list), Some(body)) = (&f.decl.deductions, &f.decl.body) else {
             continue;
         };
-        let inferred = infer_body(f, body, &checked.call_fn, &fn_decls, &states, &provenance);
+        let inferred = infer_body(
+            f,
+            body,
+            &checked.call_fn,
+            &fn_decls,
+            &states,
+            &provenance,
+            &effects,
+            &effect_calls,
+        );
         let written = &states[&f.key];
         for ((w, i), p) in written.iter().zip(&inferred).zip(&f.decl.params) {
             let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
@@ -395,13 +432,16 @@ pub(crate) fn from_written(
 
 /// Re-derives one fn's deduction facts from its body, given the current
 /// state of every other fn [deduce-infer].
-fn infer_body<'a>(
-    f: &FnInfo<'_>,
-    body: &Block,
+#[allow(clippy::too_many_arguments)]
+fn infer_body<'a, 'p>(
+    f: &FnInfo<'p>,
+    body: &'p Block,
     call_fn: &'a HashMap<Key, FnKey>,
-    fn_decls: &'a HashMap<FnKey, &FnDecl>,
+    fn_decls: &'a HashMap<FnKey, &'p FnDecl>,
     states: &'a HashMap<FnKey, Vec<ParamDeduction>>,
     provenance: &'a HashSet<String>,
+    effects: &'a HashMap<String, &'p EffectDecl>,
+    effect_calls: &'a HashMap<Key, Ty>,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.key.file,
@@ -411,6 +451,8 @@ fn infer_body<'a>(
         params: optimistic(f.decl),
         decl: f.decl,
         provenance,
+        effects,
+        effect_calls,
     };
     walk.block(body);
     walk.params
@@ -428,6 +470,12 @@ struct Walk<'a, 'p> {
     decl: &'p FnDecl,
     /// Provenance qualifier names [qual-subject]: never removed.
     provenance: &'a HashSet<String>,
+    /// Effect declarations by name, for effect-member call contracts
+    /// [call-resolve].
+    effects: &'a HashMap<String, &'p EffectDecl>,
+    /// Which effect instance each member call dispatches through (checker
+    /// table `effect_calls`), keyed by call span.
+    effect_calls: &'a HashMap<Key, Ty>,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -466,7 +514,7 @@ fn param_for_arg(params: &[Param], i: usize) -> Option<usize> {
     }
 }
 
-impl Walk<'_, '_> {
+impl<'p> Walk<'_, 'p> {
     fn mark_moved(&mut self, name: &str) {
         if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
             p.kept = false;
@@ -699,8 +747,11 @@ impl Walk<'_, '_> {
 
     /// A call site: bare-parameter arguments take the callee's deduction —
     /// moved when the callee moves them, otherwise stripped of exactly the
-    /// callee's removal set (declared − kept) [deduce-syntax]. Unresolved
-    /// callees (interop, effect members) borrow and preserve everything.
+    /// callee's removal set (declared − kept) [deduce-syntax]. Effect
+    /// members resolve through their declared list [call-resolve]; a call
+    /// through a fn-typed parameter uses its written contract
+    /// [fn-contract]; anything still unresolved borrows and preserves
+    /// everything.
     fn call(&mut self, callee: &Expr, args: &[Expr], span: Span) {
         // Dot notation: the receiver is argument 0 [fn-dot].
         let mut arg_exprs: Vec<&Expr> = Vec::new();
@@ -716,6 +767,13 @@ impl Walk<'_, '_> {
             .get(&(self.file, span))
             .and_then(|key| Some((self.fn_decls.get(key)?, self.states.get(key)?)));
         let Some((callee_decl, callee_state)) = resolved else {
+            // [call-resolve] An effect-member call: no `FnKey`, but the
+            // member's declared list is the contract the call site already
+            // enforces, so apply it here too.
+            if let Some((member, facts)) = self.effect_member_contract(callee, span) {
+                self.apply_callee(&member.params, &facts, arg_exprs);
+                return;
+            }
             // [fn-contract] A call through a fn-typed *parameter* of the
             // walking fn applies that parameter's written fn-type
             // contract: consumed positions move bare-parameter
@@ -756,16 +814,28 @@ impl Walk<'_, '_> {
             }
             return;
         };
+        self.apply_callee(&callee_decl.params, callee_state, arg_exprs);
+    }
+
+    /// Applies a resolved callee's per-parameter facts to the arguments:
+    /// a moved parameter moves a bare-identifier argument, a kept one
+    /// applies its qualifier effect [deduce-infer].
+    fn apply_callee(
+        &mut self,
+        params: &[Param],
+        state: &[ParamDeduction],
+        arg_exprs: Vec<&Expr>,
+    ) {
         for (i, a) in arg_exprs.into_iter().enumerate() {
             let Some(name) = bare_ident(a) else {
                 self.expr(a);
                 continue;
             };
             let name = name.to_string();
-            let Some(pidx) = param_for_arg(&callee_decl.params, i) else {
+            let Some(pidx) = param_for_arg(params, i) else {
                 continue;
             };
-            let ded = &callee_state[pidx];
+            let Some(ded) = state.get(pidx) else { continue };
             if !ded.kept {
                 self.mark_moved(&name);
                 continue;
@@ -776,5 +846,30 @@ impl Walk<'_, '_> {
                 QualEffect::Exhaustive(keep) => self.restrict_to(&name, &keep),
             }
         }
+    }
+
+    /// The effect member a call dispatches to, with its declared deduction
+    /// facts [call-resolve]. `None` when the call is not an effect-member
+    /// call, when the checker recorded no instance for it, or when the
+    /// member declares no list (then the old lenient borrow stands).
+    fn effect_member_contract(
+        &self,
+        callee: &Expr,
+        span: Span,
+    ) -> Option<(&'p FnDecl, Vec<ParamDeduction>)> {
+        let name = match callee {
+            Expr::Ident(id) => id.name.as_str(),
+            Expr::Field { field, .. } => field.name.as_str(),
+            _ => return None,
+        };
+        let instance = self.effect_calls.get(&(self.file, span))?;
+        let Ty::Named { name: effect, .. } = instance.strip_quals() else {
+            return None;
+        };
+        let decl = self.effects.get(effect.as_str())?;
+        let member = decl.fns.iter().find(|f| f.name.name == name)?;
+        let list = member.deductions.as_ref()?;
+        let facts = from_written(member, list, &HashSet::new(), |_, _| {});
+        Some((member, facts))
     }
 }

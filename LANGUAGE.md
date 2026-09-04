@@ -690,6 +690,20 @@ fn main() [use] -> [] None {
 
 The effects a function depends on are declared in the square brackets before its arrow. In the above example, the `main` function (which is also the entry point to any Salvo program) starts with the special `use` effect, which is what allows it to use the `use` keyword. If a function does not declare a dependency on this, then `use` is not available to it. If the initial square brackets are not present in a function declaration, then it is assumed to be empty and that function is "pure".
 
+An effect names a *capability*, not a type of values. It can appear in a
+function's effect list and in a handler's `of` clause, and nowhere else: a
+struct field, parameter, return type or `let` annotation of effect type is
+a compile-time error. Handlers are not values either — `use` is the only
+thing that produces one, and you reach it by calling the effect's members
+rather than by holding the handler:
+
+```
+let c: Console = StdOutConsole()   // error: `Console` is an effect, not a data type
+let h = StdOutConsole()            // error: `StdOutConsole` is a handler, not a value
+use StdOutConsole()                // this is how you register it
+println("...")                     // and this is how you use it
+```
+
 Almost every action other than simple data transformation needs to be encoded in an effect. For example, printing to the console is managed by an effect:
 
 ```

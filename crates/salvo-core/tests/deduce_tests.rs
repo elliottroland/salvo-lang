@@ -274,9 +274,37 @@ fn mid<T>(list: A B List<T>) -> None {{
     );
 }
 
-// [deduce-infer] [call-resolve] Effect-member calls — the one callee kind
-// the deduction pass does not resolve to a declaration — borrow leniently
-// and preserve all qualifiers; plain reads never move.
+// [call-resolve] [deduce-infer] An effect member's *declared* deduction
+// list is the callee contract for **inference** too, not just at the call
+// site: a member that takes ownership makes the enclosing fn move the
+// argument, so its own callers must hand over ownership. Before this,
+// deduce treated member calls as borrows (no `FnKey` to resolve), so the
+// checker said "consumed" inside the body while the inferred contract said
+// "kept" — the two disagreed about the same call.
+#[test]
+fn effect_member_moves_propagate_to_the_caller() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+effect Sink {{
+    fn eat(list: List<Int>) -> [] None
+}}
+
+fn forward(list: List<Int>) [Sink] -> None {{
+    eat(list)
+}}
+"#
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    let (kept, _) = facts(&program, &checked, "forward", "list");
+    assert!(
+        !kept,
+        "the member takes ownership, so `forward` must be inferred to move it"
+    );
+}
+
+// [deduce-infer] [call-resolve] A member that *keeps* its parameter still
+// borrows, and preserves its qualifiers; plain reads never move.
 #[test]
 fn reads_and_effect_member_calls_borrow() {
     let src = format!(

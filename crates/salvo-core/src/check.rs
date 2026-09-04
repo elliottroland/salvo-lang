@@ -2868,6 +2868,34 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     // ================= qualifier validation =================
 
+    /// [effect-not-data] An effect names a *capability*, not a type of
+    /// values: it may appear in a fn's effect list, in a handler's `of`
+    /// clause, and nowhere else. Using one as a struct field, parameter,
+    /// return, or `let` annotation is an error — the value would have to be
+    /// a handler instance, which only `use` produces, and neither backend
+    /// can render it (Rust emits a bare trait, `E0782`).
+    ///
+    /// Handler *dependencies* — a handler constructor parameter of effect
+    /// type — are the deliberate exception this rule will grow (roadmap
+    /// E1, [rs-effect-fusion]); until the fusion emission exists they are
+    /// rejected here like any other data position, so nothing can reach a
+    /// backend that cannot emit it [backend-never-wrong].
+    fn reject_effect_as_data(&mut self, r: &TypeRef) {
+        let name = r.name.name.as_str();
+        if self.generics.contains(name) || !self.scope.effects.contains_key(name) {
+            return;
+        }
+        let name = name.to_string();
+        self.error(
+            r.span,
+            format!(
+                "`{name}` is an effect, not a data type: effects appear in a \
+                 function's effect list (`[{name}]`) or a handler's `of` clause, \
+                 and their handlers are reached with `use`"
+            ),
+        );
+    }
+
     /// Validates a written type: every name resolves [name-resolve], and
     /// every qualifier application is well formed — duplicates,
     /// `of`-type applicability, pairwise `with` compatibility. Called at
@@ -2878,6 +2906,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Named { qualifiers, base } => {
                 self.require_name(base, false);
+                self.reject_effect_as_data(base);
                 for a in &base.args {
                     self.validate_type(a);
                 }
@@ -6095,7 +6124,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_expr(a, None);
             }
             if self.scope.handlers.contains_key(name) {
-                return Ty::named(name);
+                // [handler-not-value] A handler instance is produced by
+                // `use` and lives in the effect environment; it is not a
+                // value the program can name, store, or pass. `use` never
+                // reaches here (it validates its own constructor), so this
+                // is always a handler *value* — which neither backend can
+                // render (Rust emits `Name()` for a struct with no such
+                // constructor, `E0423`).
+                self.error(
+                    name_span,
+                    format!(
+                        "`{name}` is a handler, not a value: register it with \
+                         `use {name}(...)` and call the effect's members"
+                    ),
+                );
+                return Ty::Unknown;
             }
             // Nothing declares this name [call-resolve]. Reaching a target
             // function means declaring it (`external fn`), so an

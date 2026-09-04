@@ -252,6 +252,112 @@ fn iterating_an_array_is_fine() {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
+// ===== effects and handlers are not data [effect-not-data]
+// ===== [handler-not-value] =====
+
+const EFFECT_PRELUDE: &str = r#"
+internal type Int
+internal type Str
+
+effect Counter {
+    fn bump() -> [] Int
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+
+    fn bump() -> [] Int {
+        n = n + 1
+        return n
+    }
+}
+"#;
+
+fn effect_messages(src: &str) -> Vec<String> {
+    messages(&format!("{EFFECT_PRELUDE}\n{src}"))
+}
+
+/// [effect-not-data] An effect names a capability, not a type of values.
+/// Every data position rejects it; the diagnostic names the two positions
+/// that *do* accept an effect, and `use`.
+#[test]
+fn effect_types_are_rejected_in_data_positions() {
+    let cases = [
+        ("struct S {\n    c: Counter\n}\n", "struct field"),
+        ("fn f(c: Counter) -> [c] Int {\n    return 1\n}\n", "parameter"),
+        ("fn f() -> Counter {\n    return 1\n}\n", "return type"),
+        (
+            "fn f() -> Int {\n    let c: Counter = 1\n    return 1\n}\n",
+            "`let` annotation",
+        ),
+        ("type Alias = Counter\n", "type alias"),
+    ];
+    for (src, what) in cases {
+        let errs = effect_messages(src);
+        let diag = errs
+            .iter()
+            .find(|m| m.starts_with("`Counter` is an effect, not a data type"))
+            .unwrap_or_else(|| panic!("no rejection for a {what}: {errs:?}"));
+        assert!(
+            diag.contains("`use`"),
+            "the diagnostic should point at `use`: {diag}"
+        );
+    }
+}
+
+/// [effect-not-data] The two positions that legitimately name an effect —
+/// a fn's effect list and a handler's `of` clause — keep working.
+#[test]
+fn effect_lists_and_of_clauses_still_accept_effects() {
+    let errs = effect_messages("fn f() [Counter] -> Int {\n    return bump()\n}\n");
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
+/// [handler-not-value] A handler instance comes from `use`; it is not a
+/// value to bind, return, or pass. Rust could not render one anyway
+/// (`Name()` is not a constructor — `E0423`).
+#[test]
+fn handler_constructors_are_not_values() {
+    let errs = effect_messages(
+        "fn f() -> Int {\n    let c = MemCounter()\n    return 1\n}\n",
+    );
+    let diag = errs
+        .iter()
+        .find(|m| m.starts_with("`MemCounter` is a handler, not a value"))
+        .unwrap_or_else(|| panic!("got {errs:?}"));
+    assert!(
+        diag.contains("use MemCounter(...)"),
+        "the diagnostic should name the remedy: {diag}"
+    );
+}
+
+/// [handler-not-value] `use` itself is unaffected: it validates its own
+/// constructor call and never goes through the value path.
+#[test]
+fn use_still_registers_handlers() {
+    let errs = effect_messages(
+        "fn main() [use] -> [] Int {\n    use MemCounter()\n    return bump()\n}\n",
+    );
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
+/// [effect-not-data] Handler *dependencies* (a ctor param of effect type)
+/// are roadmap E1 and rejected until the fusion emission exists — today
+/// they emit a bare trait in Rust (`E0782`).
+#[test]
+fn handler_dependencies_are_not_yet_accepted() {
+    let errs = effect_messages(
+        "handler Wrapper(inner: Counter) of Counter {\n    \
+         fn bump() -> [] Int {\n        return 0\n    }\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.starts_with("`Counter` is an effect, not a data type")),
+        "got {errs:?}"
+    );
+}
+
+
 // ===== the leniency that remains =====
 
 /// [type-unknown-lenient] A type the checker could not *infer* still passes

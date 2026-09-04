@@ -534,12 +534,32 @@ Conventions:
 * [effect-member-no-effects] Effect member fns (and handler member fns)
   cannot declare their own effect dependencies (compile error "…yet"):
   dispatch call sites go through the handler instance and cannot thread
-  extra handler args. Effect-to-effect dependencies declared on the
-  *effect* are roadmap E1. Members must still declare their deductions
-  and return type [decl-explicit].
+  extra handler args. Members must still declare their deductions and
+  return type [decl-explicit].
+  * Roadmap E1 lifts this for *handlers*, whose dependencies will be
+    declared as constructor parameters of effect type and supplied by the
+    per-scope fusion (user decision 2026-09-04; mechanism in
+    [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
+    effects stays an error: the dependency belongs to the implementation,
+    not the interface.
 * [effect-handler] `handler H<G>(ctor params) of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
+* [effect-not-data] An effect names a *capability*, not a type of values.
+  It may appear in a fn's effect list (`[Console]`) and in a handler's `of`
+  clause; every data position — struct field, parameter, return type,
+  `let` annotation, type alias, union or tuple component — is an error
+  (user decision 2026-09-03). The value would have to be a handler
+  instance, and those are reached through `use`.
+  * Handler *dependencies* (a constructor parameter of effect type) are the
+    exception this rule will grow when roadmap E1 lands with the fusion
+    emission; until then they are rejected like any other data position, so
+    nothing reaches a backend that cannot render it
+    ([backend-never-wrong] — Rust emitted a bare trait, `E0782`).
+* [handler-not-value] A handler instance is produced by `use` and lives in
+  the effect environment; a handler constructor call in any other position
+  is an error naming the `use` remedy. (Rust could not render one anyway:
+  the emitted `Name()` is not a constructor, `E0423`.)
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
@@ -647,10 +667,11 @@ Conventions:
     moved or mutated *claims* the parameter as moved (move-mode takes
     ownership through the chain [fate-move-mode]); the claims are
     seeded into the fixpoint between the checking rounds. Effect-member
-    calls — the one callee kind with no declaration to resolve to, since
-    the handler is chosen at run time — borrow leniently and preserve all
-    qualifiers ([call-resolve] removed the other source, backend interop);
-    value flow out of a branch/loop tail is not tracked as a move yet.
+    calls have no `FnKey` (the handler is chosen at run time) but their
+    *declared* list is the contract: inference reads it through the
+    checker's recorded effect instance, so a member that takes ownership
+    moves the argument here exactly as it does at the call site. Value flow
+    out of a branch/loop tail is not tracked as a move yet.
   * A written list is validated against the same body facts: it may be
     *stricter* than the body (drop qualifiers, move parameters the body
     gives back), but promising a parameter back that the body moves, or

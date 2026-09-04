@@ -218,6 +218,52 @@ Conventions:
     unchecked contexts (see PROGRESS.md "Emitter effect-environment
     fallback" under architectural facts).
 
+### Planned — effect dependencies via handler fusion [kt-effect-fusion]
+
+**Not implemented.** Kotlin's half of roadmap E1; the mechanism and its
+rationale live in [rs-effect-fusion] (Rust is where the constraint bites),
+and PROGRESS.md's E1a holds the decision log. Kotlin's job is easier:
+objects alias, so a fusion may simply hold its handlers, and dependency
+hiding is a plain forwarding call.
+
+* A **fusion class** per `use` scope holds the registered handlers and
+  exposes each effect member, passing dependencies from its own fields:
+  `override fun log(m: String) = logger.log(console, m)`. Handler members
+  take their handler's constructor parameters of effect type as
+  *parameters* (`fun log(console: Console, m: String)`), matching Rust's
+  free-function shape.
+* Functions requiring several effects take one fusion value behind a
+  **multi-bounded generic**: `fun <T> work(fx: T) where T : Console, T : Logger`.
+  Erasure makes this a single emitted function.
+* Nested `use` scopes **rebuild** flat (user decision): the inner fusion
+  holds the outer scope's handlers as its own fields rather than a
+  reference to the outer fusion. Same reasoning as [rs-effect-fusion],
+  minus the borrow analysis.
+* [kt-effect-facets] **Facets are Kotlin-only** (user decision
+  2026-09-04). One class cannot implement `Random<Int>` and
+  `Random<Double>` — erasure rejects it ("type parameter 'T' … has
+  inconsistent values", "a supertype appears twice") — yet
+  [effect-no-dup] permits both instances in one effect list, and
+  LANGUAGE.md documents that example. So a **generic** effect gets one
+  generated *non-generic* facet interface per instance in use, with the
+  instance in the member name:
+
+  ```kotlin
+  interface Fx_Random_Int    { fun random__Int(): Int }
+  interface Fx_Random_Double { fun random__Double(): Double }
+  ```
+
+  The fusion implements the facets; the effect interface itself stays
+  generic and unchanged, since that is what *handlers* implement and what
+  an effect-typed constructor parameter refers to. Non-generic effects
+  (`Console`) keep plain member names — mangling applies only where a type
+  argument must disambiguate, like [kt-qual-mangling] for qualified
+  overloads. Rust needs none of this ([rs-effect-fusion]).
+  * **Revisit** (user note 2026-09-04): the accumulated need for name
+    mangling across the Kotlin backend ([kt-qual-mangling], the overload
+    suffixes, and now facets) deserves a fresh look — there may be a
+    single alternative that removes several of them at once.
+
 ## Functions
 
 * [fn-variadic] `...xs: T[]` emits `vararg xs: T`; a spread argument
