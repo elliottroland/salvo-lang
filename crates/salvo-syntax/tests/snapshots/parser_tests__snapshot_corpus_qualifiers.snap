@@ -7,7 +7,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Surname",
@@ -44,7 +44,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Old",
@@ -81,7 +81,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Ok",
@@ -114,7 +114,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Err",
@@ -147,7 +147,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Something",
@@ -207,7 +207,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "FirstStr",
@@ -263,7 +263,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Ints",
@@ -314,7 +314,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,
@@ -383,7 +383,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Positive",
@@ -406,7 +406,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
-                        backing: None,
+                        intrinsic: false,
                         name: Ident {
                             name: "qualifies",
                             span: 301..310,
@@ -488,7 +488,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "NonNegative",
@@ -520,7 +520,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
-                        backing: None,
+                        intrinsic: false,
                         name: Ident {
                             name: "qualifies",
                             span: 415..424,
@@ -602,7 +602,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "HasSurname",
@@ -646,7 +646,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
-                        backing: None,
+                        intrinsic: false,
                         name: Ident {
                             name: "qualifies",
                             span: 536..545,
@@ -740,7 +740,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "RandomPositive",
@@ -771,7 +771,7 @@ Module {
                     "Constructor function: `-> Int as RandomPositive` marks it; return points",
                     "return plain Int values which gain the qualifier by construction.",
                 ],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "random_positive_int",
                     span: 799..818,
@@ -921,7 +921,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "checks",
                     span: 966..972,
@@ -1333,7 +1333,7 @@ Module {
                     "[qual-widen] `^` is the dual of `is`: a successful check reads the subject",
                     "with the qualifier *removed*, which is what opens a qualified union.",
                 ],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "describe",
                     span: 1490..1498,
@@ -1672,7 +1672,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "read_only",
                     span: 1918..1927,

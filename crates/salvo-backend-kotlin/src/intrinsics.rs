@@ -4,10 +4,10 @@
 //! Every `intrinsic type`, `intrinsic fn` and `intrinsic handler` std
 //! declares must be lowered here; anything missing is a codegen error at
 //! the reference site, never a pass-through [backend-never-wrong]. This
-//! table replaced the `define` template files that used to live next to
-//! the std modules: the text is the same, but it is now code the backend
-//! owns, dispatched on the *checker-resolved* declaration rather than
-//! matched by name and arity.
+//! table replaced the per-backend `define` template files that used to live
+//! next to the std modules: the emitted text is the same, but it is now code
+//! the backend owns, dispatched on the *checker-resolved* declaration rather
+//! than matched by name and arity.
 //!
 //! Interpolation conventions match what the templates relied on: `args`
 //! holds the already-rendered argument code in declaration order (a
@@ -40,7 +40,7 @@ pub fn fn_call(
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from
-        // [backend-define-generics].
+        // [backend-intrinsic].
         ("list", Some("[]")) => format!("listOf<{}>({})", elem(), args.join(", ")),
         ("mutable_list", Some("[]")) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
@@ -106,8 +106,8 @@ pub fn mut_type_name(name: &str) -> Option<&'static str> {
 /// implement it, with the member's own parameter names in scope.
 ///
 /// Names are fully qualified so the emitted file needs no imports, and so
-/// a member implementing `print` does not recurse into itself — the trap
-/// the define templates documented as needing `kotlin.io.print`.
+/// a member implementing `print` does not recurse into itself — it would
+/// otherwise resolve to std's own `println`.
 pub fn handler_member(handler: &str, member: &str, params: &[String]) -> Option<String> {
     let p = |i: usize| params.get(i).map(String::as_str).unwrap_or("TODO()");
     Some(match (handler, member) {

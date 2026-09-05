@@ -25,7 +25,6 @@ pub enum TokenKind {
     Str(Vec<StrPart>),
     Char(char),
     /// Raw template contents between `` delimiters (used in `define` blocks).
-    Template(String),
 
     // Keywords
     KwFn,
@@ -36,9 +35,7 @@ pub enum TokenKind {
     KwHandler,
     KwType,
     KwIntrinsic,
-    KwExternal,
     KwPlatform,
-    KwDefine,
     KwImport,
     KwAs,
     KwOf,
@@ -122,9 +119,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("handler", TokenKind::KwHandler),
     ("type", TokenKind::KwType),
     ("intrinsic", TokenKind::KwIntrinsic),
-    ("external", TokenKind::KwExternal),
     ("platform", TokenKind::KwPlatform),
-    ("define", TokenKind::KwDefine),
     ("import", TokenKind::KwImport),
     ("as", TokenKind::KwAs),
     ("of", TokenKind::KwOf),
@@ -170,7 +165,6 @@ impl TokenKind {
             }
             TokenKind::Str(_) => "string literal".to_string(),
             TokenKind::Char(c) => format!("character literal `{c}`"),
-            TokenKind::Template(_) => "template literal".to_string(),
             TokenKind::Eof => "end of file".to_string(),
             other => format!("`{}`", other.symbol()),
         }

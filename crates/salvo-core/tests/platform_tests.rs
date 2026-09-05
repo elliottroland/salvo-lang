@@ -13,16 +13,41 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -39,9 +64,6 @@ fn messages(src: &str) -> Vec<String> {
 /// A std-less prelude: these tests never emit, so the base types only have
 /// to exist.
 const PRELUDE: &str = "\
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
 ";
 
 fn src(body: &str) -> String {

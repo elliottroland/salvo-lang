@@ -11,18 +11,43 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\n";
+
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -39,10 +64,6 @@ fn errors(src: &str) -> Vec<String> {
 /// The two names the intrinsic needs from core, plus a pair of aborting
 /// functions with *different* message types.
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
-intrinsic type Nothing
 
 effect Abort<M> {
     fn abort(message: M) -> [] Nothing
@@ -55,9 +76,13 @@ struct Handle canbe Linear {
     fd: Int
 }
 
-external fn open_handle(fd: Int) [] -> [] Handle
-external fn close_handle(h: Handle) [] -> [] None
-external fn note(text: Str) [] -> [text] None
+fn open_handle(fd: Int) [] -> [] Handle {
+    return Handle { fd: fd }
+}
+fn close_handle(h: Handle) [] -> [] None {
+    discard(h)
+}
+fn note(text: Str) [] -> [text] None {}
 
 fn parse(line: Str) [Abort<Str>] -> [] Int {
     if flagged(line) {
@@ -73,7 +98,9 @@ fn limit(n: Int) [Abort<Int>] -> [] Int {
     return n
 }
 
-external fn flagged(line: Str) [] -> [line] Bool
+fn flagged(line: Str) [] -> [line] Bool {
+    return true
+}
 "#;
 
 /// Wraps a body in a `[]`-effect fn returning `None`.

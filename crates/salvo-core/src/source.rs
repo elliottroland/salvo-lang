@@ -1,9 +1,10 @@
 //! Source-file discovery and classification.
 //!
 //! Salvo modules correspond to files: `list/ext.sv` is module `list.ext`.
-//! Backend define files use a double extension: `string.kotlin.sv` holds the
-//! Kotlin `define` templates for module `string`. Files for other backends
-//! are skipped entirely.
+//! Module paths come from the directory layout, so a `.sv` file name may not
+//! itself contain a dot [mod-file-name] — the double-extension spelling that
+//! used to select a backend's `define` file is not part of the language any
+//! more.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -24,20 +25,11 @@ impl fmt::Debug for ModulePath {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SourceKind {
-    /// A language file (`foo.sv`).
-    Language,
-    /// A backend define file for the active backend (`foo.<backend>.sv`).
-    BackendDefine,
-}
-
 #[derive(Clone, Debug)]
 pub struct SourceFile {
     /// Display name (relative path) for diagnostics.
     pub name: String,
     pub module: ModulePath,
-    pub kind: SourceKind,
     pub content: String,
     /// True for files that come from the embedded standard library.
     pub is_std: bool,
@@ -69,7 +61,7 @@ pub struct CompanionFile {
 }
 
 /// The full set of sources for a compilation: user sources plus the
-/// (backend-filtered) standard library.
+/// standard library.
 #[derive(Debug, Default)]
 pub struct SourceSet {
     pub files: Vec<SourceFile>,
@@ -78,21 +70,37 @@ pub struct SourceSet {
 }
 
 impl SourceSet {
-    /// Classifies a relative `.sv` path for the given backend.
+    /// The module a relative `.sv` path declares: the directory components
+    /// plus the file stem (`list/ext.sv` -> `list.ext`).
     ///
-    /// Returns `None` when the file belongs to a different backend and
-    /// should be skipped. `prefix` is prepended to the module path (e.g.
-    /// `["core"]` — already part of the relative path for std files).
-    pub fn classify(rel_path: &Path, backend: &str) -> Option<(ModulePath, SourceKind)> {
-        let file_name = rel_path.file_name()?.to_str()?;
-        let stem = file_name.strip_suffix(".sv")?;
-
-        let (module_stem, kind) = match stem.rsplit_once('.') {
-            Some((module, be)) if be == backend => (module, SourceKind::BackendDefine),
-            Some((_, _)) => return None, // another backend's define file
-            None => (stem, SourceKind::Language),
-        };
-
+    /// `Err` carries a message for a name that cannot be a module
+    /// [mod-file-name]: a stem containing a dot, which is how a module path
+    /// is spelled, so `list.ext.sv` would be indistinguishable from
+    /// `list/ext.sv`. That spelling used to select a backend's `define` file
+    /// and was skipped in silence; the define files are gone, and a leftover
+    /// one now says so rather than being ignored.
+    pub fn classify(rel_path: &Path) -> Result<ModulePath, String> {
+        let file_name = rel_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("`{}` has no usable file name", rel_path.display()))?;
+        let stem = file_name
+            .strip_suffix(".sv")
+            .ok_or_else(|| format!("`{file_name}` is not a `.sv` source file"))?;
+        if stem.contains('.') {
+            // Name the path it collides with, in full: for
+            // `core/list.kotlin.sv` that is `core/list/kotlin.sv`, and the
+            // prefix is the part that makes the collision concrete.
+            let mut nested = rel_path.with_file_name("");
+            nested.push(stem.replace('.', "/"));
+            nested.set_extension("sv");
+            return Err(format!(
+                "`{}`: a source file name may not contain a dot — a module path \
+                 comes from the directory layout, so this is ambiguous with `{}`",
+                rel_path.display(),
+                nested.display()
+            ));
+        }
         let mut components: Vec<String> = rel_path
             .parent()
             .map(|p| {
@@ -101,22 +109,20 @@ impl SourceSet {
                     .collect()
             })
             .unwrap_or_default();
-        components.push(module_stem.to_string());
-        Some((ModulePath(components), kind))
+        components.push(stem.to_string());
+        Ok(ModulePath(components))
     }
 
     pub fn add(
         &mut self,
         name: impl Into<String>,
         module: ModulePath,
-        kind: SourceKind,
         content: String,
         is_std: bool,
     ) {
         self.files.push(SourceFile {
             name: name.into(),
             module,
-            kind,
             content,
             is_std,
         });
@@ -167,10 +173,11 @@ impl SourceSet {
         });
     }
 
-    /// Walks `root` recursively, adding every `.sv` file that matches the
-    /// backend, plus every companion file with the backend's native
-    /// extension ([backend-companion], e.g. `.kt` for Kotlin). Returns
-    /// the paths that failed to read.
+    /// Walks `root` recursively, adding every `.sv` source file plus every
+    /// companion file with the backend's native extension
+    /// ([backend-companion], e.g. `.kt` for Kotlin). Returns one rendered
+    /// message per file that could not be read or could not be a module
+    /// [mod-file-name] — a `.sv` file is never skipped in silence.
     ///
     /// Skipped during the walk [mod-ignore]:
     /// - hidden directories (`.git`, `.vscode`, ...),
@@ -185,10 +192,9 @@ impl SourceSet {
     pub fn add_dir(
         &mut self,
         root: &Path,
-        backend: &str,
         native_ext: &str,
         is_std: bool,
-    ) -> Vec<(PathBuf, String)> {
+    ) -> Vec<String> {
         let ignored = read_svignore(root);
         let is_ignored = |path: &Path| {
             path.strip_prefix(root)
@@ -202,7 +208,7 @@ impl SourceSet {
             let entries = match std::fs::read_dir(&dir) {
                 Ok(e) => e,
                 Err(err) => {
-                    errors.push((dir, err.to_string()));
+                    errors.push(format!("failed to read `{}`: {err}", dir.display()));
                     continue;
                 }
             };
@@ -238,18 +244,24 @@ impl SourceSet {
                     Ok(content) => {
                         self.add_companion(rel.to_path_buf(), module, content, platform)
                     }
-                    Err(err) => errors.push((path, err.to_string())),
+                    Err(err) => {
+                        errors.push(format!("failed to read `{}`: {err}", path.display()))
+                    }
                 }
                 continue;
             }
-            let Some((module, kind)) = Self::classify(rel, backend) else {
-                continue;
+            let module = match Self::classify(rel) {
+                Ok(module) => module,
+                Err(msg) => {
+                    errors.push(msg);
+                    continue;
+                }
             };
             match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    self.add(rel.display().to_string(), module, kind, content, is_std)
+                Ok(content) => self.add(rel.display().to_string(), module, content, is_std),
+                Err(err) => {
+                    errors.push(format!("failed to read `{}`: {err}", path.display()))
                 }
-                Err(err) => errors.push((path, err.to_string())),
             }
         }
         errors
@@ -278,28 +290,26 @@ mod tests {
 
     #[test]
     fn classifies_language_files() {
-        let (module, kind) = SourceSet::classify(Path::new("core/list.sv"), "kotlin").unwrap();
+        let module = SourceSet::classify(Path::new("core/list.sv")).unwrap();
         assert_eq!(module.to_string(), "core.list");
-        assert_eq!(kind, SourceKind::Language);
     }
 
+    /// [mod-file-name] A dotted stem is an error, not a skip: this is the
+    /// spelling that used to select a backend's `define` file, and a
+    /// leftover one must say so rather than vanish from the build.
     #[test]
-    fn classifies_backend_define_files() {
-        let (module, kind) =
-            SourceSet::classify(Path::new("core/list.kotlin.sv"), "kotlin").unwrap();
-        assert_eq!(module.to_string(), "core.list");
-        assert_eq!(kind, SourceKind::BackendDefine);
-    }
-
-    #[test]
-    fn skips_other_backend_files() {
-        assert!(SourceSet::classify(Path::new("core/list.rust.sv"), "kotlin").is_none());
-        assert!(SourceSet::classify(Path::new("core/list.kotlin.sv"), "rust").is_none());
+    fn a_dotted_file_name_is_an_error() {
+        let err = SourceSet::classify(Path::new("core/list.kotlin.sv")).unwrap_err();
+        assert!(
+            err.contains("may not contain a dot") && err.contains("core/list/kotlin.sv"),
+            "unexpected message: {err}"
+        );
+        assert!(SourceSet::classify(Path::new("core/list.txt")).is_err());
     }
 
     #[test]
     fn nested_modules() {
-        let (module, _) = SourceSet::classify(Path::new("list/ext.sv"), "kotlin").unwrap();
+        let module = SourceSet::classify(Path::new("list/ext.sv")).unwrap();
         assert_eq!(module.to_string(), "list.ext");
     }
 

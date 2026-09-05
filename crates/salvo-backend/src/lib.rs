@@ -39,8 +39,7 @@ impl From<std::io::Error> for BackendError {
 
 /// A target-language code generator.
 pub trait Backend {
-    /// The name used to select this backend (`--backend <name>`) and to
-    /// match define files (`module.<name>.sv`).
+    /// The name used to select this backend (`--backend <name>`).
     fn name(&self) -> &'static str;
 
     /// The extension of the backend's native source files (`kt` for

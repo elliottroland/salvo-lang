@@ -18,7 +18,7 @@ Module {
                         docs: [
                             "Prints to the console without emitting a newline",
                         ],
-                        backing: None,
+                        intrinsic: false,
                         name: Ident {
                             name: "print",
                             span: 80..85,
@@ -84,9 +84,7 @@ Module {
         Handler(
             HandlerDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "StdOutConsole",
                     span: 139..152,
@@ -112,7 +110,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "println",
                     span: 168..175,

@@ -15,7 +15,10 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     }
 }
 
-external handler StdOutConsole of Console
+handler StdOutConsole of Console {
+    fn println(message: Str) -> None {
+    }
+}
 
 fn main() [use] -> [] None {
     use CyclicRandom([1, 2, 3, 4])

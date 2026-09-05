@@ -12,9 +12,7 @@ Module {
                     "type (Kotlin's `MutableList<T>`) or to the same one (Rust's `Vec<T>`,",
                     "where mutability lives in the binding).",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "List",
                     span: 274..278,
@@ -45,9 +43,7 @@ Module {
                     "Constructor. The elements are stored in the new list, so they are moved",
                     "(an empty deduction list moves every parameter) [decl-explicit].",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "list",
                     span: 449..453,
@@ -140,9 +136,7 @@ Module {
                 docs: [
                     "Mutable constructor",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "mutable_list",
                     span: 539..551,
@@ -244,9 +238,7 @@ Module {
                 docs: [
                     "Possibly gets the element at the given index if the list is long enough",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "get",
                     span: 693..696,
@@ -362,9 +354,7 @@ Module {
                     "is moved; the list itself is mutated, which is why its surviving",
                     "qualifiers are listed exhaustively [deduce-syntax].",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "add",
                     span: 961..964,
@@ -500,9 +490,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "first",
                     span: 1046..1051,
@@ -594,9 +582,7 @@ Module {
                 docs: [
                     "Returns the number of elements in the list",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "size",
                     span: 1167..1171,
@@ -693,9 +679,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "iter",
                     span: 1234..1238,

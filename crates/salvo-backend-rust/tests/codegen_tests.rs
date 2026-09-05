@@ -7,20 +7,14 @@ use std::process::Command;
 
 use salvo_core::{Program, SourceSet};
 
-fn build_program(extra: &[(&str, &str, bool)]) -> Program {
+fn build_program(extra: &[(&str, &str)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "rust", "rs", true);
+    let errors = sources.add_dir(&std_dir, "rs", true);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    for (name, content, is_define) in extra {
-        let rel = Path::new(name);
-        let (module, kind) = SourceSet::classify(rel, "rust").unwrap();
-        assert_eq!(
-            *is_define,
-            kind == salvo_core::SourceKind::BackendDefine,
-            "unexpected classification for {name}"
-        );
-        sources.add(*name, module, kind, content.to_string(), false);
+    for (name, content) in extra {
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, content.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -36,7 +30,7 @@ fn build_program(extra: &[(&str, &str, bool)]) -> Program {
     }
 }
 
-fn generate(extra: &[(&str, &str, bool)]) -> Vec<salvo_backend_rust::EmittedFile> {
+fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
     let program = build_program(extra);
     salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -45,7 +39,7 @@ fn generate(extra: &[(&str, &str, bool)]) -> Vec<salvo_backend_rust::EmittedFile
 
 /// Runs the checker+emitter on a source and returns the errors.
 fn expect_errors(src: &str) -> Vec<String> {
-    let program = build_program(&[("bad.sv", src, false)]);
+    let program = build_program(&[("bad.sv", src)]);
     salvo_backend_rust::emit_program(&program)
         .err()
         .expect("expected errors")
@@ -136,7 +130,7 @@ fn main() [use] -> [] None {
 "#;
 
 fn generate_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", DEMO, false)])
+    generate(&[("main.sv", DEMO)])
 }
 
 #[test]
@@ -175,7 +169,7 @@ fn main() [use] -> [] None {
     println("${consume(items)}")
 }
 "#;
-    let files = generate(&[("main.sv", src, false)]);
+    let files = generate(&[("main.sv", src)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -255,7 +249,7 @@ fn main() [use] -> [] None {
 "#;
 
 fn generate_unions_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", UNIONS_DEMO, false)])
+    generate(&[("main.sv", UNIONS_DEMO)])
 }
 
 #[test]
@@ -381,7 +375,7 @@ fn main() [use] {
 "#;
 
 fn generate_qualifiers_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", QUALIFIERS_DEMO, false)])
+    generate(&[("main.sv", QUALIFIERS_DEMO)])
 }
 
 #[test]
@@ -468,7 +462,7 @@ fn main() [use] {
 "#;
 
 fn generate_effects_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", EFFECTS_DEMO, false)])
+    generate(&[("main.sv", EFFECTS_DEMO)])
 }
 
 #[test]
@@ -595,7 +589,7 @@ fn main() [use] -> [] None {
 "#;
 
 fn generate_loops_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", LOOPS, false)])
+    generate(&[("main.sv", LOOPS)])
 }
 
 #[test]
@@ -666,9 +660,9 @@ fn never_called() -> Int {
 }
 "#;
     build_program(&[
-        ("main.sv", main, false),
-        ("geometry.sv", geometry, false),
-        ("unused.sv", unused, false),
+        ("main.sv", main),
+        ("geometry.sv", geometry),
+        ("unused.sv", unused),
     ])
 }
 
@@ -713,70 +707,6 @@ fn rustc_compiles_and_runs_multi_module() {
 
 // ===== negative checks =====
 
-// [backend-external]
-#[test]
-fn missing_define_for_external_fn_is_an_error() {
-    let src = r#"
-external fn mystery(x: Int) [] -> [x] Int
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println("${mystery(1)}")
-}
-"#;
-    let errors = expect_errors(src);
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external fn `mystery` has no rust `define fn`")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-// [backend-external]
-#[test]
-fn missing_define_for_external_type_is_an_error() {
-    let src = r#"
-external type Mystery
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let x: Mystery? = None
-    println("${x is None}")
-}
-"#;
-    let errors = expect_errors(src);
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external type `Mystery` has no rust `define type`")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-// [backend-external]
-#[test]
-fn core_externals_must_be_fully_covered() {
-    let fake_core = "external fn uncovered_core_fn(x: Int) [] -> [x] Int\n";
-    let program = build_program(&[
-        ("core/fake.sv", fake_core, false),
-        (
-            "main.sv",
-            "fn main() [use] -> [] None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
-            false,
-        ),
-    ]);
-    let errors = salvo_backend_rust::emit_program(&program)
-        .err()
-        .expect("expected coverage errors");
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external fn `uncovered_core_fn` in core has no rust `define fn`")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
 // [rs-effects] [backend-never-wrong]
 #[test]
 fn generic_effect_members_are_rejected() {
@@ -813,7 +743,6 @@ fn numeric_literal_suffixes_emit_rust_types() {
         "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
-        false,
     )]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -856,7 +785,7 @@ fn main() [use] -> [] None {
     println(describe(make()))
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -911,12 +840,12 @@ fn main() [use] -> [] None {
 }
 "#;
 
-// [intrinsic-fn] [rs-copy] `copy` bypasses define templates and lowers to
+// [intrinsic-fn] [rs-copy] `copy` lowers to
 // `.clone()` on the argument's place; a fate-linked `let` from a bare
 // identifier clones instead of moving [fate-link].
 #[test]
 fn copy_lowers_to_clone_and_linked_lets_clone() {
-    let files = generate(&[("main.sv", COPY_DEMO, false)]);
+    let files = generate(&[("main.sv", COPY_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -937,7 +866,7 @@ fn rustc_compiles_and_runs_copy() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", COPY_DEMO, false)]);
+    let files = generate(&[("main.sv", COPY_DEMO)]);
     let expected = "hi\n3 4\na b\n1 9\n3\n";
     run_rust_files(&files, "copy", expected);
 }
@@ -988,7 +917,7 @@ fn main() [use] -> [] None {
 // field projection partial-moves, and the binding chain never clones.
 #[test]
 fn move_mode_bindings_emit_real_moves() {
-    let files = generate(&[("main.sv", S2_DEMO, false)]);
+    let files = generate(&[("main.sv", S2_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1035,7 +964,7 @@ fn rustc_compiles_and_runs_move_modes() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", S2_DEMO, false)]);
+    let files = generate(&[("main.sv", S2_DEMO)]);
     let expected = "Grace\n3\n";
     run_rust_files(&files, "s2-moves", expected);
 }
@@ -1084,7 +1013,7 @@ fn main() [use] -> [] None {
 // reference; the read-only pipeline is clone-free.
 #[test]
 fn borrow_mode_bindings_emit_borrows() {
-    let files = generate(&[("main.sv", S3_DEMO, false)]);
+    let files = generate(&[("main.sv", S3_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1129,7 +1058,7 @@ fn rustc_compiles_and_runs_borrows() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", S3_DEMO, false)]);
+    let files = generate(&[("main.sv", S3_DEMO)]);
     let expected = "1\n5\n";
     run_rust_files(&files, "s3-borrows", expected);
 }
@@ -1170,7 +1099,7 @@ fn main() [use] -> [] None {
 // [linear-discard] `discard` lowers to `drop(...)` on the moved value.
 #[test]
 fn discard_lowers_to_drop() {
-    let files = generate(&[("main.sv", LINEAR_DEMO, false)]);
+    let files = generate(&[("main.sv", LINEAR_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1185,7 +1114,7 @@ fn rustc_compiles_and_runs_linear() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", LINEAR_DEMO, false)]);
+    let files = generate(&[("main.sv", LINEAR_DEMO)]);
     let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
     run_rust_files(&files, "l6-linear", expected);
 }
@@ -1229,7 +1158,7 @@ fn rustc_compiles_and_runs_linear_generics() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", LINEAR_GENERICS_DEMO, false)]);
+    let files = generate(&[("main.sv", LINEAR_GENERICS_DEMO)]);
     let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
     run_rust_files(&files, "l7a-linear-generics", expected);
 }
@@ -1263,7 +1192,7 @@ fn main() [use] -> [] None {
 // [once-fn] `Once` fn parameters emit `impl FnOnce`.
 #[test]
 fn once_fn_params_emit_fnonce() {
-    let files = generate(&[("main.sv", ONCE_DEMO, false)]);
+    let files = generate(&[("main.sv", ONCE_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1282,7 +1211,7 @@ fn rustc_compiles_and_runs_once_fns() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", ONCE_DEMO, false)]);
+    let files = generate(&[("main.sv", ONCE_DEMO)]);
     let expected = "consumed 3 items\nplain 7\ndone\n";
     run_rust_files(&files, "l7b-once", expected);
 }
@@ -1329,10 +1258,10 @@ fn main() [use] -> [] None {
 
 // [readonly-return] Derived returns emit borrows: elided lifetime for a
 // single reference parameter, a generated `'a` when there are more; the
-// std `first` define is clone-free.
+// std `first` is clone-free.
 #[test]
 fn derived_returns_emit_borrows() {
-    let files = generate(&[("main.sv", DERIVED_DEMO, false)]);
+    let files = generate(&[("main.sv", DERIVED_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1368,7 +1297,7 @@ fn rustc_compiles_and_runs_derived_returns() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", DERIVED_DEMO, false)]);
+    let files = generate(&[("main.sv", DERIVED_DEMO)]);
     let expected = "adult: Grace\nhead: Kid\ndone\n";
     run_rust_files(&files, "l7c-derived", expected);
 }
@@ -1416,7 +1345,7 @@ fn main() [use] -> [] None {
 // params are `&mut impl FnMut`; named fns wrap in adapters.
 #[test]
 fn fn_type_contracts_emit_modes() {
-    let files = generate(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let files = generate(&[("main.sv", CONTRACTS_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -1448,7 +1377,7 @@ fn rustc_compiles_and_runs_fn_contracts() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let files = generate(&[("main.sv", CONTRACTS_DEMO)]);
     let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
     run_rust_files(&files, "l7d-contracts", expected);
 }
@@ -1481,7 +1410,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn field_subject_is_lowers_to_union_test() {
-    let files = generate(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let files = generate(&[("main.sv", FIELD_IS_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -1499,7 +1428,7 @@ fn rustc_compiles_and_runs_field_is() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let files = generate(&[("main.sv", FIELD_IS_DEMO)]);
     run_rust_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
 }
 
@@ -1551,7 +1480,7 @@ fn main() [use] -> [] None {
 /// arm accessor [rs-union-enums].
 #[test]
 fn narrowed_field_reads_unwrap() {
-    let files = generate(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let files = generate(&[("main.sv", PLACE_NARROW_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -1580,7 +1509,7 @@ fn rustc_compiles_and_runs_place_narrowing() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let files = generate(&[("main.sv", PLACE_NARROW_DEMO)]);
     run_rust_files(&files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n");
 }
 
@@ -1612,7 +1541,7 @@ fn main() [use] -> [] None {
 /// no smart cast to lean on, so this is the same lowering everywhere.
 #[test]
 fn narrowed_field_operand_unwraps() {
-    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -1630,7 +1559,7 @@ fn rustc_compiles_and_runs_place_operand() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO)]);
     run_rust_files(&files, "place-operand", "temp: 22\nnone: no value\n");
 }
 
@@ -1658,7 +1587,7 @@ fn main() [use] -> [] None {
 /// its `Option` [rs-option].
 #[test]
 fn tuple_elements_emit_native_indexes() {
-    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -1686,67 +1615,8 @@ fn rustc_compiles_and_runs_tuple_index() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO)]);
     run_rust_files(&files, "tuple-index", "1 two true\nin 9\nsome here 6\n");
-}
-
-// ===== `define fn` type parameters [backend-define-generics] =====
-// A `define fn` template interpolates the call's resolved type arguments
-// with `${T}`, like a `define type` template. Rust rarely needs it (rustc
-// infers `vec![]`), but the capability is the same on both backends.
-
-#[test]
-fn define_fn_templates_interpolate_type_arguments() {
-    const SRC: &str = r#"
-external fn empty_box<T>() [] -> [] Box<T>
-external fn box_size<T>(box: Box<T>) [] -> [box] Int
-external type Box<T>
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let b: Box<Str> = empty_box()
-    let c = empty_box<Int>()
-    println("${box_size(b)} ${box_size(c)}")
-}
-"#;
-    const DEFINES: &str = r#"
-define type Box<T> {
-    inline: ``
-    Vec<${T}>
-    ``
-}
-
-define fn empty_box<T>() -> Box<T> {
-    inline: ``
-    Vec::<${T}>::new()
-    ``
-}
-
-define fn box_size<T>(box: Box<T>) -> Int {
-    inline: ``
-    (${box}.len() as i32)
-    ``
-}
-"#;
-    let files = generate(&[("main.sv", SRC, false), ("main.rust.sv", DEFINES, true)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    assert!(
-        main.content.contains("let mut b: Vec<String> = Vec::<String>::new();"),
-        "the type argument should come from the annotation:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("Vec::<i32>::new()"),
-        "an explicit type argument should reach the template:\n{}",
-        main.content
-    );
-    if Command::new("rustc").arg("--version").output().is_err() {
-        return;
-    }
-    run_rust_files(&files, "define-generics", "0 0\n");
 }
 
 // ===== effect dependencies on handlers [effect-handler-deps] =====
@@ -1783,7 +1653,7 @@ fn main() [use] -> [] None {
 /// builds a fusion owning the handler and forwarding the effect to it.
 #[test]
 fn handler_dependencies_fuse() {
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1822,7 +1692,7 @@ fn handler_dependencies_fuse() {
 /// parameters, so nothing about existing output changes.
 #[test]
 fn programs_without_handler_dependencies_do_not_fuse() {
-    let files = generate(&[("main.sv", NO_DEPS_DEMO, false)]);
+    let files = generate(&[("main.sv", NO_DEPS_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -1865,7 +1735,7 @@ fn rustc_compiles_and_runs_handler_dependencies() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1963,7 +1833,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn fusion_shapes() {
-    let files = generate(&[("main.sv", FUSION_DEMO, false)]);
+    let files = generate(&[("main.sv", FUSION_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2009,7 +1879,7 @@ fn rustc_compiles_and_runs_fusion() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", FUSION_DEMO, false)]);
+    let files = generate(&[("main.sv", FUSION_DEMO)]);
     run_rust_files(
         &files,
         "fusion",
@@ -2041,7 +1911,7 @@ fn main() [use] -> [] None {
     accept(1)
 }
 "#;
-    let program = build_program(&[("main.sv", SRC, false)]);
+    let program = build_program(&[("main.sv", SRC)]);
     let errors = match salvo_backend_rust::emit_program(&program) {
         Ok(_) => panic!("expected a codegen error for a generic dependent handler"),
         Err(errors) => errors,
@@ -2131,7 +2001,7 @@ fn rustc_compiles_and_runs_fusion_chain() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", FUSION_CHAIN_DEMO, false)]);
+    let files = generate(&[("main.sv", FUSION_CHAIN_DEMO)]);
     run_rust_files(
         &files,
         "fusion-chain",
@@ -2180,8 +2050,8 @@ fn rustc_compiles_and_runs_cross_module_fusion() {
         return;
     }
     let files = generate(&[
-        ("logging.sv", FUSION_LOGGING_MODULE, false),
-        ("main.sv", FUSION_MAIN_MODULE, false),
+        ("logging.sv", FUSION_LOGGING_MODULE),
+        ("main.sv", FUSION_MAIN_MODULE),
     ]);
     run_rust_files(&files, "fusion-cross", "M: from work\nM: from main\n");
 }
@@ -2275,7 +2145,7 @@ fn rustc_compiles_and_runs_fusion_mixed() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", FUSION_MIXED_DEMO, false)]);
+    let files = generate(&[("main.sv", FUSION_MIXED_DEMO)]);
     run_rust_files(&files, "fusion-mixed", FUSION_MIXED_STDOUT);
 }
 
@@ -2319,7 +2189,7 @@ fn main() [use] -> [] None {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", SRC, false)]);
+    let files = generate(&[("main.sv", SRC)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -2379,7 +2249,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn union_coercion_in_array_tuple_lambda() {
-    let files = generate(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let files = generate(&[("main.sv", NESTED_COERCION_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2408,98 +2278,8 @@ fn rustc_compiles_and_runs_nested_coercion() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let files = generate(&[("main.sv", NESTED_COERCION_DEMO)]);
     run_rust_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
-}
-
-// ===== same-name defines and the define/external pairing =====
-// [decl-explicit] Every `define fn` implements exactly one `external fn`:
-// the external carries the contract, the define the native template.
-
-const PAIRED_EXTERNALS: &str = r#"
-external fn twice(s: Str) [] -> [s] Str
-external fn twice(i: Int) [] -> [i] Int
-"#;
-
-const PAIRED_DEFINES_RS: &str = r#"
-define fn twice(s: Str) -> Str {
-    inline: ``
-    format!("{}{}", ${s}, ${s})
-    ``
-}
-
-define fn twice(i: Int) -> Int {
-    inline: ``
-    (${i} * 2)
-    ``
-}
-"#;
-
-#[test]
-fn same_name_defines_dispatch_by_param_types() {
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println(twice("hi"))
-    println("${twice(3)}")
-}
-"#;
-    let files = generate(&[
-        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
-        ("main.rust.sv", PAIRED_DEFINES_RS, true),
-    ]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    assert!(
-        main.content.contains("format!(\"{}{}\""),
-        "Str define not chosen in:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("(3 * 2)"),
-        "Int define not chosen in:\n{}",
-        main.content
-    );
-}
-
-// [decl-explicit] A define with no external has no contract at all.
-#[test]
-fn define_without_an_external_is_an_error() {
-    let program = build_program(&[
-        ("main.sv", "fn main() [use] -> [] None {\n    use StdOutConsole\n}\n", false),
-        ("main.rust.sv", PAIRED_DEFINES_RS, true),
-    ]);
-    let errors = salvo_backend_rust::emit_program(&program)
-        .err()
-        .expect("expected codegen errors");
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("implements no `external fn` declaration")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-#[test]
-fn rustc_compiles_and_runs_paired_defines() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println(twice("hi"))
-    println("${twice(3)}")
-}
-"#;
-    let files = generate(&[
-        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
-        ("main.rust.sv", PAIRED_DEFINES_RS, true),
-    ]);
-    run_rust_files(&files, "paired-defines", "hihi\n6\n");
 }
 
 // ===== effect member fns with their own generics =====
@@ -2571,7 +2351,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn aliased_effect_types_resolve_to_the_same_handler() {
-    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2589,7 +2369,7 @@ fn rustc_compiles_and_runs_aliased_effects() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO)]);
     run_rust_files(&files, "aliased-effects", "7 8\n");
 }
 
@@ -2597,7 +2377,7 @@ fn rustc_compiles_and_runs_aliased_effects() {
 // [type-array] Arrays get the `core.list` function surface minus
 // construction and mutation: `size`, `get`, `first`, `iter` (user
 // decision 2026-09-02). `T[]` and `List<T>` share the `Vec<T>`
-// rendering, so the defines mirror each other.
+// rendering, so their lowerings mirror each other.
 
 const ARRAY_STD_DEMO: &str = r#"
 effect Random<T> {
@@ -2627,7 +2407,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn array_std_functions_lower() {
-    let files = generate(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let files = generate(&[("main.sv", ARRAY_STD_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2647,7 +2427,7 @@ fn rustc_compiles_and_runs_array_std() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let files = generate(&[("main.sv", ARRAY_STD_DEMO)]);
     run_rust_files(
         &files,
         "array-std",
@@ -2706,7 +2486,7 @@ fn main() [use] -> [] None {
 // same flat spelling.
 #[test]
 fn dot_names_flatten() {
-    let program = build_program(&[("main.sv", DOT_NAMES, false)]);
+    let program = build_program(&[("main.sv", DOT_NAMES)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2800,7 +2580,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn dot_names_in_unions_and_narrowing() {
-    let program = build_program(&[("main.sv", DOT_NAME_UNIONS, false)]);
+    let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2859,7 +2639,7 @@ fn main() [use] -> [] None {
 // difference shows up only in which overload the checker picked.
 #[test]
 fn provenance_survives_mutation_where_state_does_not() {
-    let program = build_program(&[("main.sv", QUAL_SUBJECTS, false)]);
+    let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2953,7 +2733,7 @@ const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
 /// before the deferred code runs.
 #[test]
 fn defer_splices_at_every_exit() {
-    let files = generate(&[("main.sv", DEFER_DEMO, false)]);
+    let files = generate(&[("main.sv", DEFER_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -3010,7 +2790,7 @@ fn rustc_compiles_and_runs_defer() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", DEFER_DEMO, false)]);
+    let files = generate(&[("main.sv", DEFER_DEMO)]);
     run_rust_files(&files, "defer", DEFER_OUTPUT);
 }
 
@@ -3131,7 +2911,7 @@ const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
 /// is never a `&mut dyn` parameter.
 #[test]
 fn abort_lowers_to_controlflow() {
-    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    let files = generate(&[("main.sv", ABORT_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -3182,7 +2962,7 @@ fn abort_lowers_to_controlflow() {
 /// abort inside it breaks the label with the outcome's aborted arm.
 #[test]
 fn try_lowers_to_a_labelled_block() {
-    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    let files = generate(&[("main.sv", ABORT_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -3213,7 +2993,7 @@ fn rustc_compiles_and_runs_abort() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", ABORT_DEMO, false)]);
+    let files = generate(&[("main.sv", ABORT_DEMO)]);
     run_rust_files(&files, "abort", ABORT_OUTPUT);
 }
 
@@ -3273,7 +3053,7 @@ const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\non
 /// ones it declares.
 #[test]
 fn fn_type_effects_thread_into_closures() {
-    let files = generate(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let files = generate(&[("main.sv", FN_EFFECTS_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -3309,7 +3089,7 @@ fn rustc_compiles_and_runs_fn_type_effects() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let files = generate(&[("main.sv", FN_EFFECTS_DEMO)]);
     run_rust_files(&files, "fn-type-effects", FN_EFFECTS_STDOUT);
 }
 
@@ -3390,7 +3170,7 @@ const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage numbe
 /// caught while `^` was being built.
 #[test]
 fn widening_materializes_the_peel() {
-    let files = generate(&[("main.sv", WIDEN_DEMO, false)]);
+    let files = generate(&[("main.sv", WIDEN_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -3420,7 +3200,7 @@ fn rustc_compiles_and_runs_widening() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", WIDEN_DEMO, false)]);
+    let files = generate(&[("main.sv", WIDEN_DEMO)]);
     run_rust_files(&files, "widen", WIDEN_STDOUT);
 }
 
@@ -3505,7 +3285,7 @@ const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\ni
 /// [if-else-none].
 #[test]
 fn a_subjectless_when_emits_an_if_chain() {
-    let files = generate(&[("main.sv", WHEN_COND_DEMO, false)]);
+    let files = generate(&[("main.sv", WHEN_COND_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -3543,7 +3323,7 @@ fn rustc_compiles_and_runs_when_cond() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", WHEN_COND_DEMO, false)]);
+    let files = generate(&[("main.sv", WHEN_COND_DEMO)]);
     run_rust_files(&files, "when-cond", WHEN_COND_STDOUT);
 }
 
@@ -3581,7 +3361,7 @@ fn rustc_compiles_and_runs_try_mutation() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    let files = generate(&[("main.sv", TRY_MUTATION_DEMO)]);
     run_rust_files(&files, "try-mutation", "counter 1\n");
 }
 
@@ -3606,7 +3386,7 @@ fn main() [use, Telemetry] {
 "#;
 
 fn platform_demo_program() -> salvo_core::Program {
-    build_program(&[("main.sv", PLATFORM_DEMO, false)])
+    build_program(&[("main.sv", PLATFORM_DEMO)])
 }
 
 /// [platform-tree] The host skeleton `salvo platform generate` writes for

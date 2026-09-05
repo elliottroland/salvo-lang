@@ -7,9 +7,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Byte",
                     span: 15..19,
@@ -23,9 +21,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Int",
                     span: 35..38,
@@ -39,9 +35,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Long",
                     span: 54..58,
@@ -55,9 +49,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Float",
                     span: 74..79,
@@ -71,9 +63,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Double",
                     span: 95..101,
@@ -87,9 +77,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Char",
                     span: 117..121,
@@ -103,9 +91,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Bool",
                     span: 137..141,
@@ -119,9 +105,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Any",
                     span: 157..160,
@@ -135,9 +119,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Nothing",
                     span: 176..183,
@@ -153,9 +135,7 @@ Module {
                 docs: [
                     "The iterator type driving `for`-loops and `yield` functions",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Iter",
                     span: 263..267,
@@ -174,7 +154,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "Number",
                     span: 277..283,
@@ -244,9 +224,7 @@ Module {
                     "each backend directly (Kotlin: identity for transitively immutable",
                     "types, a real copy for Mut-capable ones; Rust: `.clone()`).",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "copy",
                     span: 666..670,
@@ -321,9 +299,7 @@ Module {
                     "accept them. Implemented by each backend directly (Kotlin: evaluate",
                     "and ignore; Rust: `drop`).",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "discard",
                     span: 963..970,

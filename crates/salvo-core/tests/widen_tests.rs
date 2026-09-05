@@ -11,16 +11,41 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -35,9 +60,6 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
 
 struct Person canbe Mut {
     name: Str
@@ -47,11 +69,9 @@ qualifier Ok<T> of T
 qualifier Err<T> of T
 qualifier Surname of Person
 
-external type List<T> canbe Mut
-
-external fn note(text: Str) [] -> [text] None
-external fn read(p: Person) [] -> [p] None
-external fn touch(p: Mut Person) [] -> [p: Mut] None
+fn note(text: Str) [] -> [text] None {}
+fn read(p: Person) [] -> [p] None {}
+fn touch(p: Mut Person) [] -> [p: Mut] None {}
 
 fn ok(value: Int) [] -> [] Int as Ok {
     return value
@@ -69,7 +89,7 @@ fn err(value: Str) [] -> [] Str as Err {
 fn a_widening_branch_opens_a_nested_union() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         external fn outcome() [] -> [] Ok (Ok Int | Err Str) | Err Str\n\
+         fn outcome() [] -> [] Ok (Ok Int | Err Str) | Err Str {{ return err(\"e\") }}\n\
          fn probe() [] -> [] None {{\n\
          let o = outcome()\n\
          when o {{\n\
@@ -176,7 +196,7 @@ fn widening_a_qualifier_the_value_lacks_is_rejected() {
 fn a_type_on_the_right_of_widening_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         external fn outcome() [] -> [] Ok Int | Err Str\n\
+         fn outcome() [] -> [] Ok Int | Err Str {{ return err(\"e\") }}\n\
          fn probe() [] -> [] None {{\n\
          let o = outcome()\n\
          if o ^ Ok Int {{\n\
@@ -197,7 +217,7 @@ fn a_type_on_the_right_of_widening_is_rejected() {
 fn widening_more_than_one_arm_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         external fn pair() [] -> [] Ok Int | Ok Str\n\
+         fn pair() [] -> [] Ok Int | Ok Str {{ return ok(1) }}\n\
          fn probe() [] -> [] None {{\n\
          let o = pair()\n\
          if o ^ Ok {{\n\
@@ -217,11 +237,9 @@ fn widening_more_than_one_arm_is_rejected() {
 #[test]
 fn a_widening_check_takes_no_binding() {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
     sources.add(
         "main.sv",
-        module,
-        kind,
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
         "fn f(p: Mut Person) {\n    if p ^ Mut plain {\n        read(plain)\n    }\n}\n"
             .to_string(),
         false,
@@ -242,7 +260,7 @@ fn a_widening_check_takes_no_binding() {
 fn a_widening_branch_consumes_its_arms() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         external fn outcome() [] -> [] Ok Int | Err Str\n\
+         fn outcome() [] -> [] Ok Int | Err Str {{ return err(\"e\") }}\n\
          fn probe() [] -> [] None {{\n\
          let o = outcome()\n\
          when o {{\n\

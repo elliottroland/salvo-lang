@@ -145,8 +145,8 @@ fn main() [use] {
   target language; the compiler generates the interface and
   `salvo platform generate` writes the host implementation skeleton into
   `platform/`, so the *target's* compiler checks the two against each other.
-  (`external`/`define` templates still map parts of std onto native code per
-  backend, and are on their way out.)
+  It is the only interop path: std's own primitives are `intrinsic`, lowered
+  by code inside each backend, and `intrinsic` is the compiler's to declare.
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are

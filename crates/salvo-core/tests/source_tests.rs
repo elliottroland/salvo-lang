@@ -35,7 +35,7 @@ fn svignore_skips_listed_files_and_directories() {
     .unwrap();
 
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&root, "", "", false);
+    let errors = sources.add_dir(&root, "", false);
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(names(&sources), ["main.sv"]);
 }
@@ -53,11 +53,11 @@ fn hidden_and_cache_directories_are_skipped() {
     fs::write(root.join("build_out/tmp/stale.sv"), "fn broken( {\n").unwrap();
 
     let mut sources = SourceSet::default();
-    sources.add_dir(&root, "", "", false);
+    sources.add_dir(&root, "", false);
     assert_eq!(names(&sources), ["main.sv"]);
 
     // Pointing the root *at* the tagged directory still loads its files.
     let mut inner = SourceSet::default();
-    inner.add_dir(&root.join("build_out"), "", "", false);
+    inner.add_dir(&root.join("build_out"), "", false);
     assert_eq!(names(&inner), ["tmp/stale.sv"]);
 }

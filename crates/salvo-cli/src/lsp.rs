@@ -40,7 +40,7 @@ use lsp_types::{
 use salvo_core::{
     Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, QualEffect, Ty,
 };
-use salvo_syntax::ast::{BackingMod, DeductionKind, FnDecl, Item, QualSubject};
+use salvo_syntax::ast::{DeductionKind, FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
@@ -48,10 +48,10 @@ use crate::analysis::{analyze_sources, Analysis};
 use crate::docs;
 
 /// Runs the server until the client disconnects or asks for shutdown.
-/// `filter`/`native_ext` select a backend's define files, exactly like
-/// `analyze --backend` [cli-analyze].
-pub fn run(filter: String, native_ext: String) -> ExitCode {
-    match serve(filter, native_ext) {
+/// Backend-neutral, like `salvo analyze` [cli-analyze]: nothing a backend
+/// selects participates in checking.
+pub fn run() -> ExitCode {
+    match serve() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("salvo lsp: {err}");
@@ -60,7 +60,7 @@ pub fn run(filter: String, native_ext: String) -> ExitCode {
     }
 }
 
-fn serve(filter: String, native_ext: String) -> Result<(), Box<dyn Error + Sync + Send>> {
+fn serve() -> Result<(), Box<dyn Error + Sync + Send>> {
     let (connection, io_threads) = Connection::stdio();
 
     let capabilities = serde_json::to_value(ServerCapabilities {
@@ -90,8 +90,6 @@ fn serve(filter: String, native_ext: String) -> Result<(), Box<dyn Error + Sync 
 
     let mut server = Server {
         root,
-        filter,
-        native_ext,
         overlay: HashMap::new(),
         doc_uris: HashMap::new(),
         published: HashSet::new(),
@@ -108,8 +106,6 @@ fn serve(filter: String, native_ext: String) -> Result<(), Box<dyn Error + Sync 
 
 struct Server<'c> {
     root: PathBuf,
-    filter: String,
-    native_ext: String,
     /// Open-editor buffers: canonical absolute path -> contents [cli-lsp].
     overlay: HashMap<PathBuf, String>,
     /// The URI each open document was opened under: diagnostics must be
@@ -210,7 +206,7 @@ impl Server<'_> {
     }
 
     fn analyze(&self) -> Option<Analysis> {
-        match analyze_sources(&self.root, &self.filter, &self.native_ext, &self.overlay) {
+        match analyze_sources(&self.root, "", &self.overlay) {
             Ok(analysis) => Some(analysis),
             Err(err) => {
                 eprintln!("salvo lsp: {err}");
@@ -1006,13 +1002,11 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     )
 }
 
-/// `type Number = Int | Long`, or `external type List<T> canbe Mut`.
+/// `type Number = Int | Long`, or `intrinsic type List<T> canbe Mut`.
 fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     let mut sig = String::new();
-    match decl.backing {
-        Some(BackingMod::Intrinsic) => sig.push_str("intrinsic "),
-        Some(BackingMod::External) => sig.push_str("external "),
-        None => {}
+    if decl.intrinsic {
+        sig.push_str("intrinsic ");
     }
     sig.push_str(&format!(
         "type {}{}",

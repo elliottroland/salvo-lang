@@ -18,7 +18,7 @@ Guidance for AI agents (and humans) contributing to this repository.
    `BACKEND_SPEC.<backend>.md`** (e.g. `BACKEND_SPEC.kotlin.md`): it
    repeats core rules with backend interpretation details and adds
    backend-prefixed rules (`kt-…`). Backend-prefixed labels must only be
-   referenced from that backend's crate and define files; core crates
+   referenced from that backend's crate; core crates
    reference backend-neutral labels only.
 3. **`PROGRESS.md`** — the living handoff document: what is built, key design
    decisions (condensed history), known limitations, the roadmap (currently:
@@ -78,7 +78,7 @@ crates/
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 └── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
 └── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
-std/core/                 # Salvo stdlib (.sv) + backend define files (*.kotlin.sv, *.rust.sv)
+std/core/                 # Salvo stdlib (.sv); each backend lowers its `intrinsic` declarations in src/intrinsics.rs
 ```
 
 This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
@@ -150,11 +150,11 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
   by a declaration: an unresolved callee, a field on a non-struct, a
   subscript on a non-array, a non-iterable `for` subject — all errors
   ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
-  Target-language features are reached by *declaring* them
-  (`external fn`, `external type`, `define`), never by writing an
-  undeclared member and hoping the backend understands it. Generics are
-  opaque under this rule too: with no bounds, nothing about a `T` is
-  knowable.
+  Target-language features are reached by *declaring* them — a member of a
+  `platform effect` for customer code [platform-effect], an `intrinsic` for
+  std [intrinsic-std-only] — never by writing an undeclared member and
+  hoping the backend understands it. Generics are opaque under this rule
+  too: with no bounds, nothing about a `T` is knowable.
 - **What leniency remains is about inference, not visibility**: a type
   the checker could not *infer* is `Ty::Unknown` and must pass through
   without cascading errors ([type-unknown-lenient]) — one mistake, one
@@ -175,8 +175,8 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
   note it in PROGRESS.md (there is precedent — several LANGUAGE.md/std
   inconsistencies were fixed this way during M0–M8).
 - Backend-prefixed rule labels (`kt-…`) may only be referenced from that
-  backend's crate and its define files; `salvo-core`/`salvo-syntax`
-  reference backend-neutral labels only. A new backend gets its own
+  backend's crate; `salvo-core`/`salvo-syntax` reference backend-neutral
+  labels only. A new backend gets its own
   `BACKEND_SPEC.<backend>.md` and prefix.
 
 ## Workflow for a typical task
@@ -185,7 +185,7 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
    leftovers.
 2. Read the relevant LANGUAGE.md sections for the feature, and grep the
    affected `[rule-labels]` in LANGUAGE_SPEC.md (plus the backend spec if
-   the task touches a backend crate or its define files).
+   the task touches a backend crate).
 3. Check "Gotchas / lessons learned" for traps in the area you're touching.
 4. Implement across the pipeline in order: syntax → resolve/types/check →
    emit. Add or extend tests at each layer you touch, tagged with the rule

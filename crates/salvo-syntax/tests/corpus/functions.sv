@@ -59,9 +59,12 @@ fn arrays() {
     let first = numbers[0]
 }
 
-fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T
+fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T {
+    return list.get(0)!
+}
 
-fn consume<T>(list: List<T>) -> [] None
+fn consume<T>(list: List<T>) -> [] None {
+}
 
 fn maybe_remove_first<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
     if next_random() > 0 {

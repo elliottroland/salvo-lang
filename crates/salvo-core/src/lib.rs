@@ -23,10 +23,10 @@ pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_host_error, platform_effects,
     platform_entry,
 };
-pub use program::{check_define_pairing, Program, Symbols};
+pub use program::{Program, Symbols};
 pub use reach::reachable_modules;
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{
-    CompanionFile, ModulePath, SourceFile, SourceKind, SourceSet, PLATFORM_DIR,
+    CompanionFile, ModulePath, SourceFile, SourceSet, PLATFORM_DIR,
 };
 pub use types::{is_subtype, Qual, QualEffect, Ty};

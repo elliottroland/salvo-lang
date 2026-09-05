@@ -3,8 +3,7 @@
 //! Each source file gets a [`ModuleScope`]: the names visible to code in
 //! that file. Visibility rules per LANGUAGE.md [mod-visibility]:
 //!
-//! * everything declared in the same module (all files of that module,
-//!   including the backend define file),
+//! * everything declared in the same module,
 //! * everything in `core.*` (implicitly imported),
 //! * everything named by an `import` (with optional `as` alias)
 //!   [mod-import].
@@ -14,7 +13,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
-    BackingMod, EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, StructDecl,
+    EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, StructDecl,
     TypeDecl,
 };
 
@@ -57,7 +56,7 @@ pub struct ModuleScope<'p> {
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
-    /// `intrinsic type` / `external type` declarations visible here.
+    /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
     /// Effect-member fn name -> (owning effect, member decl).
     pub effect_members: HashMap<&'p str, (&'p EffectDecl, &'p FnDecl)>,
@@ -227,8 +226,7 @@ enum Level {
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 1: collect each module's own declarations (all files of the
-    // module contribute, including backend define files which may declare
-    // `external fn` signatures).
+    // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let items = by_module.entry(&file.module).or_default();
@@ -245,11 +243,13 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 Item::Effect(e) => items.effects.push((file_idx, e)),
                 Item::Handler(h) => items.handlers.push((file_idx, h)),
                 Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
-                Item::Type(t) => match (t.backing, &t.alias) {
-                    (None, Some(_)) => items.type_aliases.push((file_idx, t)),
-                    (Some(BackingMod::Intrinsic) | Some(BackingMod::External), _)
-                    | (None, None) => items.opaque_types.push((file_idx, t)),
-                },
+                // An `intrinsic type` is opaque (the backend maps it);
+                // anything else is an alias, since a bodiless
+                // non-intrinsic `type` is a parse error [decl-body].
+                Item::Type(t) if t.intrinsic || t.alias.is_none() => {
+                    items.opaque_types.push((file_idx, t))
+                }
+                Item::Type(t) => items.type_aliases.push((file_idx, t)),
                 _ => {}
             }
         }
@@ -375,7 +375,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             resolve_import(&mut scope, &by_module, import, file_idx, &mut ctx);
         }
         // [name-dot] Dot-name rules, checked against everything visible
-        // here (own module including its define files, core, imports).
+        // here (own module, core, imports).
         check_dot_names(&scope, ast, file, file_idx, &mut errors);
         scopes.push(scope);
     }

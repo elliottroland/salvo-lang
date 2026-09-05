@@ -5,9 +5,9 @@
 //! salvo run --backend kotlin --main ./some_dir/main.sv
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
 //! salvo run --backend rust --src ./some_dir --target ./out --clean-target before
-//! salvo analyze --src ./some_dir [--backend kotlin] [--format json]
+//! salvo analyze --src ./some_dir [--format json]
 //! salvo platform generate --backend kotlin --src ./some_dir
-//! salvo lsp [--backend kotlin]
+//! salvo lsp
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
 //! ```
 
@@ -24,7 +24,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use salvo_backend::{BackendError, BackendRegistry};
 use salvo_backend_kotlin::KotlinBackend;
 use salvo_backend_rust::RustBackend;
-use salvo_core::{FileDiagnostic, Program, SourceKind, SourceSet};
+use salvo_core::{FileDiagnostic, Program, SourceSet};
 use salvo_syntax::diag::Severity;
 
 use analysis::load_embedded_std;
@@ -103,26 +103,17 @@ enum Command {
     },
     /// Parse, resolve, and type-check sources without generating code
     /// [cli-analyze].
-    Analyze {        /// Directory containing `.sv` source files.
+    Analyze {
+        /// Directory containing `.sv` source files.
         #[arg(long)]
         src: PathBuf,
-        /// Also parse this backend's define files (`*.<backend>.sv`).
-        /// Without it, analysis is backend-neutral: only language files
-        /// are loaded.
-        #[arg(long)]
-        backend: Option<String>,
         /// Output format for diagnostics.
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
     /// Start a language server speaking LSP over stdio [cli-lsp]. The
     /// workspace root comes from the client's `initialize` request.
-    Lsp {
-        /// Also parse this backend's define files (`*.<backend>.sv`),
-        /// like `analyze --backend`.
-        #[arg(long)]
-        backend: Option<String>,
-    },
+    Lsp,
     /// Emit language metadata for editor tooling [cli-lang].
     Lang {
         #[command(subcommand)]
@@ -189,18 +180,8 @@ fn main() -> ExitCode {
             target,
             clean_target,
         } => run(&backend, src, main_file, target, clean_target),
-        Command::Analyze {
-            src,
-            backend,
-            format,
-        } => analyze(&src, backend.as_deref(), format),
-        Command::Lsp { backend } => match backend_filter(backend.as_deref()) {
-            Ok((filter, native_ext)) => lsp::run(filter, native_ext),
-            Err(msg) => {
-                eprintln!("{msg}");
-                ExitCode::FAILURE
-            }
-        },
+        Command::Analyze { src, format } => analyze(&src, format),
+        Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
         },
@@ -221,53 +202,23 @@ fn registry() -> BackendRegistry {
     registry
 }
 
-/// Maps an optional `--backend` to the `(filter, native_ext)` pair used
-/// when loading sources: a named backend selects its define files; `None`
-/// means backend-neutral analysis (language files only) [cli-analyze].
-fn backend_filter(backend_name: Option<&str>) -> Result<(String, String), String> {
-    match backend_name {
-        Some(name) => {
-            let registry = registry();
-            let Some(backend) = registry.get(name) else {
-                let available: Vec<_> = registry.names().collect();
-                return Err(format!(
-                    "error: unknown backend `{name}` (available: {})",
-                    available.join(", ")
-                ));
-            };
-            Ok((
-                backend.name().to_string(),
-                backend.file_extension().to_string(),
-            ))
-        }
-        None => Ok((String::new(), String::new())),
-    }
-}
-
 /// `salvo analyze`: the front half of `compile` — parse, resolve, and
 /// type-check — reporting every diagnostic instead of emitting code
 /// [cli-analyze]. Exits nonzero when any diagnostic is an error.
-fn analyze(src: &PathBuf, backend_name: Option<&str>, format: Format) -> ExitCode {
-    // `--backend` only selects which define files participate; checking
-    // itself is backend-neutral (define files are parsed, not checked).
-    let (filter, native_ext) = match backend_filter(backend_name) {
-        Ok(pair) => pair,
+///
+/// There is no `--backend`: checking is backend-neutral, and nothing a
+/// backend selects participates in it (companions are copied, never
+/// checked).
+fn analyze(src: &PathBuf, format: Format) -> ExitCode {
+    let analysis = match analysis::analyze_sources(src, "", &Default::default()) {
+        Ok(analysis) => analysis,
         Err(msg) => {
-            eprintln!("{msg}");
+            eprintln!("error: {msg}");
             return ExitCode::FAILURE;
         }
     };
-
-    let analysis =
-        match analysis::analyze_sources(src, &filter, &native_ext, &Default::default()) {
-            Ok(analysis) => analysis,
-            Err(msg) => {
-                eprintln!("error: {msg}");
-                return ExitCode::FAILURE;
-            }
-        };
-    for (path, err) in &analysis.io_errors {
-        eprintln!("error: failed to read `{}`: {err}", path.display());
+    for err in &analysis.io_errors {
+        eprintln!("error: {err}");
     }
     if !analysis.io_errors.is_empty() {
         return ExitCode::FAILURE;
@@ -405,7 +356,7 @@ fn assemble(
     // Assemble sources: embedded std first (implicitly imported), then the
     // user's source directory.
     let mut sources = SourceSet::default();
-    load_embedded_std(&mut sources, backend.name());
+    load_embedded_std(&mut sources);
 
     if !layout.src.is_dir() {
         eprintln!(
@@ -414,10 +365,9 @@ fn assemble(
         );
         return Err(ExitCode::FAILURE);
     }
-    let io_errors =
-        sources.add_dir(&layout.src, backend.name(), backend.file_extension(), false);
-    for (path, err) in &io_errors {
-        eprintln!("error: failed to read `{}`: {err}", path.display());
+    let io_errors = sources.add_dir(&layout.src, backend.file_extension(), false);
+    for err in &io_errors {
+        eprintln!("error: {err}");
     }
     if !io_errors.is_empty() {
         return Err(ExitCode::FAILURE);
@@ -457,11 +407,7 @@ fn assemble(
             if !selected {
                 continue;
             }
-            let kind = match file.kind {
-                SourceKind::Language => "module",
-                SourceKind::BackendDefine => "backend defines",
-            };
-            println!("// ===== {} ({kind} `{}`) =====", file.name, file.module);
+            println!("// ===== {} (module `{}`) =====", file.name, file.module);
             println!("{module:#?}");
             printed += 1;
         }
@@ -867,12 +813,13 @@ fn check_entry_file(main: &Path) -> Result<(), String> {
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| format!("`{}` has no file name", main.display()))?;
-    // A define file carries native templates, not code, so it declares no
-    // `main` [backend-define-inline].
+    // [mod-file-name] A dotted stem cannot be a module at all, so it can
+    // hardly declare `main`; source discovery reports it too, but saying so
+    // here names the file the user actually passed.
     if name.matches('.').count() > 1 {
         return Err(format!(
-            "`{name}` is a backend define file, which declares no `main`: pass \
-             the language file instead"
+            "`{name}` cannot be a module: a source file name may not contain a \
+             dot — module paths come from the directory layout"
         ));
     }
     Ok(())

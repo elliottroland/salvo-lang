@@ -109,13 +109,8 @@ fn snapshot_corpus_effects() {
 }
 
 #[test]
-fn snapshot_corpus_imports_externals() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("imports_externals.sv")));
-}
-
-#[test]
-fn snapshot_corpus_defines_kotlin() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("defines.kotlin.sv")));
+fn snapshot_corpus_imports() {
+    insta::assert_debug_snapshot!(parse_clean(&corpus("imports.sv")));
 }
 
 // --- Tuple indexing [expr-tuple-index] ---
@@ -234,7 +229,7 @@ fn unterminated_string_is_an_error() {
 // still parses the declaration.
 #[test]
 fn canbe_opts_declarations_into_auto_qualifiers() {
-    let source = "struct Person canbe Mut {\n    name: Str\n}\n\nexternal type List<T> canbe Mut\n";
+    let source = "struct Person canbe Mut {\n    name: Str\n}\n\ntype IntList canbe Mut = List<Int>\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -537,26 +532,26 @@ fn struct_and_field_docs_are_separate() {
     );
 }
 
-// [doc-comment] A backing modifier (`external`, `internal`, `provenance`)
-// sits on the declaration's own line, so the block above it still counts.
+// [doc-comment] A backing modifier (`intrinsic`, `provenance`) sits on the
+// declaration's own line, so the block above it still counts.
 #[test]
 fn docs_survive_declaration_modifiers() {
     let docs = docs_of(
-        "// An external fn.\n\
-         external fn e(x: Int) [] -> [] Int\n\
+        "// An intrinsic fn.\n\
+         intrinsic fn e(x: Int) [] -> [] Int\n\
          \n\
          // A provenance qualifier.\n\
          provenance qualifier P of Int\n\
          \n\
-         // An external type.\n\
-         external type T\n",
+         // An intrinsic type.\n\
+         intrinsic type T\n",
     );
     assert_eq!(
         docs,
         vec![
-            ("e".to_string(), vec!["An external fn.".to_string()]),
+            ("e".to_string(), vec!["An intrinsic fn.".to_string()]),
             ("P".to_string(), vec!["A provenance qualifier.".to_string()]),
-            ("T".to_string(), vec!["An external type.".to_string()]),
+            ("T".to_string(), vec!["An intrinsic type.".to_string()]),
         ]
     );
 }
@@ -784,6 +779,97 @@ fn platform_on_a_non_effect_is_an_error_naming_the_form() {
                 && d.message.contains("always an effect")),
             "expected a platform-form error for {source:?}, got {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+}
+
+// --- Bodiless declarations are gone [decl-body] ---
+
+/// [decl-body] A top-level `fn` with no body was `external fn`'s shape.
+/// With `external` gone it is a parse error naming both forms that remain:
+/// write a body, or — for something the target language implements —
+/// declare it as a member of a `platform effect`.
+#[test]
+fn a_bodiless_top_level_fn_is_an_error_naming_platform_effect() {
+    let errors = errors_of("fn chars(str: Str) [] -> [str] Char[]\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`fn chars` has no body") && m.contains("`platform effect`")),
+        "expected a decl-body error naming `platform effect`, got {errors:?}"
+    );
+}
+
+/// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only
+/// ever meaningful as `external type`; with `external` gone it declares
+/// nothing, so it is a parse error.
+#[test]
+fn a_bodiless_non_alias_type_is_an_error() {
+    let errors = errors_of("type LinkedList<T>\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`type LinkedList` declares nothing")
+                && m.contains("`platform effect`")),
+        "expected a decl-body error for a bodiless type, got {errors:?}"
+    );
+}
+
+/// [decl-body] A `canbe` clause is not a definition: a `type` opting into an
+/// auto-qualifier with no alias still declares nothing.
+#[test]
+fn a_canbe_type_without_an_alias_is_an_error() {
+    let errors = errors_of("type List<T> canbe Mut\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("declares nothing")),
+        "expected a decl-body error, got {errors:?}"
+    );
+}
+
+/// [decl-body] An alias `type` and an `intrinsic type` are the two forms
+/// that do define something, so neither is a decl-body error.
+#[test]
+fn alias_and_intrinsic_types_are_not_bodiless_errors() {
+    for source in ["type Name = Str\n", "intrinsic type Int\n"] {
+        let errors = errors_of(source);
+        assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
+    }
+}
+
+// --- `external`/`define` are no longer keywords ---
+
+/// `external` is gone (user decision 2026-09-05): it is an ordinary
+/// identifier now, so an `external fn`/`external type` declaration no longer
+/// parses — the leading identifier is not a valid item.
+#[test]
+fn external_is_no_longer_a_keyword() {
+    for source in [
+        "external fn chars(str: Str) [] -> [str] Char[]\n",
+        "external type LinkedList<T>\n",
+        "external handler StdOutConsole of Console\n",
+    ] {
+        let errors = errors_of(source);
+        assert!(
+            errors.iter().any(|m| m.contains("expected item")),
+            "expected `external` to fail to parse for {source:?}, got {errors:?}"
+        );
+    }
+}
+
+/// `define` is gone too: the same identifier-at-item-position parse error.
+#[test]
+fn define_is_no_longer_a_keyword() {
+    for source in [
+        "define fn list<T>(...elems: T[]) -> List<T> {\n}\n",
+        "define type LinkedList<T> {\n}\n",
+        "define handler StdOutConsole of Console {\n}\n",
+    ] {
+        let errors = errors_of(source);
+        assert!(
+            errors.iter().any(|m| m.contains("expected item")),
+            "expected `define` to fail to parse for {source:?}, got {errors:?}"
         );
     }
 }

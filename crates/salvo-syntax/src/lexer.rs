@@ -77,7 +77,6 @@ impl<'s> Lexer<'s> {
                     }
                     self.push_comment(start);
                 }
-                '`' if self.peek_at(1) == Some('`') => self.template(start),
                 '"' => self.string(start),
                 '\'' => self.char_literal(start),
                 c if c.is_ascii_digit() => self.number(start),
@@ -390,32 +389,6 @@ impl<'s> Lexer<'s> {
         }
     }
 
-    /// Scans a raw template between double-backtick delimiters, as used in
-    /// `define` blocks: `` inline: ``...`` ``.
-    fn template(&mut self, start: u32) {
-        self.bump(); // `
-        self.bump(); // `
-        let content_start = self.offset();
-        let content_end;
-        loop {
-            if self.peek().is_none() {
-                let span = Span::new(start, self.offset());
-                self.error("unterminated `` template (missing closing ``)", span);
-                content_end = self.offset();
-                break;
-            }
-            if self.peek() == Some('`') && self.peek_at(1) == Some('`') {
-                content_end = self.offset();
-                self.bump();
-                self.bump();
-                break;
-            }
-            self.bump();
-        }
-        let raw = self.source[content_start as usize..content_end as usize].to_string();
-        self.push_here(TokenKind::Template(dedent_template(&raw)), start);
-    }
-
     fn symbol(&mut self, start: u32) {
         let c = self.bump().expect("symbol() requires a current char");
         let two = self.peek();
@@ -486,37 +459,6 @@ impl<'s> Lexer<'s> {
         };
         self.push_here(kind, start);
     }
-}
-
-/// Strips a leading/trailing blank line and common indentation from template
-/// content, so that
-///
-/// ```text
-///     inline: ``
-///     ${str}.length
-///     ``
-/// ```
-///
-/// yields exactly `${str}.length`.
-fn dedent_template(raw: &str) -> String {
-    let mut lines: Vec<&str> = raw.lines().collect();
-    if lines.first().is_some_and(|l| l.trim().is_empty()) {
-        lines.remove(0);
-    }
-    while lines.last().is_some_and(|l| l.trim().is_empty()) {
-        lines.pop();
-    }
-    let indent = lines
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
-        .min()
-        .unwrap_or(0);
-    lines
-        .iter()
-        .map(|l| if l.len() >= indent { &l[indent..] } else { l })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 #[cfg(test)]

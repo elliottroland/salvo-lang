@@ -2,7 +2,7 @@
 //!
 //! M2 scope: functions (with effects as leading parameters), structs (data
 //! classes), effects (interfaces), handlers (classes/objects, including
-//! `define handler` templates), `define fn`/`define type` inline expansion,
+//! `intrinsic handler` lowerings), intrinsic fn/type lowerings,
 //! string interpolation, `if`/`is` with bindings, iterator functions
 //! (`yield` -> Kotlin `iterator {}` builder), `while`/`for` statements.
 //! M6 adds loops as values: `break value` and loop `else` lower through a
@@ -16,7 +16,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
-use salvo_core::{ModulePath, Program, SourceKind, Symbols};
+use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
 
@@ -49,19 +49,13 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
-            u.file.kind == SourceKind::Language
-                && reachable.contains(&u.file.module)
+            reachable.contains(&u.file.module)
                 && module_produces_code(u.ast)
         })
         .map(|u| &u.file.module)
         .collect();
 
-    // [backend-external] Everything external in `core.*` must be covered
-    // by the backend's define files (core is implicitly imported).
-    let mut errors = check_core_define_coverage(program, &symbols);
-    // [decl-explicit] Every define implements exactly one external:
-    // the external carries the contract, the define the template.
-    errors.extend(salvo_core::check_define_pairing(program, &symbols, "kotlin"));
+    let mut errors: Vec<String> = Vec::new();
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
@@ -69,10 +63,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     // anything aborts.
     let mut needs_abort = false;
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.kind != SourceKind::Language
-            || !reachable.contains(&unit.file.module)
-            || !module_produces_code(unit.ast)
-        {
+        if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
         }
         // Generated Kotlin imports: a wildcard per foreign emitted module
@@ -111,7 +102,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     }
     // [backend-companion] Backend-native companion files are copied
     // verbatim whenever their module is needed. A companion must not
-    // collide with a generated file (its module should be externals-only).
+    // collide with a generated file.
     for comp in &program.companions {
         if !reachable.contains(&comp.module) {
             continue;
@@ -119,7 +110,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
         if files.iter().any(|f| f.rel_path == comp.rel_path) {
             errors.push(format!(
                 "companion file `{}` collides with the generated file of module \
-                 `{}` (companion modules should only declare `external` items)",
+                 `{}`: a companion cannot replace a module Salvo emits",
                 comp.rel_path.display(),
                 comp.module
             ));
@@ -135,8 +126,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     // the error has to name the command that creates it, or the failure
     // only surfaces as `kotlinc` not finding a `main`.
     for unit in program.units() {
-        if unit.file.kind != SourceKind::Language
-            || unit.file.is_std
+        if unit.file.is_std
             || !reachable.contains(&unit.file.module)
             || salvo_core::platform_entry(unit.ast, &symbols).is_none()
         {
@@ -167,53 +157,6 @@ fn kotlin_package(module: &ModulePath) -> String {
         out.push_str(&kt_ident(part));
     }
     out
-}
-
-/// [backend-external] Every `external` item in the implicitly imported
-/// `core.*` modules must have a define for this backend. Outside core,
-/// missing defines are reported where the item is actually referenced.
-fn check_core_define_coverage(program: &Program, symbols: &Symbols<'_>) -> Vec<String> {
-    let mut errors = Vec::new();
-    for unit in program.units() {
-        if unit.file.kind != SourceKind::Language
-            || unit.file.module.0.first().map(String::as_str) != Some("core")
-        {
-            continue;
-        }
-        for item in &unit.ast.items {
-            match item {
-                Item::Fn(f) if f.backing == Some(BackingMod::External) => {
-                    let covered = symbols.define_fns.get(f.name.name.as_str()).is_some_and(
-                        |defs| defs.iter().any(|d| d.sig.params.len() == f.params.len()),
-                    );
-                    if !covered {
-                        errors.push(format!(
-                            "{}: external fn `{}` in core has no kotlin `define fn`",
-                            unit.file.name, f.name.name
-                        ));
-                    }
-                }
-                Item::Type(t) if t.backing == Some(BackingMod::External) => {
-                    if !symbols.define_types.contains_key(t.name.name.as_str()) {
-                        errors.push(format!(
-                            "{}: external type `{}` in core has no kotlin `define type`",
-                            unit.file.name, t.name.name
-                        ));
-                    }
-                }
-                Item::Handler(h) if h.backing == Some(BackingMod::External) => {
-                    if !symbols.define_handlers.contains_key(h.name.name.as_str()) {
-                        errors.push(format!(
-                            "{}: external handler `{}` in core has no kotlin `define handler`",
-                            unit.file.name, h.name.name
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    errors
 }
 
 /// [qual-widen] Visits every `^` check a condition applies, through `&&`
@@ -344,9 +287,6 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     // an effect that lives elsewhere.
     let mut effect_module: HashMap<&str, &ModulePath> = HashMap::new();
     for unit in program.units() {
-        if unit.file.kind != SourceKind::Language {
-            continue;
-        }
         for e in salvo_core::platform_effects(unit.ast) {
             effect_module.insert(e.name.name.as_str(), &unit.file.module);
         }
@@ -355,7 +295,7 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     let mut files = Vec::new();
     let mut errors = Vec::new();
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.kind != SourceKind::Language || unit.file.is_std {
+        if unit.file.is_std {
             continue;
         }
         let effects = salvo_core::platform_effects(unit.ast);
@@ -776,7 +716,7 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
-        if h.backing == Some(BackingMod::Intrinsic) {
+        if h.intrinsic {
             return self.emit_intrinsic_handler(h);
         }
         let saved = self.enter_generics(&h.generics);
@@ -1130,7 +1070,8 @@ impl<'p> Emitter<'p> {
     /// The generated Kotlin imports of one file [kt-imports]: a wildcard
     /// import per foreign emitted module whose names the file uses, plus
     /// Kotlin alias imports for every aliased Salvo import of an item
-    /// that exists as a Kotlin symbol (inlined externals have none).
+    /// that exists as a Kotlin symbol (an `intrinsic fn` has none: it is
+    /// lowered inline).
     /// Aliased fns get one alias import per overload *symbol*: a mangled
     /// qualified overload [kt-qual-mangling] is its own Kotlin name, and
     /// its alias carries the same `__Qual` suffix so aliased call sites
@@ -1156,7 +1097,7 @@ impl<'p> Emitter<'p> {
                 continue;
             };
             // Only items with a Kotlin symbol can be alias-imported: fns
-            // with bodies, structs, effects, handlers. Inlined externals,
+            // with bodies, structs, effects, handlers. Inlined intrinsics,
             // type aliases, and qualifiers resolve without one.
             let alias_name = alias.name.as_str();
             let bodied_fns: Vec<&FnDecl> = scope
@@ -1347,8 +1288,8 @@ impl<'p> Emitter<'p> {
         let name = base.name.name.as_str().to_string();
         let has_mut = qualifiers.iter().any(|q| q.name.name == "Mut");
 
-        // A `Mut`-qualified type whose define provides a `Mut inline:`
-        // template maps through it [type-canbe-mut] (e.g. `Mut List<T>` ->
+        // A `Mut`-qualified intrinsic type maps through its own `Mut`
+        // lowering [type-canbe-mut] (e.g. `Mut List<T>` ->
         // `MutableList<T>`).
         if has_mut {
             let arg_strs: Vec<String> = base.args.iter().map(|a| self.emit_type(a)).collect();
@@ -1400,35 +1341,19 @@ impl<'p> Emitter<'p> {
     }
 
     /// Maps a named type (with already-emitted generic arguments) to Kotlin:
-    /// intrinsic types [backend-intrinsic] [kt-none-unit], `define type`
-    /// templates [backend-define-type], or a pass-through name
-    /// [type-unknown-lenient].
+    /// intrinsic types [backend-intrinsic] [kt-none-unit], or a
+    /// pass-through name [type-unknown-lenient].
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
         let args = if arg_strs.is_empty() {
             String::new()
         } else {
             format!("<{}>", arg_strs.join(", "))
         };
-        // Intrinsic (compiler-mapped) types [backend-intrinsic].
+        // Intrinsic (compiler-mapped) types [backend-intrinsic]. There is no
+        // other mapping to try: a type the target language provides is
+        // reached through a `platform effect`, not by naming it here.
         if let Some(kt) = crate::intrinsics::type_name(name) {
             return format!("{kt}{args}");
-        }
-        // External types via define templates.
-        if let Some(def) = self.symbols.define_types.get(name) {
-            let def = *def;
-            if let Some(imports) = &def.body.imports {
-                self.add_template_imports(imports);
-            }
-            if let Some(inline) = &def.body.inline {
-                return self.expand_type_template(inline, &def.generics, arg_strs);
-            }
-        }
-        // [backend-external] A declared external type with no define for
-        // this backend must not silently pass through.
-        if self.symbols.external_types.contains_key(name) {
-            self.error(format!(
-                "external type `{name}` has no kotlin `define type`"
-            ));
         }
         // Structs, generics, effects, and unknown names pass through.
         format!("{name}{args}")
@@ -1460,9 +1385,8 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // A `Mut`-qualified type maps through its define's
-                // `Mut inline:` template [type-canbe-mut]; other qualifiers
-                // erase.
+                // A `Mut`-qualified intrinsic type maps through its `Mut`
+                // lowering [type-canbe-mut]; other qualifiers erase.
                 if let Ty::Named { name, args } = base.as_ref() {
                     if quals.iter().any(|q| q.name == "Mut") {
                         let name = name.clone();
@@ -1545,7 +1469,7 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // The `Mut inline:` define mapping survives erasure
+                // The intrinsic `Mut` mapping survives erasure
                 // [type-canbe-mut].
                 if quals.iter().any(|q| q.name == "Mut") {
                     if let Ty::Named { name, args } = base.as_ref() {
@@ -3373,12 +3297,11 @@ impl<'p> Emitter<'p> {
             }
         }
         // Normalize dot-notation [fn-dot]: `base.f(args)` == `f(base, args)`
-        // when `f` resolves to a known function/define/effect member.
+        // when `f` resolves to a known function or effect member.
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let total = args.len() + 1;
             if self.symbols.effect_of_fn.contains_key(name)
-                || self.symbols.resolve_define_fn(name, total).is_some()
                 || self.symbols.resolve_fn(name, total).is_some()
             {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
@@ -3394,7 +3317,7 @@ impl<'p> Emitter<'p> {
             self.error(format!(
                 "internal error: dot-call `{name}` reached the Kotlin emitter \
                  unresolved (the checker should have rejected it, or resolved \
-                 it to a fn, define, or effect member)"
+                 it to a fn or effect member)"
             ));
             return "TODO()".to_string();
         }
@@ -3437,53 +3360,24 @@ impl<'p> Emitter<'p> {
         }
 
         // 2. Checker-resolved fn target (type-based overloads win).
-        // Intrinsic fns lower in the emitter [intrinsic-fn]; external
-        // signatures route to their backend define template.
+        // An `intrinsic fn` lowers in the emitter [intrinsic-fn]; anything
+        // else has a body, since a bodiless top-level fn is a parse error
+        // [decl-body].
         let checker_resolved = self
             .checked
             .call_fn
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key));
         if let Some(f) = checker_resolved {
-            if f.backing == Some(BackingMod::Intrinsic) {
+            if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
-            }
-            if f.body.is_none() {
-                if let Some(def) = self.define_for_decl(name, f) {
-                    return self.emit_define_call(name, def, args, span);
-                }
-                self.error(format!(
-                    "external fn `{name}` has no kotlin `define fn`"
-                ));
-                return "TODO()".to_string();
             }
             return self.emit_fn_call(name, f, type_args, args, span);
         }
 
-        // 3. `define fn` template (unchecked contexts): arity narrowed by
-        // the checked argument types; ambiguous dispatch is a codegen
-        // error, never a guess [backend-never-wrong] [fn-overload].
-        let define_cands = self.symbols.defines_matching_arity(name, args.len());
-        if !define_cands.is_empty() {
-            return match disambiguate_unchecked(
-                self,
-                &define_cands,
-                |d| d.sig.params.as_slice(),
-                args,
-            ) {
-                Some(def) => self.emit_define_call(name, def, args, span),
-                None => {
-                    self.error(format!(
-                        "call to `{name}` is ambiguous here: multiple same-arity \
-                         `define fn` templates match and the checker did not \
-                         resolve the overload; annotate the argument types"
-                    ));
-                    "TODO()".to_string()
-                }
-            };
-        }
-
-        // 4. Known function (unchecked contexts): same ambiguity rule.
+        // 3. Known function (unchecked contexts): arity narrowed by the
+        // checked argument types; ambiguous dispatch is a codegen error,
+        // never a guess [backend-never-wrong] [fn-overload].
         let fn_cands = self.symbols.fns_matching_arity(name, args.len());
         if !fn_cands.is_empty() {
             let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
@@ -3495,21 +3389,13 @@ impl<'p> Emitter<'p> {
                 ));
                 return "TODO()".to_string();
             };
-            if f.backing == Some(BackingMod::Intrinsic) {
+            if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
-            }
-            // [backend-external] An external signature that reached this
-            // point has no define (step 3 would have matched one).
-            if f.body.is_none() {
-                self.error(format!(
-                    "external fn `{name}` has no kotlin `define fn`"
-                ));
-                return "TODO()".to_string();
             }
             return self.emit_fn_call(name, f, type_args, args, span);
         }
 
-        // 5. Handler constructor / struct / local callable: pass through.
+        // 4. Handler constructor / struct / local callable: pass through.
         // [fn-effects] A *fn value* takes its effects as leading arguments;
         // the checker recorded which instances to thread at this call.
         let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
@@ -3531,36 +3417,6 @@ impl<'p> Emitter<'p> {
             .iter()
             .map(|ty| self.lookup_effect_handler_by_ty(ty))
             .collect()
-    }
-
-    /// Finds the define template matching an external fn signature
-    /// [backend-define-inline]. Overloaded externals (e.g. `size(Str)` vs
-    /// `size(List<T>)`) share a define name, so templates whose parameter
-    /// types match the resolved declaration take precedence over a mere
-    /// arity match.
-    fn define_for_decl(&self, name: &str, decl: &FnDecl) -> Option<&'p DefineFn> {
-        let defs = self.symbols.define_fns.get(name)?;
-        let shape_matches = |d: &DefineFn| {
-            d.sig.params.len() == decl.params.len()
-                && d.sig
-                    .params
-                    .iter()
-                    .zip(&decl.params)
-                    .all(|(a, b)| a.variadic == b.variadic)
-        };
-        let types_match = |d: &DefineFn| {
-            d.sig.params.iter().zip(&decl.params).all(|(a, b)| {
-                match (type_base_name(&a.ty), type_base_name(&b.ty)) {
-                    (Some(a), Some(b)) => a == b,
-                    _ => true,
-                }
-            })
-        };
-        defs.iter()
-            .find(|d| shape_matches(d) && types_match(d))
-            .or_else(|| defs.iter().find(|d| shape_matches(d)))
-            .or_else(|| defs.first())
-            .copied()
     }
 
     /// A call to an `intrinsic fn`, lowered directly by the compiler
@@ -3854,74 +3710,6 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// Inline expansion of a `define fn` template.
-    fn emit_define_call(
-        &mut self,
-        name: &str,
-        def: &'p DefineFn,
-        args: &[&Expr],
-        span: Span,
-    ) -> String {
-        if let Some(imports) = &def.body.imports {
-            self.add_template_imports(imports);
-        }
-        if let Some(inline) = def.body.inline.clone() {
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-            let type_args = self.define_type_args(name, def, span);
-            return self
-                .expand_template(
-                    &inline,
-                    &def.sig.params,
-                    &arg_code,
-                    &def.sig.generics,
-                    &type_args,
-                )
-                .trim()
-                .to_string();
-        }
-        self.error(format!("define fn `{name}` has no inline section"));
-        "TODO()".to_string()
-    }
-
-    /// [backend-define-generics] The rendered type arguments of this call,
-    /// in the define's generic order, from the checker's `call_type_args`
-    /// ([call-type-args]). Positional: a define's generics line up with its
-    /// external's, which is what pairs the two declarations.
-    fn define_type_args(&mut self, name: &str, def: &'p DefineFn, span: Span) -> Vec<String> {
-        if def.sig.generics.is_empty() {
-            return Vec::new();
-        }
-        let Some(tys) = self
-            .checked
-            .call_type_args
-            .get(&(self.file_idx, span))
-            .cloned()
-        else {
-            return Vec::new();
-        };
-        let mut out = Vec::with_capacity(tys.len());
-        for ty in &tys {
-            if ty.is_unknown() {
-                // Only reachable through a checker gap: [call-type-args]
-                // rejects a call whose type arguments nothing determines,
-                // so rendering a guess here would be silently wrong code
-                // [backend-never-wrong].
-                self.error(format!(
-                    "call to `{name}` has an unresolved type argument, which its \
-                     `define fn` template needs"
-                ));
-                out.push("Any".to_string());
-                continue;
-            }
-            out.push(self.kotlin_ty(ty));
-        }
-        out
-    }
-
-    /// A call to a declared function: effect handlers become leading args.
-    /// The checker records the resolved effect instances per call site
-    /// (`call_effects`); the declared effect refs are the string-matching
-    /// fallback for unchecked contexts.
     fn emit_fn_call(
         &mut self,
         name: &str,
@@ -4037,116 +3825,6 @@ impl<'p> Emitter<'p> {
         ));
         "TODO()".to_string()
     }
-
-    // ================= templates =================
-
-    fn add_template_imports(&mut self, template: &Template) {
-        // [backend-define-imports] hoisted and deduped per generated file.
-        let text: String = template
-            .parts
-            .iter()
-            .map(|p| match p {
-                TemplatePart::Text(t) => t.as_str(),
-                _ => "",
-            })
-            .collect();
-        for line in text.lines() {
-            let line = line.trim();
-            if !line.is_empty() {
-                self.imports.insert(line.to_string());
-            }
-        }
-    }
-
-    /// Expands a `define fn` inline template [backend-define-inline]:
-    /// `${param}` becomes the argument's code, `${...param}` splices the
-    /// remaining arguments.
-    fn expand_template(
-        &mut self,
-        template: &Template,
-        params: &[Param],
-        args: &[String],
-        generics: &[Ident],
-        type_args: &[String],
-    ) -> String {
-        let mut out = String::new();
-        for part in &template.parts {
-            match part {
-                TemplatePart::Text(t) => out.push_str(t),
-                TemplatePart::Interp(name) => {
-                    match params.iter().position(|p| p.name.name == name.name) {
-                        Some(idx) if idx < args.len() => out.push_str(&args[idx]),
-                        // [backend-define-generics] A name that is not a
-                        // parameter may be one of the define's *type*
-                        // parameters, interpolated like `define type` does.
-                        _ => match generics.iter().position(|g| g.name == name.name) {
-                            Some(gi) if gi < type_args.len() => {
-                                out.push_str(&type_args[gi])
-                            }
-                            _ => {
-                                self.error(format!(
-                                    "template refers to unknown or missing parameter \
-                                     or type parameter `${{{}}}`",
-                                    name.name
-                                ));
-                                out.push_str("TODO()");
-                            }
-                        },
-                    }
-                }
-                TemplatePart::InterpVariadic(name) => {
-                    match params.iter().position(|p| p.name.name == name.name) {
-                        Some(idx) => {
-                            let rest = args.get(idx..).unwrap_or(&[]);
-                            out.push_str(&rest.join(", "));
-                        }
-                        None => {
-                            self.error(format!(
-                                "template refers to unknown variadic parameter `${{...{}}}`",
-                                name.name
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Expands a `define type` inline template: `${T}` becomes the emitted
-    /// Kotlin type argument.
-    fn expand_type_template(
-        &mut self,
-        template: &Template,
-        generics: &[Ident],
-        args: &[String],
-    ) -> String {
-        let mut out = String::new();
-        for part in &template.parts {
-            match part {
-                TemplatePart::Text(t) => out.push_str(t),
-                TemplatePart::Interp(name) => {
-                    match generics.iter().position(|g| g.name == name.name) {
-                        Some(idx) if idx < args.len() => out.push_str(&args[idx]),
-                        _ => {
-                            self.error(format!(
-                                "type template refers to unknown generic `${{{}}}`",
-                                name.name
-                            ));
-                            out.push_str("Any");
-                        }
-                    }
-                }
-                TemplatePart::InterpVariadic(name) => {
-                    self.error(format!(
-                        "variadic interpolation `${{...{}}}` is not valid in a type template",
-                        name.name
-                    ));
-                }
-            }
-        }
-        out.trim().to_string()
-    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -4169,9 +3847,9 @@ enum PlaceUnwrap {
 
 /// True when a checker type contains no `Unknown` (inference fully
 /// resolved it) — only then is it safe to render it into emitted code.
-/// The base type name of an AST type, used to pair define templates with
-/// overloaded external declarations. `None` for shapes without a single
-/// base name (unions, tuples, fn types).
+/// The base type name of an AST type, used to disambiguate overloads in
+/// unchecked contexts. `None` for shapes without a single base name
+/// (unions, tuples, fn types).
 fn type_base_name(ty: &Type) -> Option<&str> {
     match ty {
         Type::Named { base, .. } => Some(base.name.name.as_str()),

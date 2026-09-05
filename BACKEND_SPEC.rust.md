@@ -30,11 +30,12 @@ Conventions:
   * The generated union enums live in `unions.rs`, mounted as
     `mod unions` [rs-union-enums].
 * [rs-imports] Files get generated `use` items: `use crate::<mod>::*;`
-  per foreign *emitted* module whose names the file uses,
-  `use crate::unions::*;` when the file touches union wrappers, plus
-  template `imports:` lines ([backend-define-imports]). An aliased Salvo
-  import of a Rust-visible item emits
+  per foreign *emitted* module whose names the file uses, and
+  `use crate::unions::*;` when the file touches union wrappers. An aliased
+  Salvo import of a Rust-visible item emits
   `use crate::<mod>::<name> as <alias>;` and call sites keep the alias.
+  Intrinsic lowerings name everything by absolute path [intrinsic-fn], so
+  they add no `use` of their own.
   * Items referenced through glob imports must be `pub`: every emitted
     item (fn, struct, trait, impl fn, enum) is `pub`, struct fields
     included.
@@ -90,8 +91,9 @@ Conventions:
 * [qual-erasure] Qualifiers erase from emitted types; what survives is
   arm choice, casts, predicate calls, mangled names — and the borrow
   modes that `Mut` implies [rs-borrows].
-* [type-canbe-mut] Rust maps `Mut T` to the *same* type as `T` (no
-  `Mut inline:` in the std rust defines): mutability is expressed in
+* [type-canbe-mut] Rust maps `Mut T` to the *same* type as `T` — there is
+  no per-type `Mut` mapping at all. Unlike Kotlin's `intrinsics.rs`, the
+  Rust one deliberately has no `mut_type_name`: mutability is expressed in
   bindings and references (`let mut`, `&mut`) [rs-borrows], not in the
   type. Struct `Mut` works the same way (all struct fields are plain
   fields; assignability is enforced by the checker).
@@ -199,7 +201,7 @@ derives them mechanically:
   a `'a` is generated mechanically onto the annotated parameter and
   the return. Return values render as borrows (`Some(&place)`, bare
   for already-`&` bindings, pass-through for forwarded derived
-  calls); std's `first` define is `${list}.first()` — clone-free.
+  calls); std's `first` intrinsic lowers to `list.first()` — clone-free.
 * **Generic bounds.** Every generic parameter gets a `Clone` bound
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
   type. Structs additionally `#[derive(Clone, Debug)]`.
@@ -327,7 +329,7 @@ derives them mechanically:
     (`emit_value_block`), since the deferred statements would otherwise
     become the block's value.
   * **Known divergence** from Kotlin's `finally` lowering (accepted, user
-    decision 2026-09-04): a panic out of a std define unwinds *past* the
+    decision 2026-09-04): a panic out of a std intrinsic unwinds *past* the
     splice, so deferred code does not run on a crash path, where the JVM's
     `finally` would run it. See [kt-defer-finally].
 * [abort] [rs-abort-controlflow] A fn declaring `[Abort<M>]` returns
@@ -401,10 +403,10 @@ derives them mechanically:
   state }` + `impl H { pub fn new(ctor-params) -> Self }` (state fields
   initialized from their declared defaults) + `impl Effect for H`.
   Handler member bodies access ctor params and state through `self.`.
-  External handlers inline their `define handler` templates as method
-  bodies, same shape. A ctor param that is a *dependency* is neither a
-  field nor a `new` parameter, and the trait impl is replaced by a
-  generated one — see [rs-effect-fusion].
+  An `intrinsic handler`'s member bodies come from
+  `intrinsics::handler_member` instead, same shape. A ctor param that is a
+  *dependency* is neither a field nor a `new` parameter, and the trait
+  impl is replaced by a generated one — see [rs-effect-fusion].
 * [kt-effect-params]-equivalent: effect dependencies become leading
   parameters `name: &mut dyn Effect<...>`; effect member calls dispatch
   through the parameter (`console.print(...)` — auto-reborrow), and
@@ -625,7 +627,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
 
 ## Functions and calls
 
-* [fn-dot] Dot-notation calls resolve to a declared fn/define/effect
+* [fn-dot] Dot-notation calls resolve to a declared fn or effect
   member and normalize to `f(base, args)`. There is no method-call
   fallback: an unresolved name here is a *codegen error* naming an internal
   inconsistency, since the checker already rejects undeclared dot-calls
@@ -636,31 +638,25 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   parameters emit as `impl Fn(A, ..) -> R`. Lambda parameters are owned.
   Early `return` inside expression-position lambdas remains a codegen
   error (same cut as Kotlin).
-* [backend-define-inline] Define templates expand inline at call sites
-  with the *owned* rendering of each argument, except that a template
-  parameter declared `Mut` receives a mutable place (the raw argument) —
-  method-style templates (`${list}.push(${elem})`) then borrow the place
-  natively. `imports:` lines hoist per generated file.
-* [backend-define-generics] `${T}` in a `define fn` expands to the call's
-  resolved type argument, as on Kotlin. The Rust templates deliberately do
-  *not* use it where rustc infers as well as the checker knows: `vec![]`
-  stays `vec![]`, since [call-type-args] guarantees the element type is
-  either written or annotated, and both reach rustc through the rendered
-  `let` annotation or parameter type. The capability is there for a define
-  whose target construct needs the type spelled out
-  (`Vec::<${T}>::new()`).
-* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`,
-  keyed by the checker-resolved declaration (name + first parameter's base
-  type name, so `size(Str)` / `size(List<T>)` / `size(T[])` are three
-  entries). `copy` [rs-copy] and `discard` are the exceptions: they
-  dispatch on the argument's own shape, so `emit_intrinsic_call` handles
-  them before consulting the table. An intrinsic with no entry is a codegen
-  error naming it.
-  * The argument boundary keeps the place/owned distinction the templates
-    relied on [rs-borrows]: a place splices raw so `list.push(..)` borrows
-    natively, while a variadic tail splices owned because it lands inside
-    `vec![..]`. Backwards, this either double-clones or moves out of a
-    borrow.
+* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
+  (`fn_call`), keyed by the checker-resolved declaration (name + first
+  parameter's base type name, so `size(Str)` / `size(List<T>)` /
+  `size(T[])` are three entries). `copy` [rs-copy] and `discard` are the
+  exceptions: they dispatch on the argument's own shape, so
+  `emit_intrinsic_call` handles them before consulting the table. An
+  intrinsic with no entry is a codegen error naming it.
+  * The argument boundary keeps the place/owned distinction [rs-borrows]:
+    a place splices raw so a method-style lowering (`list.push(..)`)
+    borrows natively, while a variadic tail splices owned because it lands
+    inside `vec![..]`. Backwards, this either double-clones or moves out
+    of a borrow. A parameter the lowering mutates in place therefore takes
+    the raw place; everything else its owned rendering.
+  * Rust does not spell type arguments out the way Kotlin must: `vec![]`
+    stays `vec![]`, since [call-type-args] guarantees the element type is
+    either written or annotated, and both reach rustc through the rendered
+    `let` annotation or parameter type. A lowering *is* handed the call's
+    resolved type arguments for the rare construct that needs them spelled
+    out (`Vec::<T>::new()`), but the current table ignores them.
   * Paths are absolute, so no lowering adds a `use` item.
 * [rs-platform-entry] [platform-effect] A `platform effect` emits the same
   `trait` an ordinary effect does and threads as `&mut dyn` in the same way,

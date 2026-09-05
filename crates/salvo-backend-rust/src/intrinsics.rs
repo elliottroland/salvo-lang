@@ -4,7 +4,8 @@
 //! Every `intrinsic type`, `intrinsic fn` and `intrinsic handler` std
 //! declares must be lowered here; anything missing is a codegen error at
 //! the reference site, never a pass-through [backend-never-wrong]. This
-//! table replaced the `define` template files that used to live next to
+//! table replaced the per-backend `define` template files that used to live
+//! next to
 //! the std modules: the text is the same, but it is now code the backend
 //! owns, dispatched on the *checker-resolved* declaration rather than
 //! matched by name and arity.

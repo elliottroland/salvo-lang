@@ -13,16 +13,41 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Opaque\n";
+
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -40,16 +65,12 @@ fn messages(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
-intrinsic type Opaque
 
 struct Person {
     name: Str
 }
 
-external fn shout(s: Str) [] -> [s] Str
+fn shout(s: Str) [] -> [s] Str { return "" }
 "#;
 
 fn body(src: &str) -> String {
@@ -78,8 +99,8 @@ fn unresolved_call_suggests_imports() {
     let main = "fn f() -> Int {\n    return helper()\n}\n";
     let mut sources = SourceSet::default();
     for (name, src) in [("lib.sv", lib), ("main.sv", main)] {
-        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
-        sources.add(name, module, kind, src.to_string(), false);
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(name, module, src.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -148,15 +169,15 @@ fn unresolved_dot_call_is_an_error() {
         .find(|m| m.contains("no function named `missing_method`"))
         .unwrap_or_else(|| panic!("got {errs:?}"));
     assert!(
-        diag.contains("`external fn`"),
+        diag.contains("`platform effect`"),
         "the diagnostic should name the remedy: {diag}"
     );
 }
 
 /// [call-resolve] A *declared* function is reachable by dot-notation, which
-/// is how target-language members are exposed.
+/// is how a member-looking call is spelled.
 #[test]
-fn declared_external_is_callable_by_dot_notation() {
+fn a_declared_fn_is_callable_by_dot_notation() {
     let errs = messages(&body("    let s = \"x\".shout()"));
     assert!(errs.is_empty(), "got {errs:?}");
 }
@@ -188,7 +209,7 @@ fn field_on_an_opaque_type_is_an_error() {
 }
 
 /// [field-resolve] A generic value is opaque too — and its diagnostic must
-/// not suggest an `external fn` accessor, which cannot help for a `T`.
+/// not suggest a declared accessor, which cannot help for a `T`.
 #[test]
 fn field_on_a_generic_is_an_error() {
     let src = format!(
@@ -256,8 +277,6 @@ fn iterating_an_array_is_fine() {
 // ===== [handler-not-value] =====
 
 const EFFECT_PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
 
 effect Counter {
     fn bump() -> [] Int
@@ -280,12 +299,12 @@ fn effect_messages(src: &str) -> Vec<String> {
 /// [effect-handler] A state field's initializer is checked against its
 /// declared type, like a struct field's default. Until 2026-09-04 it was not
 /// checked *at all*, which both hid type errors and left the emitters with
-/// no types for the expression (a `define fn` template needs them for
-/// `${T}`, [backend-define-generics]).
+/// no types for the expression, which an intrinsic lowering may need in
+/// order to spell a type out [backend-intrinsic].
 #[test]
 fn handler_state_initializers_are_checked() {
     let errs = messages(
-        "intrinsic type Int\nintrinsic type Str\n\n\
+        "\n\
          effect Sink {\n    fn kept() -> [] Int\n}\n\n\
          handler Bin of Sink {\n    held: Int = \"not an int\"\n\n    \
          fn kept() -> [] Int {\n        return held\n    }\n}\n",
@@ -400,7 +419,7 @@ fn handler_cannot_depend_on_its_own_effect() {
 /// and "it cannot be written" are different claims.
 #[test]
 fn dependency_cycles_cannot_be_registered() {
-    let cyclic = "intrinsic type Str\n\n\
+    let cyclic = "\n\
         effect Alpha {\n    fn a(m: Str) -> [m] None\n}\n\n\
         effect Beta {\n    fn b(m: Str) -> [m] None\n}\n\n\
         handler AlphaViaBeta(beta: Beta) of Alpha {\n    \

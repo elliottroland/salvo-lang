@@ -28,20 +28,6 @@ pub enum Item {
     Effect(EffectDecl),
     Handler(HandlerDecl),
     Fn(FnDecl),
-    DefineFn(DefineFn),
-    DefineType(DefineType),
-    DefineHandler(DefineHandler),
-}
-
-/// Visibility/backing modifier on declarations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackingMod {
-    /// `intrinsic`: declared by the standard library and implemented inside
-    /// the compiler — every backend must lower every one of them
-    /// [backend-intrinsic] [intrinsic-fn].
-    Intrinsic,
-    /// `external`: implemented via `define` templates in backend files.
-    External,
 }
 
 /// `import path.to.item (as alias)?`
@@ -52,14 +38,19 @@ pub struct ImportDecl {
     pub span: Span,
 }
 
-/// `intrinsic type Str`, `external type List<T> canbe Mut`, or a type alias
+/// `intrinsic type Str`, `intrinsic type List<T> canbe Mut`, or a type alias
 /// `type Result<S, T> = Ok S | Err T`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    pub backing: Option<BackingMod>,
+    /// `intrinsic`: declared by the standard library and implemented inside
+    /// the compiler — every backend must lower every one of them
+    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// rather than an enum: it is the only backing modifier there is, now
+    /// that `external`/`define` are gone (user decision 2026-09-05).
+    pub intrinsic: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
@@ -120,7 +111,12 @@ pub struct QualifierDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    pub backing: Option<BackingMod>,
+    /// `intrinsic`: declared by the standard library and implemented inside
+    /// the compiler — every backend must lower every one of them
+    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// rather than an enum: it is the only backing modifier there is, now
+    /// that `external`/`define` are gone (user decision 2026-09-05).
+    pub intrinsic: bool,
     /// State (default) or provenance [qual-subject].
     pub subject: QualSubject,
     pub name: Ident,
@@ -150,7 +146,7 @@ pub struct EffectDecl {
     /// generates the interface and the instance arrives from outside the
     /// Salvo program — there is nothing to `use`.
     ///
-    /// A dedicated flag rather than a [`BackingMod`], because `platform`
+    /// A dedicated flag rather than a shared backing enum, because `platform`
     /// applies to nothing but an effect and `intrinsic`/`external` never
     /// apply to one: the two sets are disjoint, so keeping them apart makes
     /// the invariant structural.
@@ -162,13 +158,18 @@ pub struct EffectDecl {
 }
 
 /// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`
-/// or `external handler StdOutConsole of Console`.
+/// or `intrinsic handler StdOutConsole of Console`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HandlerDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    pub backing: Option<BackingMod>,
+    /// `intrinsic`: declared by the standard library and implemented inside
+    /// the compiler — every backend must lower every one of them
+    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// rather than an enum: it is the only backing modifier there is, now
+    /// that `external`/`define` are gone (user decision 2026-09-05).
+    pub intrinsic: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Constructor parameters, e.g. `(values: T[])`.
@@ -188,7 +189,12 @@ pub struct FnDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    pub backing: Option<BackingMod>,
+    /// `intrinsic`: declared by the standard library and implemented inside
+    /// the compiler — every backend must lower every one of them
+    /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
+    /// rather than an enum: it is the only backing modifier there is, now
+    /// that `external`/`define` are gone (user decision 2026-09-05).
+    pub intrinsic: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
@@ -207,7 +213,7 @@ pub struct FnDecl {
     /// body returns plain `T` values which gain the qualifier by
     /// construction; callers see `Qualifier T`.
     pub constructs: Option<TypeRef>,
-    /// `None` for signatures (`external fn`, effect members).
+    /// `None` for signatures (`intrinsic fn`, effect members).
     pub body: Option<Block>,
     pub span: Span,
 }
@@ -256,63 +262,6 @@ pub enum DeductionKind {
     Remove(Vec<TypeRef>),
     /// `[list: Nothing]`: moved (the caller loses access).
     Moved,
-}
-
-// --- define templates (backend files) ---
-
-/// `define fn chars(str: Str) -> Char[] { imports: `` ... `` inline: `` ... `` }`
-#[derive(Clone, Debug, PartialEq)]
-pub struct DefineFn {
-    pub sig: FnDecl,
-    pub body: DefineBody,
-    pub span: Span,
-}
-
-/// `define type LinkedList<T> { inline: `` ... `` }`
-#[derive(Clone, Debug, PartialEq)]
-pub struct DefineType {
-    pub name: Ident,
-    pub generics: Vec<Ident>,
-    pub body: DefineBody,
-    pub span: Span,
-}
-
-/// `define handler StdOutConsole of Console { define fn ... }`
-#[derive(Clone, Debug, PartialEq)]
-pub struct DefineHandler {
-    pub name: Ident,
-    pub generics: Vec<Ident>,
-    pub of: Type,
-    pub fns: Vec<DefineFn>,
-    pub span: Span,
-}
-
-/// The `imports:`/`inline:` sections of a `define` block.
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct DefineBody {
-    pub imports: Option<Template>,
-    pub inline: Option<Template>,
-    /// `Mut inline:` — the template used instead of `inline:` when the
-    /// type is qualified with `Mut` [type-canbe-mut] (e.g. Kotlin maps
-    /// `Mut List<T>` to `MutableList<T>`). Only meaningful on
-    /// `define type` for types declared `canbe Mut`.
-    pub mut_inline: Option<Template>,
-}
-
-/// A backtick template, split into literal text and `${...}` interpolations.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Template {
-    pub parts: Vec<TemplatePart>,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum TemplatePart {
-    Text(String),
-    /// `${name}` — a parameter or generic to interpolate.
-    Interp(Ident),
-    /// `${...name}` — a variadic parameter spliced as comma-separated values.
-    InterpVariadic(Ident),
 }
 
 // --- Types ---

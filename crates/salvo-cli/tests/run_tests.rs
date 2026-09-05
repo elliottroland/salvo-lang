@@ -413,20 +413,32 @@ fn a_missing_main_is_an_error() {
     );
 }
 
-/// A define file carries native templates, not code, so it can never be the
-/// entry point [backend-define-inline]. Caught by its double extension
-/// rather than by failing to find `main`, so the message can say why.
+/// [mod-file-name] A `.sv` file whose name contains a dot cannot be a module
+/// at all — module paths come from the directory layout — so it can hardly be
+/// the entry point. Caught by the name rather than by failing to find `main`,
+/// so the message says why. This is the spelling that used to select a
+/// backend's `define` file, and the one place a leftover would show up.
 #[test]
-fn a_define_file_cannot_be_the_entry_point() {
-    let dir = work_dir("define_entry");
+fn a_dotted_file_name_cannot_be_the_entry_point() {
+    let dir = work_dir("dotted_entry");
     fs::write(dir.join("main.sv"), HELLO).unwrap();
     fs::write(dir.join("main.rust.sv"), "\n").unwrap();
     let out = salvo_in(&dir, &["run", "--backend", "rust", "--main", "main.rust.sv"]);
-    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("backend define file"),
-        "stderr: {}",
-        String::from_utf8_lossy(&out.stderr)
+        stderr.contains("may not contain a dot"),
+        "stderr: {stderr}"
+    );
+
+    // And discovery says the same thing rather than skipping it: a stale
+    // define file left in a source tree must not vanish from the build.
+    let out = salvo_in(&dir, &["run", "--backend", "rust", "--src", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("main.rust.sv") && stderr.contains("may not contain a dot"),
+        "stderr: {stderr}"
     );
 }
 

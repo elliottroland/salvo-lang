@@ -5,11 +5,28 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Checked, FnKey, Program, SourceSet, Symbols};
 use salvo_syntax::ast::Item;
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type List<T> canbe Mut\nintrinsic fn copy<T>(value: T) [] -> [value] T\nintrinsic type Store<T> canbe Mut\nintrinsic fn fresh() [] -> [] List<Int>\n";
+
 /// Parses + resolves + checks a single-file program (no std).
 fn check_src(src: &str) -> (Program, Checked) {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
     let mut modules = Vec::new();
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -79,15 +96,13 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 }
 
 const QUALIFIED_LISTS: &str = r#"
-intrinsic type Int
-intrinsic type List<T>
 
 qualifier A<T> of List<T>
 qualifier B<T> of List<T> with A<T>
 qualifier C<T> of List<T> with A<T>, B<T>
 
-external fn drop_a<T>(list: A B List<T>) [] -> [list: B] None
-external fn consume<T>(list: List<T>) [] -> [] None
+fn drop_a<T>(list: A B List<T>) [] -> [list: B] None {}
+fn consume<T>(list: List<T>) [] -> [] None {}
 "#;
 
 // [deduce-infer] A call removes exactly the callee's removal set
@@ -141,7 +156,7 @@ fn caller<T>(list: A B C List<T>) -> None {{
 fn delta_lists_pass_undeclared_qualifiers_through() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn shed_a<T>(list: A B List<T>) [] -> [list: -A] None
+fn shed_a<T>(list: A B List<T>) [] -> [list: -A] None {{}}
 
 fn caller<T>(list: A B C List<T>) -> None {{
     shed_a(list)
@@ -165,11 +180,10 @@ fn caller<T>(list: A B C List<T>) -> None {{
 #[test]
 fn mutating_bodies_require_an_exhaustive_list() {
     let src = "
-intrinsic type List<T> canbe Mut
 
 qualifier A<T> of List<T>
 
-external fn mutate<T>(list: Mut List<T>) [] -> [list: Mut] None
+fn mutate<T>(list: Mut List<T>) [] -> [list: Mut] None {}
 
 fn keeps_all<T>(list: Mut A List<T>) -> [list] None {
     mutate(list)
@@ -218,7 +232,7 @@ fn exhaustive<T>(list: Mut A List<T>) -> [list: Mut] None {
 fn nothing_in_a_deduction_means_moved() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn eat<T>(list: List<T>) [] -> [list: Nothing] None
+fn eat<T>(list: List<T>) [] -> [list: Nothing] None {{}}
 
 fn caller<T>(list: List<T>) -> None {{
     eat(list)
@@ -340,8 +354,6 @@ fn caller<T>(list: A B List<T>) [Logger] -> Int {{
 fn handler_state_stores_are_moves_and_members_are_validated() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
-external fn fresh() [] -> [] List<Int>
-
 effect Sink {{
     fn keep(list: A List<Int>) -> [list: A] None
 }}
@@ -371,8 +383,6 @@ handler Bin of Sink {{
 fn handler_state_stores_are_legal_when_the_contract_moves() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
-external fn fresh() [] -> [] List<Int>
-
 effect Sink {{
     fn keep(list: A List<Int>) -> [] None
 }}
@@ -487,8 +497,8 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
 fn bare_entries_keep_all_qualifiers_and_explicit_empty_keeps_none() {
     let src = format!(
         "{QUALIFIED_LISTS}
-external fn keep_all<T>(list: A B List<T>) [] -> [list] None
-external fn strip_all<T>(list: A B List<T>) [] -> [list:] None
+fn keep_all<T>(list: A B List<T>) [] -> [list] None {{}}
+fn strip_all<T>(list: A B List<T>) [] -> [list:] None {{}}
 "
     );
     let (program, checked) = check_src(&src);
@@ -527,9 +537,8 @@ fn escapes<T>(list: List<T>) -> List<T> {{
     return copy(alias)
 }}
 
-intrinsic fn copy<T>(value: T) [] -> [value] T
 
-external fn list_size<T>(list: List<T>) [] -> [list] Int
+fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -571,7 +580,7 @@ fn caller<T>(list: List<T>) -> Int {{
     return list_size(result)
 }}
 
-external fn list_size<T>(list: List<T>) [] -> [list] Int
+fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -591,7 +600,6 @@ external fn list_size<T>(list: List<T>) [] -> [list] Int
 fn lambda_capture_mutation_claims_parameters() {
     let src = format!(
         "{QUALIFIED_LISTS}
-intrinsic type Store<T> canbe Mut
 
 fn runs(f: () -> None) -> None {{
     let unused = f
@@ -607,9 +615,9 @@ fn reads<T>(store: Mut Store<T>) -> None {{
     runs(g)
 }}
 
-external fn bump<T>(store: Mut Store<T>) [] -> [store: Mut] None
+fn bump<T>(store: Mut Store<T>) [] -> [store: Mut] None {{}}
 
-external fn store_size<T>(store: Store<T>) [] -> [store] Int
+fn store_size<T>(store: Store<T>) [] -> [store] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -640,7 +648,7 @@ fn late<T>(seed: List<T>) -> Int {{
     return list_size(xs)
 }}
 
-external fn list_size<T>(list: List<T>) [] -> [list] Int
+fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
 "
     );
     let (_, checked) = check_src(&src);

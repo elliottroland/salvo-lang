@@ -6,23 +6,48 @@
 //! infer for itself and another may not (`mutableListOf()` is not valid
 //! Kotlin, while rustc infers `vec![]` from a later use).
 //!
-//! The recorded bindings are also what `${T}` in a `define fn` template
-//! interpolates ([backend-define-generics]).
+//! The recorded bindings are also what a backend's intrinsic lowering
+//! renders when it has to spell an element type out [backend-intrinsic].
 
 use std::path::Path;
 
 use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Symbols, Ty};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn empty_list<T>() [] -> [] Mut List<T>\nintrinsic fn of_list<T>(...elems: T[]) [] -> [] Mut List<T>\n";
+
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -40,17 +65,11 @@ fn messages(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
 
-intrinsic type List<T> canbe Mut
 
-external fn empty_list<T>() [] -> [] Mut List<T>
-external fn of_list<T>(...elems: T[]) [] -> [] Mut List<T>
-external fn size<T>(list: List<T>) [] -> [list] Int
-external fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None
-external fn ignore<T>(value: T) [] -> [] None
+fn size<T>(list: List<T>) [] -> [list] Int { return 0 }
+fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None {}
+fn ignore<T>(value: T) [] -> [] None {}
 "#;
 
 fn src(body: &str) -> String {

@@ -8,7 +8,7 @@ Salvo lang is an experimental high level programming language with C-like syntax
 * A strong type system, with algebraic effects.
 * Support for "qualities" which allow us to annotate data in the type system.
 
-The compiler is written in Rust, and translates code into an intermediate representation. From there, each backend language (initially Kotlin and Rust) writes this to the respective language, filling in the necessary parts which are marked with `expect`.
+The compiler is written in Rust, and translates code into an intermediate representation. From there, each backend language (initially Kotlin and Rust) writes this out to the respective language.
 
 ## Data and Types
 
@@ -314,10 +314,10 @@ mutable_person.name = "Someone else" // No problem
 `Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `canbe Mut` syntax — for example, the standard library's list type is declared as:
 
 ```
-external type List<T> canbe Mut
+intrinsic type List<T> canbe Mut
 ```
 
-Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section (`Mut inline`).
+Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section.
 
 ### Generic types
 
@@ -932,7 +932,7 @@ Both backends implement this without colouring any function the author did not a
 
 The second square bracket includes what we call "deductions". These tell the compiler what happens to the parameters given to a function, which in turn helps us to compile functions with concrete ownership/borrowing rules in Rust.
 
-Suppose that we have the standard library's mutable list (`external type List<T> canbe Mut`) and a qualifier that tracks non-emptiness:
+Suppose that we have the standard library's mutable list (`intrinsic type List<T> canbe Mut`) and a qualifier that tracks non-emptiness:
 
 ```
 // Tells us that there is at least one element in the list
@@ -1296,7 +1296,9 @@ provenance qualifier Authenticated of Request // about the origin
 The difference matters because a function that mutates a value invalidates claims about its contents. A call that takes `Mut` and does not promise to keep `NonEmpty` strips it, since adding or removing elements could make it false. But mutating a request's body does not change the fact that the request was authenticated, so provenance qualifiers survive every call:
 
 ```
-external fn touch(r: Mut Request) [] -> [r: Mut] None
+fn touch(r: Mut Request) [] -> [r: Mut] None {
+    r.body = ""
+}
 
 fn f(r: Mut Authenticated NonEmpty Request) -> None {
     touch(r)
@@ -1332,7 +1334,7 @@ import core.Str // Not strictly necessary -- all of core is imported by default
 
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
 
-Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `intrinsic`/`external type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.
+Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `intrinsic type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.
 
 This matters most for qualifiers, because a qualifier and a base type sit next to each other in the same syntax. `Ok Int` with no `Ok` in scope is not a type built from an unknown claim — it is a typo or a missing import, and it would otherwise fail much later and much less obviously, as a check that "can never succeed" against arms tagged with a qualifier the compiler never heard of. A name that *does* exist but in the other namespace says so, since no import can fix it:
 
@@ -1350,10 +1352,12 @@ field a struct does not have), `[]` on something that is not an array, and
 "pass it through and let the target language sort it out" — a value's type
 tells you exactly what you can do with it.
 
-This is what makes the interop layer a *declaration* layer: to call a
-Kotlin method or a Rust function, you declare it (`external fn`, and a
-`define` block per backend — see the backends section) and then call the
-Salvo function you declared. Dot-notation still reads like a method call
+This is what makes interop itself a matter of *declaration*: a Salvo
+program reaches its target language through a `platform effect`, whose
+member functions you declare and the compiler turns into an interface for
+the host to implement (see the backends section) — there is no way to name
+a Kotlin method or a Rust function that some declaration in scope does not
+already stand for. Dot-notation still reads like a method call
 (`text.shout()` is `shout(text)`), but the function has to exist. The same
 applies to generics: a type parameter has no bounds, so nothing is known
 about a `T` — reading `value.name` inside `fn f<T>(value: T)` is an error,
@@ -1371,6 +1375,7 @@ Casing is part of the language, not a convention:
 * **Types start with an uppercase letter** — structs, qualifiers, type declarations and aliases, effects, handlers, and generic parameters.
 * **Values do not** — functions, parameters, fields, variables, bindings, and lambda parameters.
 * **Module paths are lowercase.** Since a module path is its file path, that applies to file and directory names too: `Utils.sv` is a compile-time error telling you to rename the file.
+* **A file name may not contain a dot.** A module's path comes from where the file sits in the directory tree, and a dot in the name would read as a path separator that no directory backs — so `string.sv` is the module `string`, while `string.kotlin.sv` is rejected. There are no per-backend companion files; both targets are served from the one source.
 
 This is what lets the compiler tell a type from a value at the start of a dotted name, which the next section relies on.
 
@@ -1466,6 +1471,8 @@ One of the aims of Salvo is to make it easy to integrate Salvo code with the bac
 
 The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
 
+`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through a `platform effect`; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). There is no bodyless declaration form for customer code — `intrinsic` (and the bodyless `intrinsic handler`) is precisely what lets the standard library state a contract the compiler fulfils in place of one.
+
 For example, the basic types (`Int`, `Str`, `Iter<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
 
 ```
@@ -1474,7 +1481,7 @@ intrinsic type Str
 
 When building the compiler, _all_ `intrinsic` declarations must be handled by _every_ backend module.
 
-Functions can be intrinsic too. An `intrinsic fn` is a compiler intrinsic: the declaration carries the signature and deductions the checker uses, but there are no templates — each backend lowers calls to it directly, seeing the resolved argument type at every call site. This is what makes type-directed lowering possible where a single generic template could not express it; the standard library's `copy` is the canonical example:
+Functions can be intrinsic too. An `intrinsic fn` carries the signature and deductions the checker uses and has no body; each backend lowers calls to it directly, seeing the resolved argument type at every call site. That is what makes type-directed lowering possible where one generic template could not express it — the standard library's `copy` is the canonical example:
 
 ```
 intrinsic fn copy<T>(value: T) -> [value] T
@@ -1482,7 +1489,7 @@ intrinsic fn copy<T>(value: T) -> [value] T
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
-Whole functions are intrinsic too, not just types. The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, `char_at`) is intrinsic, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
+The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, `char_at`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
 
 Handlers can be intrinsic as well: `intrinsic handler StdOutConsole of Console` is bodyless in Salvo, and each backend emits a real class or trait impl for it.
 
@@ -1557,116 +1564,6 @@ handler AuditLogger(telemetry: Telemetry) of Logger {
 ```
 
 Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. And a member name identifies its effect, so no two effects may share one — there is no syntax to say which effect a call means.
-
-### External
-
-The `external` layer sits outside the compiler, and uses a simple templating system to make it possible to write new backend-accessible modules as part of the codebase. Most of the standard library is defined using the external layer, and users can add their own external definitions to support interop with their target language. Unlike intrinsic definitions, not every declaration needs to be handled by every backend: everything in the core library must (`core.*`) because these are all implicitly imported, but outside of this only those things which are explicitly imported need to be handled. This is checked at compile time.
-
-To start, you prefix a definition with `external` and leave out any implementation details besides the signature:
-
-```
-// In file string.sv
-
-// Returns an array of characters in the [str]
-external fn chars(str: Str) [] -> [str] Char[]
-```
-
-A bodyless declaration states its whole contract: the effect list (`[]`
-here — reading characters is pure), the deduction list (`[str]` — the
-string is given back untouched), and the return type. None of the three
-may be left out, because there is no body to infer them from, and guessing
-is how a wrong contract sneaks in: before this rule, std's `add` was
-inferred as *keeping* the element the list had just taken ownership of.
-
-Alongside the file where this is defined, you define files for each target backend, and use the `define` syntax to tell Salvo how to resolve the function call to something. Each `define` must implement exactly one `external` and each `external` may have at most one `define` per backend: the external declares the contract, the define supplies the native template, and a define with no external would have no contract at all. The `define` keyword exposes the "``" character, which is used to create the code which will be interpolated at that call site in the target code:
-
-```
-// In file string.kotlin.sv
-
-define fn chars(str: Str) -> Char[] {
-    inline: ``
-    ${str}.toCharArray()
-    ``
-}
-```
-
-As can be seen above, inside the `define` scope we have access to an `inline` section, which defines how the definition will be inlined. We use something similar to string interpolation, but it works a bit differently here: when `chars(...)` is called in Salvo, the expression is _replaced_ with the inlined code defined in the `define.inline` section, perhaps after being converted as need be to the relevant language paradigms following normal backend rules.
-
-The `define` scope also provides an `imports` section, which can be used to define the imports that need to appear in the generated target source. For example, supposing that we needed to import the `toCharArray` function, we could have written the above as:
-
-```
-// In file string.sv
-
-define fn chars(str: Str) -> Char[] {
-    imports: ``
-    import kotlin.string.toCharArray
-    ``
-
-    inline: ``
-    ${str}.toCharArray()
-    ``
-}
-```
-
-These imports will now be included at the top of the file whenever we have to interpolate this inline definition The same logic applies to _type_ definitions, which tell Salvo how to refer to a specific type in the backend language as well as what imports are required to do so. Here we see that we can interpolate generics as well:
-
-```
-// In file linked_list.sv
-external type LinkedList<T>
-
-// In file linked_list.kotlin.sv
-define type LinkedList<T> {
-    imports: ``
-    import java.util.LinkedList
-    ``
-
-    inline: ``
-    LinkedList<${T}>
-    ``
-}
-```
-
-If you would like to provide custom function definitions, then you can do so as well. Suppose we want a complicated function implementation using Kotlin-specific language features:
-
-```
-// In file complicated.sv
-external fn complicated_func<T>(list: List<T>) [] -> [list] Str
-
-// In file complicated.kotlin.sv
-define fn complicated_func<T>(list: List<T>) -> Str {
-    imports: ``
-    import salvo.complicatedFunc
-    ``
-
-    inline: ``
-    complicatedFunc(${list})
-    ``
-}
-
-// In file complicated.kt
-package salvo
-
-fun complicatedFunc(list: List<T>): String {
-    // Normal Kotlin code
-}
-```
-
-The relevant Kotlin source file (`complicated.kt`) is then copied into the results if this file is ever needed.
-
-A `define fn` interpolates the call's **type arguments** the same way a `define type` does — `${T}` names one of the define's own type parameters and expands to the type the call resolved it to. This is how the standard library pins an element type the target language could not infer for itself:
-
-```
-// In file list.kotlin.sv
-define fn mutable_list<T>(...elems: T[]) -> Mut List<T> {
-    inline: ``
-    mutableListOf<${T}>(${...elems})
-    ``
-}
-```
-
-`mutable_list()` then emits `mutableListOf<Int>()` rather than a bare `mutableListOf()`, which Kotlin would refuse. Because every call's type arguments are determined (see [Syntax](#syntax)), the template always has something to interpolate.
-
-Outside of validating that the interpolated variables refer to declared variables or type parameters, the resulting code is written as-is into the target source files of the backend language. Their correctness is not guaranteed or validated by Salvo.
 
 ## Specific backend details
 

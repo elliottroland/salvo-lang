@@ -7,9 +7,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "Str",
                     span: 15..18,
@@ -25,9 +23,7 @@ Module {
                 docs: [
                     "Returns the number of characters in the string",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "size",
                     span: 83..87,
@@ -95,9 +91,7 @@ Module {
                     "Returns the character at the given index, or null if it is beyond the length",
                     "of the string.",
                 ],
-                backing: Some(
-                    Intrinsic,
-                ),
+                intrinsic: true,
                 name: Ident {
                     name: "char_at",
                     span: 226..233,

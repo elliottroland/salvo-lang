@@ -1,14 +1,16 @@
 # Salvo Compiler — Progress & Plan
 
 **Interop was redesigned 2026-09-05 (user decisions): string-template
-interop is being replaced by `platform effect`.** The old model —
-`external` declarations resolved by `define` templates that interpolate
-`${param}` into target syntax — was, in the user's words, "difficult to
-validate, and only really there so that certain std types and functions
-(like those related to the list) don't get unnecessarily wrapped in backend
-functions". The replacement follows Roc's platform idea: the compiler
+interop was replaced by `platform effect`, and the redesign is complete.**
+The old model — `external` declarations resolved by `define` templates that
+interpolate `${param}` into target syntax — was, in the user's words,
+"difficult to validate, and only really there so that certain std types and
+functions (like those related to the list) don't get unnecessarily wrapped in
+backend functions". The replacement follows Roc's platform idea: the compiler
 *generates an interface* and the host implements it, so the target
-language's own compiler checks the two against each other.
+language's own compiler checks the two against each other. There is now
+exactly one interop path for customer code (`platform effect`) and one for
+std (`intrinsic`, which only std may declare).
 
 The decisions (all user, 2026-09-05):
 
@@ -143,14 +145,86 @@ Landed so far (each step left the tree green):
    the skeleton is complete and correct everywhere else — package, imports,
    trait path, member signature, entry-point call. Same stdout on both:
    `[telemetry] work=41` / `result=42`.
+5. **`external`/`define` deleted, and `intrinsic` enforced as std-only** —
+   the last item, and the one that makes the redesign real: there is now
+   exactly one interop path.
 
-Still to do, in order: delete the `external`/`define` machinery and sweep
-the ~130 test sources that use it (most become ordinary fns with *written*
-deduction lists, which gives the same declared-not-inferred contract while
-keeping them on the named-call path rather than moving them to
-`check_effect_call`); enforce intrinsic-as-std-only (needs the checker
-tests' preludes split into `is_std` files, since `is_std` currently affects
-only `reach.rs` roots and CLI/LSP filtering).
+   *Deleted from the language*: the `external` and `define` keywords, the
+   `define fn`/`define type`/`define handler` items, the double-backtick
+   `Template` token and its lexing, the `imports:`/`inline:`/`Mut inline:`
+   sections, and the `<module>.<backend>.sv` define file as a concept. With
+   them went `Symbols::{define_fns, define_types, define_handlers,
+   external_types}`, `check_define_pairing`, both backends'
+   `check_core_define_coverage`, `define_for_decl`, `emit_define_call`,
+   `define_type_args` and the whole template-expansion machinery —
+   about 900 lines net.
+
+   *Two enums collapsed into flags.* `BackingMod` had one variant left, so
+   `backing: Option<BackingMod>` became `intrinsic: bool` on `FnDecl`,
+   `TypeDecl`, `HandlerDecl` and `QualifierDecl` — the same shape
+   `EffectDecl::platform` already had, and for the same reason the earlier
+   gotcha records: a one-variant enum is an invariant expressed as a
+   runtime check. `SourceKind` went the same way: with no define files
+   there is only one kind of source, so the field is gone rather than
+   always `Language`, and every `if file.kind != Language { continue }` in
+   the checker, both emitters and reachability went with it.
+
+   *Three new rules fell out of the deletion, each replacing something that
+   used to be silent or meaningless.*
+   - **[decl-body]**: a bodiless top-level `fn`, and a `type` with neither
+     `= alias` nor `intrinsic`, are parse errors. Those were `external`'s
+     shape; without it there is nothing for them to mean, so the parser
+     says so and names the surviving forms rather than reporting a bare
+     "expected `{`".
+   - **[intrinsic-std-only]**: `intrinsic` is the compiler's, so only std
+     may write it. It is checked in `check_intrinsic_is_std_only` rather
+     than the parser, which sees one file's tokens and cannot know where
+     the file came from; the checker has `is_std` at hand. Not cosmetic —
+     the backends dispatch intrinsics from a table keyed by *name*, so a
+     customer `intrinsic fn` has no lowering anywhere, and the diagnostic
+     names the `platform effect` path instead.
+   - **[mod-file-name]**: a `.sv` file name may not contain a dot. This is
+     exactly the spelling that used to select a backend's define file, and
+     `classify` used to *skip it in silence* — so a leftover
+     `main.kotlin.sv` would have vanished from the build. It now errors,
+     naming both the file and the nested path it is ambiguous with. That
+     is why `SourceSet::classify` returns `Result` and `add_dir` returns
+     rendered messages rather than `(PathBuf, io::Error)` pairs.
+
+   *CLI surface shrank.* `salvo analyze --backend` and `salvo lsp
+   --backend` are **gone**: their only documented purpose was loading a
+   backend's define files, and an option that does nothing is worse than
+   no option. Both commands are unconditionally backend-neutral now.
+
+   *The test sweep was the bulk of it* — 108 `external` declarations across
+   14 files. Most became ordinary fns with the *same* signature and a
+   minimal body, which is what keeps the tests testing what they tested: a
+   written deduction list stays authoritative over anything inferred from a
+   body, so the contract under test is unchanged and the call stays on the
+   named-call path rather than moving to `check_effect_call`. The
+   `intrinsic` type stubs those tests relied on moved into a std-loaded
+   `core/prelude.sv` per harness (module `core.prelude`, implicitly
+   imported), which is precisely the `is_std` split this document predicted
+   would be needed. Tests whose *subject* was the define machinery were
+   deleted outright — missing-define errors, core coverage, the
+   define/external pairing, template generics — along with the
+   `defines.kotlin.sv` corpus file and its snapshot. **No golden snapshot
+   of emitted code changed**, again: the second time in this redesign that
+   byte-identical output has been the evidence a mechanism swap was
+   faithful.
+
+   *Two things the suite caught that a human sweep would have missed.* The
+   TextMate grammar still listed `external` and `define` as keywords and
+   still defined a double-backtick template rule — caught by
+   `keywords_are_fully_categorized`, which asserts the grammar's categories
+   partition the lexer's keyword table exactly. And `run_tests` still
+   asserted the old "backend define file" message for a dotted `--main`,
+   which is now the [mod-file-name] error.
+
+Still to do: nothing from the interop redesign. Its deferred pieces remain
+deferred by decision — `platform handler` (a host handler of an ordinary
+Salvo effect, constructed by `use`) and `platform type` — and are recorded
+under the decisions above rather than as leftovers.
 
 **One cut taken beyond the decisions, flagged to the user**: generic
 platform *effects* are rejected as well as generic members. A generic
@@ -226,7 +300,7 @@ a deferred `!!`/unwrap could be emitted for a fact that no longer holds
 
 One divergence is accepted and recorded for future work: Kotlin's
 `finally` also runs while an *unexpected* exception unwinds (a panic out of
-a std define), where the Rust splice does not. Salvo has no `catch`, so
+a std intrinsic), where the Rust splice does not. Salvo has no `catch`, so
 side effects during a crash are not part of a program's meaning; tightening
 it means catching the abort signal specifically once `abort` exists.
 
@@ -512,9 +586,9 @@ call's type arguments must be *determined* — by the arguments, an explicit
 list, or the expected type ([call-type-args], user decision A). What the
 compiler knows must be visible at the call, so Salvo does not look forward
 to a later use the way rustc does; and because the checker now always has
-the arguments, `define fn` templates interpolate them as `${T}`
-([backend-define-generics]), which is how Kotlin's list constructors get
-their element type.
+the arguments, a backend can spell an element type out where its own
+compiler cannot infer it [backend-intrinsic], which is how Kotlin's list
+constructors get theirs.
 
 **The checker no longer takes anything on trust (2026-09-03).** Members
 must be declared, not assumed: unresolved calls and dot-calls, calls on
@@ -699,11 +773,13 @@ knows must be visible at the call. Nothing in the repository needed
 rewriting — every existing `mutable_list()`/`list()` was already annotated
 or given elements.
 
-**Also landed with it: `define fn` templates interpolate type arguments**
-([backend-define-generics], user request "I want the templating to be
-consistent"). `${T}` now resolves against the define's own type parameters
-using the checker's new `call_type_args` table, exactly as `define type`
-templates already did. std's Kotlin list defines use it
+**Also landed with it: the era's `define fn` templates gained type-argument
+interpolation** (user request "I want the templating to be consistent").
+`${T}` resolved against the define's own type parameters using the checker's
+new `call_type_args` table, exactly as `define type` templates already did.
+The templates are gone (2026-09-05), but `call_type_args` outlived them: it
+is what the backends' intrinsic lowerings read. std's Kotlin list defines
+used it
 (`mutableListOf<${T}>(${...elems})`), so the element type is *always*
 spelled out rather than left to kotlinc's context. Rust's templates keep
 `vec![]` deliberately — rustc infers there, and pinning it would churn
@@ -830,18 +906,19 @@ body against the member's contract.
 checker's interop leniency is gone: a call, field read, subscript or `for`
 subject that no declaration justifies is now an error
 ([call-resolve], [field-resolve], [index-resolve], [iter-resolve]).
-Target-language features are reached by *declaring* them — `external type`
-for the type, `external fn` + `define` for anything you do with it — and
-dot-notation still reads like a method call because it *is* a call to a
-declared function. Generics fall under the same rule: with no bounds,
+Target-language features are reached by *declaring* them — as of
+2026-09-05 that means a member of a `platform effect` [platform-effect]
+(then `external type` for the type and `external fn` + `define` for
+anything you did with it) — and dot-notation still reads like a method call
+because it *is* a call to a declared function. Generics fall under the same rule: with no bounds,
 nothing about a `T` is knowable, so `value.name` inside `fn f<T>(value: T)`
 is an error rather than a promise about future call sites.
 
 Six holes closed, all of which the compiler used to accept silently and
 hand to the target compiler: an unresolved bare call (`nowhere()`), an
 unresolved dot-call (`text.shout()`), calling a value of known non-fn type
-(`n()` on an `Int`), a field on a non-struct (an opaque `external type`, a
-generic, an `Int`), `[]` on a non-array, and `for` over a non-iterable.
+(`n()` on an `Int`), a field on a non-struct (an opaque type, a generic, an
+`Int`), `[]` on a non-array, and `for` over a non-iterable.
 Each produced code the target compiler rejected — `E0618: expected
 function` from rustc, `unresolved reference 'n'` from kotlinc — which was
 loud but pointed at generated code the author never wrote, and in Kotlin's
@@ -865,9 +942,10 @@ basis — one rule for dot-calls beats a rule plus a silent interop
 exception — provided the diagnostic makes the problem obvious and, where
 possible, the language offers a straightforward remedy (the precedents are
 `copy` for shared fate and `discard` for linear obligations). That is the
-standard the new diagnostics are held to: each names the remedy
-(`external fn` for a missing member, `get(collection, index)` for a
-subscript, "rebuild the tuple" for an element write) — and where no remedy
+standard the new diagnostics are held to: each names the remedy (a
+declared fn — since 2026-09-05 a `platform effect` member — for a missing
+member, `get(collection, index)` for a subscript, "rebuild the tuple" for an
+element write) — and where no remedy
 exists, it says *that* instead of suggesting a useless one: a type
 parameter's diagnostic explains that nothing is known about a `T` rather
 than pointing at an accessor that could not help.
@@ -952,11 +1030,13 @@ impossible"). Narrowed nullable field reads now emit `!!`
 checker invalidates the fact on any mutation.
 
 **Bodyless declarations are explicit (user decision 2026-09-03).** No
-inference for anything the compiler cannot see: `external`/`intrinsic` fns
-must declare effects, deductions, *and* return type; effect members must
-declare return type and deductions; and every `define fn` must match an
-external one-to-one, taking its signature from that external
-[decl-explicit]. This removed the last inference-from-nothing guess (and
+inference for anything the compiler cannot see: a bodyless fn must declare
+effects, deductions, *and* return type; effect members must declare return
+type and deductions [decl-explicit]. (At the time that covered
+`external`/`intrinsic` fns and required every `define fn` to match an
+external one-to-one; since 2026-09-05 `intrinsic fn` and effect members are
+the only bodyless forms, and a bodyless `fn` anywhere else is a parse error
+[decl-body].) This removed the last inference-from-nothing guess (and
 with it the `Mut`-parameter proxy D1 needed), and fixed a real ownership
 bug it had been hiding: std's `add` did not consume its element, so
 `add(xs, h)` then using `h` compiled on Kotlin and was rejected by rustc.
@@ -1062,7 +1142,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 526 tests; includes thirty-six kotlinc and thirty-five rustc
+cargo test                  # 514 tests; includes thirty-five kotlinc and thirty-four rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1175,9 +1255,9 @@ that still shape the code, and where to look for the mechanics.
   looser [deduce-syntax] [deduce-infer].
 - **M7 — Polish.** Only reachable modules are emitted [mod-used-only]
   (name-usage reachability, deliberately conservative); per-module Kotlin
-  packages + generated imports [kt-package] [kt-imports]; define coverage
-  checked upfront for `core.*` and at reference sites
-  [backend-external]; backend-native companion files copy verbatim
+  packages + generated imports [kt-package] [kt-imports]; interop coverage
+  checked upfront for `core.*` and at reference sites (the `define` era's
+  rule, since deleted); backend-native companion files copy verbatim
   [backend-companion]. Decision under [type-array]: `T[]` stays
   `Array<T>` in Kotlin (no primitive-array specialization without
   profiling data).
@@ -3520,9 +3600,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 526)
+## Test inventory (all green: 514)
 
-- `salvo-core`: 197 - 16 unit tests (file classification, including the
+- `salvo-core`: 196 - 15 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -3624,8 +3704,8 @@ spec rule; consolidated here for findability):
   reported; a type argument confined to the parameters needing no context;
   an unknown-typed argument keeping the call lenient so one mistake yields
   one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
-  per call, which is what `${T}` interpolates
-  [backend-define-generics])
+  per call, which is what a backend's intrinsic lowering renders
+  [backend-intrinsic])
   + 9 widening tests (`tests/widen_tests.rs` [qual-widen]: a `^` branch head
   opening a nested union, `^ Mut` stripping in an `if` with the mutation it
   then rejects, the intrinsic qualifiers refused with their reasons from the
@@ -3694,7 +3774,7 @@ spec rule; consolidated here for findability):
   members of one effect sharing a name, the same name across two effects
   (reported *once*, at the second declaration), and distinct names across
   effects staying legal).
-- `salvo-cli`: 77 - 46 `analyze` integration tests running the built
+- `salvo-cli`: 76 - 45 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -3710,10 +3790,10 @@ spec rule; consolidated here for findability):
   always-exiting path), `when`-arm merging incl. subject consumption,
   partial qualifier removal joining conservatively, and call-site
   qualifier removal for kept params incl. `[list:]` [deduce-consume],
-  bodyless-declaration explicitness ([decl-explicit]: an external missing
-  all three parts, an effect member missing the two that apply to it and
-  *not* asked for effects, an effect member's declared deductions enforced
-  at the call site, and std's `add` consuming its element),
+  bodyless-declaration explicitness ([decl-explicit]: an effect member
+  missing the two parts that apply to it and *not* asked for effects, an
+  effect member's declared deductions enforced at the call site, and std's
+  `add` consuming its element),
   the D1 deduction forms ([deduce-syntax]: the `clear`/`NonEmpty`
   unsoundness now rejected, a delta preserving an undeclared qualifier, a
   bodyless `Mut` parameter refusing the delta form, a mutating body
@@ -3848,8 +3928,15 @@ spec rule; consolidated here for findability):
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 51 (three std *define-file* snapshot tests were deleted
-  with the define files themselves; three `platform effect` parser tests
+- `salvo-syntax`: 56 (the std *define-file* snapshot tests were deleted
+  with the define files themselves, as were the `defines.kotlin.sv` corpus
+  file and its snapshot, and `imports_externals.sv` became `imports.sv`;
+  six declaration-form tests were added — [decl-body]: a bodiless top-level
+  `fn` erroring with `platform effect` named, a bodiless non-alias `type`,
+  a `canbe` clause not counting as a definition, and the two defining forms
+  (`= alias`, `intrinsic`) *not* erroring; plus `external` and `define`
+  asserted to be ordinary identifiers now, so each of their three old forms
+  fails with a plain "expected item"; three `platform effect` parser tests
   were added [platform-effect]: the flag is set by the modifier, a plain
   `effect` leaves it clear so nothing existing changed meaning, and
   `platform type` / `platform fn` are parse errors naming the form) (the
@@ -3888,7 +3975,7 @@ spec rule; consolidated here for findability):
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 115 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 107 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3919,9 +4006,6 @@ spec rule; consolidated here for findability):
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
   [kt-copy] [intrinsic-fn]) and a negative test (`copy` of nested
   mutability is a codegen error);
-  define/external pairing ([decl-explicit]: same-name defines dispatching
-  by parameter base types, a define with no external rejected, two defines
-  for one external rejected);
   general-sweep assertions (precedence-preserving binary rendering,
   iterator-body `return` retargeting through a value-position loop,
   alias imports of mangled qualified overloads keeping the `__Qual`
@@ -3945,10 +4029,10 @@ spec rule; consolidated here for findability):
   ([effect-handler-deps]: the dependency as a constructor field, the
   member signature still matching the interface, the `use` site supplying
   it, callers not mentioning it);
-  define-template type-argument assertions ([backend-define-generics]:
-  `${T}` interpolated from a `let` annotation and from an explicit type
-  argument, and std's list constructors carrying their element type —
-  `mutableListOf<Int>()`, which is the form kotlinc requires);
+  type-argument assertions ([call-type-args] [backend-intrinsic]: std's
+  list constructors carrying their element type from a `let` annotation and
+  from an explicit type argument — `mutableListOf<Int>()`, which is the form
+  kotlinc requires);
   and twenty-seven kotlinc compile+run tests
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
@@ -4006,7 +4090,7 @@ spec rule; consolidated here for findability):
   Rust run byte for byte. The `run_kotlin_entry` helper exists because
   `run_kotlin_files` hardcodes `salvo.main.MainKt`, and the entry here is
   the host's `salvo.platform.main.MainKt`).
-- `salvo-backend-rust`: 86 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 79 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -4053,9 +4137,9 @@ spec rule; consolidated here for findability):
   `fn_type_contracts_emit_modes` asserting `&mut impl FnMut`
   signatures with contract-mode argument types and the named-fn
   adapter [fn-contract]);
-  define-template type-argument assertions ([backend-define-generics]:
-  `${T}` interpolated into `Vec::<i32>::new()` from an annotation and from
-  an explicit type argument, with a rustc run);
+  type-argument assertions ([call-type-args] [backend-intrinsic]:
+  `Vec::<i32>::new()` from an annotation and from an explicit type argument,
+  with a rustc run);
   fusion assertions ([rs-effect-fusion]: the dependency absent from the
   struct and from `new`, member bodies in the generated `__Impl_H` trait,
   the fusion chaining through `__outer` and owning the handler, the
@@ -4126,6 +4210,38 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A silent skip is a bug waiting for a deletion.** `SourceSet::classify`
+  returned `None` for a file belonging to another backend, and `add_dir`
+  dropped it. That was right while define files existed. The moment they
+  were deleted, the same code silently ignored any `x.y.sv` — so a leftover
+  `main.kotlin.sv` in a source tree would have contributed nothing, with no
+  message. Deleting a feature means auditing the *tolerances* it justified,
+  not just its code: every "skip this, it isn't for us" branch is a claim
+  that something else handles the file, and the deletion may have removed
+  the something else.
+- **Delete the enum when it loses its second variant.** `BackingMod` was
+  down to `Intrinsic` and `SourceKind` to `Language`. Keeping either would
+  have left an invariant as a runtime check — `if file.kind != Language`
+  in a dozen places, all of them dead — so both became a flag or nothing at
+  all (`intrinsic: bool`, no `kind` field). This is the same lesson the
+  `platform: bool` decision recorded, arriving from the opposite direction:
+  there, an enum was refused before it existed; here, one was removed after
+  it emptied out.
+- **Keep the signature, add the body.** The 108 `external fn` declarations
+  in the tests were not obstacles to route around: each became an ordinary
+  fn with the *same* signature and a minimal body. That preserved what each
+  test tested, because a written deduction list stays authoritative over
+  anything inferred from a body — so the contract under test was unchanged
+  and calls stayed on the named-call path. Rewriting them as `platform
+  effect` members would have compiled just as well and quietly moved the
+  tests onto `check_effect_call`, testing something else.
+- **A partition test earns its keep during a deletion.** The TextMate
+  grammar's keyword list is asserted to partition the lexer's keyword table
+  *exactly*, and that assertion is what caught `external` and `define` still
+  being highlighted after they stopped being keywords. Nothing else in the
+  suite would have noticed. When a generated artifact mirrors a table, assert
+  the mirroring rather than the artifact's contents.
 
 - **Reuse the mechanism, and check what the mechanism keys on.** Mounting
   the `platform/` tree looked like "companions already do this", and it

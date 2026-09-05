@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{AbortSite, Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
-use salvo_core::{ModulePath, Program, SourceKind, Symbols};
+use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
 
@@ -64,9 +64,7 @@ pub fn emit_program_with_entry(
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
-            u.file.kind == SourceKind::Language
-                && reachable.contains(&u.file.module)
-                && module_produces_code(u.ast)
+            reachable.contains(&u.file.module) && module_produces_code(u.ast)
         })
         .map(|u| &u.file.module)
         .collect();
@@ -80,8 +78,7 @@ pub fn emit_program_with_entry(
     // knows which the user asked for, and the crate root is the one file
     // that carries the `mod` declarations.
     let declares_main = |u: &salvo_core::program::Unit| {
-        u.file.kind == SourceKind::Language
-            && emitted_modules.contains(&u.file.module)
+        emitted_modules.contains(&u.file.module)
             && u.ast.items.iter().any(|item| {
                 matches!(item, Item::Fn(f) if f.name.name == "main" && f.body.is_some())
             })
@@ -92,12 +89,7 @@ pub fn emit_program_with_entry(
         .or_else(|| program.units().find(declares_main))
         .map(|u| &u.file.module);
 
-    // [backend-external] Everything external in `core.*` must be covered
-    // by the backend's define files (core is implicitly imported).
-    let mut errors = check_core_define_coverage(program, &symbols);
-    // [decl-explicit] Every define implements exactly one external:
-    // the external carries the contract, the define the template.
-    errors.extend(salvo_core::check_define_pairing(program, &symbols, "rust"));
+    let mut errors: Vec<String> = Vec::new();
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
@@ -106,10 +98,7 @@ pub fn emit_program_with_entry(
     // fusion, so either every effect site fuses or none does.
     let fusion = program_needs_fusion(&symbols);
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.kind != SourceKind::Language
-            || !reachable.contains(&unit.file.module)
-            || !module_produces_code(unit.ast)
-        {
+        if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
         }
         let generated = generated_imports(
@@ -148,7 +137,7 @@ pub fn emit_program_with_entry(
         if files.iter().any(|f| f.rel_path == comp.rel_path) {
             errors.push(format!(
                 "companion file `{}` collides with the generated file of module \
-                 `{}` (companion modules should only declare `external` items)",
+                 `{}`: a companion cannot replace a module Salvo emits",
                 comp.rel_path.display(),
                 comp.module
             ));
@@ -181,8 +170,7 @@ pub fn emit_program_with_entry(
     // the error names the command that creates it, or the failure only
     // surfaces as `rustc` reporting `E0601`.
     for unit in program.units() {
-        if unit.file.kind != SourceKind::Language
-            || unit.file.is_std
+        if unit.file.is_std
             || !reachable.contains(&unit.file.module)
             || salvo_core::platform_entry(unit.ast, &symbols).is_none()
         {
@@ -311,16 +299,13 @@ pub fn platform_skeletons(
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| {
-            u.file.kind == SourceKind::Language
-                && reachable.contains(&u.file.module)
-                && module_produces_code(u.ast)
+            reachable.contains(&u.file.module) && module_produces_code(u.ast)
         })
         .map(|u| &u.file.module)
         .collect();
     let (mod_names, _) = module_mod_names(&emitted_modules);
     let declares_main = |u: &salvo_core::program::Unit| {
-        u.file.kind == SourceKind::Language
-            && emitted_modules.contains(&u.file.module)
+        emitted_modules.contains(&u.file.module)
             && u.ast.items.iter().any(|item| {
                 matches!(item, Item::Fn(f) if f.name.name == "main" && f.body.is_some())
             })
@@ -344,9 +329,6 @@ pub fn platform_skeletons(
     };
     let mut effect_module: HashMap<&str, &ModulePath> = HashMap::new();
     for unit in program.units() {
-        if unit.file.kind != SourceKind::Language {
-            continue;
-        }
         for e in salvo_core::platform_effects(unit.ast) {
             effect_module.insert(e.name.name.as_str(), &unit.file.module);
         }
@@ -355,7 +337,7 @@ pub fn platform_skeletons(
     let mut files = Vec::new();
     let mut errors = Vec::new();
     for (file_idx, unit) in program.units().enumerate() {
-        if unit.file.kind != SourceKind::Language || unit.file.is_std {
+        if unit.file.is_std {
             continue;
         }
         let effects = salvo_core::platform_effects(unit.ast);
@@ -563,52 +545,6 @@ fn generated_imports(
         ));
     }
     imports
-}
-
-/// [backend-external] Every `external` item in the implicitly imported
-/// `core.*` modules must have a define for this backend.
-fn check_core_define_coverage(program: &Program, symbols: &Symbols<'_>) -> Vec<String> {
-    let mut errors = Vec::new();
-    for unit in program.units() {
-        if unit.file.kind != SourceKind::Language
-            || unit.file.module.0.first().map(String::as_str) != Some("core")
-        {
-            continue;
-        }
-        for item in &unit.ast.items {
-            match item {
-                Item::Fn(f) if f.backing == Some(BackingMod::External) => {
-                    let covered = symbols.define_fns.get(f.name.name.as_str()).is_some_and(
-                        |defs| defs.iter().any(|d| d.sig.params.len() == f.params.len()),
-                    );
-                    if !covered {
-                        errors.push(format!(
-                            "{}: external fn `{}` in core has no rust `define fn`",
-                            unit.file.name, f.name.name
-                        ));
-                    }
-                }
-                Item::Type(t) if t.backing == Some(BackingMod::External) => {
-                    if !symbols.define_types.contains_key(t.name.name.as_str()) {
-                        errors.push(format!(
-                            "{}: external type `{}` in core has no rust `define type`",
-                            unit.file.name, t.name.name
-                        ));
-                    }
-                }
-                Item::Handler(h) if h.backing == Some(BackingMod::External) => {
-                    if !symbols.define_handlers.contains_key(h.name.name.as_str()) {
-                        errors.push(format!(
-                            "{}: external handler `{}` in core has no rust `define handler`",
-                            unit.file.name, h.name.name
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    errors
 }
 
 /// Generates the union enums for every needed size [rs-union-enums]:
@@ -1142,7 +1078,7 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
-        if h.backing == Some(BackingMod::Intrinsic) {
+        if h.intrinsic {
             return self.emit_intrinsic_handler(h);
         }
         // [effect-handler-deps] A dependency is a constructor parameter of
@@ -2209,26 +2145,12 @@ impl<'p> Emitter<'p> {
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
         let name = base.name.name.clone();
-        // A `Mut`-qualified type maps through its define's `Mut inline:`
-        // template when one exists [type-canbe-mut]; the std rust defines
-        // deliberately provide none (mutability is in bindings, not
-        // types [rs-borrows]).
-        if qualifiers.iter().any(|q| q.name.name == "Mut") {
-            let arg_strs: Vec<String> = base.args.iter().map(|a| self.emit_type(a)).collect();
-            if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
-                return code;
-            }
-        }
+        // [type-canbe-mut] `Mut` erases here: on Rust, mutability lives in
+        // the binding, not the type [rs-borrows], so `Mut List<T>` and
+        // `List<T>` render identically and the deduction-driven parameter
+        // mode decides `&` vs `&mut`.
+        let _ = qualifiers;
         self.emit_type_ref_named(&name, &base.args)
-    }
-
-    fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
-        let def = self.symbols.define_types.get(name).copied()?;
-        let mut_inline = def.body.mut_inline.clone()?;
-        if let Some(imports) = &def.body.imports {
-            self.add_template_imports(imports);
-        }
-        Some(self.expand_type_template(&mut_inline, &def.generics, arg_strs))
     }
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
@@ -2257,8 +2179,8 @@ impl<'p> Emitter<'p> {
         self.emit_named_parts(name, &arg_strs)
     }
 
-    /// Maps a named type to Rust: intrinsic types [backend-intrinsic],
-    /// `define type` templates [backend-define-type], or pass-through.
+    /// Maps a named type to Rust: intrinsic types [backend-intrinsic], or
+    /// pass-through [type-unknown-lenient].
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
         // [rs-effect-fusion] Inside a forwarding impl for an instantiated
         // effect, the effect's own type parameters render as the instance's
@@ -2280,18 +2202,6 @@ impl<'p> Emitter<'p> {
             // [backend-never-wrong] No Rust mapping yet.
             self.error("the `Any` type is not supported by the rust backend yet");
             return "()".to_string();
-        }
-        if let Some(def) = self.symbols.define_types.get(name) {
-            let def = *def;
-            if let Some(imports) = &def.body.imports {
-                self.add_template_imports(imports);
-            }
-            if let Some(inline) = &def.body.inline {
-                return self.expand_type_template(inline, &def.generics, arg_strs);
-            }
-        }
-        if self.symbols.external_types.contains_key(name) {
-            self.error(format!("external type `{name}` has no rust `define type`"));
         }
         // Structs, generics, effects, and unknown names pass through.
         format!("{}{args}", rs_ident(name))
@@ -2384,16 +2294,10 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                if quals.iter().any(|q| q.name == "Mut") {
-                    if let Ty::Named { name, args } = base.as_ref() {
-                        let name = name.clone();
-                        let arg_strs: Vec<String> =
-                            args.iter().map(|a| self.rust_ty(a)).collect();
-                        if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
-                            return code;
-                        }
-                    }
-                }
+                // [type-canbe-mut] Every qualifier erases here, `Mut`
+                // included: Rust carries mutability in the binding, not the
+                // type [rs-borrows].
+                let _ = quals;
                 self.rust_ty(base)
             }
             Ty::Union(_) => {
@@ -5312,7 +5216,6 @@ impl<'p> Emitter<'p> {
             let name = field.name.as_str();
             let total = args.len() + 1;
             if self.symbols.effect_of_fn.contains_key(name)
-                || self.symbols.resolve_define_fn(name, total).is_some()
                 || self.symbols.resolve_fn(name, total).is_some()
             {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
@@ -5328,7 +5231,7 @@ impl<'p> Emitter<'p> {
             self.error(format!(
                 "internal error: dot-call `{name}` reached the Rust emitter \
                  unresolved (the checker should have rejected it, or resolved \
-                 it to a fn, define, or effect member)"
+                 it to a fn or effect member)"
             ));
             "todo!()".to_string()
         } else if let Expr::Ident(id) = callee {
@@ -5404,51 +5307,24 @@ impl<'p> Emitter<'p> {
         }
 
         // 2. Checker-resolved fn target (type-based overloads win)
-        // [fn-overload]. Intrinsic fns lower in the emitter [intrinsic-fn];
-        // external signatures route to their define.
+        // [fn-overload]. An `intrinsic fn` lowers in the emitter
+        // [intrinsic-fn]; anything else has a body, since a bodiless
+        // top-level fn is a parse error [decl-body].
         let checker_resolved = self
             .checked
             .call_fn
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key).map(|f| (*key, f)));
         if let Some((key, f)) = checker_resolved {
-            if f.backing == Some(BackingMod::Intrinsic) {
+            if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
-            }
-            if f.body.is_none() {
-                if let Some(def) = self.define_for_decl(name, f) {
-                    return self.emit_define_call(name, def, args, span);
-                }
-                self.error(format!("external fn `{name}` has no rust `define fn`"));
-                return "todo!()".to_string();
             }
             return self.emit_fn_call(name, f, Some(key), args, span);
         }
 
-        // 3. `define fn` template (unchecked contexts): arity narrowed by
-        // the checked argument types; ambiguous dispatch is a codegen
-        // error, never a guess [backend-never-wrong] [fn-overload].
-        let define_cands = self.symbols.defines_matching_arity(name, args.len());
-        if !define_cands.is_empty() {
-            return match disambiguate_unchecked(
-                self,
-                &define_cands,
-                |d| d.sig.params.as_slice(),
-                args,
-            ) {
-                Some(def) => self.emit_define_call(name, def, args, span),
-                None => {
-                    self.error(format!(
-                        "call to `{name}` is ambiguous here: multiple same-arity \
-                         `define fn` templates match and the checker did not \
-                         resolve the overload; annotate the argument types"
-                    ));
-                    "todo!()".to_string()
-                }
-            };
-        }
-
-        // 4. Known function (unchecked contexts): same ambiguity rule.
+        // 3. Known function (unchecked contexts): arity narrowed by the
+        // checked argument types; ambiguous dispatch is a codegen error,
+        // never a guess [backend-never-wrong] [fn-overload].
         let fn_cands = self.symbols.fns_matching_arity(name, args.len());
         if !fn_cands.is_empty() {
             let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
@@ -5460,18 +5336,14 @@ impl<'p> Emitter<'p> {
                 ));
                 return "todo!()".to_string();
             };
-            if f.backing == Some(BackingMod::Intrinsic) {
+            if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
-            }
-            if f.body.is_none() {
-                self.error(format!("external fn `{name}` has no rust `define fn`"));
-                return "todo!()".to_string();
             }
             let key = self.key_of_fn(f);
             return self.emit_fn_call(name, f, key, args, span);
         }
 
-        // 5. Local callable / interop. A call through a fn-typed value
+        // 4. Local callable / interop. A call through a fn-typed value
         // renders its arguments per the recorded contract [fn-contract]:
         // kept non-Copy borrows, kept `Mut` borrows mutably, moved (or
         // Copy) owned. Interop calls (no contract) keep owned
@@ -5665,7 +5537,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// The rendered arguments of an `intrinsic fn` call, in declaration
-    /// order, preserving the distinction the define templates relied on
+    /// order, preserving the distinction the intrinsic lowerings rely on
     /// [rs-borrows]: a *place* splices raw so a method-style lowering
     /// borrows it natively (`list.push(..)`), while a variadic tail
     /// splices owned because it lands inside a constructor (`vec![..]`).
@@ -5691,121 +5563,6 @@ impl<'p> Emitter<'p> {
                 }
             })
             .collect()
-    }
-
-    /// Finds the define template matching an external fn signature
-    /// [backend-define-inline] (same base-type matching as Kotlin).
-    fn define_for_decl(&self, name: &str, decl: &FnDecl) -> Option<&'p DefineFn> {
-        let defs = self.symbols.define_fns.get(name)?;
-        let shape_matches = |d: &DefineFn| {
-            d.sig.params.len() == decl.params.len()
-                && d.sig
-                    .params
-                    .iter()
-                    .zip(&decl.params)
-                    .all(|(a, b)| a.variadic == b.variadic)
-        };
-        let types_match = |d: &DefineFn| {
-            d.sig.params.iter().zip(&decl.params).all(|(a, b)| {
-                match (type_base_name(&a.ty), type_base_name(&b.ty)) {
-                    (Some(a), Some(b)) => a == b,
-                    _ => true,
-                }
-            })
-        };
-        defs.iter()
-            .find(|d| shape_matches(d) && types_match(d))
-            .or_else(|| defs.iter().find(|d| shape_matches(d)))
-            .or_else(|| defs.first())
-            .copied()
-    }
-
-    /// Inline expansion of a `define fn` template [backend-define-inline]:
-    /// place arguments splice raw (method-style templates borrow them
-    /// natively); everything else splices owned.
-    fn emit_define_call(
-        &mut self,
-        name: &str,
-        def: &'p DefineFn,
-        args: &[&Expr],
-        span: Span,
-    ) -> String {
-        if let Some(imports) = &def.body.imports {
-            self.add_template_imports(imports);
-        }
-        if let Some(inline) = def.body.inline.clone() {
-            let mut arg_code: Vec<String> = Vec::new();
-            let variadic_at = def.sig.params.iter().position(|p| p.variadic);
-            for (i, arg) in args.iter().enumerate() {
-                let is_variadic_part = variadic_at.is_some_and(|v| i >= v);
-                let code = match arg {
-                    // Places splice raw so templates like
-                    // `${list}.push(..)` borrow natively [rs-borrows] —
-                    // except variadic parts, which are spliced into
-                    // constructors (`vec![${...elems}]`) and must be
-                    // owned.
-                    Expr::Ident(_)
-                        | Expr::Field { .. }
-                        | Expr::TupleIndex { .. }
-                        | Expr::Index { .. }
-                        if !is_variadic_part =>
-                    {
-                        self.emit_place(arg)
-                    }
-                    Expr::Spread { operand, .. } => self.emit_owned(operand),
-                    other => self.emit_expr(other),
-                };
-                arg_code.push(code);
-            }
-            let type_args = self.define_type_args(name, def, span);
-            return self
-                .expand_template(
-                    &inline,
-                    &def.sig.params,
-                    &arg_code,
-                    &def.sig.generics,
-                    &type_args,
-                )
-                .trim()
-                .to_string();
-        }
-        self.error(format!("define fn `{name}` has no inline section"));
-        "todo!()".to_string()
-    }
-
-    /// [backend-define-generics] The rendered type arguments of this call,
-    /// in the define's generic order, from the checker's `call_type_args`
-    /// ([call-type-args]). Positional: a define's generics line up with its
-    /// external's, which is what pairs the two declarations.
-    fn define_type_args(&mut self, name: &str, def: &'p DefineFn, span: Span) -> Vec<String> {
-        if def.sig.generics.is_empty() {
-            return Vec::new();
-        }
-        let Some(tys) = self
-            .checked
-            .call_type_args
-            .get(&(self.file_idx, span))
-            .cloned()
-        else {
-            return Vec::new();
-        };
-        let mut out = Vec::with_capacity(tys.len());
-        for ty in &tys {
-            if ty.is_unknown() {
-                // Only reachable through a checker gap: [call-type-args]
-                // rejects a call whose type arguments nothing determines,
-                // so rendering a guess here would be silently wrong code
-                // [backend-never-wrong].
-                self.error(format!(
-                    "call to `{name}` has an unresolved type argument, which its \
-                     `define fn` template needs"
-                ));
-                out.push("()".to_string());
-                continue;
-            }
-            out.push(self.rust_ty(ty));
-        }
-        out
     }
 
     /// A call to a declared function: effect handlers thread as leading
@@ -6133,113 +5890,6 @@ impl<'p> Emitter<'p> {
             }
         }
     }
-
-    // ================= templates =================
-
-    fn add_template_imports(&mut self, template: &Template) {
-        // [backend-define-imports] hoisted and deduped per generated file.
-        let text: String = template
-            .parts
-            .iter()
-            .map(|p| match p {
-                TemplatePart::Text(t) => t.as_str(),
-                _ => "",
-            })
-            .collect();
-        for line in text.lines() {
-            let line = line.trim();
-            if !line.is_empty() {
-                self.imports.insert(line.to_string());
-            }
-        }
-    }
-
-    /// Expands a `define fn` inline template [backend-define-inline].
-    fn expand_template(
-        &mut self,
-        template: &Template,
-        params: &[Param],
-        args: &[String],
-        generics: &[Ident],
-        type_args: &[String],
-    ) -> String {
-        let mut out = String::new();
-        for part in &template.parts {
-            match part {
-                TemplatePart::Text(t) => out.push_str(t),
-                TemplatePart::Interp(name) => {
-                    match params.iter().position(|p| p.name.name == name.name) {
-                        Some(idx) if idx < args.len() => out.push_str(&args[idx]),
-                        // [backend-define-generics] A name that is not a
-                        // parameter may be one of the define's *type*
-                        // parameters, interpolated like `define type` does.
-                        _ => match generics.iter().position(|g| g.name == name.name) {
-                            Some(gi) if gi < type_args.len() => {
-                                out.push_str(&type_args[gi])
-                            }
-                            _ => {
-                                self.error(format!(
-                                    "template refers to unknown or missing parameter \
-                                     or type parameter `${{{}}}`",
-                                    name.name
-                                ));
-                                out.push_str("todo!()");
-                            }
-                        },
-                    }
-                }
-                TemplatePart::InterpVariadic(name) => {
-                    match params.iter().position(|p| p.name.name == name.name) {
-                        Some(idx) => {
-                            let rest = args.get(idx..).unwrap_or(&[]);
-                            out.push_str(&rest.join(", "));
-                        }
-                        None => {
-                            self.error(format!(
-                                "template refers to unknown variadic parameter `${{...{}}}`",
-                                name.name
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// Expands a `define type` inline template [backend-define-type].
-    fn expand_type_template(
-        &mut self,
-        template: &Template,
-        generics: &[Ident],
-        args: &[String],
-    ) -> String {
-        let mut out = String::new();
-        for part in &template.parts {
-            match part {
-                TemplatePart::Text(t) => out.push_str(t),
-                TemplatePart::Interp(name) => {
-                    match generics.iter().position(|g| g.name == name.name) {
-                        Some(idx) if idx < args.len() => out.push_str(&args[idx]),
-                        _ => {
-                            self.error(format!(
-                                "type template refers to unknown generic `${{{}}}`",
-                                name.name
-                            ));
-                            out.push_str("()");
-                        }
-                    }
-                }
-                TemplatePart::InterpVariadic(name) => {
-                    self.error(format!(
-                        "variadic interpolation `${{...{}}}` is not valid in a type template",
-                        name.name
-                    ));
-                }
-            }
-        }
-        out.trim().to_string()
-    }
 }
 
 // ================= helpers =================
@@ -6299,8 +5949,8 @@ fn binary_op(op: BinaryOp) -> &'static str {
     }
 }
 
-/// The base type name of an AST type (pairs define templates with
-/// overloaded external declarations).
+/// The base type name of an AST type, used to disambiguate overloads in
+/// unchecked contexts.
 /// The (kept, mutable) contract of one fn-type parameter [fn-contract]:
 /// kept unless the written deduction list omits its name; mutable when
 /// the declared type carries `Mut`. Defaults keep everything.

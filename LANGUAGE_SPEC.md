@@ -130,8 +130,8 @@ Conventions:
     type positions must resolve [name-resolve], and members must be
     justified by a declaration ([call-resolve], [field-resolve],
     [index-resolve], [iter-resolve]). Reaching a target-language feature
-    means declaring it — `external type` for the type, `external fn`
-    (+ `define`) for anything you do with it.
+    means declaring it — an `intrinsic` in std [backend-intrinsic], or a
+    `platform effect` member [platform-effect] in customer code.
   * The emitters keep syntactic fallbacks where a checker table may
     legitimately have no entry (an `Unknown`-typed expression still has to
     render), but *not* where the checker now guarantees resolution: an
@@ -210,16 +210,15 @@ Conventions:
     array copy).
 * [type-canbe-mut] `Mut` is a language-level qualifier, not a library
   declaration: any type declaration may opt into it with `canbe Mut`
-  (`external type List<T> canbe Mut`), and applying `Mut` to a type whose
+  (`intrinsic type List<T> canbe Mut`), and applying `Mut` to a type whose
   declaration does not say `canbe Mut` is an error. `Mut` composes with
   every other qualifier (no `with` compatibility needed).
   * Validated at declaration sites (`validate_quals` in the checker)
     against struct and opaque-type `auto_qualifiers`.
-  * Backends decide what `Mut` means. A `define type` block may provide
-    a `Mut inline:` template used when the type is `Mut`-qualified
-    (Kotlin maps `Mut List<T>` to `MutableList<T>`); without one, `Mut`
-    erases for that backend (Rust expresses it as `mut` bindings and
-    `&mut` references instead).
+  * Backends decide what `Mut` means, as an intrinsic lowering
+    [backend-intrinsic]: Kotlin maps `Mut List<T>` to `MutableList<T>`
+    (through `mut_type_name`), while Rust erases `Mut` — mutability lives
+    in the binding (`mut` bindings and `&mut` references) instead.
 
 ## Qualifiers
 
@@ -233,7 +232,7 @@ Conventions:
 * [canbe-optin] `canbe` declares an *opt-in*: the declaration it follows
   may carry the named qualifier. Two sites use it — auto-qualifiers on
   struct and type declarations (`struct Person canbe Mut` [struct-mut],
-  `external type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
+  `intrinsic type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
   canbe Linear` [linear-canbe]) and per-type-parameter opt-ins on fns
   (`fn hold<T canbe Linear>` [linear-generics]).
   * `canbe` and `with` are unrelated clauses: `canbe` grants a qualifier
@@ -576,8 +575,8 @@ Conventions:
   * Exception: a *bodyless* declaration must write `-> None` explicitly
     [decl-explicit].
 * [decl-explicit] Nothing the compiler cannot see is inferred (user
-  decision 2026-09-03). A fn with **no body** — `external fn`,
-  `intrinsic fn` — must declare its **effect list**, **deduction list**,
+  decision 2026-09-03). A fn with **no body** — an `intrinsic fn` — must
+  declare its **effect list**, **deduction list**,
   and **return type**; an *effect member* must declare its deduction list
   and return type (it may not declare effects at all
   [effect-member-no-effects]). Inference from an absent body is a guess,
@@ -589,13 +588,20 @@ Conventions:
     are applied at call sites exactly like a named call's, so a member
     that takes ownership consumes its argument. Validating each *handler*
     body against the member's contract is future work (roadmap E1).
-  * An external's declaration is **trusted**, not second-guessed: the
-    checker does not infer mutation from a `Mut` parameter and override
-    it. Catching a *wrong* external declaration by inspecting its define
-    template is roadmap E2.
-  * `define fn` declarations are exempt: they carry a native template, not
-    a contract, and must pair one-to-one with an `external fn` (see
-    [backend-define-inline]) whose declaration supplies the contract.
+  * An `intrinsic fn`'s declaration is **trusted**, not second-guessed:
+    the checker does not infer mutation from a `Mut` parameter and
+    override it — the written signature is the contract the backends lower
+    against.
+* [decl-body] A top-level `fn` with **no body**, and a `type` with neither
+  an `= alias` nor the `intrinsic` modifier, are parse errors (in
+  `parse_item`): both were the shape of the now-removed bodiless
+  declaration form, and there is nothing left for such a declaration to
+  mean. Each error names the surviving forms — write the body, or (if the
+  target language provides it) declare a `platform effect` member
+  [platform-effect]; give the type a definition (`type N = ...`), or
+  declare it `intrinsic`. `intrinsic` declarations parse through their own
+  modifier branch, so they are the only bodiless `fn`/`type` forms left,
+  and only std may write them [intrinsic-std-only].
 * [fn-must-return] A fn with a non-`None` return type must return on
   every path. Definitely-returning constructs: `return`, a **diverging
   expression** ([type-any-nothing]: a statement the checker typed
@@ -610,9 +616,9 @@ Conventions:
   qualifiers: `full_name(Person)` vs `full_name(Surname Person)`).
   * The checker scores viable candidates (exact type match > subtype;
     qualified params more specific) and records the winner per call site
-    (`call_fn`). In unchecked contexts (no recorded winner — e.g.
-    define-only names) emitters narrow same-arity candidates by the
-    checked argument types' base names; an ambiguous dispatch is a
+    (`call_fn`). In unchecked contexts (no recorded winner) emitters
+    narrow same-arity candidates by the checked argument types' base
+    names; an ambiguous dispatch is a
     codegen error ("annotate the argument types"), never a guess
     [backend-never-wrong].
   * Generic bindings in `unify` widen: when arguments bind the same `T`
@@ -643,15 +649,16 @@ Conventions:
     type; a pattern still mentioning the callee's own generics does not
     (it would coerce against an unsubstituted `T`).
   * The resolved bindings are recorded per call (`call_type_args`) in the
-    callee's declaration order, which is what `define fn` templates
-    interpolate [backend-define-generics].
+    callee's declaration order, which the backends' intrinsic lowerings
+    consume — e.g. the element type in Kotlin's `mutableListOf<Int>()`
+    [backend-intrinsic].
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
-  declared fn/define/effect member. There is no method-call fallback: an
+  declared fn or effect member. There is no method-call fallback: an
   undeclared name is an unresolved call ([call-resolve]), and the
-  diagnostic names `external fn` as the way to reach a target-language
-  method.
-* [call-resolve] Every call must resolve to something declared: a fn, a
-  `define` signature, an effect member, a handler constructor, or a value
+  diagnostic names a `platform effect` member [platform-effect] as the way
+  to reach a target-language method.
+* [call-resolve] Every call must resolve to something declared: a fn, an
+  effect member, a handler constructor, or a value
   of fn type. Otherwise it is an error (user decision 2026-09-03) —
   unresolved names carry import suggestions [diag-import-suggest].
   * Calling a value whose type is known and is not a fn type is an error
@@ -660,9 +667,10 @@ Conventions:
   * Only an *un-inferred* callee stays silent [type-unknown-lenient].
 * [field-resolve] Only structs have fields, and only the ones they declare
   (predicate-qualifier overrides refine them [qual-field-override]).
-  A field on any other known type — an `external type`, an array, a fn
+  A field on any other known type — an `intrinsic type`, an array, a fn
   value, a generic `T` — is an error; a target-language member is reached
-  through a declared accessor (`external fn`).
+  through a declared accessor (an `intrinsic fn`, or a `platform effect`
+  member in customer code).
 * [index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
@@ -713,8 +721,8 @@ Conventions:
     like a struct field's default: it runs at construction with no locals
     in scope. (Until 2026-09-04 it was not checked at all, so
     `held: Mut List<Int> = "no"` was accepted and the emitters never saw
-    the expression's types — which a `define fn` template needs for `${T}`,
-    [backend-define-generics].)
+    the expression's types, which the backends' intrinsic lowerings rely
+    on [backend-intrinsic].)
 * [effect-state-store] Assigning a value into a handler **state** field is a
   *store*: the field outlives every member call, so the handler takes
   ownership, exactly as a struct literal does ([deduce-consume]). Ordinary
@@ -899,11 +907,11 @@ Conventions:
     silently preserve a caller's `NonEmpty`). Mutation is the only
     invalidating operation on a kept value: reads preserve state and a
     move ends the caller's access.
-    * A fn with *no body* (`external`, define signatures) has nothing to
-      inspect, so a parameter declared `Mut` counts as mutated — taking
-      `Mut` is taking permission to invalidate. This is what makes std's
-      own mutators (`add`) drop a caller's predicates. Residual, and
-      deliberate: an external that mutates through the *contents* of a
+    * A fn with *no body* (an `intrinsic fn`, an effect member) has
+      nothing to inspect, so a parameter declared `Mut` counts as mutated —
+      taking `Mut` is taking permission to invalidate. This is what makes
+      std's own mutators (`add`) drop a caller's predicates. Residual, and
+      deliberate: an intrinsic that mutates through the *contents* of a
       non-`Mut` parameter is trusted, like `as Qual`.
   * Exhaustiveness is **contagious** through the call graph: a fn that
     hands a parameter to an exhaustive callee can no longer promise its
@@ -1296,7 +1304,7 @@ Conventions:
     [fate-move-mode] — moving the result or its narrowed binding stays
     an error with the `copy` remedy). The result's *type* is the plain
     written type: `ReadOnly` never affects overloading.
-  * v1 scope: fn declarations (incl. externals) only; plain `T` and
+  * v1 scope: fn declarations (incl. `intrinsic fn`s) only; plain `T` and
     `T?` return shapes; not writable anywhere but return position.
     Accumulator bodies (`best = person; ...; return best`) are out of
     scope — reassignable borrowed locals are a recorded refinement.
@@ -1318,7 +1326,7 @@ Conventions:
 ## Linear types
 
 * [linear-canbe] A type opts into linearity at its declaration with
-  `canbe Linear` (structs and `intrinsic`/`external` types; decision L6a,
+  `canbe Linear` (structs and `intrinsic` types; decision L6a,
   2026-09-02). Every value of the type is linear — `Linear` cannot be
   written in a use-site type (error): a per-value qualifier that could
   be forgotten would defeat the protection. Tooling may present
@@ -1365,7 +1373,7 @@ Conventions:
     (`Ty::Var` participates in the transitive analysis), so the body is
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
-  * for bodiless externals the opt-in is a trusted audit claim; std's
+  * for bodiless intrinsics the opt-in is a trusted audit claim; std's
     audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
     (whose declaration is now honestly
     `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — no
@@ -1392,6 +1400,13 @@ Conventions:
 
 * [mod-file] `.sv` files are modules; the module path is the file path (no
   in-file module declaration).
+* [mod-file-name] A `.sv` file name's stem may not contain a dot: the
+  module path comes from the directory layout [mod-file], so `list.ext.sv`
+  would be indistinguishable from `list/ext.sv`. `SourceSet::classify`
+  rejects it, naming both spellings in full. This is the double-extension
+  spelling that used to pick a backend's per-backend template file — it was
+  skipped in silence then, and is reported now, so a leftover file beside
+  the sources can no longer vanish from a build.
 * [mod-ignore] Source discovery walks the source root recursively but
   skips: hidden directories (`.git`, ...), cache directories carrying a
   `CACHEDIR.TAG` marker (Cargo's `target/`), and anything listed in
@@ -1399,8 +1414,8 @@ Conventions:
   file or a directory subtree; blank lines and `#` comments ignored.
   The root itself is exempt from the hidden/cache rules.
 * [mod-visibility] Code sees: everything declared in its own module (all
-  files of the module, including backend define files), everything in
-  `core.*` (implicit), and whatever it imports.
+  its `.sv` files), everything in `core.*` (implicit), and whatever it
+  imports.
 * [mod-import] `import path.Name` / `import path.Name as Alias`; aliasing
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
@@ -1426,7 +1441,7 @@ Conventions:
   error naming it, with import suggestions [diag-import-suggest]
   (2026-09-03).
   * Two namespaces, checked separately. Base types: structs, type
-    aliases, `intrinsic`/`external type`s, effects (effect lists are
+    aliases, `intrinsic type`s, effects (effect lists are
     written as type refs), plus generic parameters in scope and the
     language-level `None`, which has no declaration. Qualifiers:
     declared qualifiers plus the compiler's intrinsic `Mut`, `Linear`,
@@ -1474,8 +1489,8 @@ Conventions:
     escapes this: Rust identifiers are `[A-Za-z0-9_]`, so every encoding
     is also a legal name.
   * The name is carried as *one dotted string*, so scope keys, checker
-    types, `ty_base_name` / `type_base_name` and define-template
-    environments agree by construction. Backends translate at the point
+    types, and `ty_base_name` / `type_base_name` agree by construction.
+    Backends translate at the point
     a Salvo name becomes target syntax: Kotlin renders it verbatim (a
     valid nested reference), Rust flattens it in `rs_ident`.
 * [name-dot-import] `import path.Ns.Name` imports a dot-named item; the
@@ -1505,29 +1520,41 @@ Conventions:
     resolved scope (`ModuleScope::name_origins`), and each declaring
     module becomes reachable (`reach.rs`). Deliberately conservative:
     shadowed and overloaded names pull in every declaring module.
-  * A module's backend define files travel with it; a reachable module is
-    emitted only if it produces code.
+  * A module's backend companion files [backend-companion] travel with it;
+    a reachable module is emitted only if it produces code.
 
 ## Backends
 
 * [backend-intrinsic] `intrinsic` declarations (types) are
   mapped inside the compiler; every backend must handle all of them
   (`Str`, numeric types, `List<T>`, `Iter<T>`, ...). Since 2026-09-05
-  there are **no define files**: each backend carries its lowerings as
-  code, in its own `intrinsics.rs` (`type_name`, `fn_call`,
+  there are **no separate template files**: each backend carries its
+  lowerings as code, in its own `intrinsics.rs` (`type_name`, `fn_call`,
   `handler_member`), and the `Mut` auto-qualifier maps through
   `mut_type_name` where the backend needs a different native type
   (Kotlin `MutableList<T>`; Rust erases it, since mutability lives in the
   binding) [type-canbe-mut].
-  * `intrinsic` is the *compiler's* modifier: it is declared by the
-    standard library, never by customer code. What a customer reaches for
-    instead is a `platform effect` [platform-effect]. An intrinsic the
-    backend has no lowering for is a codegen error naming it, so the
-    restriction is largely self-enforcing.
+  * `intrinsic` is the *compiler's* modifier and std-only
+    [intrinsic-std-only]. An intrinsic the backend has no lowering for is
+    a codegen error naming it, so the restriction is largely
+    self-enforcing.
   * Dispatch is on the **checker-resolved declaration** — the declaration
     name plus the base type name of its first parameter — which is what
     separates std's overloads (`size(Str)`, `size(List<T>)`, `size(T[])`)
-    without the arity guessing the define era needed.
+    without the arity guessing the older per-backend template scheme
+    needed.
+* [intrinsic-std-only] `intrinsic` is the compiler's own modifier, so only
+  the standard library may write it (user decision 2026-09-05): a customer
+  declaring `intrinsic` names an implementation the compiler does not have.
+  Enforced in the checker (`check_intrinsic_is_std_only`), not the parser,
+  which sees one file's tokens and cannot tell where the file came from —
+  the checker has `SourceFile::is_std` at hand. Not cosmetic: the backends
+  dispatch intrinsics from a table keyed by *name* [backend-intrinsic], so
+  an intrinsic the compiler does not already know has no lowering anywhere.
+  The diagnostic names the one interop path customer code *does* have — a
+  member of a `platform effect` [platform-effect]. Applies to
+  `intrinsic fn`, `intrinsic type`, `intrinsic handler`, and
+  `intrinsic qualifier` alike.
 * [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
   the declaration carries the signature and deduction list the checker
   uses (body-less), and each backend lowers calls to it directly, seeing
@@ -1616,70 +1643,14 @@ Conventions:
     the diagnostic is deterministic and fires exactly once per collision.
     The `Symbols` maps cannot serve here: they are hash-ordered and
     last-wins.
-* [backend-external] `external` declarations (fns, types, handlers) carry
-  only signatures; each backend that needs them provides `define`
-  templates in a sibling `<module>.<backend>.sv` file. Coverage is
-  checked at compile time: everything external in `core.*` must have a
-  define (core is implicitly imported); outside core, a missing define
-  is an error at every reference (call to an external fn, use of an
-  external type, emission of an external handler) — never a silent
-  pass-through.
-  * `SourceSet::classify` filters define files per selected backend at
-    load time.
 * [backend-companion] A backend-native source file next to a module's
   sources (`complicated.kt` beside `complicated.sv`, using the backend's
   native extension) is a *companion*: it is copied verbatim into the
-  output whenever its module is reachable, letting `define` templates
-  delegate to hand-written native code. A companion module should
-  declare only `external` items; a companion that collides with a
+  output whenever its module is reachable. It is how hand-written native
+  code joins the build — most importantly the host implementations of a
+  `platform effect`, which live in companions under the source root's
+  `platform/` tree [platform-tree]. A companion that collides with a
   generated file is an error.
-* [backend-define-inline] `define fn` bodies hold an `inline:`
-  \`\` template \`\` interpolated at each call site: `${param}` splices the
-  argument's code, `${...variadic}` splices remaining arguments, and
-  `${T}` splices a resolved type argument [backend-define-generics].
-  Template output is written as-is (correctness not validated by Salvo).
-  * Templates lex as raw dedented `Template` tokens. A template calling a
-    same-named native fn must qualify it (`kotlin.io.print`) to avoid
-    self-recursion.
-  * **One-to-one with externals** [decl-explicit]: every `define fn` must
-    implement exactly one `external fn` declaration, and no external may
-    have two defines. Matching is by name, arity, then parameter *base
-    type names*, so overloaded externals (`size(Str)` / `size(List<T>)`)
-    pair with their own defines. The external carries the contract; the
-    define's own signature is documentation.
-    * Consequence: the emitters' arity/type-directed dispatch for
-      *unchecked* define calls is unreachable for valid programs (every
-      define has an external, which the checker resolves), so it remains
-      only as a [backend-never-wrong] safety net.
-  * Overloaded externals share a define name; templates are matched to
-    the checker-resolved declaration by parameter base types, then
-    arity/shape (`define_for_decl`; the arity-only fallback can still
-    mis-pick in unchecked contexts — known leftover).
-* [backend-define-generics] A `define fn` template interpolates the call's
-  **type arguments** as well as its parameters: `${T}` names one of the
-  define's own type parameters and expands to the type the call resolved it
-  to ([call-type-args]), exactly as in a `define type` template
-  [backend-define-type]. Positional against the paired external's
-  generics, which is what links the two declarations.
-  * This is how std pins an element type a target language cannot infer:
-    `mutableListOf<${T}>(${...elems})`, so `mutable_list()` emits
-    `mutableListOf<Int>()` instead of a bare call kotlinc would reject.
-  * An unresolved (`Unknown`) type argument at a `${T}` is a codegen error:
-    [call-type-args] makes it unreachable for valid programs, so reaching
-    it means a checker gap, and guessing would be silently wrong code
-    [backend-never-wrong].
-* [backend-define-imports] `imports:` sections list target-language
-  imports, hoisted (deduped) to the top of any file whose code used the
-  template.
-* [backend-define-type] `define type` templates map external types
-  (`${T}` interpolates generic args); `intrinsic type`s map natively in
-  the compiler.
-* [backend-define-handler] `define handler H of E { define fn ... }`
-  provides template bodies for an external handler's members; external
-  handlers support constructor params like any other handler.
-* [backend-companion] A `<name>.<ext>` companion source file next to a
-  define file is copied into the output when used (not yet implemented,
-  M7).
 * [backend-never-wrong] A backend must never emit silently wrong code:
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
@@ -1704,7 +1675,7 @@ Conventions:
     Comments are not tokens: the lexer collects them separately
     (`LexResult::comments`) and the parser attaches the block above each
     declaration by line number.
-  * Backing modifiers do not interfere: `external`, `intrinsic` and
+  * Backing modifiers do not interfere: `intrinsic` and
     `provenance` sit on the declaration's own line.
 
 ## Tooling
@@ -1727,7 +1698,7 @@ Conventions:
   one (`Checked::deductions` [deduce-infer]) when available, else as
   declared. Moved parameters are omitted from the rendered list; an
   empty list renders as `[]` (moves everything). Effect-member calls
-  and backend define fns have no `FnKey` and are not recorded.
+  have no `FnKey` and are not recorded.
 * [diag-import-suggest] Diagnostics for unresolved names carry structured
   import suggestions: the modules elsewhere in the program that declare
   the name, as `module.Item` paths (`FileDiagnostic::suggested_imports`).
@@ -1745,14 +1716,12 @@ Conventions:
     non-empty); the LSP carries them on `Diagnostic.data` and serves
     `textDocument/codeAction` quickfixes ("Add `import …`") that insert
     the import line after the file's last import (or at the top).
-* [cli-analyze] `salvo analyze --src DIR [--backend NAME]
-  [--format text|json]` runs the front half of the pipeline — parse,
+* [cli-analyze] `salvo analyze --src DIR [--format text|json]`
+  runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
   code. Exit code is nonzero iff any diagnostic is an error.
-  * Analysis is backend-neutral: checking never consults define files.
-    `--backend` only opts that backend's `*.<backend>.sv` define files
-    into loading (so they get parse checking); without it only language
-    files are loaded.
+  * Analysis is **unconditionally** backend-neutral: nothing
+    backend-specific remains to load, so there is no `--backend` option.
   * Resolve/check always run, even with parse errors — a broken file
     must not suppress diagnostics elsewhere. Parse-broken files
     participate with their recovered ASTs (their parsed declarations
@@ -1782,10 +1751,8 @@ Conventions:
       is out of reach for `--main` alone. The file must be inside the
       source directory, at any depth; outside it is an error, not an
       ignored flag.
-    * Either way `--main` is how you choose between several entry points. A
-      define file is rejected as an entry (it holds templates, not code
-      [backend-define-inline]), by its double extension rather than by
-      failing to find `main`, so the message can say why.
+    * Either way `--main` is how you choose between several entry points; a
+      named file that declares no `main` with a body is an error naming it.
     * The entry choice reaches the backend, because it can shape the
       *output* and not just the launch command: Rust gives the
       `main`-declaring module the crate root [rs-crate].
@@ -1818,9 +1785,10 @@ Conventions:
     in for running the binary. Program stdio is inherited rather than
     captured. A toolchain that is not installed, or that fails, is an
     error from the command itself.
-* [cli-lsp] `salvo lsp [--backend NAME]` starts a language server  speaking LSP over stdio. The workspace root comes from the client's
-  `initialize` request; `--backend` selects define files exactly like
-  `analyze --backend`.
+* [cli-lsp] `salvo lsp` starts a language server speaking LSP over stdio.
+  The workspace root comes from the client's
+  `initialize` request. Like [cli-analyze] the server is unconditionally
+  backend-neutral — there is no `--backend` option.
   * No incremental state: every document event re-runs the [cli-analyze]
     pipeline over the whole workspace, with open-editor buffers as a
     content overlay (unsaved files under the root participate).

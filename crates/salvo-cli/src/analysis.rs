@@ -9,9 +9,10 @@ use include_dir::{include_dir, Dir};
 
 use salvo_core::{Checked, FileDiagnostic, Program, SourceSet, Symbols};
 
-/// The standard library, embedded into the binary at build time. Files are
-/// filtered per backend at load time, so a Kotlin compile never sees
-/// `*.rust.sv` define files.
+/// The standard library, embedded into the binary at build time. Every file
+/// in it is a language file: std reaches its target languages through the
+/// backends' `intrinsic` lowerings [backend-intrinsic], not through
+/// per-backend source files.
 static STD_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../std");
 
 /// The result of analyzing a source directory.
@@ -26,21 +27,22 @@ pub struct Analysis {
     /// (only parse ones). Its `errors` have been drained into
     /// `diagnostics`.
     pub checked: Option<Checked>,
-    /// Files that could not be read (does not abort the analysis).
-    pub io_errors: Vec<(PathBuf, String)>,
+    /// Files that could not be loaded (does not abort the analysis): one
+    /// rendered message each.
+    pub io_errors: Vec<String>,
 }
 
 /// Parses, resolves, and type-checks `src` (plus the embedded std).
 ///
-/// `filter`/`native_ext` select a backend's define/companion files; empty
-/// strings load language files only (backend-neutral analysis, see
-/// [cli-analyze]). `overlay` maps absolute file paths to in-editor
-/// contents that replace (or add to) what is on disk [cli-lsp].
+/// `native_ext` is the active backend's companion extension
+/// ([backend-companion]); an empty string loads `.sv` files only, which is
+/// what backend-neutral analysis wants — companions are copied, never
+/// checked. `overlay` maps absolute file paths to in-editor contents that
+/// replace (or add to) what is on disk [cli-lsp].
 ///
 /// Errors only when `src` is not a directory.
 pub fn analyze_sources(
     src: &Path,
-    filter: &str,
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
@@ -53,8 +55,8 @@ pub fn analyze_sources(
     let root = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
 
     let mut sources = SourceSet::default();
-    load_embedded_std(&mut sources, filter);
-    let io_errors = sources.add_dir(&root, filter, native_ext, false);
+    load_embedded_std(&mut sources);
+    let io_errors = sources.add_dir(&root, native_ext, false);
 
     // Overlay: open-editor contents win over the disk [cli-lsp]. Files
     // not on disk yet (new unsaved buffers under the root) are added.
@@ -73,10 +75,10 @@ pub fn analyze_sources(
             {
                 continue;
             }
-            let Some((module, kind)) = SourceSet::classify(rel, filter) else {
+            let Ok(module) = SourceSet::classify(rel) else {
                 continue;
             };
-            sources.add(rel.display().to_string(), module, kind, content.clone(), false);
+            sources.add(rel.display().to_string(), module, content.clone(), false);
         }
     }
 
@@ -131,9 +133,10 @@ pub fn analyze_sources(
     })
 }
 
-/// Loads the embedded standard library, keeping only language files and the
-/// define files of the active backend.
-pub fn load_embedded_std(sources: &mut SourceSet, backend: &str) {
+/// Loads the embedded standard library. Backend-independent: std is one set
+/// of `.sv` files, and each backend lowers its `intrinsic` declarations
+/// itself [backend-intrinsic].
+pub fn load_embedded_std(sources: &mut SourceSet) {
     fn walk<'a>(dir: &Dir<'a>, out: &mut Vec<&'a include_dir::File<'a>>) {
         for file in dir.files() {
             out.push(file);
@@ -150,7 +153,7 @@ pub fn load_embedded_std(sources: &mut SourceSet, backend: &str) {
         if path.extension().is_none_or(|e| e != "sv") {
             continue;
         }
-        let Some((module, kind)) = SourceSet::classify(path, backend) else {
+        let Ok(module) = SourceSet::classify(path) else {
             continue;
         };
         let Some(content) = file.contents_utf8() else {
@@ -159,7 +162,6 @@ pub fn load_embedded_std(sources: &mut SourceSet, backend: &str) {
         sources.add(
             format!("std/{}", path.display()),
             module,
-            kind,
             content.to_string(),
             true,
         );

@@ -11,8 +11,8 @@
 //! and an overloaded name pulls in every declaring module — but it never
 //! drops a module the emitted code could reference.
 //!
-//! Only language files contribute usage; backend define files are
-//! carried along with their module (they share its module path).
+//! Only `.sv` sources contribute usage; companion files are carried along
+//! with their module [backend-companion].
 
 use std::collections::HashSet;
 
@@ -23,7 +23,7 @@ use salvo_syntax::ast::{
 
 use crate::program::Program;
 use crate::resolve::Resolution;
-use crate::source::{ModulePath, SourceKind};
+use crate::source::ModulePath;
 
 /// The modules reachable from the program's roots [mod-used-only].
 pub fn reachable_modules<'p>(
@@ -35,7 +35,6 @@ pub fn reachable_modules<'p>(
         .units()
         .filter(|u| {
             !u.file.is_std
-                && u.file.kind == SourceKind::Language
                 && u.ast.items.iter().any(
                     |i| matches!(i, Item::Fn(f) if f.name.name == "main" && f.body.is_some()),
                 )
@@ -57,7 +56,7 @@ pub fn reachable_modules<'p>(
             continue;
         }
         for (file_idx, unit) in program.units().enumerate() {
-            if unit.file.module != *module || unit.file.kind != SourceKind::Language {
+            if unit.file.module != *module {
                 continue;
             }
             let scope = &resolution.scopes[file_idx];
@@ -130,11 +129,9 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                 }
             }
             // Imports contribute usage only through references to the
-            // imported name; define items are backend text.
+            // imported name.
             Item::Import(_)
-            | Item::DefineFn(_)
-            | Item::DefineType(_)
-            | Item::DefineHandler(_) => {}
+ => {}
         }
     }
     used

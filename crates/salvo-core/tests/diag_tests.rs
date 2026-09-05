@@ -6,14 +6,26 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Checked, Program, SourceSet, Symbols};
 
-/// Parses + resolves + checks a multi-file program (no std). Each entry is
-/// `(file_name, source)`.
+/// [intrinsic-std-only] Base types the checker needs, loaded as a std file
+/// (module `core.prelude`, implicitly imported) rather than pasted into the
+/// sources under test. Added *after* the user files so their file indices —
+/// which these tests assert on — stay stable.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+
+/// Parses + resolves + checks a multi-file program. Each entry is
+/// `(file_name, source)`; a std prelude supplies the base types.
 fn check_files(files: &[(&str, &str)]) -> (Program, Checked) {
     let mut sources = SourceSet::default();
     for (name, src) in files {
-        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
-        sources.add(*name, module, kind, src.to_string(), false);
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, src.to_string(), false);
     }
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
     let mut modules = Vec::new();
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -36,10 +48,9 @@ fn check_files(files: &[(&str, &str)]) -> (Program, Checked) {
 // with a nonempty span, and render with file:line:col + caret.
 #[test]
 fn checker_errors_carry_file_and_span() {
-    // The declarations follow the fn so the asserted spans stay put; the
-    // harness builds a std-less program, so even `Int` must be declared.
-    let src = "fn broken() -> Int {\n    let x: Int = \"hello\"\n    return x\n}\n\
-               \nintrinsic type Int\n";
+    // The declarations are supplied by the std prelude, so the asserted
+    // spans in `main.sv` stay put.
+    let src = "fn broken() -> Int {\n    let x: Int = \"hello\"\n    return x\n}\n";
     let (program, checked) = check_files(&[("main.sv", src)]);
     assert_eq!(checked.errors.len(), 1, "errors: {:?}", checked.errors);
     let diag = &checked.errors[0];
@@ -63,7 +74,7 @@ fn checker_errors_carry_file_and_span() {
 // right file; resolution errors flow into `Checked::errors` structured.
 #[test]
 fn errors_index_the_declaring_file() {
-    let ok = "fn fine() -> Int {\n    return 1\n}\n\nintrinsic type Int\n";
+    let ok = "fn fine() -> Int {\n    return 1\n}\n";
     let bad = "import nope.thing\n";
     let (program, checked) = check_files(&[("a.sv", ok), ("b.sv", bad)]);
     assert_eq!(checked.errors.len(), 1, "errors: {:?}", checked.errors);
@@ -83,8 +94,8 @@ fn errors_index_the_declaring_file() {
 fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     for (name, src) in files {
-        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
-        sources.add(*name, module, kind, src.to_string(), false);
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, src.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -240,10 +251,10 @@ fn incompatible_generic_bindings_still_reject() {
 fn check_errors(src: &str) -> Vec<String> {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "kotlin", "kt", true);
+    let io_errors = sources.add_dir(&std_dir, "kt", true);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
+    let module = SourceSet::classify(Path::new("main.sv")).unwrap();
+    sources.add("main.sv", module, src.to_string(), false);
     let mut modules = Vec::new();
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module(&file.content);

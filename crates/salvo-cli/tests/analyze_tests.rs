@@ -137,49 +137,6 @@ fn svignore_excludes_sources() {
     assert!(stderr.contains("no errors"), "stderr: {stderr}");
 }
 
-// `--backend` opts that backend's define files into the analysis; without
-// it they are skipped entirely (backend-neutral analysis).
-#[test]
-fn backend_flag_selects_define_files() {
-    let dir = src_dir("defines");
-    fs::write(dir.join("main.sv"), CLEAN).unwrap();
-    // A define file with a parse error: only seen with --backend kotlin.
-    fs::write(dir.join("main.kotlin.sv"), "define fn broken( {\n").unwrap();
-
-    let neutral = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    assert!(
-        neutral.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&neutral.stderr)
-    );
-
-    let kotlin = salvo(&[
-        "analyze",
-        "--src",
-        dir.to_str().unwrap(),
-        "--backend",
-        "kotlin",
-    ]);
-    let stderr = String::from_utf8_lossy(&kotlin.stderr);
-    assert!(!kotlin.status.success());
-    assert!(stderr.contains("main.kotlin.sv:1:"), "stderr: {stderr}");
-}
-
-#[test]
-fn unknown_backend_is_an_error() {
-    let dir = src_dir("unknown_backend");
-    fs::write(dir.join("main.sv"), CLEAN).unwrap();
-    let out = salvo(&[
-        "analyze",
-        "--src",
-        dir.to_str().unwrap(),
-        "--backend",
-        "cobol",
-    ]);
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown backend `cobol`"));
-}
-
 // [diag-import-suggest] Unresolved names suggest imports from modules that
 // declare them: `use DefaultRandom` without the import gets a rendered
 // help line (std `random` module) and a JSON `imports` array.
@@ -1657,7 +1614,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         dir.join("main.sv"),
         format!(
             "{prelude}\
-             external fn clear(list: Mut List<Int>) [] -> [list: Mut] None\n\n\
+             fn clear(list: Mut List<Int>) [] -> [list: Mut] None {{\n}}\n\n\
              fn describe(list: NonEmpty Mut List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
@@ -1665,13 +1622,6 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              if xs is NonEmpty {{\n        clear(xs)\n        \
              println(\"${{describe(xs)}}\")\n    }}\n}}\n"
         ),
-    )
-    .unwrap();
-    let dummy = dir.join("main.kotlin.sv");
-    fs::write(
-        &dummy,
-        "define fn clear(list: Mut List<Int>) -> None {\n    inline: ``\n    \
-         ${list}.clear()\n    ``\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1692,8 +1642,8 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              qualifier Checked of List<Int> {{\n    \
              fn qualifies(list: List<Int>) -> Bool {{\n        \
              return true\n    }}\n}}\n\n\
-             external fn forget_nonempty(list: NonEmpty List<Int>) [] -> \
-             [list: -NonEmpty] None\n\n\
+             fn forget_nonempty(list: NonEmpty List<Int>) [] -> \
+             [list: -NonEmpty] None {{\n}}\n\n\
              fn needs_checked(list: Checked List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
@@ -1703,7 +1653,6 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         ),
     )
     .unwrap();
-    let _ = fs::remove_file(&dummy);
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -1711,16 +1660,15 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         "the delta form must preserve `Checked`: {stderr}"
     );
 
-    // ...including on a bodyless fn with a `Mut` parameter: an external's
-    // declaration *is* its contract [decl-explicit], so the delta is
-    // trusted rather than second-guessed. Catching a *wrong* external
-    // declaration is roadmap item E2 (heuristics over the define
-    // template), not a rule that overrides the author here.
+    // ...including on a fn with a `Mut` parameter whose body does not
+    // mutate it: a written delta is the author's contract, trusted rather
+    // than second-guessed (a body that *does* mutate cannot keep
+    // everything — see the `grow` case below).
     fs::write(
         dir.join("main.sv"),
         format!(
             "{prelude}\
-             external fn touch(list: Mut List<Int>) [] -> [list: -NonEmpty] None\n\n\
+             fn touch(list: Mut List<Int>) [] -> [list: -NonEmpty] None {{\n}}\n\n\
              fn describe(list: Checked Mut List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              qualifier Checked of List<Int> {{\n    \
@@ -1737,7 +1685,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
-        "an external's declared delta is trusted: {stderr}"
+        "a declared delta is trusted: {stderr}"
     );
 
     // A mutating body may not keep everything.
@@ -1746,7 +1694,6 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
         "fn grow(list: Mut List<Int>) -> [list] None {\n    list.add(1)\n}\n",
     )
     .unwrap();
-    let _ = fs::remove_file(&dummy);
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
@@ -1804,31 +1751,16 @@ fn deduction_entry_forms_are_validated() {
     );
 }
 
-// [decl-explicit] Bodyless declarations carry no inference: `external`
-// and `internal` fns must state effects, deductions, and return type, and
-// effect members must state deductions and return type. The declaration is
-// then a real contract — a member that takes ownership consumes its
-// argument at the call site.
+// [decl-explicit] Bodyless declarations carry no inference: an effect
+// member must state its deductions and return type (effects are forbidden
+// there [effect-member-no-effects]). The declaration is then a real
+// contract — a member that takes ownership consumes its argument at the
+// call site. (The other bodyless form, `intrinsic`, is the compiler's and
+// only std may write it [intrinsic-std-only], so it never appears in a
+// user source like these.)
 #[test]
 fn bodyless_declarations_must_be_explicit() {
     let dir = src_dir("decl_explicit");
-
-    // An external missing all three.
-    fs::write(
-        dir.join("main.sv"),
-        "external fn mystery(x: Int)\n",
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success());
-    for needle in [
-        "external fn `mystery` must declare its return type",
-        "external fn `mystery` must declare its effect list",
-        "external fn `mystery` must declare its deduction list",
-    ] {
-        assert!(stderr.contains(needle), "stderr: {stderr}");
-    }
 
     // An effect member missing the two that apply to it (effects are
     // forbidden there [effect-member-no-effects], so they are not asked
@@ -1895,4 +1827,28 @@ fn std_add_consumes_its_element() {
         stderr.contains("`h` cannot be used here: it was consumed (moved)"),
         "stderr: {stderr}"
     );
+}
+
+// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
+// implements, so only the standard library may write it. A user source
+// analyzed here is not std, so an `intrinsic` declaration in it is an
+// error naming the one interop path customer code does have — a
+// `platform effect`. (The declaration is fully explicit so this is the
+// only diagnostic, not a decl-explicit complaint.)
+#[test]
+fn intrinsic_in_a_user_file_is_an_error() {
+    let dir = src_dir("intrinsic_user");
+    fs::write(
+        dir.join("main.sv"),
+        "intrinsic fn secret<T>(value: T) [] -> [value] T\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains("`intrinsic fn secret` is the compiler's to declare, not yours"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("`platform effect`"), "stderr: {stderr}");
 }

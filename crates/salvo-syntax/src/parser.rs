@@ -308,9 +308,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwHandler
                 | TokenKind::KwType
                 | TokenKind::KwIntrinsic
-                | TokenKind::KwExternal
                 | TokenKind::KwPlatform
-                | TokenKind::KwDefine
                 | TokenKind::KwProvenance
                 | TokenKind::KwImport
                     if depth == 0 =>
@@ -326,27 +324,27 @@ impl<'s> Parser<'s> {
     fn parse_item(&mut self) -> Option<Item> {
         match self.kind() {
             TokenKind::KwImport => self.parse_import().map(Item::Import),
-            TokenKind::KwIntrinsic | TokenKind::KwExternal => {
-                let backing = if matches!(self.kind(), TokenKind::KwIntrinsic) {
-                    BackingMod::Intrinsic
-                } else {
-                    BackingMod::External
-                };
+            // [intrinsic-fn] [intrinsic-std-only] `intrinsic` marks a
+            // declaration the *compiler* implements. It is the only backing
+            // modifier there is, now that `external`/`define` are gone, and
+            // only the standard library may write it — which the checker
+            // enforces, since the parser does not know which file it is in.
+            TokenKind::KwIntrinsic => {
                 self.bump();
                 match self.kind() {
-                    TokenKind::KwType => self.parse_type_decl(Some(backing)).map(Item::Type),
-                    TokenKind::KwFn => self.parse_fn(Some(backing)).map(Item::Fn),
+                    TokenKind::KwType => self.parse_type_decl(true).map(Item::Type),
+                    TokenKind::KwFn => self.parse_fn(true).map(Item::Fn),
                     TokenKind::KwQualifier => self
-                        .parse_qualifier(Some(backing), QualSubject::State)
+                        .parse_qualifier(true, QualSubject::State)
                         .map(Item::Qualifier),
-                    TokenKind::KwHandler => self.parse_handler(Some(backing)).map(Item::Handler),
+                    TokenKind::KwHandler => self.parse_handler(true).map(Item::Handler),
                     _ => {
                         let found = self.kind().describe();
                         let span = self.peek().span;
                         self.error(
                             format!(
                                 "expected `type`, `fn`, `qualifier`, or `handler` after \
-                                 backing modifier, found {found}"
+                                 `intrinsic`, found {found}"
                             ),
                             span,
                         );
@@ -354,10 +352,28 @@ impl<'s> Parser<'s> {
                     }
                 }
             }
-            TokenKind::KwType => self.parse_type_decl(None).map(Item::Type),
+            TokenKind::KwType => {
+                let t = self.parse_type_decl(false)?;
+                // [decl-body] A bodiless `type` was only ever meaningful as
+                // `external type`; with `external` gone there is nothing for
+                // one to mean, so it is a parse error naming both forms that
+                // do exist.
+                if t.alias.is_none() {
+                    self.error(
+                        format!(
+                            "`type {}` declares nothing: give it a definition \
+                             (`type {} = ...`), or declare what the target \
+                             language provides with a `platform effect`",
+                            t.name.name, t.name.name
+                        ),
+                        t.span,
+                    );
+                }
+                Some(Item::Type(t))
+            }
             TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
             TokenKind::KwQualifier => self
-                .parse_qualifier(None, QualSubject::State)
+                .parse_qualifier(false, QualSubject::State)
                 .map(Item::Qualifier),
             // [qual-subject] `provenance qualifier Q of T`: a claim about
             // where the handle came from, not about its contents.
@@ -372,7 +388,7 @@ impl<'s> Parser<'s> {
                     );
                     return None;
                 }
-                self.parse_qualifier(None, QualSubject::Provenance)
+                self.parse_qualifier(false, QualSubject::Provenance)
                     .map(Item::Qualifier)
             }
             // [platform-effect] `platform effect E { ... }`: the members are
@@ -400,9 +416,26 @@ impl<'s> Parser<'s> {
                 }
             }
             TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
-            TokenKind::KwHandler => self.parse_handler(None).map(Item::Handler),
-            TokenKind::KwFn => self.parse_fn(None).map(Item::Fn),
-            TokenKind::KwDefine => self.parse_define(),
+            TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
+            TokenKind::KwFn => {
+                let f = self.parse_fn(false)?;
+                // [decl-body] A top-level `fn` without a body was
+                // `external fn`'s shape. The two things it could have meant
+                // now have their own spellings, so the error names both
+                // rather than reporting a bare "expected `{`".
+                if f.body.is_none() {
+                    self.error(
+                        format!(
+                            "`fn {}` has no body: write one, or — if the target \
+                             language implements it — declare it as a member of a \
+                             `platform effect`",
+                            f.name.name
+                        ),
+                        f.span,
+                    );
+                }
+                Some(Item::Fn(f))
+            }
             _ => {
                 let found = self.kind().describe();
                 let span = self.peek().span;
@@ -435,7 +468,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_type_decl(&mut self, backing: Option<BackingMod>) -> Option<TypeDecl> {
+    fn parse_type_decl(&mut self, intrinsic: bool) -> Option<TypeDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident_type("type")?;
@@ -463,7 +496,7 @@ impl<'s> Parser<'s> {
             .unwrap_or(name.span);
         Some(TypeDecl {
             docs,
-            backing,
+            intrinsic,
             name,
             generics,
             auto_qualifiers,
@@ -608,7 +641,7 @@ impl<'s> Parser<'s> {
 
     fn parse_qualifier(
         &mut self,
-        backing: Option<BackingMod>,
+        intrinsic: bool,
         subject: QualSubject,
     ) -> Option<QualifierDecl> {
         let docs = self.docs_here();
@@ -635,7 +668,7 @@ impl<'s> Parser<'s> {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 if self.at(&TokenKind::KwFn) {
-                    fns.push(self.parse_fn(None)?);
+                    fns.push(self.parse_fn(false)?);
                 } else {
                     field_overrides.push(self.parse_field_decl()?);
                     self.eat(&TokenKind::Comma);
@@ -645,7 +678,7 @@ impl<'s> Parser<'s> {
         }
         Some(QualifierDecl {
             docs,
-            backing,
+            intrinsic,
             subject,
             name,
             generics,
@@ -666,7 +699,7 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::LBrace)?;
         let mut fns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            fns.push(self.parse_fn(None)?);
+            fns.push(self.parse_fn(false)?);
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(EffectDecl {
@@ -679,7 +712,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_handler(&mut self, backing: Option<BackingMod>) -> Option<HandlerDecl> {
+    fn parse_handler(&mut self, intrinsic: bool) -> Option<HandlerDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwHandler)?.span;
         let name = self.ident_type("handler")?;
@@ -697,7 +730,7 @@ impl<'s> Parser<'s> {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 if self.at(&TokenKind::KwFn) {
-                    fns.push(self.parse_fn(None)?);
+                    fns.push(self.parse_fn(false)?);
                 } else {
                     state.push(self.parse_field_decl()?);
                     self.eat(&TokenKind::Comma);
@@ -707,7 +740,7 @@ impl<'s> Parser<'s> {
         }
         Some(HandlerDecl {
             docs,
-            backing,
+            intrinsic,
             name,
             generics,
             params,
@@ -720,7 +753,7 @@ impl<'s> Parser<'s> {
 
     // --- Functions ---
 
-    fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
+    fn parse_fn(&mut self, intrinsic: bool) -> Option<FnDecl> {
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
@@ -771,7 +804,7 @@ impl<'s> Parser<'s> {
             .unwrap_or(name.span);
         Some(FnDecl {
             docs,
-            backing,
+            intrinsic,
             name,
             generics,
             generic_canbe,
@@ -941,174 +974,6 @@ impl<'s> Parser<'s> {
         self.group_depth -= 1;
         self.expect(&TokenKind::RBracket)?;
         Some(deductions)
-    }
-
-    // --- define templates ---
-
-    fn parse_define(&mut self) -> Option<Item> {
-        let start = self.expect(&TokenKind::KwDefine)?.span;
-        match self.kind() {
-            TokenKind::KwFn => {
-                let df = self.parse_define_fn(start)?;
-                Some(Item::DefineFn(df))
-            }
-            TokenKind::KwType => {
-                self.bump();
-                let name = self.ident()?;
-                let generics = self.parse_generics();
-                let (body, end) = self.parse_define_body()?;
-                Some(Item::DefineType(DefineType {
-                    name,
-                    generics,
-                    body,
-                    span: start.to(end),
-                }))
-            }
-            TokenKind::KwHandler => {
-                self.bump();
-                let name = self.ident()?;
-                let generics = self.parse_generics();
-                self.expect(&TokenKind::KwOf)?;
-                let of = self.parse_type()?;
-                self.expect(&TokenKind::LBrace)?;
-                let mut fns = Vec::new();
-                while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-                    let fn_start = self.expect(&TokenKind::KwDefine)?.span;
-                    fns.push(self.parse_define_fn(fn_start)?);
-                }
-                let end = self.expect(&TokenKind::RBrace)?.span;
-                Some(Item::DefineHandler(DefineHandler {
-                    name,
-                    generics,
-                    of,
-                    fns,
-                    span: start.to(end),
-                }))
-            }
-            _ => {
-                let found = self.kind().describe();
-                let span = self.peek().span;
-                self.error(
-                    format!("expected `fn`, `type`, or `handler` after `define`, found {found}"),
-                    span,
-                );
-                None
-            }
-        }
-    }
-
-    fn parse_define_fn(&mut self, start: Span) -> Option<DefineFn> {
-        let sig = self.parse_fn_signature_only()?;
-        let (body, end) = self.parse_define_body()?;
-        Some(DefineFn {
-            sig,
-            body,
-            span: start.to(end),
-        })
-    }
-
-    /// Parses a fn signature without a body (for `define fn`).
-    fn parse_fn_signature_only(&mut self) -> Option<FnDecl> {
-        let start = self.expect(&TokenKind::KwFn)?.span;
-        let name = self.ident_value("fn")?;
-        let (generics, generic_canbe) = self.parse_generics_canbe();
-        let params = self.parse_params()?;
-        let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
-            Some(self.parse_effect_list()?)
-        } else {
-            None
-        };
-        let mut deductions = None;
-        let mut return_type = None;
-        let mut derived_return = None;
-        if self.at(&TokenKind::Arrow) && self.same_line() {
-            self.bump();
-            if self.at(&TokenKind::LBracket) {
-                deductions = Some(self.parse_deduction_list()?);
-            }
-            derived_return = self.parse_derived_return();
-            return_type = Some(self.parse_type()?);
-        }
-        let end = return_type.as_ref().map(|t| t.span()).unwrap_or(name.span);
-        Some(FnDecl {
-            docs: Vec::new(),
-            backing: None,
-            name,
-            generics,
-            generic_canbe,
-            params,
-            derived_return,
-            effects,
-            deductions,
-            return_type,
-            constructs: None,
-            body: None,
-            span: start.to(end),
-        })
-    }
-
-    /// `{ imports: `` ... `` inline: `` ... `` (Mut inline: `` ... ``)? }`
-    fn parse_define_body(&mut self) -> Option<(DefineBody, Span)> {
-        self.expect(&TokenKind::LBrace)?;
-        let mut body = DefineBody::default();
-        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let section = self.ident()?;
-            // `Mut inline:` — the Mut-qualified variant of `inline:`
-            // [type-canbe-mut].
-            let sub = if section.name == "Mut" && !self.at(&TokenKind::Colon) {
-                Some(self.ident()?)
-            } else {
-                None
-            };
-            self.expect(&TokenKind::Colon)?;
-            let template = self.parse_template()?;
-            match (section.name.as_str(), sub.as_ref().map(|s| s.name.as_str())) {
-                ("imports", None) => {
-                    if body.imports.replace(template).is_some() {
-                        self.error("duplicate `imports:` section", section.span);
-                    }
-                }
-                ("inline", None) => {
-                    if body.inline.replace(template).is_some() {
-                        self.error("duplicate `inline:` section", section.span);
-                    }
-                }
-                ("Mut", Some("inline")) => {
-                    if body.mut_inline.replace(template).is_some() {
-                        self.error("duplicate `Mut inline:` section", section.span);
-                    }
-                }
-                _ => {
-                    self.error(
-                        format!(
-                            "unknown define section `{}` (expected `imports`, `inline`, \
-                             or `Mut inline`)",
-                            sub.as_ref()
-                                .map(|s| format!("{} {}", section.name, s.name))
-                                .unwrap_or_else(|| section.name.clone())
-                        ),
-                        section.span,
-                    );
-                }
-            }
-        }
-        let end = self.expect(&TokenKind::RBrace)?.span;
-        Some((body, end))
-    }
-
-    fn parse_template(&mut self) -> Option<Template> {
-        let TokenKind::Template(content) = self.kind().clone() else {
-            let found = self.kind().describe();
-            let span = self.peek().span;
-            self.error(format!("expected `` template, found {found}"), span);
-            return None;
-        };
-        let tok = self.bump();
-        let parts = parse_template_parts(&content, tok.span);
-        Some(Template {
-            parts,
-            span: tok.span,
-        })
     }
 
     // --- Types ---
@@ -2634,42 +2499,3 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
     (expr, diagnostics)
 }
 
-/// Splits raw template text into literal text and `${name}` / `${...name}`
-/// interpolations.
-fn parse_template_parts(content: &str, span: Span) -> Vec<TemplatePart> {
-    let mut parts = Vec::new();
-    let mut text = String::new();
-    let mut chars = content.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '$' && chars.peek() == Some(&'{') {
-            chars.next(); // {
-            if !text.is_empty() {
-                parts.push(TemplatePart::Text(std::mem::take(&mut text)));
-            }
-            let mut inner = String::new();
-            for c in chars.by_ref() {
-                if c == '}' {
-                    break;
-                }
-                inner.push(c);
-            }
-            let inner = inner.trim();
-            let (variadic, name) = match inner.strip_prefix("...") {
-                Some(rest) => (true, rest.trim().to_string()),
-                None => (false, inner.to_string()),
-            };
-            let ident = Ident { name, span };
-            parts.push(if variadic {
-                TemplatePart::InterpVariadic(ident)
-            } else {
-                TemplatePart::Interp(ident)
-            });
-        } else {
-            text.push(c);
-        }
-    }
-    if !text.is_empty() {
-        parts.push(TemplatePart::Text(text));
-    }
-    parts
-}

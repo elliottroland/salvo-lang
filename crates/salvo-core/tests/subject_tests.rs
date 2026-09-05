@@ -7,18 +7,43 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Str\nintrinsic type Int\n";
+
 /// Parses + resolves + checks one file (no std) and returns the checker's
 /// and resolver's error messages.
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-    assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -33,9 +58,9 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-external type Store<T> canbe Mut
+struct Store<T> canbe Mut {
+    value: T
+}
 
 qualifier NonEmpty<T> of Store<T>
 provenance qualifier Authenticated<T> of Store<T>
@@ -48,7 +73,7 @@ fn authenticate<T>(s: Store<T>) -> Store<T> as Authenticated {
     return s
 }
 
-external fn touch<T>(s: Mut Store<T>) [] -> [s: Mut] None
+fn touch<T>(s: Mut Store<T>) [] -> [s: Mut] None {}
 
 fn needs_nonempty<T>(s: NonEmpty Store<T>) -> None {
 }
@@ -90,7 +115,7 @@ fn provenance_survives_a_mutating_call() {
 // while two state claims still need one.
 #[test]
 fn provenance_composes_without_with() {
-    let ok = "intrinsic type Str\n\
+    let ok = "\
                struct Request { body: Str }\n\
               qualifier Validated of Request\n\
               provenance qualifier Authenticated of Request\n\
@@ -99,7 +124,7 @@ fn provenance_composes_without_with() {
               fn b(r: Authenticated FromCache Request) -> Str { return r.body }\n";
     assert!(errors(ok).is_empty(), "got {:?}", errors(ok));
 
-    let bad = "intrinsic type Str\n\
+    let bad = "\
                struct Request { body: Str }\n\
                qualifier Validated of Request\n\
                qualifier Checked of Request\n\
@@ -132,7 +157,7 @@ fn provenance_cannot_have_a_body() {
 // same message constructive qualifiers already give.
 #[test]
 fn provenance_cannot_be_tested_with_is() {
-    let src = "intrinsic type Str\n\
+    let src = "\
                struct Request { body: Str }\n\
                provenance qualifier Authenticated of Request\n\
                fn f(r: Request) -> Bool {\n    return r is Authenticated\n}\n";
@@ -149,7 +174,7 @@ fn provenance_cannot_be_tested_with_is() {
 // and survives being stored into another value.
 #[test]
 fn provenance_is_droppable_and_survives_storage() {
-    let src = "intrinsic type Str\n\
+    let src = "\
                struct Request { body: Str }\n\
                struct Wrapper { req: Authenticated Request }\n\
                provenance qualifier Authenticated of Request\n\

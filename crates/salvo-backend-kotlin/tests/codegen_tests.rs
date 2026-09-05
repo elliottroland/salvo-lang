@@ -8,7 +8,8 @@ use salvo_core::{Program, SourceSet};
 
 /// The demo program exercising M2 features: structs, defaults, spread/copy,
 /// nullability + `is` with binding, string interpolation, effects (Console),
-/// `use`, iterator functions with `yield`, `for`/`while` loops, defines.
+/// `use`, iterator functions with `yield`, `for`/`while` loops, and std
+/// intrinsics.
 const DEMO: &str = r#"
 struct Person {
     name: Str,
@@ -47,37 +48,18 @@ fn main() [use] -> [] None {
     println("first: ${names.first()!}")
     let mut_names = mutable_list("x")
     mut_names.add("y")
-    println("size: ${mut_names.list_size()}")
+    println("size: ${mut_names.size()}")
 }
 "#;
 
-/// `size` is already defined for Str, and M2 resolves overloads by arity
-/// only (type-based overload resolution needs the typechecker), so the list
-/// length helper gets its own name here.
-const DEMO_DEFINES: &str = r#"
-define fn list_size<T>(list: List<T>) -> Int {
-    inline: ``
-    ${list}.size
-    ``
-}
-
-external fn list_size<T>(list: List<T>) [] -> [list] Int
-"#;
-
-fn build_program(extra: &[(&str, &str, bool)]) -> Program {
+fn build_program(extra: &[(&str, &str)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let errors = sources.add_dir(&std_dir, "kotlin", "kt", true);
+    let errors = sources.add_dir(&std_dir, "kt", true);
     assert!(errors.is_empty(), "failed to read std: {errors:?}");
-    for (name, content, is_define) in extra {
-        let rel = Path::new(name);
-        let (module, kind) = SourceSet::classify(rel, "kotlin").unwrap();
-        assert_eq!(
-            *is_define,
-            kind == salvo_core::SourceKind::BackendDefine,
-            "unexpected classification for {name}"
-        );
-        sources.add(*name, module, kind, content.to_string(), false);
+    for (name, content) in extra {
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, content.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -94,10 +76,7 @@ fn build_program(extra: &[(&str, &str, bool)]) -> Program {
 }
 
 fn generate_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[
-        ("main.sv", DEMO, false),
-        ("main.kotlin.sv", DEMO_DEFINES, true),
-    ]);
+    let program = build_program(&[("main.sv", DEMO)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
@@ -120,7 +99,6 @@ fn missing_effect_handler_is_an_error() {
     let program = build_program(&[(
         "bad.sv",
         "fn main() [use] -> [] None {\n    println(\"no console handler used\")\n}\n",
-        false,
     )]);
     let result = salvo_backend_kotlin::emit_program(&program);
     let errors = result.err().expect("expected codegen errors");
@@ -182,7 +160,7 @@ fn main() [use] -> [] None {
 "#;
 
 fn generate_unions_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[("main.sv", UNIONS_DEMO, false)]);
+    let program = build_program(&[("main.sv", UNIONS_DEMO)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
@@ -244,7 +222,7 @@ fn f(x: Ok Int | Err Str) -> Int {
     return v
 }
 "#;
-    let program = build_program(&[("bad.sv", src, false)]);
+    let program = build_program(&[("bad.sv", src)]);
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
         .expect("expected type errors");
@@ -258,7 +236,7 @@ fn f(x: Ok Int | Err Str) -> Int {
 #[test]
 fn when_requires_union_subject() {
     let src = "fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
-    let program = build_program(&[("bad.sv", src, false)]);
+    let program = build_program(&[("bad.sv", src)]);
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
         .expect("expected type errors");
@@ -283,7 +261,7 @@ fn f() -> Ok Int | Err Str {
     return err(true)
 }
 "#;
-    let program = build_program(&[("bad.sv", src, false)]);
+    let program = build_program(&[("bad.sv", src)]);
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
         .expect("expected type errors");
@@ -379,7 +357,7 @@ fn main() [use] {
 "#;
 
 fn generate_qualifiers_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[("main.sv", QUALIFIERS_DEMO, false)]);
+    let program = build_program(&[("main.sv", QUALIFIERS_DEMO)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
@@ -442,7 +420,7 @@ fn kotlinc_compiles_and_runs_qualifiers() {
 
 /// Runs the checker on a source and returns the errors (panics if none).
 fn expect_errors(src: &str) -> Vec<String> {
-    let program = build_program(&[("bad.sv", src, false)]);
+    let program = build_program(&[("bad.sv", src)]);
     salvo_backend_kotlin::emit_program(&program)
         .err()
         .expect("expected type errors")
@@ -505,11 +483,10 @@ fn f(x: Positive Str) -> None {
 #[test]
 fn constructor_must_live_with_its_qualifier() {
     let program = build_program(&[
-        ("quals.sv", "qualifier Fancy of Int\n", false),
+        ("quals.sv", "qualifier Fancy of Int\n"),
         (
             "other.sv",
             "import quals.Fancy\n\nfn make() -> Int as Fancy {\n    return 1\n}\n",
-            false,
         ),
     ]);
     let errors = salvo_backend_kotlin::emit_program(&program)
@@ -551,7 +528,7 @@ fn main() [use] -> [] None {
     println(describe(make()))
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -621,10 +598,10 @@ fn constructive_values_only_come_from_constructors() {
     );
 }
 
-// [type-canbe-mut] `Mut List<T>` maps through the define's `Mut inline:`
-// template; `Mut` on a type without `canbe Mut` is an error.
+// [type-canbe-mut] `Mut List<T>` maps onto `MutableList<T>`;
+// `Mut` on a type without `canbe Mut` is an error.
 #[test]
-fn mut_types_map_through_the_mut_inline_template() {
+fn mut_types_map_onto_mutable_list() {
     let src = r#"
 fn fill(target: Mut List<Int>, n: Int) -> [target: Mut] None {
     add(target, n)
@@ -637,7 +614,7 @@ fn main() [use] -> [] None {
     println("size: ${items.size()}")
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -719,7 +696,7 @@ fn main() [use] {
 "#;
 
 fn generate_effects_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[("main.sv", EFFECTS_DEMO, false)]);
+    let program = build_program(&[("main.sv", EFFECTS_DEMO)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
@@ -1001,7 +978,7 @@ fn main() [use] -> [] None {
 "#;
 
 fn generate_loops_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[("main.sv", LOOPS, false)]);
+    let program = build_program(&[("main.sv", LOOPS)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
@@ -1073,7 +1050,7 @@ fn kotlinc_compiles_and_runs_loops() {
     run_kotlin_files(&files, "loops", expected);
 }
 
-// ===== M7: reachability, packages/imports, define coverage, companions =====
+// ===== M7: reachability, packages/imports, companions =====
 
 /// A multi-module program: `main` uses `geometry` (imported) but not
 /// `unused`; `geometry` has a Kotlin companion file.
@@ -1097,9 +1074,9 @@ fn never_called() -> Int {
 }
 "#;
     let mut program = build_program(&[
-        ("main.sv", main, false),
-        ("geometry.sv", geometry, false),
-        ("unused.sv", unused, false),
+        ("main.sv", main),
+        ("geometry.sv", geometry),
+        ("unused.sv", unused),
     ]);
     program.companions.push(salvo_core::CompanionFile {
         rel_path: std::path::PathBuf::from("geometry_helpers.kt"),
@@ -1171,7 +1148,7 @@ fn main() [use] -> [] None {
 }
 "#;
     let geometry = "fn area(w: Int, h: Int) -> Int {\n    return w * h\n}\n";
-    let program = build_program(&[("main.sv", main, false), ("geometry.sv", geometry, false)]);
+    let program = build_program(&[("main.sv", main), ("geometry.sv", geometry)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1219,8 +1196,8 @@ fn shout(s: Loud Str) -> Str {
 #[test]
 fn aliased_import_of_mangled_overload_keeps_suffix() {
     let program = build_program(&[
-        ("main.sv", MANGLED_ALIAS_MAIN, false),
-        ("lib.sv", MANGLED_ALIAS_LIB, false),
+        ("main.sv", MANGLED_ALIAS_MAIN),
+        ("lib.sv", MANGLED_ALIAS_LIB),
     ]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -1250,80 +1227,13 @@ fn kotlinc_compiles_and_runs_mangled_alias() {
         return;
     }
     let program = build_program(&[
-        ("main.sv", MANGLED_ALIAS_MAIN, false),
-        ("lib.sv", MANGLED_ALIAS_LIB, false),
+        ("main.sv", MANGLED_ALIAS_MAIN),
+        ("lib.sv", MANGLED_ALIAS_LIB),
     ]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "mangled-alias", "hi\nhey!\n");
-}
-
-// [backend-external] A used external fn with no define for the backend is
-// a compile-time error.
-#[test]
-fn missing_define_for_external_fn_is_an_error() {
-    let src = r#"
-external fn mystery(x: Int) [] -> [x] Int
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println("${mystery(1)}")
-}
-"#;
-    let errors = expect_errors(src);
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external fn `mystery` has no kotlin `define fn`")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-// [backend-external] A referenced external type with no define is an
-// error, not a silent pass-through.
-#[test]
-fn missing_define_for_external_type_is_an_error() {
-    let src = r#"
-external type Mystery
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let x: Mystery? = None
-    println("${x is None}")
-}
-"#;
-    let errors = expect_errors(src);
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external type `Mystery` has no kotlin `define type`")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-// [backend-external] Everything external in `core.*` must be covered by
-// the backend's define files, used or not.
-#[test]
-fn core_externals_must_be_fully_covered() {
-    let fake_core = "external fn uncovered_core_fn(x: Int) [] -> [x] Int\n";
-    let program = build_program(&[
-        ("core/fake.sv", fake_core, false),
-        (
-            "main.sv",
-            "fn main() [use] -> [] None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
-            false,
-        ),
-    ]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
-        .err()
-        .expect("expected coverage errors");
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("external fn `uncovered_core_fn` in core has no kotlin `define fn`")),
-        "unexpected errors: {errors:?}"
-    );
 }
 
 // [kt-effect-params] Effect parameters avoid user parameter names.
@@ -1339,7 +1249,7 @@ fn main() [use] -> [] None {
     shadowed("value")
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1372,7 +1282,7 @@ fn main() [use] -> [] None {
     println("${x} ${y}")
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1404,7 +1314,6 @@ fn companion_collision_with_generated_file_is_an_error() {
     let mut program = build_program(&[(
         "main.sv",
         "fn main() [use] -> [] None {\n    use StdOutConsole\n    println(\"hi\")\n}\n",
-        false,
     )]);
     program.companions.push(salvo_core::CompanionFile {
         rel_path: std::path::PathBuf::from("main.kt"),
@@ -1424,8 +1333,9 @@ fn companion_collision_with_generated_file_is_an_error() {
 }
 
 // [kt-handler-template-return] A handler member with a return type returns
-// its template's value (`return run { ... }`), so value-producing defines
-// like `random() -> Double` compile; statement-only members are unchanged.
+// its template's value (`return run { ... }`), so value-producing handler
+// members like `random() -> Double` compile; statement-only members are
+// unchanged.
 #[test]
 fn handler_members_with_return_types_return_their_template() {
     let program = build_program(&[(
@@ -1434,7 +1344,6 @@ fn handler_members_with_return_types_return_their_template() {
          fn roll() [Random] -> Double {\n    return random()\n}\n\n\
          fn main() [use] -> [] None {\n    use StdOutConsole\n    use DefaultRandom\n    \
          println(\"${roll() < 2.0}\")\n}\n",
-        false,
     )]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -1479,7 +1388,6 @@ fn numeric_literal_suffixes_emit_kotlin_suffixes() {
         "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
-        false,
     )]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -1516,7 +1424,7 @@ fn main() [use] -> [] None {
     println(describe(err("y")))
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1571,11 +1479,11 @@ fn main() [use] -> [] None {
 }
 "#;
 
-// [intrinsic-fn] [kt-copy] `copy` bypasses define templates and lowers
-// type-directedly from the checker's resolved argument type.
+// [intrinsic-fn] [kt-copy] `copy` lowers type-directedly from the
+// checker's resolved argument type.
 #[test]
 fn copy_lowers_type_directedly() {
-    let program = build_program(&[("main.sv", COPY_DEMO, false)]);
+    let program = build_program(&[("main.sv", COPY_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1610,7 +1518,6 @@ fn copy_of_nested_mutable_type_is_an_error() {
         "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
          let xs = mutable_list(mutable_list(1))\n    let ys = copy(xs)\n    \
          println(\"${ys.size()}\")\n}\n",
-        false,
     )]);
     let result = salvo_backend_kotlin::emit_program(&program);
     let errors = result.err().expect("expected codegen errors");
@@ -1628,7 +1535,7 @@ fn kotlinc_compiles_and_runs_copy() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", COPY_DEMO, false)]);
+    let program = build_program(&[("main.sv", COPY_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1683,7 +1590,7 @@ fn kotlinc_compiles_and_runs_move_modes() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", S2_DEMO, false)]);
+    let program = build_program(&[("main.sv", S2_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1735,7 +1642,7 @@ fn kotlinc_compiles_and_runs_borrows() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", S3_DEMO, false)]);
+    let program = build_program(&[("main.sv", S3_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1782,7 +1689,7 @@ fn kotlinc_compiles_and_runs_linear() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", LINEAR_DEMO, false)]);
+    let program = build_program(&[("main.sv", LINEAR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1829,7 +1736,7 @@ fn kotlinc_compiles_and_runs_linear_generics() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO, false)]);
+    let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1869,7 +1776,7 @@ fn kotlinc_compiles_and_runs_once_fns() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", ONCE_DEMO, false)]);
+    let program = build_program(&[("main.sv", ONCE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1923,7 +1830,7 @@ fn kotlinc_compiles_and_runs_derived_returns() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", DERIVED_DEMO, false)]);
+    let program = build_program(&[("main.sv", DERIVED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -1976,7 +1883,7 @@ fn kotlinc_compiles_and_runs_fn_contracts() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", CONTRACTS_DEMO, false)]);
+    let program = build_program(&[("main.sv", CONTRACTS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2005,7 +1912,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn binary_rendering_preserves_grouping() {
-    let program = build_program(&[("main.sv", PRECEDENCE_DEMO, false)]);
+    let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2028,7 +1935,7 @@ fn kotlinc_compiles_and_runs_precedence() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", PRECEDENCE_DEMO, false)]);
+    let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2070,7 +1977,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn iterator_bare_return_in_value_loop_retargets() {
-    let program = build_program(&[("main.sv", ITER_RETURN_DEMO, false)]);
+    let program = build_program(&[("main.sv", ITER_RETURN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2101,7 +2008,7 @@ fn kotlinc_compiles_and_runs_iterator_return() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", ITER_RETURN_DEMO, false)]);
+    let program = build_program(&[("main.sv", ITER_RETURN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2136,7 +2043,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn field_subject_is_lowers_to_union_test() {
-    let program = build_program(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2157,7 +2064,7 @@ fn kotlinc_compiles_and_runs_field_is() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", FIELD_IS_DEMO, false)]);
+    let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2249,7 +2156,7 @@ fn main() [use] -> [] None {
 /// wrapper-union field reads its arm payload.
 #[test]
 fn narrowed_field_reads_unwrap() {
-    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2280,7 +2187,7 @@ fn kotlinc_compiles_and_runs_place_narrowing() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO, false)]);
+    let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2317,7 +2224,7 @@ fn main() [use] -> [] None {
 /// "unnecessary non-null assertion" warning.
 #[test]
 fn narrowed_val_field_relies_on_the_smart_cast() {
-    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2343,7 +2250,7 @@ fn kotlinc_compiles_and_runs_place_operand() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO, false)]);
+    let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2375,7 +2282,7 @@ fn main() [use] -> [] None {
 /// smart-cast [kt-narrow-field-assert].
 #[test]
 fn tuple_elements_emit_pair_components() {
-    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2406,7 +2313,7 @@ fn kotlinc_compiles_and_runs_tuple_index() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO, false)]);
+    let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2417,71 +2324,13 @@ fn kotlinc_compiles_and_runs_tuple_index() {
     );
 }
 
-// ===== `define fn` type parameters [backend-define-generics] =====
-// A `define fn` template interpolates the *call's* resolved type arguments
-// with `${T}`, exactly as a `define type` template does — which is how
-// `mutable_list()` renders `mutableListOf<Int>()`, since Kotlin cannot infer
-// a type argument that the source never wrote.
+// ===== list constructors carry their element type =====
+// `mutable_list()` must not emit a bare `mutableListOf()`, which kotlinc
+// cannot infer: an empty list constructor renders its element type from the
+// call's resolved type arguments (`mutableListOf<Int>()`), since Kotlin
+// cannot infer a type argument that the source never wrote.
 
-const DEFINE_GENERICS_DEMO: &str = r#"
-external fn empty_box<T>() [] -> [] Box<T>
-external fn box_size<T>(box: Box<T>) [] -> [box] Int
-external type Box<T>
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    let b: Box<Str> = empty_box()
-    let c = empty_box<Int>()
-    println("${box_size(b)} ${box_size(c)}")
-}
-"#;
-
-const DEFINE_GENERICS_DEFINES: &str = r#"
-define type Box<T> {
-    inline: ``
-    ArrayList<${T}>
-    ``
-}
-
-define fn empty_box<T>() -> Box<T> {
-    inline: ``
-    ArrayList<${T}>()
-    ``
-}
-
-define fn box_size<T>(box: Box<T>) -> Int {
-    inline: ``
-    ${box}.size
-    ``
-}
-"#;
-
-#[test]
-fn define_fn_templates_interpolate_type_arguments() {
-    let program = build_program(&[
-        ("main.sv", DEFINE_GENERICS_DEMO, false),
-        ("main.kotlin.sv", DEFINE_GENERICS_DEFINES, true),
-    ]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .unwrap();
-    assert!(
-        main.content.contains("val b: ArrayList<String> = ArrayList<String>()"),
-        "the type argument should come from the annotation:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("val c = ArrayList<Int>()"),
-        "an explicit type argument should reach the template:\n{}",
-        main.content
-    );
-}
-
-/// The std list defines use this: `mutable_list()` must not emit a bare
+/// The std list constructors use this: `mutable_list()` must not emit a bare
 /// `mutableListOf()`, which kotlinc cannot infer.
 #[test]
 fn list_constructors_carry_their_element_type() {
@@ -2494,7 +2343,7 @@ fn main() [use] -> [] None {
     println("${size(xs)} ${size(ys)}")
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2511,7 +2360,7 @@ fn main() [use] -> [] None {
 }
 
 #[test]
-fn kotlinc_compiles_and_runs_define_generics() {
+fn kotlinc_compiles_and_runs_list_element_types() {
     if Command::new("kotlinc").arg("-version").output().is_err() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
@@ -2527,11 +2376,11 @@ fn main() [use] -> [] None {
     println("${size(xs)} ${size(ys)}")
 }
 "#;
-    let program = build_program(&[("main.sv", src, false)]);
+    let program = build_program(&[("main.sv", src)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "define-generics", "2 1\n");
+    run_kotlin_files(&files, "list-element-types", "2 1\n");
 }
 
 // ===== effect dependencies on handlers [effect-handler-deps] =====
@@ -2568,7 +2417,7 @@ fn main() [use] -> [] None {
 /// only the Logger.
 #[test]
 fn handler_dependencies_inject_at_construction() {
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2605,7 +2454,7 @@ fn kotlinc_compiles_and_runs_handler_dependencies() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2704,7 +2553,7 @@ fn kotlinc_compiles_and_runs_handler_deps_in_anger() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2786,7 +2635,7 @@ fn kotlinc_compiles_and_runs_handler_deps_chain() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2876,7 +2725,7 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO, false)]);
+    let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2932,7 +2781,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn union_coercion_in_array_tuple_lambda() {
-    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -2959,142 +2808,11 @@ fn kotlinc_compiles_and_runs_nested_coercion() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO, false)]);
+    let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
-}
-
-// ===== same-name defines and the define/external pairing =====
-// [decl-explicit] Every `define fn` implements exactly one `external fn`:
-// the external carries the contract, the define the native template.
-// Same-name externals (`twice(Str)` / `twice(Int)`) pair with their
-// defines by parameter base types.
-
-const PAIRED_EXTERNALS: &str = r#"
-external fn twice(s: Str) [] -> [s] Str
-external fn twice(i: Int) [] -> [i] Int
-"#;
-
-const PAIRED_DEFINES: &str = r#"
-define fn twice(s: Str) -> Str {
-    inline: ``
-    (${s} + ${s})
-    ``
-}
-
-define fn twice(i: Int) -> Int {
-    inline: ``
-    (${i} * 2)
-    ``
-}
-"#;
-
-#[test]
-fn same_name_defines_dispatch_by_param_types() {
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println(twice("hi"))
-    println("${twice(3)}")
-}
-"#;
-    let program = build_program(&[
-        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
-        ("main.kotlin.sv", PAIRED_DEFINES, true),
-    ]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .unwrap();
-    assert!(
-        main.content.contains(r#"("hi" + "hi")"#),
-        "Str define not chosen in:\n{}",
-        main.content
-    );
-    assert!(
-        main.content.contains("(3 * 2)"),
-        "Int define not chosen in:\n{}",
-        main.content
-    );
-}
-
-// [decl-explicit] A define with no external has no contract at all.
-#[test]
-fn define_without_an_external_is_an_error() {
-    let program = build_program(&[
-        ("main.sv", "fn main() [use] -> [] None {\n    use StdOutConsole\n}\n", false),
-        ("main.kotlin.sv", PAIRED_DEFINES, true),
-    ]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
-        .err()
-        .expect("expected codegen errors");
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("implements no `external fn` declaration")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-// [decl-explicit] ...and one external may not have two defines.
-#[test]
-fn duplicate_defines_for_one_external_are_an_error() {
-    let twice_twice = r#"
-define fn twice(s: Str) -> Str {
-    inline: ``
-    (${s} + ${s})
-    ``
-}
-
-define fn twice(s: Str) -> Str {
-    inline: ``
-    (${s} + "!")
-    ``
-}
-"#;
-    let program = build_program(&[
-        (
-            "main.sv",
-            "external fn twice(s: Str) [] -> [s] Str\n\nfn main() [use] -> [] None {\n    use StdOutConsole\n}\n",
-            false,
-        ),
-        ("main.kotlin.sv", twice_twice, true),
-    ]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
-        .err()
-        .expect("expected codegen errors");
-    assert!(
-        errors.iter().any(|e| e.contains("is defined twice for the same signature")),
-        "unexpected errors: {errors:?}"
-    );
-}
-
-#[test]
-fn kotlinc_compiles_and_runs_paired_defines() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
-        return;
-    }
-    let main = r#"
-fn main() [use] -> [] None {
-    use StdOutConsole
-    println(twice("hi"))
-    println("${twice(3)}")
-}
-"#;
-    let program = build_program(&[
-        ("main.sv", &format!("{PAIRED_EXTERNALS}{main}"), false),
-        ("main.kotlin.sv", PAIRED_DEFINES, true),
-    ]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_kotlin_files(&files, "paired-defines", "hihi\n6\n");
 }
 
 // ===== effect member fns with their own generics =====
@@ -3123,7 +2841,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn effect_member_generics_render_on_the_interface() {
-    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO, false)]);
+    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3144,7 +2862,7 @@ fn kotlinc_compiles_and_runs_member_generics() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO, false)]);
+    let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3219,7 +2937,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn aliased_effect_types_resolve_to_the_same_handler() {
-    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3247,7 +2965,7 @@ fn kotlinc_compiles_and_runs_aliased_effects() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO, false)]);
+    let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3288,7 +3006,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn array_std_functions_lower() {
-    let program = build_program(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3317,7 +3035,7 @@ fn kotlinc_compiles_and_runs_array_std() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", ARRAY_STD_DEMO, false)]);
+    let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3378,7 +3096,7 @@ fn main() [use] -> [] None {
 // overload name [kt-qual-mangling].
 #[test]
 fn dot_names_emit_nested_classes() {
-    let program = build_program(&[("main.sv", DOT_NAMES, false)]);
+    let program = build_program(&[("main.sv", DOT_NAMES)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3481,7 +3199,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn dot_names_in_unions_and_narrowing() {
-    let program = build_program(&[("main.sv", DOT_NAME_UNIONS, false)]);
+    let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3540,7 +3258,7 @@ fn main() [use] -> [] None {
 // difference shows up only in which overload the checker picked.
 #[test]
 fn provenance_survives_mutation_where_state_does_not() {
-    let program = build_program(&[("main.sv", QUAL_SUBJECTS, false)]);
+    let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3634,7 +3352,7 @@ const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
 /// which is LIFO.
 #[test]
 fn defer_lowers_to_try_finally() {
-    let program = build_program(&[("main.sv", DEFER_DEMO, false)]);
+    let program = build_program(&[("main.sv", DEFER_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3678,7 +3396,7 @@ fn kotlin_compiles_and_runs_defer() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", DEFER_DEMO, false)]);
+    let program = build_program(&[("main.sv", DEFER_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3803,7 +3521,7 @@ const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
 /// is never a handler parameter.
 #[test]
 fn abort_lowers_to_a_signal_and_try_to_a_catch() {
-    let program = build_program(&[("main.sv", ABORT_DEMO, false)]);
+    let program = build_program(&[("main.sv", ABORT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3867,7 +3585,7 @@ fn kotlin_compiles_and_runs_abort() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", ABORT_DEMO, false)]);
+    let program = build_program(&[("main.sv", ABORT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3932,7 +3650,7 @@ const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\non
 /// ignores it (the variance rule).
 #[test]
 fn fn_type_effects_thread_into_lambdas() {
-    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3972,7 +3690,7 @@ fn kotlinc_compiles_and_runs_fn_type_effects() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4053,7 +3771,7 @@ const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage numbe
 /// (the alternative, a fresh name, would need every read rewritten).
 #[test]
 fn widening_materializes_the_peel_kotlin() {
-    let program = build_program(&[("main.sv", WIDEN_DEMO, false)]);
+    let program = build_program(&[("main.sv", WIDEN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4075,7 +3793,7 @@ fn kotlinc_compiles_and_runs_widening() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", WIDEN_DEMO, false)]);
+    let program = build_program(&[("main.sv", WIDEN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4163,7 +3881,7 @@ const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\ni
 /// [if-else-none].
 #[test]
 fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
-    let program = build_program(&[("main.sv", WHEN_COND_DEMO, false)]);
+    let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4199,7 +3917,7 @@ fn kotlinc_compiles_and_runs_when_cond() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", WHEN_COND_DEMO, false)]);
+    let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4234,7 +3952,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
-    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4255,7 +3973,7 @@ fn kotlinc_compiles_and_runs_try_mutation() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -4283,7 +4001,7 @@ fn main() [use, Telemetry] {
 "#;
 
 fn platform_demo_program() -> Program {
-    build_program(&[("main.sv", PLATFORM_DEMO, false)])
+    build_program(&[("main.sv", PLATFORM_DEMO)])
 }
 
 /// [platform-tree] The host skeleton `salvo platform generate` writes for

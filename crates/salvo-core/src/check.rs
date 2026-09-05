@@ -26,7 +26,6 @@ use crate::diag::FileDiagnostic;
 use crate::place::{Place, Proj};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
-use crate::source::SourceKind;
 use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
@@ -141,7 +140,8 @@ pub struct Checked {
     /// [call-type-args] The type arguments a generic call resolved to, in
     /// the callee's declaration order (keyed by the call span). Inferred
     /// from the arguments, an explicit type-argument list, or the expected
-    /// type. `define fn` templates interpolate these as `${T}`.
+    /// type. The backends' intrinsic lowerings render these
+    /// [backend-intrinsic].
     pub call_type_args: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
@@ -370,10 +370,7 @@ fn check_once<'p>(
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        if file.kind != SourceKind::Language {
-            continue;
-        }
+    for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut checker = Checker {
             scope: &resolution.scopes[file_idx],
             resolution,
@@ -407,7 +404,50 @@ fn check_once<'p>(
         checker.check_module(ast);
     }
     check_effect_member_names(program, &mut out);
+    check_intrinsic_is_std_only(program, &mut out);
     out
+}
+
+/// [intrinsic-std-only] `intrinsic` marks a declaration the *compiler*
+/// implements, so only the standard library may write it (user decision
+/// 2026-09-05: a customer has no business declaring `intrinsic` if the
+/// compiler does not already declare it).
+///
+/// The parser cannot enforce this — it sees one file's tokens and knows
+/// nothing about where the file came from — so the rule lives here, where
+/// `SourceFile::is_std` is at hand. It is not a cosmetic restriction: the
+/// backends dispatch intrinsics from a table keyed by *name*
+/// [backend-intrinsic], so an intrinsic the compiler does not know has no
+/// lowering anywhere. The error names the one interop path customer code
+/// does have.
+fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        if file.is_std {
+            continue;
+        }
+        for item in &ast.items {
+            let (kind, name, span) = match item {
+                Item::Fn(f) if f.intrinsic => ("fn", &f.name.name, f.name.span),
+                Item::Type(t) if t.intrinsic => ("type", &t.name.name, t.name.span),
+                Item::Handler(h) if h.intrinsic => ("handler", &h.name.name, h.name.span),
+                Item::Qualifier(q) if q.intrinsic => {
+                    ("qualifier", &q.name.name, q.name.span)
+                }
+                _ => continue,
+            };
+            out.errors.push(crate::diag::FileDiagnostic::error(
+                file_idx,
+                span,
+                format!(
+                    "`intrinsic {kind} {name}` is the compiler's to declare, not \
+                     yours: every backend lowers intrinsics from a table keyed by \
+                     name, so one declared here has no implementation anywhere. To \
+                     reach the target language, declare what you need from it as a \
+                     member of a `platform effect`"
+                ),
+            ));
+        }
+    }
 }
 
 /// [effect-member-unique] A member name identifies its effect
@@ -425,10 +465,7 @@ fn check_once<'p>(
 fn check_effect_member_names(program: &Program, out: &mut Checked) {
     // member name -> (effect name, file index, name span)
     let mut seen: HashMap<&str, (&str, usize, Span)> = HashMap::new();
-    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        if file.kind != SourceKind::Language {
-            continue;
-        }
+    for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         for item in &ast.items {
             let Item::Effect(e) = item else { continue };
             for f in &e.fns {
@@ -1019,12 +1056,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.body.is_some() {
             return;
         }
-        let kind = match f.backing {
-            Some(BackingMod::External) => "external fn",
-            Some(BackingMod::Intrinsic) => "intrinsic fn",
-            None => return,
-        };
-        self.require_explicit(f, kind, true);
+        if !f.intrinsic {
+            return;
+        }
+        self.require_explicit(f, "intrinsic fn", true);
     }
 
     /// [platform-effect] The restrictions a `platform effect` carries
@@ -4054,7 +4089,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= name resolution =================
 
     /// Whether `name` is usable as a written *type* name [name-resolve]:
-    /// a struct, an `intrinsic`/`external type`, a type alias, an effect
+    /// a struct, an `intrinsic type`, a type alias, an effect
     /// (effect lists are written as types), or the language-level `None`
     /// (which has no declaration). Generic parameters are resolved by the
     /// caller, before this is consulted.
@@ -4296,8 +4331,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 // Internal qualifiers compose with everything.
-                if a.backing == Some(BackingMod::Intrinsic)
-                    || b.backing == Some(BackingMod::Intrinsic)
+                if a.intrinsic || b.intrinsic
                 {
                     continue;
                 }
@@ -4331,7 +4365,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Whether the base type's declaration opted into the `Mut`
     /// auto-qualifier: `struct S canbe Mut` [struct-mut] or
-    /// `external type List<T> canbe Mut` [type-canbe-mut].
+    /// `intrinsic type List<T> canbe Mut` [type-canbe-mut].
     /// Whether `name` is a *provenance* qualifier [qual-subject]: a claim
     /// about where the handle came from, which no call can invalidate.
     fn is_provenance_qual(&self, name: &str) -> bool {
@@ -6161,7 +6195,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             None => {
                 // [field-resolve] Only structs have fields, and only the
                 // ones they declare. A target-language member is reached by
-                // declaring an accessor (`external fn`), not by reading
+                // declaring an accessor, not by reading
                 // through an opaque type — so an unknown field is an error
                 // (user decision 2026-09-03). A generic value exposes
                 // nothing either: Salvo has no bounds, so `T` is opaque.
@@ -6199,7 +6233,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "`{other}` has no field `{}`: only structs have \
                                  fields, and a target-language member needs an \
-                                 `external fn` accessor",
+                                 accessor fn",
                                 field.name
                             ),
                         );
@@ -7745,15 +7779,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Ty {
         // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)`. `f`
-        // must be a declared function, define, or effect member — reaching
-        // a target-language method means declaring it (`external fn`), so
-        // an unknown name here is an error, not interop pass-through
-        // [call-resolve].
+        // must be a declared function or effect member — reaching
+        // a target-language method means declaring it (as a member of a
+        // `platform effect`), so an unknown name here is an error, not
+        // interop pass-through [call-resolve].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
             let known = self.scope.effect_members.contains_key(name)
-                || self.scope.fns.contains_key(name)
-                || self.symbols.define_fns.contains_key(name);
+                || self.scope.fns.contains_key(name);
             if known {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
@@ -7771,8 +7804,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!(
                     "no function named `{name}` is in scope: dot-notation calls a \
                      function with the receiver as its first argument \
-                     ([fn-dot]), so a target-language method must be declared \
-                     (`external fn`) to be callable"
+                     ([fn-dot]), so a target-language method is reached by \
+                     declaring it as a member of a `platform effect`"
                 ),
                 name,
             );
@@ -7912,9 +7945,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.check_effect_call(effect, member, type_args, args, expected, span);
         }
 
-        // 2. Function overloads [fn-overload] (fn declarations, else define
+        // 2. Function overloads [fn-overload] (fn declarations, else
         // signatures).
-        let mut candidates: Vec<(Option<FnKey>, &'p FnDecl)> = self
+        let candidates: Vec<(Option<FnKey>, &'p FnDecl)> = self
             .scope
             .fns
             .get(name)
@@ -7925,11 +7958,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        if candidates.is_empty() {
-            if let Some(defs) = self.symbols.define_fns.get(name) {
-                candidates = defs.iter().map(|d| (None, &d.sig)).collect();
-            }
-        }
         if candidates.is_empty() {
             // 3. Handler constructor.
             for a in args {
@@ -7953,7 +7981,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             // Nothing declares this name [call-resolve]. Reaching a target
-            // function means declaring it (`external fn`), so an
+            // function means declaring it, so an
             // unresolved callee is an error rather than interop
             // pass-through (user decision 2026-09-03).
             self.error_unresolved(
@@ -8156,15 +8184,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [linear-generics] `<T canbe Linear>` admits linear
                 // instantiation: the callee's body honors the obligation
-                // (or, for bodiless externals, its audit claims so).
+                // (for an `intrinsic fn`, the backend's lowering does).
                 if opted.contains(var_name.as_str()) {
                     continue;
                 }
                 let mut visited = HashSet::new();
                 if self.ty_transitively_linear(ty, &mut visited) {
-                    if decl.backing == Some(BackingMod::Intrinsic)
-                        && decl.name.name == "copy"
-                    {
+                    if decl.intrinsic && decl.name.name == "copy" {
                         self.error(
                             span,
                             format!(
@@ -8414,7 +8440,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (`mutableListOf()` is not valid Kotlin, while rustc infers `vec![]`
     /// backwards from a later use). Requiring the context here keeps the two
     /// backends on the same programs and makes the type known to the
-    /// checker, which is what `${T}` in a `define fn` interpolates.
+    /// checker, which is what an intrinsic lowering renders.
     fn settle_type_args(
         &mut self,
         name: &str,
@@ -8775,7 +8801,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // contract: apply it exactly like a named call's, so a member that
         // takes ownership consumes its argument. (Validating each
         // *handler* body against the member's contract is the E1-adjacent
-        // follow-up; the declaration is trusted here, as for externals.)
+        // follow-up; the declaration is trusted here.)
         if let Some(list) = &member.deductions {
             let facts =
                 crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});

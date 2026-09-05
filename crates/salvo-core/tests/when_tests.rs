@@ -13,22 +13,50 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
+/// [intrinsic-std-only] The intrinsic declarations these sources rely on.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file rather than pasted into the source under test.
+/// Module `core.prelude`: `core.*` is implicitly imported, so the test source
+/// sees these names without an `import`.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message — parse errors included, since half of this feature's rules are
 /// enforced by the grammar.
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
-    let (module, kind) = SourceSet::classify(Path::new("main.sv"), "kotlin").unwrap();
-    sources.add("main.sv", module, kind, src.to_string(), false);
-    let (ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
-    let mut out: Vec<String> = diagnostics
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    let mut out: Vec<String> = Vec::new();
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        // The source under test carries half of this feature's rules in the
+        // grammar, so its parse errors are part of the result; the std
+        // prelude is expected to parse cleanly and contributes none.
+        if !file.is_std {
+            out.extend(
+                diagnostics
+                    .iter()
+                    .filter(|d| d.is_error())
+                    .map(|d| d.message.clone()),
+            );
+        }
+        modules.push(ast);
+    }
     let program = Program {
         files: sources.files,
-        modules: vec![ast],
+        modules,
         companions: Vec::new(),
     };
     let symbols = Symbols::collect(&program);
@@ -56,14 +84,11 @@ fn assert_has(errs: &[String], needle: &str) {
 }
 
 const PRELUDE: &str = r#"
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
 
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
-external fn note(text: Str) [] -> [text] None
+fn note(text: Str) [] -> [text] None {}
 "#;
 
 // ===== [when-condition] =====
@@ -166,7 +191,8 @@ fn else_must_be_the_last_branch() {
 fn the_subject_form_rejects_an_else_and_names_the_other_form() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         external fn outcome() [] -> [] Ok Int | Err Str\n\
+         fn make_ok(n: Int) [] -> [] Int as Ok {{ return n }}\n\
+         fn outcome() [] -> [] Ok Int | Err Str {{ return make_ok(0) }}\n\
          fn probe() [] -> [] Str {{\n\
          let o = outcome()\n\
          return when o {{\n\

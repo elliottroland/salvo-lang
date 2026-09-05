@@ -12,8 +12,8 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     for (name, src) in files {
-        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
-        sources.add(*name, module, kind, src.to_string(), false);
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, src.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -34,13 +34,21 @@ fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
         .collect()
 }
 
-/// Parses + resolves + checks a multi-file program (no std) and returns
-/// the checker's structured diagnostics.
+/// Parses + resolves + checks a multi-file program and returns the
+/// checker's structured diagnostics. A std prelude ([intrinsic-std-only])
+/// supplies the base types the checker needs, loaded as a std file rather
+/// than pasted into the sources under test.
 fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
     for (name, src) in files {
-        let (module, kind) = SourceSet::classify(Path::new(name), "kotlin").unwrap();
-        sources.add(*name, module, kind, src.to_string(), false);
+        let module = SourceSet::classify(Path::new(name)).unwrap();
+        sources.add(*name, module, src.to_string(), false);
     }
     let mut modules = Vec::new();
     for file in &sources.files {
@@ -59,9 +67,9 @@ fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     check_program(&program, &resolution, &symbols).errors
 }
 
-/// The checker's error messages for a single-file program (no std). Every
-/// source needs its own `intrinsic type` declarations: without std even
-/// `Int` is undeclared [name-resolve].
+/// The checker's error messages for a single-file program. The std prelude
+/// loaded by [check_errors] supplies the base types, so a source under test
+/// names `Int`/`Str`/`Bool` without declaring them [name-resolve].
 fn messages(src: &str) -> Vec<String> {
     check_errors(&[("main.sv", src)])
         .iter()
@@ -69,7 +77,11 @@ fn messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-const TYPES: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+/// [intrinsic-std-only] The base-type declarations the checker needs.
+/// `intrinsic` is the compiler's modifier and only std may write it, so this
+/// is loaded as a *std* file (module `core.prelude`, implicitly imported)
+/// rather than pasted into the source under test.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Store<T> canbe Mut\n";
 
 // [name-dot] A dot-name resolves as one dotted name, and the namespace
 // struct in the same file satisfies the rule.
@@ -179,7 +191,7 @@ fn uppercase_module_path_is_an_error() {
 #[test]
 fn unknown_name_in_an_is_check_is_reported_once() {
     let src = format!(
-        "{TYPES}\nqualifier Ok<T> of T\n\n\
+        "qualifier Ok<T> of T\n\n\
          fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
          fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
          fn g() -> Int {{\n    let v = f()\n    if v is Err {{\n    }}\n    return 1\n}}\n"
@@ -214,7 +226,7 @@ fn unknown_name_in_an_is_check_is_reported_once() {
 #[test]
 fn unknown_name_in_a_when_branch_does_not_cascade() {
     let src = format!(
-        "{TYPES}\nqualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
+        "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
          fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
          fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
          fn g() -> Int {{\n    let v = f()\n    when v {{\n        \
@@ -268,7 +280,7 @@ fn unknown_names_are_reported_at_declaration_sites() {
         ),
     ];
     for (body, want) in cases {
-        let src = format!("{TYPES}\n{body}");
+        let src = format!("{body}");
         let messages = messages(&src);
         assert!(
             messages.iter().any(|m| m == want),
@@ -282,7 +294,7 @@ fn unknown_names_are_reported_at_declaration_sites() {
 // help.
 #[test]
 fn a_name_in_the_wrong_namespace_says_so() {
-    let src = format!("{TYPES}\nqualifier Tag of Int\n\nfn f(x: Tag) -> Int {{\n    return 1\n}}\n");
+    let src = format!("qualifier Tag of Int\n\nfn f(x: Tag) -> Int {{\n    return 1\n}}\n");
     let as_type = messages(&src);
     assert!(
         as_type
@@ -291,7 +303,7 @@ fn a_name_in_the_wrong_namespace_says_so() {
         "got {as_type:?}"
     );
 
-    let src = format!("{TYPES}\nstruct S {{\n    v: Int\n}}\n\nfn f(x: S Int) -> Int {{\n    return 1\n}}\n");
+    let src = format!("struct S {{\n    v: Int\n}}\n\nfn f(x: S Int) -> Int {{\n    return 1\n}}\n");
     let as_qual = messages(&src);
     assert!(
         as_qual
@@ -321,18 +333,15 @@ fn unknown_type_names_suggest_imports() {
 // still apply.
 #[test]
 fn intrinsic_qualifiers_are_known_names() {
-    let src = format!(
-        "{TYPES}\nintrinsic type Store<T> canbe Mut\n\n\
-         fn f(s: Mut Store<Int>) -> Int {{\n    return 1\n}}\n"
-    );
-    assert!(messages(&src).is_empty(), "got {:?}", messages(&src));
+    let src = "fn f(s: Mut Store<Int>) -> Int {\n    return 1\n}\n";
+    assert!(messages(src).is_empty(), "got {:?}", messages(src));
 }
 
 // [canbe-optin] `canbe` grants one of the compiler's own qualifiers; a
 // user qualifier there is a confusion with `with` [qual-with].
 #[test]
 fn canbe_only_accepts_the_intrinsic_qualifiers() {
-    let src = format!("{TYPES}\nqualifier Tag of Int\n\nstruct S canbe Tag {{\n    v: Int\n}}\n");
+    let src = format!("qualifier Tag of Int\n\nstruct S canbe Tag {{\n    v: Int\n}}\n");
     let messages = messages(&src);
     assert!(
         messages

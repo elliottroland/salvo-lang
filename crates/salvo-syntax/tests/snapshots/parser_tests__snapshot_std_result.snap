@@ -13,7 +13,7 @@ Module {
                     "generated code [qual-erasure]: the union wrapper carries the arm, the",
                     "qualifier only decides which one.",
                 ],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Ok",
@@ -46,7 +46,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
-                backing: None,
+                intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Err",
@@ -84,7 +84,7 @@ Module {
                     "linear values may be tagged, since the obligation travels with them",
                     "[linear-generics].",
                 ],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "ok",
                     span: 1079..1081,
@@ -188,7 +188,7 @@ Module {
                 docs: [
                     "[qual-ctor-fn] Tags a value as the failure arm of a result union.",
                 ],
-                backing: None,
+                intrinsic: false,
                 name: Ident {
                     name: "err",
                     span: 1219..1222,
