@@ -787,6 +787,18 @@ impl<'p> Walk<'_, 'p> {
                     self.block(&b.body);
                 }
             }
+            // [when-condition]
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (c, b) in branches {
+                    self.expr(c);
+                    self.block(b);
+                }
+                self.block(else_block);
+            }
             Expr::While {
                 cond,
                 body,

@@ -101,7 +101,11 @@ fn main() [use] {
   be invalidated by mutation. Structs and qualifiers can be namespaced
   under a struct (`Environment.Id`), giving wrapper types without nesting.
 - **Everything is an expression**: `if`/`when` produce values; branch types
-  union together.
+  union together. `when` is always exhaustive — over a union's arms with a
+  subject, or as a condition chain with a mandatory `else` when written
+  without one (`when { n < 0 { … } else { … } }`), which is how a chain of
+  conditions produces a value that is never absent. Conditions are `Bool`;
+  there is no truthiness.
 - **Scope exits**: `defer { ... }` runs a block when the enclosing block
   ends — at its end and at every `return`/`break`/`continue` that leaves
   it, latest first — so a resource is released once, on every path.

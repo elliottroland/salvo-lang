@@ -7,7 +7,7 @@
 //! * Struct literals (`Person { ... }`) are ambiguous with blocks in
 //!   condition position (`if x is Person { ... }`), so struct-literal
 //!   speculation is disabled while parsing conditions (`no_struct`)
-//!   [if-bool].
+//!   [cond-bool].
 //! * Type names and qualifiers are uppercase by convention; `is` checks use
 //!   this to distinguish the checked type from an optional binding
 //!   (`if x is Str s`) [is-binding].
@@ -2402,10 +2402,29 @@ impl<'s> Parser<'s> {
 
     fn parse_when(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwWhen)?.span;
+        // [when-condition] `when {` is the subject-less form: a subject is
+        // always a plain variable, so a brace here cannot be one.
+        if self.at(&TokenKind::LBrace) {
+            return self.parse_when_cond(start);
+        }
         let subject = self.parse_condition()?;
         self.expect(&TokenKind::LBrace)?;
         let mut branches = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            // [when-union-subject] A subject `when` is exhaustive over the
+            // union's arms, so it has no default branch. Name the two forms
+            // rather than reporting a missing `is`.
+            if self.at(&TokenKind::KwElse) {
+                let span = self.bump().span;
+                self.error(
+                    "`when` over a subject is exhaustive over the union's arms, so \
+                     it takes no `else`: drop the subject to write a condition chain \
+                     (`when { cond { … } else { … } }`)",
+                    span,
+                );
+                self.parse_block()?;
+                continue;
+            }
             // [qual-widen] A branch head is `is ...` (narrow) or `^ ...`
             // (widen): the same arm test, opposite effect on the type.
             let widen = self.at(&TokenKind::Caret);
@@ -2438,6 +2457,58 @@ impl<'s> Parser<'s> {
             subject: Box::new(subject),
             branches,
             span: start.to(end),
+        })
+    }
+
+    /// [when-condition] The subject-less `when`: bare boolean branch heads
+    /// followed by blocks, closed by a mandatory `else`. `when` is always
+    /// exhaustive — with no subject there are no arms to be exhaustive
+    /// over, so the `else` is what supplies it.
+    fn parse_when_cond(&mut self, start: Span) -> Option<Expr> {
+        self.expect(&TokenKind::LBrace)?;
+        let mut branches: Vec<(Expr, Block)> = Vec::new();
+        let mut else_block: Option<Block> = None;
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            if self.at(&TokenKind::KwElse) {
+                let else_span = self.bump().span;
+                let block = self.parse_block()?;
+                if !self.at(&TokenKind::RBrace) && !self.at_eof() {
+                    self.error(
+                        "`else` is the last branch of a `when`: it runs when no \
+                         condition above it held",
+                        else_span,
+                    );
+                }
+                else_block = Some(block);
+                continue;
+            }
+            let cond = self.parse_condition()?;
+            let block = self.parse_block()?;
+            branches.push((cond, block));
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        let span = start.to(end);
+        let Some(else_block) = else_block else {
+            self.error(
+                "a subject-less `when` must end with an `else`: `when` is always \
+                 exhaustive, and with no subject the `else` is what makes it so \
+                 (use `if`/`elif` when there is nothing to fall back to)",
+                span,
+            );
+            return Some(Expr::Error { span });
+        };
+        if branches.is_empty() {
+            self.error(
+                "a `when` with only an `else` has nothing to decide: write the \
+                 block on its own",
+                span,
+            );
+            return Some(Expr::Error { span });
+        }
+        Some(Expr::WhenCond {
+            branches,
+            else_block,
+            span,
         })
     }
 

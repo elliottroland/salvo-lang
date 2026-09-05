@@ -147,6 +147,12 @@ impl Ty {
         matches!(self, Ty::Named { name, args } if name == "None" && args.is_empty())
     }
 
+    /// Whether this is `Bool` — qualifiers ignored, since a claim about a
+    /// boolean is still a boolean [cond-bool].
+    pub fn is_bool(&self) -> bool {
+        matches!(self.strip_quals(), Ty::Named { name, args } if name == "Bool" && args.is_empty())
+    }
+
     pub fn is_unknown(&self) -> bool {
         matches!(self, Ty::Unknown)
     }

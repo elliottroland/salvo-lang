@@ -3116,6 +3116,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::When { branches, .. } => {
                 !branches.is_empty() && branches.iter().all(|b| self.block_exits(&b.body))
             }
+            // [when-condition] Exhaustive by construction: the `else` is
+            // mandatory, so "every branch exits" is enough.
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                self.block_exits(else_block)
+                    && branches.iter().all(|(_, b)| self.block_exits(b))
+            }
             _ => false,
         }
     }
@@ -3147,6 +3157,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::When { branches, .. } => {
                 !branches.is_empty() && branches.iter().all(|b| self.block_returns(&b.body))
+            }
+            // [when-condition] Mandatory `else`, so the chain covers every
+            // path [fn-must-return].
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                self.block_returns(else_block)
+                    && branches.iter().all(|(_, b)| self.block_returns(b))
             }
             _ => false,
         }
@@ -4407,6 +4427,14 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned(&b.body, out);
             }
         }
+        // [when-condition]
+        Expr::WhenCond { branches, else_block, .. } => {
+            for (c, b) in branches {
+                collect_assigned_expr(c, out);
+                collect_assigned(b, out);
+            }
+            collect_assigned(else_block, out);
+        }
         _ => {}
     }
 }
@@ -4505,6 +4533,13 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::When { subject, branches, .. } => {
             expr_mentions(subject, name)
                 || branches.iter().any(|b| block_mentions(&b.body))
+        }
+        // [when-condition]
+        Expr::WhenCond { branches, else_block, .. } => {
+            branches
+                .iter()
+                .any(|(c, b)| expr_mentions(c, name) || block_mentions(b))
+                || block_mentions(else_block)
         }
         Expr::While { cond, body, else_block, .. } => {
             expr_mentions(cond, name)
@@ -5718,6 +5753,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 span,
             } => self.check_when(subject, branches, *span),
+            // [when-condition] The subject-less form is a condition chain
+            // with a mandatory `else`: the same checking as
+            // `if`/`elif`/`else`, and the `else` is what keeps `None` out of
+            // the value type.
+            Expr::WhenCond {
+                branches,
+                else_block,
+                span,
+            } => self.check_if(branches, Some(else_block), *span),
             // [try] The abort delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
             Expr::While {
@@ -6505,10 +6549,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             other => {
-                self.check_expr(other, None);
+                let ty = self.check_expr(other, None);
+                self.require_bool(&ty, other.span());
                 CondInfo::default()
             }
         }
+    }
+
+    /// [cond-bool] A condition is a boolean expression. `if`, `elif`,
+    /// `while` and a subject-less `when`'s branch heads take `Bool` and
+    /// nothing else — Salvo has no truthiness, so there is no rule that
+    /// could turn another type into a decision. Checked per *leaf* of a
+    /// `&&`/`||`/`!` condition, which is where the wrong type was written.
+    /// A type the checker could not infer stays lenient
+    /// [type-unknown-lenient], and a diverging expression never produces a
+    /// value to test [type-any-nothing].
+    fn require_bool(&mut self, ty: &Ty, span: Span) {
+        if ty.is_unknown() || matches!(ty, Ty::Nothing) || ty.is_bool() {
+            return;
+        }
+        self.error(
+            span,
+            format!(
+                "a condition must be a `Bool` (found `{ty}`): Salvo has no \
+                 truthiness — compare explicitly (`n != 0`, `list.size() > 0`) or \
+                 test the type with `is`"
+            ),
+        );
     }
 
     /// Analyzes an `is` expression: checks the subject, records the runtime
@@ -8591,6 +8658,18 @@ fn expr_defer_escape(expr: &Expr, loop_depth: usize) -> Option<(&'static str, Sp
                 .iter()
                 .find_map(|b| block_defer_escape(&b.body, loop_depth))
         }),
+        // [when-condition] The subject-less form is a condition chain, so
+        // it escapes exactly where an `if`/`elif`/`else` chain does.
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => branches
+            .iter()
+            .find_map(|(c, b)| {
+                expr_defer_escape(c, loop_depth).or_else(|| block_defer_escape(b, loop_depth))
+            })
+            .or_else(|| block_defer_escape(else_block, loop_depth)),
         Expr::While {
             cond,
             body,

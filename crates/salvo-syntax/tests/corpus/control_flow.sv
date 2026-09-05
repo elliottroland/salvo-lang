@@ -37,6 +37,26 @@ fn precise_checks(result: Ok Str | Err Str | Err Bool) -> None {
     }
 }
 
+// [when-condition] Without a subject, `when` is a condition chain: bare
+// boolean branch heads and a mandatory `else`, which is what makes it
+// exhaustive (and keeps `None` out of its value, unlike an `if` chain).
+fn classify(n: Int) -> Str {
+    return when {
+        n < 0 { "negative" }
+        n == 0 { "zero" }
+        else { "positive" }
+    }
+}
+
+// [when-condition] The heads are ordinary boolean expressions, so `is`
+// narrows its branch and the `else` sees the arm removed.
+fn describe(value: Str | Int) [Console] -> None {
+    when {
+        value is Str s { println("str ${s}") }
+        else { println("int ${value}") }
+    }
+}
+
 fn last_number(numbers: Int[]) -> Int {
     let i = 0
     let last = while i++ < numbers.size() {

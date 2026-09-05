@@ -389,8 +389,17 @@ Conventions:
     type, qualifiers stripped); operand typing *beyond* `None` — numeric
     towers, promotion, `Bool` for `&&`/`||` — is still open, so `&&`/`||`
     are deliberately not covered by this rule.
-* [if-bool] `if`/`elif` conditions must be boolean expressions; there is
-  no truthiness. `is` checks evaluate to `Bool`.
+* [cond-bool] Conditions are boolean expressions: `if`/`elif`, `while`,
+  and a subject-less `when`'s branch heads [when-condition] accept `Bool`
+  and nothing else. There is no truthiness — no rule could turn an `Int`,
+  a `Str` or a possibly-absent `Bool?` into a decision, and guessing one
+  is how a backend divergence gets in (Kotlin has no truthiness either;
+  Rust would reject the `Option`). `is`/`^` checks evaluate to `Bool`.
+  * Checked per **leaf** of a `&&`/`||`/`!` condition, which is where the
+    wrong type was written; `Unknown` and `Nothing` stay lenient
+    [type-unknown-lenient].
+  * Remedy named in the diagnostic: compare explicitly (`n != 0`,
+    `list.size() > 0`), assert with `!`, or test the type with `is`.
   * The parser disables struct-literal speculation in condition position
     (`no_struct`) so `if x is Person { ... }` parses.
 * [if-else-none] A missing `else` contributes `None` to an
@@ -445,8 +454,11 @@ Conventions:
     nested `when` would scrutinize the wrapper it came out of, which is
     exactly the wrong-code bug the feature's own demo caught while it was
     being built.
-* [when-union-subject] `when` requires a union-typed *variable* subject;
-  there is no default branch. Field subjects stay rejected even though
+* [when-union-subject] `when` **with a subject** requires a union-typed
+  *variable* subject, and takes no `else`: the arms are the cases and
+  covering them is what is checked [when-exhaustive]. An `else` here is a
+  parse error naming the subject-less form [when-condition]. Field
+  subjects stay rejected even though
   they now narrow (user decision 2026-09-03): `if … is` covers them.
   * A **qualified union** (`Ok (A | B)`, an `Aborted (Str | Int)` message
     [try]) is a claim *about* a union, so its arms belong to the inner
@@ -465,6 +477,34 @@ Conventions:
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A
   `None` arm is handled via the subject's nullability.
+* [when-condition] `when` is **always exhaustive**, and a *subject-less*
+  `when` is the second way it can be: `when { cond { … } … else { … } }`,
+  a condition chain whose `else` is **mandatory** (user decision
+  2026-09-05). `when {` is unambiguous — a subject is always a plain
+  variable, so a brace after `when` cannot be one.
+  * Semantics are `if`/`elif`/`else`'s, and the checker takes the same
+    path: bare boolean branch heads [cond-bool], narrowing per branch with
+    the earlier conditions accumulated as exclusions [is-narrowing],
+    branch values unioning into the result [when-value], and
+    definitely-returning when every branch returns [fn-must-return].
+  * **The mandatory `else` is the whole point.** An `if` chain without one
+    folds `None` into its value [if-else-none], so a total chain of
+    conditions is a shape the reader has to verify; this form is the shape
+    the grammar guarantees. Nothing else is new — which is why it reuses
+    `check_if` rather than getting its own checking.
+  * **Branch heads are ordinary conditions**, so `is`/`^` work in them and
+    narrow their branch (user decision 2026-09-05). No arm-exhaustiveness
+    follows: `is` heads that happen to cover a union still need the
+    `else` — the subject form is how you ask for that check.
+  * Parse errors, each naming the remedy: a missing `else` (the form is
+    not exhaustive without it — use `if`/`elif` when there is no
+    fall-back), an `else`-only `when` (nothing to decide — write the
+    block), a branch after the `else` (it closes the chain), and an `else`
+    in the *subject* form, which names this form instead of reporting a
+    missing `is` [when-union-subject].
+  * Backends: Kotlin has the same construct [kt-when-cond]; Rust has no
+    subject-less `match` and lowers to `if`/`else if`/`else`
+    [rs-when-cond].
 * [when-value] `when` is an expression; branches ending in `Nothing`
   (e.g. `return`) drop out of the value type.
 * [while-value] `while` evaluates to the last evaluated body expression,

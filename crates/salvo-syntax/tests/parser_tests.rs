@@ -666,3 +666,87 @@ fn try_without_a_block_is_an_error() {
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+// ===== The subject-less `when` [when-condition] =====
+
+// [when-condition] `when {` is the subject-less form — a subject is always
+// a plain variable, so the brace decides which grammar applies. Branch
+// heads are bare boolean expressions; the `else` closes the chain.
+#[test]
+fn subjectless_when_parses_a_condition_chain() {
+    let expr = parse_expr_stmt("when {\n        n < 0 { \"negative\" }\n        n == 0 { \"zero\" }\n        else { \"positive\" }\n    }");
+    let salvo_syntax::ast::Expr::WhenCond {
+        branches,
+        else_block,
+        ..
+    } = expr
+    else {
+        panic!("expected a subject-less when, got {expr:?}");
+    };
+    assert_eq!(branches.len(), 2);
+    assert!(matches!(
+        branches[0].0,
+        salvo_syntax::ast::Expr::Binary { .. }
+    ));
+    assert_eq!(else_block.stmts.len(), 1);
+}
+
+// [when-condition] A subject still parses as the arm-matching form, so the
+// two grammars stay separate.
+#[test]
+fn a_when_with_a_subject_is_still_the_arm_form() {
+    let expr = parse_expr_stmt("when result {\n        is Ok { 1 }\n        is Err { 2 }\n    }");
+    assert!(
+        matches!(expr, salvo_syntax::ast::Expr::When { .. }),
+        "expected the subject form, got {expr:?}"
+    );
+}
+
+// [when-condition] `when` is always exhaustive: with no subject there are
+// no arms to be exhaustive over, so the `else` is required.
+#[test]
+fn subjectless_when_without_an_else_is_an_error() {
+    let errors = errors_of("fn f() -> Str {\n    return when {\n        n < 0 { \"neg\" }\n    }\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("must end with an `else`")),
+        "got {errors:?}"
+    );
+}
+
+// [when-condition] An `else` with nothing above it decides nothing.
+#[test]
+fn when_with_only_an_else_is_an_error() {
+    let errors = errors_of("fn f() -> Str {\n    return when {\n        else { \"x\" }\n    }\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("nothing to decide")),
+        "got {errors:?}"
+    );
+}
+
+// [when-condition] The `else` is the fall-back, so nothing follows it.
+#[test]
+fn a_branch_after_the_else_is_an_error() {
+    let errors = errors_of(
+        "fn f() -> Str {\n    return when {\n        n < 0 { \"neg\" }\n        \
+         else { \"other\" }\n        n > 0 { \"pos\" }\n    }\n}\n",
+    );
+    assert!(
+        errors.iter().any(|m| m.contains("last branch")),
+        "got {errors:?}"
+    );
+}
+
+// [when-union-subject] The subject form takes no `else` — it is exhaustive
+// over the union's arms. The diagnostic names the subject-less form instead
+// of reporting a missing `is`, which is what the reader actually needs.
+#[test]
+fn an_else_in_the_subject_form_names_the_other_form() {
+    let errors = errors_of(
+        "fn f() -> Str {\n    return when result {\n        is Ok { \"ok\" }\n        \
+         else { \"err\" }\n    }\n}\n",
+    );
+    assert!(
+        errors.iter().any(|m| m.contains("it takes no `else`")),
+        "got {errors:?}"
+    );
+}

@@ -345,6 +345,18 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 block_names(&b.body, used);
             }
         }
+        // [when-condition] The subject-less form is a condition chain.
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
+            for (cond, body) in branches {
+                expr_names(cond, used);
+                block_names(body, used);
+            }
+            block_names(else_block, used);
+        }
         Expr::While {
             cond,
             body,

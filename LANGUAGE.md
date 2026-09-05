@@ -415,11 +415,13 @@ let full_name = if person.surname is Str {
 }
 ```
 
-Salvo only supports evaluating boolean expressions for `if` and `elif` -- there is no default evaluation of other types. Even the `is` expressions we've been using for unions evaluate to booleans, although there is some special syntax to bind the casted value in the scope of the if block.
+Conditions are boolean expressions -- `if`, `elif` and `while` accept `Bool` and nothing else. There is no truthiness: a number, a string or a possibly-absent `Bool?` is not a decision, so compare explicitly (`n != 0`, `name.size() > 0`, `flag!`). The `is` expressions we've been using for unions *are* booleans, although there is some special syntax to bind the casted value in the scope of the if block.
 
 ### When expressions
 
-For exhaustive checking over union types, when expressions are recommended. Since the union type options are known at compile time, the compiler can validate that every type is handled by a branch of the expression. When expressions are of the form:
+A `when` expression is always exhaustive. That is its purpose, and it happens in one of two ways depending on whether a subject is given.
+
+**With a subject**, `when` branches on the arms of a union type. Since the arms are known at compile time, the compiler validates that every one of them is handled:
 
 ```
 when [subject variable] {
@@ -433,7 +435,7 @@ when [subject variable] {
 }
 ```
 
-There is no default branch, and `when` cannot be used without a subject that has a union type. The subject together with the checks should form a valid boolean expression that could work for an if-expression when concatenated (i.e. `[subject] [check]` should be the boolean expression). As with if-expressions, any type/qualifier checking proven in the condition allows us to refer to the subject within that block by the more specific type. The branches of the when expression each resolve to a value like the `if`-`elif`-`else` chain. To reuse an example from earlier:
+There is no `else` branch in this form -- the arms *are* the cases, and covering them is what the compiler checks. The subject must be a union-typed variable. The subject together with a check should form a valid boolean expression that could work for an if-expression when concatenated (i.e. `[subject] [check]` should be the boolean expression). As with if-expressions, any type/qualifier checking proven in the condition allows us to refer to the subject within that block by the more specific type. The branches of the when expression each resolve to a value like the `if`-`elif`-`else` chain. To reuse an example from earlier:
 
 ```
 let result: Ok Str | Err Str | Err Bool = some_function()
@@ -451,6 +453,28 @@ let value = when result {
     }
 }
 ```
+
+**Without a subject**, `when` is a chain of conditions -- an `if`-`elif`-`else` chain in `when`'s shape. The branch heads are ordinary boolean expressions, and the `else` is mandatory, since with no arms to cover it is the only thing that can make the chain exhaustive:
+
+```
+// `label` is a `Str`, not a `Str?`: every path produces a value
+let label = when {
+    n < 0 { "negative" }
+    n == 0 { "zero" }
+    else { "positive" }
+}
+```
+
+That mandatory `else` is the reason the form exists. An `if` chain without an `else` folds `None` into its value, so a chain of conditions that always produces something has to be written with a trailing `else` and read carefully to see that it does; a subject-less `when` says so in its grammar. Everything else follows from the heads being plain conditions: `is` and `^` work in them and narrow their branch, and a later branch sees the earlier ones ruled out.
+
+```
+when {
+    value is Str s { println("a string: ${s}") }
+    else { println("an int: ${value}") }   // `value` is an `Int` here
+}
+```
+
+Note that a subject-less `when` gets no arm-exhaustiveness: writing `is` heads that happen to cover a union does not remove the need for the `else`. Use the subject form when that is what you mean.
 
 ### While loops
 

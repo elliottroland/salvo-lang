@@ -130,6 +130,66 @@ one widened view (each arm peels a different wrapper position) — the latter
 rejected in the checker, so it reads as a language rule rather than a codegen
 failure.
 
+**The subject-less `when` landed 2026-09-05 (user design).** `when` was
+already the exhaustive construct; it is now exhaustive in *two* ways.
+With a subject it branches on a union's arms and takes **no `else`**
+(unchanged, but now stated that way and enforced with a diagnostic that
+names the other form instead of reporting a missing `is`). Without a
+subject it is a condition chain — bare boolean branch heads — whose
+**`else` is mandatory** [when-condition]:
+
+```
+let label = when {
+    n < 0 { "negative" }
+    n == 0 { "zero" }
+    else { "positive" }
+}
+```
+
+**The mandatory `else` is the entire reason the form exists**, and it is
+worth being explicit about why, because the feature otherwise looks like
+`if`/`elif` with different punctuation. An `if` chain without an `else`
+folds `None` into its value [if-else-none], so "a chain of conditions that
+always produces a value" is a property the reader has to verify by
+inspection; this form is the one the grammar guarantees. That framing is
+also what kept the implementation small: `Expr::WhenCond` is checked by
+`check_if` itself, so narrowing, accumulated exclusions, the value join,
+`Nothing`-tail dropping and [fn-must-return] all came for free and cannot
+drift from `if`'s behaviour.
+
+Decisions taken with it (all user, 2026-09-05): **bare branch heads** (no
+`->`; consistent with `if cond { }` and with every other body form),
+**`is`/`^` allowed in the heads** (they are boolean-valued, so they narrow
+their branch — note this buys *no* arm-exhaustiveness, so `is` heads that
+visibly cover a union still need the `else`; the subject form is how you
+ask for that check), an **`else`-only `when` is a parse error** (it decides
+nothing — write the block), and conditions are **required to be `Bool`**
+everywhere, not just here.
+
+That last one closed a standing gap rather than adding strictness for this
+feature: `[if-bool]` had said "no truthiness" since M0 and *nothing
+enforced it*. It is now `[cond-bool]`, checked on `if`/`elif`, `while` and
+the new branch heads, per **leaf** of a `&&`/`||`/`!` condition so the
+diagnostic lands on the operand that is wrong, and lenient on `Unknown`
+and `Nothing` [type-unknown-lenient]. `Bool?` is rejected too — which way
+`None` should decide is exactly the guess the rule refuses to make, and
+guessing is how Kotlin/Rust divergence gets in. Nothing in `std/`, the
+corpus, the inline test sources or the specs had to change: the whole
+suite went green on the new rule unmodified, which says the language was
+already being written as if the rule existed.
+
+Lowerings: Kotlin has the same construct, so the shape survives —
+`cond -> { … }` arms closed by `else -> { … }`, an *expression* in value
+position with no `else null` filler [kt-when-cond]. Rust has no
+subject-less `match`, so it emits the `if`/`else if`/`else` chain it is,
+reusing `if`'s statement and value paths [rs-when-cond]; a
+`match () { () if cond => … }` was considered and rejected (a scrutinee
+that means nothing, reading worse than the chain the source already is).
+Verified end to end: one demo — value and statement position, `is` heads
+narrowing their branch and the `else`, a chain returning from every
+branch, and one nested inside a subject `when`'s arm — printing
+byte-identical output under `kotlinc` and `rustc`.
+
 **E3 step 3 landed 2026-09-04: effects on fn types, threaded into the
 value.** Fn-type effect lists were parsed and dropped; now they are part of
 the type and mean **a requirement the caller of the value supplies**, not a
@@ -3237,9 +3297,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 459)
+## Test inventory (all green: 481)
 
-- `salvo-core`: 172 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 184 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3387,6 +3447,17 @@ spec rule; consolidated here for findability):
   `return`/`break`/`continue` in a deferred body rejected while a loop
   written *inside* it keeps its own; and the body's own linear value owed
   inside the body).
+  + 12 `when`-condition tests (`tests/when_tests.rs` [when-condition]
+  [cond-bool]: the subject-less chain accepted; the mandatory `else`
+  keeping `None` out of the value, with the `if`-without-`else` control
+  showing the `Str?` it replaces [if-else-none]; a missing `else`, an
+  `else`-only `when`, and a branch after the `else` rejected; an `else` in
+  the *subject* form rejected with the diagnostic naming the other form;
+  `is` heads narrowing their branch *and* the `else`; a chain returning
+  from every branch counting as the fn's return [fn-must-return]; and the
+  boolean rule on all four condition positions, on the offending *leaf* of
+  a compound condition only, on `Bool?` (with `!` accepted), and staying
+  quiet on an un-inferred type [type-unknown-lenient]).
 - `salvo-cli`: 56 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -3509,7 +3580,7 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 45 (the corpus grew three LANGUAGE.md examples with E3: a
+- `salvo-syntax`: 51 (the corpus grew three LANGUAGE.md examples with E3: a
   `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
   LANGUAGE.md-corpus parse-clean assertions with
@@ -3539,8 +3610,12 @@ spec rule; consolidated here for findability):
   `defer { ... }` parses into a block statement; a bodyless `defer` is a
   parse error naming the form), and 2 `try` tests ([try]: `try { ... }`
   parses as a block *expression*; a bodyless `try` is a parse error naming
-  the form).
-- `salvo-backend-kotlin`: 107 - golden snapshots of the M2 demo, the M3
+  the form), and 6 subject-less `when` tests ([when-condition]: the
+  condition chain parsing into `Expr::WhenCond` with its branches and
+  `else`, a subject still parsing as the arm form, and the four parse
+  errors — missing `else`, `else`-only, a branch after the `else`, and an
+  `else` in the subject form).
+- `salvo-backend-kotlin`: 109 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3631,8 +3706,15 @@ spec rule; consolidated here for findability):
   two-exit fn; plus the kotlinc run of the defer demo — LIFO at a block
   end, an early `return`, `continue`/`break` out of a loop body, and a
   linear handle released on both paths — whose stdout matches the Rust
-  run byte for byte).
-- `salvo-backend-rust`: 79 - golden snapshots of the same five demos
+  run byte for byte)
+  and 2 subject-less `when` tests ([when-condition] [kt-when-cond]:
+  `a_subjectless_when_emits_a_subjectless_kotlin_when` asserting the
+  Kotlin `when {` with `cond ->` arms, a plain `else ->` with no optional
+  filler, and the `is` binding declared inside its arm; plus the kotlinc
+  run of the demo — value and statement position, `is` heads, a chain
+  returning from every branch, and one nested in a subject `when`'s arm —
+  whose stdout matches the Rust run byte for byte).
+- `salvo-backend-rust`: 81 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3722,13 +3804,43 @@ spec rule; consolidated here for findability):
   adapter forwarding or ignoring it;
   `rustc_compiles_and_runs_effect_using_fn_value`, which is the **lifted
   fusion cut** — the program this test used to assert *could not* be
-  emitted; and the shared demo Kotlin also runs).
+  emitted; and the shared demo Kotlin also runs); and 2 subject-less
+  `when` tests ([when-condition] [rs-when-cond]:
+  `a_subjectless_when_emits_an_if_chain` asserting the
+  `if`/`else if`/`else` chain, no `else { None }` filler in value position
+  and no `unreachable!()` arm (the mandatory `else` makes it total), and
+  the `is` binding declared inside its branch; plus the rustc run of the
+  demo Kotlin also runs, with the same stdout).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A rule can sit in the spec for eight milestones without being
+  enforced.** `[if-bool]` ("`if`/`elif` conditions must be boolean
+  expressions; there is no truthiness") was written in M0 and never
+  checked: `analyze_cond`'s fallback arm typed the condition and threw the
+  type away. Nothing caught it because nobody *wrote* a truthy condition —
+  the spec was describing a convention the authors were already following.
+  When adding enforcement to a stated-but-unchecked rule, expect the sweep
+  to come back empty and do not read that as evidence the rule was
+  redundant; the next contributor is who it is for. Worth auditing the
+  other "must"s in LANGUAGE_SPEC.md the same way.
+- **New AST variants are only half-caught by the compiler.** Adding
+  `Expr::WhenCond` produced five `non-exhaustive patterns` errors (the two
+  `check_expr` dispatches, `expr_defer_escape`, and each emitter's
+  expression dispatch); the *dozen* other traversals that needed an arm end
+  in `_ => {}` or `_ => false` and compiled silently. The ones that matter
+  fail quietly: `reach.rs`'s `expr_names` (a module used only inside the
+  new construct would have had its import pruned), `block_exits` /
+  `block_returns` / `expr_terminates` (a total chain would not have counted
+  as returning), `collect_assigned_expr` / `expr_mentions`,
+  `deduce.rs`'s walk, `collect_mutated` / `collect_declared` in both
+  emitters, and each emitter's `emit_operand` parenthesization list. Grep
+  `Expr::If` and `Expr::While` — the two variants every traversal handles —
+  and add an arm at each site rather than trusting the build.
 
 - **"Erased at runtime" does not mean "no lowering".** `^` removes a
   qualifier, and qualifiers are erased, so it looked like a typing-only

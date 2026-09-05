@@ -128,6 +128,17 @@ Conventions:
 * [when-union-subject] `when` over a wrapper union lowers to Kotlin
   `when (subj)` over the sealed wrappers; kotlinc re-proves the
   exhaustiveness the checker established ([when-exhaustive]).
+  * A nullable (`T?`) subject has no wrappers to match on, so it lowers to
+    a *subject-less* Kotlin `when` on null tests with the last branch as
+    `else` — the same construct [when-condition] uses, reached from the
+    other direction.
+* [when-condition] [kt-when-cond] A subject-less Salvo `when` is a
+  subject-less Kotlin `when`: `cond -> { … }` arms closed by
+  `else -> { … }`. The source shape survives, and since the `else` is
+  mandatory the result is a Kotlin *expression* in value position with no
+  `else null` filler — unlike a value-position `if` chain without an
+  `else` ([if-else-none]). `is`-binding declarations and `^` shadowing
+  locals go at the top of their arm exactly as in an `if` branch.
 
 ## Control flow
 

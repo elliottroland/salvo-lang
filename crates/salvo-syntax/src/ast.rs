@@ -618,6 +618,16 @@ pub enum Expr {
         branches: Vec<WhenBranch>,
         span: Span,
     },
+    /// `when { cond { } cond { } else { } }` — the subject-less form
+    /// [when-condition]: a condition chain whose `else` is mandatory, so
+    /// the expression is exhaustive without one of its branches ever
+    /// contributing `None` to the value (which is what separates it from
+    /// `if`/`elif`/`else`).
+    WhenCond {
+        branches: Vec<(Expr, Block)>,
+        else_block: Block,
+        span: Span,
+    },
     /// `while cond { } else { }`
     While {
         cond: Box<Expr>,
@@ -748,6 +758,7 @@ impl Expr {
             | Expr::PostIncrement { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }
+            | Expr::WhenCond { span, .. }
             | Expr::While { span, .. }
             | Expr::For { span, .. }
             | Expr::Lambda { span, .. }

@@ -2966,6 +2966,15 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => self.emit_if_stmt(branches, else_block.as_ref(), indent, ctx),
+            // [when-condition] The subject-less `when` is a condition
+            // chain, and Rust has no subject-less `match`: it lowers to
+            // `if`/`else if`/`else` [rs-when-cond]. The `else` is
+            // mandatory, so the chain is total without a filler arm.
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => self.emit_if_stmt(branches, Some(else_block), indent, ctx),
             Expr::While {
                 cond,
                 body,
@@ -3766,6 +3775,12 @@ impl<'p> Emitter<'p> {
             Expr::When {
                 subject, branches, ..
             } => self.emit_when(subject, branches, 0, StmtCtx::Normal, true),
+            // [when-condition] / [rs-when-cond]
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => self.emit_if_expr(branches, Some(else_block)),
             Expr::Error { .. } => "todo!()".to_string(),
         }
     }
@@ -6241,6 +6256,18 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_mutated(&b.body, out);
             }
         }
+        // [when-condition]
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
+            for (cond, block) in branches {
+                collect_mutated_expr(cond, out);
+                collect_mutated(block, out);
+            }
+            collect_mutated(else_block, out);
+        }
         Expr::Call { callee, args, .. } => {
             collect_mutated_expr(callee, out);
             for a in args {
@@ -6368,6 +6395,18 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 }
                 collect_declared(&b.body, out);
             }
+        }
+        // [when-condition]
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
+            for (c, b) in branches {
+                collect_declared_expr(c, out);
+                collect_declared(b, out);
+            }
+            collect_declared(else_block, out);
         }
         Expr::While {
             cond,
@@ -6513,6 +6552,15 @@ fn expr_terminates(expr: &Expr) -> bool {
         }
         Expr::When { branches, .. } => {
             !branches.is_empty() && branches.iter().all(|b| block_terminates(&b.body))
+        }
+        // [when-condition] Total by construction: the `else` is mandatory.
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
+            block_terminates(else_block)
+                && branches.iter().all(|(_, b)| block_terminates(b))
         }
         _ => false,
     }

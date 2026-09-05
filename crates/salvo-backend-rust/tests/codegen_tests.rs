@@ -3423,3 +3423,126 @@ fn rustc_compiles_and_runs_widening() {
     let files = generate(&[("main.sv", WIDEN_DEMO, false)]);
     run_rust_files(&files, "widen", WIDEN_STDOUT);
 }
+
+// ===== the subject-less `when` [when-condition] [rs-when-cond] =====
+
+// [when-condition] A condition chain with a mandatory `else`, in value and
+// statement position, with `is` heads that narrow, a chain that returns from
+// every branch, and one nested inside a subject `when`'s arm.
+const WHEN_COND_DEMO: &str = r#"
+fn classify(n: Int) -> [] Str {
+    return when {
+        n < 0 { "negative" }
+        n == 0 { "zero" }
+        else { "positive" }
+    }
+}
+
+fn sign(n: Int) -> [] Int {
+    when {
+        n < 0 { return -1 }
+        n > 0 { return 1 }
+        else { return 0 }
+    }
+}
+
+fn describe(value: Str | Int) [Console] -> [] None {
+    when {
+        value is Str s { println("str ${s}") }
+        else { println("int ${value}") }
+    }
+}
+
+fn label(n: Int) [Console] -> [] Str {
+    let tag = when {
+        n < 10 { "small" }
+        n < 100 {
+            println("  medium branch")
+            "medium"
+        }
+        else { "large" }
+    }
+    return tag
+}
+
+fn nested(o: Ok Int | Err Str) [Console] -> [] None {
+    when o {
+        is Ok {
+            when {
+                o > 0 { println("positive ok ${o}") }
+                else { println("nonpositive ok ${o}") }
+            }
+        }
+        is Err {
+            println("err ${o}")
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    println(classify(-5))
+    println(classify(0))
+    println(classify(7))
+    println("sign ${sign(-3)} ${sign(0)} ${sign(9)}")
+    describe("hi")
+    describe(42)
+    println(label(5))
+    println(label(50))
+    println(label(500))
+    nested(ok(3))
+    nested(err("bad"))
+}
+"#;
+
+const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\nint 42\n\
+                                small\n  medium branch\nmedium\nlarge\n\
+                                positive ok 3\nerr bad\n";
+
+/// [rs-when-cond] Rust has no subject-less `match`, so the chain lowers to
+/// `if`/`else if`/`else`. The mandatory `else` makes it total, so no
+/// `unreachable!()` filler and — in value position — no `else { None }`
+/// [if-else-none].
+#[test]
+fn a_subjectless_when_emits_an_if_chain() {
+    let files = generate(&[("main.sv", WHEN_COND_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    let classify = main
+        .content
+        .split("pub fn classify")
+        .nth(1)
+        .and_then(|s| s.split("\npub fn ").next())
+        .expect("classify emitted");
+    assert!(
+        classify.contains("if n < 0 {") && classify.contains("} else if n == 0 {"),
+        "expected an if/else-if chain:\n{classify}"
+    );
+    assert!(
+        classify.contains("} else {") && !classify.contains("None"),
+        "expected a plain `else` and no optional filler:\n{classify}"
+    );
+    assert!(
+        !main.content.contains("unreachable!"),
+        "a total chain needs no filler arm:\n{}",
+        main.content
+    );
+    // An `is` head still declares its binding at the top of the branch.
+    assert!(
+        main.content.contains("let mut s = value.u1().clone();"),
+        "expected the `is` binding inside the branch:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_when_cond() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", WHEN_COND_DEMO, false)]);
+    run_rust_files(&files, "when-cond", WHEN_COND_STDOUT);
+}

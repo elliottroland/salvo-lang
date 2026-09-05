@@ -259,10 +259,18 @@ derives them mechanically:
   optional the local *is* the join type and tails assign it directly
   (their `WrapOption`/wrap coercions are already recorded by the
   checker).
-* [if-bool] `if` is an expression in both languages; a missing `else`
-  on a value-position `if` emits `else { None }` ([if-else-none], the
-  branch values carry `WrapOption` coercions). Statement-position
-  branches emit their tails as statements.
+* [if-else-none] `if` is an expression in both languages; a missing `else`
+  on a value-position `if` emits `else { None }` (the branch values carry
+  `WrapOption` coercions). Statement-position branches emit their tails as
+  statements.
+* [when-condition] [rs-when-cond] Rust has no subject-less `match`, so a
+  subject-less `when` lowers to the `if`/`else if`/`else` chain it is —
+  the emitter reuses `if`'s statement and value paths. The mandatory
+  `else` makes the chain total, so nothing needs the `else { None }` filler
+  of [if-else-none] and no `unreachable!()` arm is generated. (A
+  `match () { () if cond => … }` would also work and was rejected: it adds
+  a scrutinee that means nothing and reads worse than the chain the source
+  already is.)
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body (same shape as
   Kotlin).

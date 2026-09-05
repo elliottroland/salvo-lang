@@ -1697,6 +1697,16 @@ impl<'p> Emitter<'p> {
                 let code = self.emit_when(subject, branches, indent, false);
                 format!("{pad}{code}\n")
             }
+            // [when-condition] Statement position: Kotlin's own
+            // subject-less `when` [kt-when-cond].
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                let code = self.emit_when_cond(branches, else_block, indent, false);
+                format!("{pad}{code}\n")
+            }
             _ => {
                 let code = self.emit_expr(expr);
                 format!("{pad}{code}\n")
@@ -1840,6 +1850,43 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&format!("{pad}    }}\n"));
         }
+        out.push_str(&format!("{pad}}}"));
+        out
+    }
+
+    /// [when-condition] The subject-less `when`: a condition chain with a
+    /// mandatory `else`. Kotlin has the same form [kt-when-cond], so the
+    /// shape survives the translation — `cond -> { … }` arms closed by
+    /// `else -> { … }`. Being total, it is a Kotlin *expression* in value
+    /// position without the `else null` filler an `if` chain needs.
+    fn emit_when_cond(
+        &mut self,
+        branches: &[(Expr, Block)],
+        else_block: &Block,
+        indent: usize,
+        value_pos: bool,
+    ) -> String {
+        let pad = "    ".repeat(indent);
+        let mut out = String::from("when {\n");
+        for (cond, block) in branches {
+            let c = self.emit_expr(cond);
+            out.push_str(&format!("{pad}    {c} -> {{\n"));
+            out.push_str(&self.emit_is_bindings(cond, indent + 2));
+            out.push_str(&self.emit_widen_shadows(cond, indent + 2));
+            if value_pos {
+                out.push_str(&self.emit_value_block(block));
+            } else {
+                out.push_str(&self.emit_block_stmts(block, indent + 2));
+            }
+            out.push_str(&format!("{pad}    }}\n"));
+        }
+        out.push_str(&format!("{pad}    else -> {{\n"));
+        if value_pos {
+            out.push_str(&self.emit_value_block(else_block));
+        } else {
+            out.push_str(&self.emit_block_stmts(else_block, indent + 2));
+        }
+        out.push_str(&format!("{pad}    }}\n"));
         out.push_str(&format!("{pad}}}"));
         out
     }
@@ -2229,7 +2276,8 @@ impl<'p> Emitter<'p> {
             | Expr::Widen { .. }
             | Expr::Lambda { .. }
             | Expr::If { .. }
-            | Expr::When { .. } => {
+            | Expr::When { .. }
+            | Expr::WhenCond { .. } => {
                 format!("({code})")
             }
             _ => code,
@@ -2245,7 +2293,8 @@ impl<'p> Emitter<'p> {
             | Expr::Widen { .. }
             | Expr::Lambda { .. }
             | Expr::If { .. }
-            | Expr::When { .. } => {
+            | Expr::When { .. }
+            | Expr::WhenCond { .. } => {
                 format!("({code})")
             }
             _ => code,
@@ -2412,6 +2461,11 @@ impl<'p> Emitter<'p> {
             Expr::When {
                 subject, branches, ..
             } => self.emit_when(subject, branches, 0, true),
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => self.emit_when_cond(branches, else_block, 0, true),
             Expr::Error { .. } => "TODO()".to_string(),
         }
     }
@@ -4080,6 +4134,18 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             for b in branches {
                 collect_mutated(&b.body, out);
             }
+        }
+        // [when-condition]
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
+            for (cond, block) in branches {
+                collect_mutated_expr(cond, out);
+                collect_mutated(block, out);
+            }
+            collect_mutated(else_block, out);
         }
         Expr::Call { callee, args, .. } => {
             collect_mutated_expr(callee, out);
