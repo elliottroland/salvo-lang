@@ -1460,9 +1460,9 @@ The language server shows these on hover — for a declaration, for a *use* of i
 
 ## Backends
 
-One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between the `internal` and `external` backend layers. The core library uses both of these.
+One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between two layers: the `intrinsic` layer, which is the compiler's, and the `platform` layer, which is yours. The core library is entirely intrinsic; everything an application needs from its target language is a platform effect.
 
-### Internal 
+### Intrinsic
 
 The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
 
@@ -1482,22 +1482,63 @@ intrinsic fn copy<T>(value: T) -> [value] T
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
-The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`external type List<T> canbe Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
+Whole functions are intrinsic too, not just types. The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, `char_at`) is intrinsic, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
+
+Handlers can be intrinsic as well: `intrinsic handler StdOutConsole of Console` is bodyless in Salvo, and each backend emits a real class or trait impl for it.
+
+The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each backend decides what `Mut` means. Kotlin maps `Mut List<T>` to `MutableList<T>` — the one place a qualifier survives erasure — while Rust maps both `List<T>` and `Mut List<T>` to `Vec<T>`, because there mutability shows up in bindings and references instead.
+
+### Platform
+
+The `platform` layer is where an application reaches its target language. Where `intrinsic` is the compiler's, `platform` is yours: you declare what you need from the host, and the compiler generates an interface for the host to implement.
+
+A platform declaration is an *effect*:
 
 ```
-// In file list.kotlin.sv
-define type List<T> {
-    inline: ``
-    List<${T}>
-    ``
-
-    Mut inline: ``
-    MutableList<${T}>
-    ``
+platform effect Telemetry {
+    fn record(name: Str, value: Int) [] -> [name, value] None
 }
 ```
 
-When no `Mut inline` section is given, `Mut` simply erases for that backend (Rust, for example, maps both `List<T>` and `Mut List<T>` to `Vec<T>` — mutability shows up in bindings and references instead).
+That is an ordinary effect in every respect except where its implementation comes from. A function that records telemetry declares `[Telemetry]`, its callers declare it too, and the value threads through exactly as any handler would:
+
+```
+fn work(n: Int) [Telemetry] -> [] Int {
+    record("work", n)
+    return n + 1
+}
+```
+
+Grouping the functions under an effect, rather than declaring them one at a time, is what makes the interop boundary something you choose: one effect for telemetry, another for storage, each generating its own interface. It also gives the implementation somewhere to keep state and dependencies, because the host constructs it.
+
+The compiler generates the interface next to the rest of the emitted code — `interface Telemetry` in Kotlin, `pub trait Telemetry` in Rust — and nothing else. There is no handler to write in Salvo, and writing one is an error: the host's implementation *is* the handler.
+
+Because the instance is constructed outside the Salvo program, it cannot be registered with `use`. It arrives as a parameter instead, and that changes who owns the entry point: a `main` that declares a platform effect is emitted as `salvoMain` (Kotlin) or `salvo_main` (Rust), taking one parameter per platform effect it declares, and the *host's* `main` constructs the implementations and calls it:
+
+```kotlin
+// the host's file
+class ConsoleTelemetry : Telemetry {
+    override fun record(name: String, value: Int) {
+        println("[telemetry] $name=$value")
+    }
+}
+
+fun main() = salvoMain(ConsoleTelemetry())
+```
+
+This is the point of the design: because the interface is generated and the implementation is real target-language code, the target's own compiler checks the two against each other. Add a member and the implementation fails to compile until you write it; remove one and the leftover override fails; change a signature and the mismatch is a type error. Nothing needs to be validated by Salvo, and nothing can drift silently.
+
+A Salvo handler may *depend* on a platform effect, which is how a handler written in Salvo reaches the host:
+
+```
+handler AuditLogger(telemetry: Telemetry) of Logger {
+    fn log(message: Str) -> [message] None {
+        record(message)
+    }
+}
+```
+
+Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. And a member name identifies its effect, so no two effects may share one — there is no syntax to say which effect a call means.
 
 ### External
 

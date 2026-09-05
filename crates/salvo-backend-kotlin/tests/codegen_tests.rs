@@ -1534,7 +1534,7 @@ fn main() [use] -> [] None {
     );
 }
 
-// ===== S1: the `copy` intrinsic [internal-fn] [copy-fn] [kt-copy] =====
+// ===== S1: the `copy` intrinsic [intrinsic-fn] [copy-fn] [kt-copy] =====
 
 /// Exercises every Kotlin `copy` lowering shape: identity for immutable
 /// data, `.toMutableList()` for `Mut List`, `.copy()` for a `Mut` struct
@@ -1568,7 +1568,7 @@ fn main() [use] -> [] None {
 }
 "#;
 
-// [internal-fn] [kt-copy] `copy` bypasses define templates and lowers
+// [intrinsic-fn] [kt-copy] `copy` bypasses define templates and lowers
 // type-directedly from the checker's resolved argument type.
 #[test]
 fn copy_lowers_type_directedly() {
@@ -2886,7 +2886,7 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() {
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
-// [union-wrap] Elements of array/tuple literals and lambda tail returns
+// [type-union] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
 
 const NESTED_COERCION_DEMO: &str = r#"
@@ -4257,4 +4257,145 @@ fn kotlinc_compiles_and_runs_try_mutation() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "try-mutation", "counter 1\n");
+}
+
+// ===== platform effects [platform-effect] =====
+
+/// A platform effect and a `main` that needs it. The host implements
+/// `Telemetry` in Kotlin and calls the generated entry point.
+const PLATFORM_DEMO: &str = r#"
+platform effect Telemetry {
+    fn record(name: Str, value: Int) [] -> [name, value] None
+}
+
+fn work(n: Int) [Telemetry] -> [] Int {
+    record("work", n)
+    return n + 1
+}
+
+fn main() [use, Telemetry] {
+    use StdOutConsole()
+    println("result=${work(41)}")
+}
+"#;
+
+fn generate_platform_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(&[("main.sv", PLATFORM_DEMO, false)]);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [platform-effect] [kt-platform-entry] A platform effect emits the same
+/// `interface` an ordinary effect does — that is the whole point, since the
+/// host implements an interface either way — but *no* handler class, and
+/// `main` becomes `salvoMain` taking the instance, because the host's own
+/// `main` is the program's entry point now.
+#[test]
+fn platform_effect_emits_an_interface_and_a_host_entry() {
+    let files = generate_platform_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("interface Telemetry {")
+            && src.contains("fun record(name: String, value: Int)"),
+        "expected the generated interface, got:\n{src}"
+    );
+    // No handler: the implementation is the host's.
+    assert!(
+        !src.contains("class Telemetry"),
+        "a platform effect must not emit a handler class:\n{src}"
+    );
+    // The entry point is renamed and takes the instance.
+    assert!(
+        src.contains("fun salvoMain(telemetry: Telemetry)"),
+        "expected the renamed entry point, got:\n{src}"
+    );
+    assert!(
+        !src.contains("fun main("),
+        "the host owns `main`, so the generated file must not declare one:\n{src}"
+    );
+    // Intermediate frames thread it like any other effect.
+    assert!(
+        src.contains("fun work(telemetry: Telemetry, n: Int): Int"),
+        "expected the effect threaded into `work`, got:\n{src}"
+    );
+}
+
+/// [platform-effect] The end-to-end shape: a hand-written host
+/// implementation plus `main` wiring, compiled and run with kotlinc. The
+/// asserted stdout is byte-identical to the Rust backend's run of the same
+/// program, which is what parity means here.
+#[test]
+fn kotlinc_compiles_and_runs_a_platform_effect() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let mut files = generate_platform_demo();
+    // What `salvo platform generate` will write into the platform tree,
+    // and what the customer then owns.
+    files.push(salvo_backend_kotlin::EmittedFile {
+        rel_path: std::path::PathBuf::from("host.kt"),
+        content: "package salvo.main\n\n\
+                  class ConsoleTelemetry : Telemetry {\n    \
+                      override fun record(name: String, value: Int) {\n        \
+                          kotlin.io.println(\"[telemetry] $name=$value\")\n    }\n}\n\n\
+                  fun main() {\n    salvoMain(ConsoleTelemetry())\n}\n"
+            .to_string(),
+    });
+    let expected = "[telemetry] work=41\nresult=42\n";
+    run_kotlin_entry(&files, "platform", "salvo.main.HostKt", expected);
+}
+
+/// Like [`run_kotlin_files`], but launches a named entry class — the host's,
+/// when a platform effect has moved `main` out of the generated code.
+fn run_kotlin_entry(
+    files: &[salvo_backend_kotlin::EmittedFile],
+    tag: &str,
+    entry: &str,
+    expected: &str,
+) {
+    let dir = std::env::temp_dir().join(format!("salvo-kt-test-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let src_dir = dir.join("src");
+    let out_dir = dir.join("out");
+    let mut kt_paths = Vec::new();
+    for f in files {
+        let path = src_dir.join(&f.rel_path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &f.content).unwrap();
+        kt_paths.push(path);
+    }
+    let compile = Command::new("kotlinc")
+        .args(kt_paths.iter().map(|p| p.as_os_str()))
+        .arg("-d")
+        .arg(&out_dir)
+        .output()
+        .expect("failed to run kotlinc");
+    assert!(
+        compile.status.success(),
+        "kotlinc failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new("kotlin")
+        .arg("-cp")
+        .arg(&out_dir)
+        .arg(entry)
+        .output()
+        .expect("failed to run kotlin");
+    assert!(
+        run.status.success(),
+        "generated program crashed:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        expected,
+        "unexpected program output"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

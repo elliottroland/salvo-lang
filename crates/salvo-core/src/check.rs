@@ -406,7 +406,66 @@ fn check_once<'p>(
         };
         checker.check_module(ast);
     }
+    check_effect_member_names(program, &mut out);
     out
+}
+
+/// [effect-member-unique] A member name identifies its effect
+/// program-wide (`Symbols::effect_of_fn` maps a name to *one* effect), so
+/// two effects declaring the same member name make every call to it
+/// resolve to whichever was collected last — and there is no syntax to say
+/// which one was meant (`emit<Logger>(…)` parses as *member* type
+/// arguments). Reported at declaration rather than left to produce a
+/// baffling "no handler for effect" downstream (user decision 2026-09-05).
+///
+/// Walks files and items in source order and reports at the *second*
+/// declaration, so the diagnostic is deterministic and fires exactly once
+/// per collision — the `Symbols` maps cannot be used for this, since they
+/// are last-wins and hash-ordered.
+fn check_effect_member_names(program: &Program, out: &mut Checked) {
+    // member name -> (effect name, file index, name span)
+    let mut seen: HashMap<&str, (&str, usize, Span)> = HashMap::new();
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        if file.kind != SourceKind::Language {
+            continue;
+        }
+        for item in &ast.items {
+            let Item::Effect(e) = item else { continue };
+            for f in &e.fns {
+                match seen.get(f.name.name.as_str()) {
+                    Some((other, _, _)) if *other == e.name.name.as_str() => {
+                        out.errors.push(FileDiagnostic::error(
+                            file_idx,
+                            f.name.span,
+                            format!(
+                                "effect `{}` already declares a member named `{}`",
+                                e.name.name, f.name.name
+                            ),
+                        ));
+                    }
+                    Some((other, _, _)) => {
+                        out.errors.push(FileDiagnostic::error(
+                            file_idx,
+                            f.name.span,
+                            format!(
+                                "effect `{other}` already declares a member named \
+                                 `{}`: a member name identifies its effect, and there \
+                                 is no syntax to say which effect a call to `{}` means \
+                                 — rename one of them",
+                                f.name.name, f.name.name
+                            ),
+                        ));
+                    }
+                    None => {
+                        seen.insert(
+                            &f.name.name,
+                            (&e.name.name, file_idx, f.name.span),
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -801,6 +860,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     }
+                    // [platform-effect] A platform effect's implementation
+                    // is the host's, written in the target language and
+                    // handed to the Salvo entry point. A Salvo handler for
+                    // one would be a second, unreachable implementation.
+                    if let Ty::Named { name, .. } = of_ty.strip_quals() {
+                        if self
+                            .symbols
+                            .effects
+                            .get(name.as_str())
+                            .is_some_and(|e| e.platform)
+                        {
+                            self.error(
+                                h.of.span(),
+                                format!(
+                                    "`{name}` is a platform effect: the host implements \
+                                     it in the target language and supplies it to the \
+                                     entry point, so it has no Salvo handler — declare \
+                                     an ordinary `effect` if you mean to handle it here"
+                                ),
+                            );
+                        }
+                    }
                     for p in &h.params {
                         // [effect-handler-deps] A constructor parameter of
                         // effect type is a *dependency*, not data: the one
@@ -854,6 +935,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.generics = saved;
                 }
                 Item::Effect(e) => {
+                    self.check_platform_effect(e);
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
@@ -943,6 +1025,47 @@ impl<'p, 'r> Checker<'p, 'r> {
             None => return,
         };
         self.require_explicit(f, kind, true);
+    }
+
+    /// [platform-effect] The restrictions a `platform effect` carries
+    /// beyond an ordinary one, both because the *host* implements the
+    /// generated interface rather than Salvo code (user decisions
+    /// 2026-09-05).
+    ///
+    /// Neither the effect nor its members may be generic. A generic member
+    /// is already a loud codegen error on the Rust backend
+    /// ([effect-member-generics]), and a generic *effect* would need the
+    /// host to implement one interface per instantiation — Kotlin's facets
+    /// exist for exactly that ([kt-effect-fusion]) and Rust has no
+    /// equivalent, so an instance the compiler cannot pin is refused here
+    /// rather than at codegen [backend-never-wrong].
+    fn check_platform_effect(&mut self, e: &'p EffectDecl) {
+        if !e.platform {
+            return;
+        }
+        if !e.generics.is_empty() {
+            self.error(
+                e.name.span,
+                format!(
+                    "platform effect `{}` may not be generic: the host implements \
+                     one interface, and an instance per type argument is not \
+                     expressible on every backend",
+                    e.name.name
+                ),
+            );
+        }
+        for f in &e.fns {
+            if !f.generics.is_empty() {
+                self.error(
+                    f.name.span,
+                    format!(
+                        "member `{}` of platform effect `{}` may not be generic: \
+                         the host implements a concrete signature",
+                        f.name.name, e.name.name
+                    ),
+                );
+            }
+        }
     }
 
     /// [decl-explicit] The effect-member form: return type and deductions

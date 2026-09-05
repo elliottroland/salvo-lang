@@ -238,7 +238,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "[internal-fn] [copy-fn] Duplicates a value: the argument is kept",
+                    "[intrinsic-fn] [copy-fn] Duplicates a value: the argument is kept",
                     "untouched (with all its qualifiers) and the result is a fresh,",
                     "independent value with no fate links to the source. Implemented by",
                     "each backend directly (Kotlin: identity for transitively immutable",
@@ -249,12 +249,12 @@ Module {
                 ),
                 name: Ident {
                     name: "copy",
-                    span: 665..669,
+                    span: 666..670,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 670..671,
+                        span: 671..672,
                     },
                 ],
                 generic_canbe: [],
@@ -263,21 +263,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 673..678,
+                            span: 674..679,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 680..681,
+                                    span: 681..682,
                                 },
                                 args: [],
-                                span: 680..681,
+                                span: 681..682,
                             },
                         },
                         variadic: false,
-                        span: 673..681,
+                        span: 674..682,
                     },
                 ],
                 effects: Some(
@@ -288,10 +288,10 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "value",
-                                span: 690..695,
+                                span: 691..696,
                             },
                             kind: KeepAll,
-                            span: 690..695,
+                            span: 691..696,
                         },
                     ],
                 ),
@@ -301,22 +301,22 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 697..698,
+                                span: 698..699,
                             },
                             args: [],
-                            span: 697..698,
+                            span: 698..699,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 662..698,
+                span: 663..699,
             },
         ),
         Fn(
             FnDecl {
                 docs: [
-                    "[internal-fn] [linear-discard] Deliberately drops a value, consuming",
+                    "[intrinsic-fn] [linear-discard] Deliberately drops a value, consuming",
                     "it: the escape hatch for linear types — the one generic fn blessed to",
                     "accept them. Implemented by each backend directly (Kotlin: evaluate",
                     "and ignore; Rust: `drop`).",
@@ -326,27 +326,27 @@ Module {
                 ),
                 name: Ident {
                     name: "discard",
-                    span: 961..968,
+                    span: 963..970,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 969..970,
+                        span: 971..972,
                     },
                 ],
                 generic_canbe: [
                     (
                         Ident {
                             name: "T",
-                            span: 969..970,
+                            span: 971..972,
                         },
                         TypeRef {
                             name: Ident {
                                 name: "Linear",
-                                span: 977..983,
+                                span: 979..985,
                             },
                             args: [],
-                            span: 977..983,
+                            span: 979..985,
                         },
                     ),
                 ],
@@ -355,21 +355,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 985..990,
+                            span: 987..992,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 992..993,
+                                    span: 994..995,
                                 },
                                 args: [],
-                                span: 992..993,
+                                span: 994..995,
                             },
                         },
                         variadic: false,
-                        span: 985..993,
+                        span: 987..995,
                     },
                 ],
                 effects: Some(
@@ -384,16 +384,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 1004..1008,
+                                span: 1006..1010,
                             },
                             args: [],
-                            span: 1004..1008,
+                            span: 1006..1010,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 958..1008,
+                span: 960..1010,
             },
         ),
     ],

@@ -181,7 +181,7 @@ fn the_subject_form_rejects_an_else_and_names_the_other_form() {
 
 /// Branch heads are ordinary boolean expressions, so `is` works in them and
 /// narrows its branch — and the negative narrowing accumulates into the
-/// later branches exactly as in an `if`/`elif` chain [flow-narrow].
+/// later branches exactly as in an `if`/`elif` chain [is-narrowing].
 #[test]
 fn is_heads_narrow_their_branch_and_the_else() {
     let errs = errors(&format!(

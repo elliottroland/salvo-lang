@@ -1,5 +1,107 @@
 # Salvo Compiler — Progress & Plan
 
+**Interop was redesigned 2026-09-05 (user decisions): string-template
+interop is being replaced by `platform effect`.** The old model —
+`external` declarations resolved by `define` templates that interpolate
+`${param}` into target syntax — was, in the user's words, "difficult to
+validate, and only really there so that certain std types and functions
+(like those related to the list) don't get unnecessarily wrapped in backend
+functions". The replacement follows Roc's platform idea: the compiler
+*generates an interface* and the host implements it, so the target
+language's own compiler checks the two against each other.
+
+The decisions (all user, 2026-09-05):
+
+- **`internal` → `intrinsic`**, and it is the *compiler's* modifier:
+  declared by std, never by customer code, because "I don't see why a
+  customer would be able to declare `intrinsic` if the compiler doesn't
+  already declare it".
+- **`external` → `platform`, and `define` goes away entirely** — "one
+  interop path is good". So every std lowering moved into the backends as
+  code, and the unvalidatable template text is gone from the language.
+- **A platform declaration is an `effect`**, not a free function
+  (agreed after the alternative — top-level `platform fn` collected into
+  one synthetic effect per module — was costed): the author picks the
+  interop boundary, the name is theirs, and the implementation has
+  somewhere to keep state and dependencies.
+- **The host owns `main`.** A platform effect's instance is constructed
+  outside Salvo, so it cannot be `use`d; it is a *parameter*. A `main`
+  declaring one is emitted as `salvoMain`/`salvo_main` and the host's
+  `main` calls it. The user accepted this consequence explicitly, noting
+  it can be skipped when `main` needs no platform effect — which is how it
+  works.
+- **Deferred**: `platform handler` (a host handler of an ordinary Salvo
+  effect, constructed by `use`) and `platform type` ("let's leave platform
+  type until a need arises" — the type-aliasing gap the user was willing
+  to accept, with platform structs sketched as a future answer).
+- **Rejected**: generic platform effects and generic platform members.
+  **Made errors**: member-name collisions.
+- The CLI command is **`salvo platform generate`** (the `-api` suffix was
+  dropped).
+
+**The interface framing removed work rather than adding it, in two places
+worth recording.** First, a platform effect *is* an effect, so the existing
+interface/trait emission, `&mut dyn` threading and handler fusion all
+applied unchanged — the only emitter surgery was the `if !is_main` guard on
+effect-parameter emission. Second, it made the whole
+"don't overwrite the customer's implementation" problem disappear: the
+first design needed marker-delimited regions keyed by a canonical mangled
+name, with signature-change detection, because generation would run
+repeatedly over a file the customer edits. With an interface, the
+implementation file is generated **once** and never touched again, and every
+kind of drift is a target-language compile error — a member added is
+"does not implement abstract member" / `E0046`, one removed is "overrides
+nothing" / `E0407`, a changed signature is an ordinary type error, and a new
+platform effect breaks the entry-point call. No markers, no keys, no merge.
+
+Landed so far (each step left the tree green):
+
+1. **`internal` → `intrinsic` everywhere.** `TokenKind::KwIntrinsic`,
+   `BackingMod::Intrinsic`, `emit_intrinsic_call`,
+   `Symbols::intrinsic_types`, rules `[backend-intrinsic]` and
+   `[intrinsic-fn]`. Incidentally deleted the dead duplicate keyword list
+   in `TokenKind::symbol()` — the `KEYWORDS` lookup precedes it, so those
+   arms were unreachable, and they are exactly the drift hazard the gotcha
+   below records as having once panicked the compiler.
+2. **std migrated off templates.** New `intrinsics.rs` per backend
+   (`type_name`, `mut_type_name`, `fn_call`, `handler_member`); all ten
+   `std/**/*.{kotlin,rust}.sv` files deleted; `emit_define_handler` became
+   `emit_intrinsic_handler`, taking member signatures from the *effect*
+   declaration. Dispatch is on the checker-resolved declaration (name +
+   first parameter's base type name), which is what separates
+   `size(Str)`/`size(List)`/`size([])` without the define era's arity
+   guessing. **No backend golden snapshot changed at all** — the emitted
+   output is byte-identical to the template era, which is the strongest
+   evidence the migration is faithful.
+3. **`platform effect`.** Parser (the modifier takes nothing but `effect`),
+   five checker rules, both emitters, entry-point restructuring. Verified
+   end to end: the same source, with a hand-written host implementation,
+   prints `[telemetry] work=41` / `result=42` under both `kotlinc` and
+   `rustc`.
+
+Still to do, in order: delete the `external`/`define` machinery and sweep
+the ~130 test sources that use it (most become ordinary fns with *written*
+deduction lists, which gives the same declared-not-inferred contract while
+keeping them on the named-call path rather than moving them to
+`check_effect_call`); enforce intrinsic-as-std-only (needs the checker
+tests' preludes split into `is_std` files, since `is_std` currently affects
+only `reach.rs` roots and CLI/LSP filtering); `salvo platform generate`;
+wire the `platform/` tree into compile and run.
+
+**Known gap until that wiring lands**: `salvo run` on a program with a
+platform effect fails at the toolchain (`'main' method not found in class
+salvo.main.MainKt`, or rustc `E0601`) because the host entry does not exist
+yet. Loud and never silently wrong, but the diagnostic points at generated
+code instead of naming `salvo platform generate` — which is precisely what
+the "loud is not the same as an error" gotcha below warns about, so it is
+recorded rather than left to be rediscovered.
+
+**One cut taken beyond the decisions, flagged to the user**: generic
+platform *effects* are rejected as well as generic members. A generic
+platform effect would need the host to implement one interface per
+instantiation — Kotlin's facets exist for that and Rust has no equivalent,
+and the fusion already refuses generic effect instances there.
+
 Status snapshot as of 2026-09-03: both backends (Kotlin, Rust) work
 end-to-end; the post-M8 phase added developer tooling (`salvo analyze`,
 the `salvo lsp` language server, a VS Code extension) and a flow-sensitive
@@ -3356,9 +3458,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 501)
+## Test inventory (all green: 514)
 
-- `salvo-core`: 185 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 194 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3520,6 +3622,15 @@ spec rule; consolidated here for findability):
   boolean rule on all four condition positions, on the offending *leaf* of
   a compound condition only, on `Bool?` (with `!` accepted), and staying
   quiet on an un-inferred type [type-unknown-lenient]).
+  + 9 platform-effect tests (`tests/platform_tests.rs` [platform-effect]
+  [effect-member-unique]: a platform effect performed like any other effect
+  with no handler anywhere; a Salvo handler *depending* on one (which is how
+  Salvo-written handlers reach the host); and the restrictions — a Salvo
+  `handler ... of` a platform effect rejected with the ordinary-`effect`
+  remedy, a generic platform effect and a generic member each rejected, two
+  members of one effect sharing a name, the same name across two effects
+  (reported *once*, at the second declaration), and distinct names across
+  effects staying legal).
 - `salvo-cli`: 72 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -3663,7 +3774,12 @@ spec rule; consolidated here for findability):
   direction, a define file rejected as an entry point, a check error
   stopping the run with a single un-double-prefixed diagnostic, and the
   deletion guard refusing a target that holds a `.sv` file).
-- `salvo-syntax`: 51 (the corpus grew three LANGUAGE.md examples with E3: a
+- `salvo-syntax`: 48 (three std *define-file* snapshot tests were deleted
+  with the define files themselves; three `platform effect` parser tests
+  were added [platform-effect]: the flag is set by the modifier, a plain
+  `effect` leaves it clear so nothing existing changed meaning, and
+  `platform type` / `platform fn` are parse errors naming the form) (the
+  corpus grew three LANGUAGE.md examples with E3: a
   `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
   LANGUAGE.md-corpus parse-clean assertions with
@@ -3698,7 +3814,7 @@ spec rule; consolidated here for findability):
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 111 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 113 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3800,7 +3916,15 @@ spec rule; consolidated here for findability):
   and 2 `try`-body tests ([try]: a variable assigned *only* inside a `try`
   body declared `var` — the traversal gap that emitted `val` and had
   kotlinc reject the output — plus the kotlinc run of the same program).
-- `salvo-backend-rust`: 82 - golden snapshots of the same five demos
+  and 2 platform-effect tests ([platform-effect] [kt-platform-entry]:
+  `platform_effect_emits_an_interface_and_a_host_entry` asserting the
+  generated `interface`, the *absence* of a handler class, `salvoMain`
+  taking the instance, no generated `fun main(`, and the effect threaded
+  into an intermediate frame; plus a kotlinc compile+run with a
+  hand-written host implementation and entry, whose stdout matches the Rust
+  run byte for byte — the new `run_kotlin_entry` helper exists because
+  `run_kotlin_files` hardcodes `salvo.main.MainKt`).
+- `salvo-backend-rust`: 84 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3899,13 +4023,64 @@ spec rule; consolidated here for findability):
   demo Kotlin also runs, with the same stdout); and 1 `try`-body test
   ([try]: the rustc run of the program whose `try` body assigns an outer
   variable and declares a local — the Rust half of the same traversal
-  gap).
+  gap); and 2 platform-effect tests
+  ([platform-effect] [rs-platform-entry]:
+  `platform_effect_emits_a_trait_and_a_host_entry` asserting the generated
+  `trait`, the *absence* of a handler struct, `salvo_main` taking
+  `&mut dyn`, no generated `pub fn main(`, and the effect threaded into an
+  intermediate frame; plus the rustc compile+run with a hand-written host
+  impl and the crate-root delegation, asserting the same stdout Kotlin
+  does).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An unchanged golden snapshot is the best evidence a refactor is
+  faithful.** Moving std's interop out of `define` templates and into
+  backend code could have changed emitted output in a hundred small ways;
+  the check that settled it was that *no* backend snapshot moved at all,
+  with both toolchain suites passing unmodified. When replacing a
+  mechanism rather than a behaviour, make "the output is byte-identical"
+  the acceptance criterion and you get a regression test for free.
+- **Let the type system refuse a bad shape.** Adding
+  `BackingMod::Platform` compiled the parser fine and immediately produced
+  three `non-exhaustive patterns` errors at sites that classify *type* and
+  *fn* backings — where `Platform` can never occur. That was the signal the
+  shape was wrong: `platform` applies only to effects and
+  `intrinsic`/`external` never do, so the flag belongs on `EffectDecl`
+  (`platform: bool`), which makes the invariant structural instead of three
+  unreachable arms someone would later have to reason about. A compiler
+  error asking you to handle an impossible case is usually asking you to
+  restructure, not to write the arm.
+- **A feature framing can delete a subsystem.** The template design needed
+  marker regions, canonical keys and signature-change detection so
+  regeneration would not clobber hand-written code. Choosing an interface
+  the host implements made all of it unnecessary — generate once, and let
+  the target compiler catch every kind of drift. Before building
+  machinery to protect user edits, check whether a different boundary makes
+  the edits unreachable.
+- **Reuse the existing injection mechanism instead of adding a second
+  one.** A platform effect needed no new emission path *because* effects
+  already lower to interfaces/traits threaded as parameters — the only
+  change was which effects `main` receives. The alternative (a
+  registration/wiring mechanism for host objects) would have duplicated
+  what `use` and handler dependencies already do.
+- **A program-wide uniqueness check must not read the `Symbols` maps.**
+  They are hash-ordered and last-wins, which is how the
+  "two effects cannot share a member name" bug hid for so long: the
+  collision *was* the map overwriting an entry. The check walks files and
+  items in source order and reports at the second declaration, so it is
+  deterministic and fires exactly once — the same lesson as the
+  `core_modules` sorting fix below.
+- **When a test fails, read the test source before the compiler.** The
+  first platform-effect positive test failed with "deduction promises `n`
+  back to the caller, but the body moves it" — and the compiler was right:
+  `return n` moves `n`, so `-> [n] Int` was a contradiction I had written.
+  The checker's diagnostics have been load-bearing enough for long enough
+  that a fresh test source is the more likely culprit.
 
 - **`try` was invisible to four traversals, and one of them emitted wrong
   code.** `Expr::Try`'s body is ordinary code, but the wildcard arms of the

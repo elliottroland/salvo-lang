@@ -649,9 +649,29 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   `let` annotation or parameter type. The capability is there for a define
   whose target construct needs the type spelled out
   (`Vec::<${T}>::new()`).
-* [intrinsic-fn] Intrinsic fns bypass define templates: the emitter lowers
-  the call directly. Rust implements `copy` [copy-fn] as [rs-copy]; any
-  other intrinsic fn is a codegen error.
+* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`,
+  keyed by the checker-resolved declaration (name + first parameter's base
+  type name, so `size(Str)` / `size(List<T>)` / `size(T[])` are three
+  entries). `copy` [rs-copy] and `discard` are the exceptions: they
+  dispatch on the argument's own shape, so `emit_intrinsic_call` handles
+  them before consulting the table. An intrinsic with no entry is a codegen
+  error naming it.
+  * The argument boundary keeps the place/owned distinction the templates
+    relied on [rs-borrows]: a place splices raw so `list.push(..)` borrows
+    natively, while a variadic tail splices owned because it lands inside
+    `vec![..]`. Backwards, this either double-clones or moves out of a
+    borrow.
+  * Paths are absolute, so no lowering adds a `use` item.
+* [rs-platform-entry] [platform-effect] A `platform effect` emits the same
+  `trait` an ordinary effect does and threads as `&mut dyn` in the same way,
+  but **no** handler struct — the host writes the impl. A `main` that
+  declares one is emitted as `salvo_main` taking the instances
+  (`SALVO_ENTRY`); Rust requires `fn main` in the crate root, and the host's
+  is the one that belongs there. Only *platform* effects become `main`'s
+  parameters; everything else it needs is registered inside it with `use`.
+  * An `intrinsic handler` is the mirror image: struct + `new()` + trait
+    impl, with member signatures from the *effect* declaration and bodies
+    from `intrinsics::handler_member`.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic

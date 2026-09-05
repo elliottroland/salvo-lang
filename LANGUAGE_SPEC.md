@@ -1512,17 +1512,86 @@ Conventions:
 
 * [backend-intrinsic] `intrinsic` declarations (types) are
   mapped inside the compiler; every backend must handle all of them
-  (`Str`, numeric types, `Iter<T>`, ...). The `Mut` auto-qualifier is
-  mapped per backend via `Mut inline:` define sections [type-canbe-mut].
+  (`Str`, numeric types, `List<T>`, `Iter<T>`, ...). Since 2026-09-05
+  there are **no define files**: each backend carries its lowerings as
+  code, in its own `intrinsics.rs` (`type_name`, `fn_call`,
+  `handler_member`), and the `Mut` auto-qualifier maps through
+  `mut_type_name` where the backend needs a different native type
+  (Kotlin `MutableList<T>`; Rust erases it, since mutability lives in the
+  binding) [type-canbe-mut].
+  * `intrinsic` is the *compiler's* modifier: it is declared by the
+    standard library, never by customer code. What a customer reaches for
+    instead is a `platform effect` [platform-effect]. An intrinsic the
+    backend has no lowering for is a codegen error naming it, so the
+    restriction is largely self-enforcing.
+  * Dispatch is on the **checker-resolved declaration** — the declaration
+    name plus the base type name of its first parameter — which is what
+    separates std's overloads (`size(Str)`, `size(List<T>)`, `size(T[])`)
+    without the arity guessing the define era needed.
 * [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
   the declaration carries the signature and deduction list the checker
-  uses (body-less, like `external fn`), but there are *no* define files
-  — each backend lowers calls to it directly, seeing the checker's
-  resolved argument type at every call site (type-directed lowering a
-  single generic define template cannot express). An intrinsic fn a
+  uses (body-less), and each backend lowers calls to it directly, seeing
+  the checker's resolved argument type at every call site — type-directed
+  lowering a single generic template could not express. An intrinsic fn a
   backend does not implement, or an argument type it cannot lower, is a
-  codegen error [backend-never-wrong]. The intrinsic fns today are
-  `core.copy` [copy-fn] and `core.discard` [linear-discard].
+  codegen error [backend-never-wrong].
+  * Two kinds live here. `copy` [copy-fn] and `discard`
+    [linear-discard] dispatch on the argument's *type or shape*, which is
+    the whole reason they are intrinsics, and each backend lowers them
+    itself. Everything else std declares — the `core.list`, `core.array`
+    and `core.string` surface — is a table entry.
+  * A call's type arguments reach the lowering ([call-type-args]), which
+    is how Kotlin's list constructors spell out an element type kotlinc
+    cannot infer from an empty argument list (`mutableListOf<Int>()`).
+  * Rust keeps the place-vs-owned distinction at the argument boundary
+    [rs-borrows]: a place splices raw so a method-style lowering borrows
+    natively (`list.push(..)`), while a variadic tail splices owned
+    because it lands inside a constructor (`vec![..]`).
+* [platform-effect] `platform effect E { members }` declares an effect
+  whose members the **host** implements, in the target language (user
+  decisions 2026-09-05). The compiler generates the interface (Kotlin) or
+  trait (Rust) exactly as it does for an ordinary effect; what differs is
+  where the implementation comes from. This is the *only* interop path for
+  customer code.
+  * It is an ordinary effect in every other respect: a function that
+    performs a member declares `[E]`, intermediate frames declare it and
+    thread it, and the existing interface/trait emission, `&mut dyn`
+    threading and handler fusion all apply unchanged. Grouping the
+    functions under an effect — rather than declaring them one by one — is
+    what makes the interop boundary the author's choice and gives the
+    dependency wiring somewhere to live.
+  * **The host owns the entry point.** A platform effect's instance cannot
+    be `use`d, because it is not constructed in Salvo. Instead the effects
+    `main` declares are its *parameters*: `main` is emitted as `salvoMain`
+    / `salvo_main` taking them, and the host's own `main` constructs the
+    implementations and calls it. A program with no platform effect is
+    unaffected — `main` stays `main`.
+  * A Salvo `handler H of E` for a platform effect is an error: the host's
+    implementation *is* the handler, so a Salvo one would be a second,
+    unreachable implementation. The diagnostic names the remedy (declare an
+    ordinary `effect` if you meant to handle it in Salvo).
+  * A handler may **depend** on a platform effect (a constructor parameter
+    of effect type, [effect-handler-deps]): that is how a Salvo-written
+    handler reaches the host.
+  * Neither the effect nor its members may be generic. A generic member is
+    already a loud codegen error on Rust [effect-member-generics], and a
+    generic *effect* would need the host to implement one interface per
+    instantiation — Kotlin's facets exist for that [kt-effect-fusion] and
+    Rust has no equivalent, so it is refused at the declaration rather than
+    at codegen [backend-never-wrong].
+  * `platform` takes nothing but `effect`. A platform *type* and a platform
+    *handler* are deferred (user decision 2026-09-05), and the parse error
+    names the form rather than reporting a bare "expected item".
+* [effect-member-unique] A member name identifies its effect program-wide,
+  so no two effects may declare the same member name, and no effect may
+  declare one twice (user decision 2026-09-05). Before this, a collision
+  resolved to whichever effect was collected last and surfaced downstream
+  as a baffling "no handler for effect" — and there is no syntax to
+  disambiguate, since `emit<Logger>(…)` parses as *member* type arguments.
+  * Checked in **source order** and reported at the second declaration, so
+    the diagnostic is deterministic and fires exactly once per collision.
+    The `Symbols` maps cannot serve here: they are hash-ordered and
+    last-wins.
 * [backend-external] `external` declarations (fns, types, handlers) carry
   only signatures; each backend that needs them provides `define`
   templates in a sibling `<module>.<backend>.sv` file. Coverage is

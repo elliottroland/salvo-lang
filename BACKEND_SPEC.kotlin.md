@@ -377,10 +377,30 @@ same programs running ([rs-effect-fusion]).
   constructor has none), so std's list defines render
   `mutableListOf<${T}>(${...elems})`. [call-type-args] is what guarantees
   the checker has an argument to interpolate.
-* [intrinsic-fn] Intrinsic fns bypass define templates: the emitter lowers
-  the call directly from the checker's resolved argument type. Kotlin
-  implements `copy` [copy-fn] as [kt-copy]; any other intrinsic fn is a
-  codegen error.
+* [intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`,
+  keyed by the checker-resolved declaration (name + first parameter's base
+  type name, so `size(Str)` / `size(List<T>)` / `size(T[])` are three
+  entries). `copy` [kt-copy] and `discard` are the exceptions: they
+  dispatch on the argument's own type, so `emit_intrinsic_call` handles
+  them before consulting the table. An intrinsic with no entry is a codegen
+  error naming it.
+  * Names in a lowering are **fully qualified** (`kotlin.io.print`,
+    `kotlin.random.Random.nextDouble()`) so the emitted file needs no
+    imports — and so a member implementing `print` does not recurse into
+    itself, the trap the define templates had to document.
+* [kt-platform-entry] [platform-effect] A `platform effect` emits the same
+  `interface` an ordinary effect does, and **no** handler class — the host
+  writes the implementation. A `main` that declares one is emitted as
+  `salvoMain` taking the instances (`SALVO_ENTRY`), because the host's own
+  `main` is the program's entry point and the two cannot share a name. Only
+  *platform* effects become `main`'s parameters; everything else it needs is
+  still registered inside it with `use`. A program with no platform effect
+  keeps `main` exactly as before.
+  * An `intrinsic handler` (std's `StdOutConsole`, `DefaultRandom`) is the
+    mirror image: a real class, with member signatures taken from the
+    *effect* declaration and bodies from `intrinsics::handler_member`. A
+    value-returning member keeps the `return run { … }` shape
+    [kt-handler-template-return].
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable

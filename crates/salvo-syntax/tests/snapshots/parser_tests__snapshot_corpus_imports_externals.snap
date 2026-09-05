@@ -255,7 +255,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "[internal-fn] A compiler-intrinsic fn: declared for its signature and",
+                    "[intrinsic-fn] A compiler-intrinsic fn: declared for its signature and",
                     "deduction; each backend lowers calls to it directly (no define files).",
                 ],
                 backing: Some(
@@ -263,12 +263,12 @@ Module {
                 ),
                 name: Ident {
                     name: "copy",
-                    span: 387..391,
+                    span: 388..392,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 392..393,
+                        span: 393..394,
                     },
                 ],
                 generic_canbe: [],
@@ -277,21 +277,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 395..400,
+                            span: 396..401,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 402..403,
+                                    span: 403..404,
                                 },
                                 args: [],
-                                span: 402..403,
+                                span: 403..404,
                             },
                         },
                         variadic: false,
-                        span: 395..403,
+                        span: 396..404,
                     },
                 ],
                 effects: Some(
@@ -302,10 +302,10 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "value",
-                                span: 412..417,
+                                span: 413..418,
                             },
                             kind: KeepAll,
-                            span: 412..417,
+                            span: 413..418,
                         },
                     ],
                 ),
@@ -315,16 +315,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 419..420,
+                                span: 420..421,
                             },
                             args: [],
-                            span: 419..420,
+                            span: 420..421,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 384..420,
+                span: 385..421,
             },
         ),
     ],

@@ -9,6 +9,6 @@ external fn chars(str: Str) [] -> [str] Char[]
 
 external fn complicated_func<T>(list: List<T>) [] -> [list] Str
 
-// [internal-fn] A compiler-intrinsic fn: declared for its signature and
+// [intrinsic-fn] A compiler-intrinsic fn: declared for its signature and
 // deduction; each backend lowers calls to it directly (no define files).
 intrinsic fn copy<T>(value: T) [] -> [value] T

@@ -878,7 +878,7 @@ fn main() [use] -> [] None {
     );
 }
 
-// ===== S1: the `copy` intrinsic [internal-fn] [copy-fn] [rs-copy] =====
+// ===== S1: the `copy` intrinsic [intrinsic-fn] [copy-fn] [rs-copy] =====
 
 /// The same shape as the Kotlin copy demo: identity/clone lowering per
 /// type, plus a fate-linked alias (`let zs = xs`) whose source must stay
@@ -911,7 +911,7 @@ fn main() [use] -> [] None {
 }
 "#;
 
-// [internal-fn] [rs-copy] `copy` bypasses define templates and lowers to
+// [intrinsic-fn] [rs-copy] `copy` bypasses define templates and lowers to
 // `.clone()` on the argument's place; a fate-linked `let` from a bare
 // identifier clones instead of moving [fate-link].
 #[test]
@@ -2334,7 +2334,7 @@ fn main() [use] -> [] None {
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
-// [union-wrap] Elements of array/tuple literals and lambda tail returns
+// [type-union] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
 // Also covers: a fn-type `let` annotation is dropped in Rust
 // (`impl Trait` is invalid on bindings [fn-contract]).
@@ -3583,4 +3583,101 @@ fn rustc_compiles_and_runs_try_mutation() {
     }
     let files = generate(&[("main.sv", TRY_MUTATION_DEMO, false)]);
     run_rust_files(&files, "try-mutation", "counter 1\n");
+}
+
+// ===== platform effects [platform-effect] =====
+
+/// The same source the Kotlin backend runs, so the asserted stdout is the
+/// parity claim.
+const PLATFORM_DEMO: &str = r#"
+platform effect Telemetry {
+    fn record(name: Str, value: Int) [] -> [name, value] None
+}
+
+fn work(n: Int) [Telemetry] -> [] Int {
+    record("work", n)
+    return n + 1
+}
+
+fn main() [use, Telemetry] {
+    use StdOutConsole()
+    println("result=${work(41)}")
+}
+"#;
+
+fn generate_platform_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    let program = build_program(&[("main.sv", PLATFORM_DEMO, false)]);
+    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [platform-effect] [rs-platform-entry] A platform effect emits the same
+/// `trait` an ordinary effect does and threads as `&mut dyn` exactly the
+/// same way — but no handler struct, and `main` becomes `salvo_main` taking
+/// the instance, because Rust requires `fn main` in the crate root and the
+/// host's is the one that belongs there.
+#[test]
+fn platform_effect_emits_a_trait_and_a_host_entry() {
+    let files = generate_platform_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("pub trait Telemetry {")
+            && src.contains("fn record(&mut self, name: &String, value: i32);"),
+        "expected the generated trait, got:\n{src}"
+    );
+    assert!(
+        !src.contains("struct Telemetry"),
+        "a platform effect must not emit a handler struct:\n{src}"
+    );
+    assert!(
+        src.contains("pub fn salvo_main(telemetry: &mut dyn Telemetry)"),
+        "expected the renamed entry point, got:\n{src}"
+    );
+    assert!(
+        !src.contains("pub fn main("),
+        "the host owns `main`, so the generated file must not declare one:\n{src}"
+    );
+    assert!(
+        src.contains("pub fn work(telemetry: &mut dyn Telemetry, n: i32) -> i32"),
+        "expected the effect threaded into `work`, got:\n{src}"
+    );
+}
+
+/// [platform-effect] End to end under rustc with a hand-written host impl
+/// and entry — the stdout the Kotlin backend also asserts.
+#[test]
+fn rustc_compiles_and_runs_a_platform_effect() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let mut files = generate_platform_demo();
+    // What `salvo platform generate` will write into the platform tree, and
+    // the crate-root delegation that mounts it.
+    files.push(salvo_backend_rust::EmittedFile {
+        rel_path: std::path::PathBuf::from("host.rs"),
+        content: "struct ConsoleTelemetry;\n\n\
+                  impl crate::Telemetry for ConsoleTelemetry {\n    \
+                      fn record(&mut self, name: &String, value: i32) {\n        \
+                          println!(\"[telemetry] {}={}\", name, value);\n    }\n}\n\n\
+                  pub fn main() {\n    crate::salvo_main(&mut ConsoleTelemetry);\n}\n"
+            .to_string(),
+    });
+    for f in files.iter_mut() {
+        if f.rel_path.to_string_lossy() == "main.rs" {
+            f.content = f.content.replacen(
+                "\n",
+                "\n#[path = \"host.rs\"]\npub mod host;\n",
+                1,
+            );
+            f.content.push_str("\nfn main() { crate::host::main() }\n");
+        }
+    }
+    let expected = "[telemetry] work=41\nresult=42\n";
+    run_rust_files(&files, "platform", expected);
 }

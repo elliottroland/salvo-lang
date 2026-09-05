@@ -278,6 +278,12 @@ fn module_produces_code(module: &Module) -> bool {
 }
 
 /// Kotlin reserved words that need backtick-escaping as identifiers.
+/// [platform-effect] The name a `main` that needs platform effects is
+/// emitted under. The host's own `main` constructs the implementations and
+/// calls this; the two cannot both be called `main`, and the host's is the
+/// one the toolchain must find.
+pub const SALVO_ENTRY: &str = "salvoMain";
+
 const KOTLIN_KEYWORDS: &[&str] = &[
     "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in",
     "interface", "is", "null", "object", "package", "return", "super", "this", "throw", "true",
@@ -754,7 +760,15 @@ impl<'p> Emitter<'p> {
         }
         let provided: Vec<String> =
             self.effect_env.iter().map(|e| e.rendered.clone()).collect();
-        if !is_main {
+        // [platform-effect] `main` takes no effect parameters — except a
+        // *platform* effect, which the host supplies by calling the entry
+        // point. Every other effect `main` needs is registered inside it
+        // with `use`.
+        let effect_params_wanted = !is_main || self.declares_platform_effect(f);
+        if effect_params_wanted {
+            let keep = |emitter: &Self, ty: Option<&Ty>, rendered: &str| {
+                !is_main || emitter.is_platform_effect(ty, rendered)
+            };
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
                 .fn_refs
@@ -774,6 +788,9 @@ impl<'p> Emitter<'p> {
                         if provided.contains(&rendered) {
                             continue;
                         }
+                        if !keep(self, Some(&ty), &rendered) {
+                            continue;
+                        }
                         let param = self.unique_name(effect_param_name(&rendered));
                         self.effect_env.push(EffectEntry {
                             ty: Some(ty),
@@ -791,6 +808,9 @@ impl<'p> Emitter<'p> {
                             }
                             let rendered = self.emit_type_ref(r);
                             if provided.contains(&rendered) {
+                                continue;
+                            }
+                            if !keep(self, None, &rendered) {
                                 continue;
                             }
                             let param = self.unique_name(effect_param_name(&rendered));
@@ -823,7 +843,16 @@ impl<'p> Emitter<'p> {
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
-            "main".to_string()
+            // [platform-effect] A `main` needing platform effects is not the
+            // program's entry point any more — the *host's* `main` is, and
+            // it calls this after constructing the implementations. Renaming
+            // it is what makes the JVM pick the host's entry rather than
+            // this one, whose signature it could not satisfy.
+            if self.declares_platform_effect(f) {
+                SALVO_ENTRY.to_string()
+            } else {
+                "main".to_string()
+            }
         } else if top_level {
             self.kotlin_fn_name(f)
         } else {
@@ -3453,6 +3482,38 @@ impl<'p> Emitter<'p> {
             out.push(self.kotlin_ty(ty));
         }
         out
+    }
+
+    /// [platform-effect] Whether an effect is host-implemented, from either
+    /// the checker's resolved type or (in unchecked contexts) its rendered
+    /// name — the same table/fallback pair every effect lookup here uses.
+    fn is_platform_effect(&self, ty: Option<&Ty>, rendered: &str) -> bool {
+        if let Some(Ty::Named { name, .. }) = ty.map(Ty::strip_quals) {
+            if let Some(e) = self.symbols.effects.get(name.as_str()) {
+                return e.platform;
+            }
+        }
+        // The rendered Kotlin name of an effect is its Salvo name (effects
+        // are not remapped), minus any generic arguments.
+        let base = rendered.split('<').next().unwrap_or(rendered);
+        self.symbols
+            .effects
+            .get(base)
+            .is_some_and(|e| e.platform)
+    }
+
+    /// [platform-effect] Whether this fn's declared effect list mentions a
+    /// platform effect — which is what turns `main` into an entry point the
+    /// host calls rather than a `main` of its own.
+    fn declares_platform_effect(&self, f: &FnDecl) -> bool {
+        f.effects.iter().flatten().any(|eff| match eff {
+            EffectRef::Effect(r) => self
+                .symbols
+                .effects
+                .get(r.name.name.as_str())
+                .is_some_and(|e| e.platform),
+            _ => false,
+        })
     }
 
     /// Whether no Salvo operation can mutate any part of a value of this

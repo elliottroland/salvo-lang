@@ -309,6 +309,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwType
                 | TokenKind::KwIntrinsic
                 | TokenKind::KwExternal
+                | TokenKind::KwPlatform
                 | TokenKind::KwDefine
                 | TokenKind::KwProvenance
                 | TokenKind::KwImport
@@ -374,7 +375,31 @@ impl<'s> Parser<'s> {
                 self.parse_qualifier(None, QualSubject::Provenance)
                     .map(Item::Qualifier)
             }
-            TokenKind::KwEffect => self.parse_effect().map(Item::Effect),
+            // [platform-effect] `platform effect E { ... }`: the members are
+            // implemented by the host in the target language. `effect` is
+            // the only declaration this modifier takes — a platform *type*
+            // and a platform *handler* are deferred, and the diagnostic
+            // says so rather than reporting a bare parse error.
+            TokenKind::KwPlatform => {
+                self.bump();
+                match self.kind() {
+                    TokenKind::KwEffect => self.parse_effect(true).map(Item::Effect),
+                    other => {
+                        let span = self.peek().span;
+                        let found = other.describe();
+                        self.error(
+                            format!(
+                                "expected `effect` after `platform`, found {found}: a \
+                                 platform declaration groups the functions the host \
+                                 implements, so it is always an effect"
+                            ),
+                            span,
+                        );
+                        None
+                    }
+                }
+            }
+            TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
             TokenKind::KwHandler => self.parse_handler(None).map(Item::Handler),
             TokenKind::KwFn => self.parse_fn(None).map(Item::Fn),
             TokenKind::KwDefine => self.parse_define(),
@@ -633,7 +658,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_effect(&mut self) -> Option<EffectDecl> {
+    fn parse_effect(&mut self, platform: bool) -> Option<EffectDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
@@ -646,6 +671,7 @@ impl<'s> Parser<'s> {
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(EffectDecl {
             docs,
+            platform,
             name,
             generics,
             fns,

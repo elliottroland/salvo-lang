@@ -137,12 +137,24 @@ pub struct QualifierDecl {
     pub span: Span,
 }
 
-/// `effect Console { fn println(...) }`
+/// `effect Console { fn println(...) }`, or `platform effect Telemetry
+/// { ... }` — an effect whose handler the *host* provides
+/// [platform-effect].
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// True for `platform effect` [platform-effect]: the members are
+    /// implemented by the *host* in the target language, so the compiler
+    /// generates the interface and the instance arrives from outside the
+    /// Salvo program — there is nothing to `use`.
+    ///
+    /// A dedicated flag rather than a [`BackingMod`], because `platform`
+    /// applies to nothing but an effect and `intrinsic`/`external` never
+    /// apply to one: the two sets are disjoint, so keeping them apart makes
+    /// the invariant structural.
+    pub platform: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     pub fns: Vec<FnDecl>,

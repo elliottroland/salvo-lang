@@ -735,3 +735,55 @@ fn an_else_in_the_subject_form_names_the_other_form() {
         "got {errors:?}"
     );
 }
+
+// --- platform effects [platform-effect] ---
+
+/// [platform-effect] `platform effect E { ... }` parses as an effect
+/// carrying the flag; the modifier is the only difference from an ordinary
+/// declaration.
+#[test]
+fn platform_effect_parses_with_the_flag() {
+    let source = "platform effect Telemetry {\n    \
+                  fn record(name: Str, value: Int) [] -> [name, value] None\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Effect(e) = &module.items[0] else {
+        panic!("expected an effect item");
+    };
+    assert!(e.platform, "expected the platform flag to be set");
+    assert_eq!(e.name.name, "Telemetry");
+    assert_eq!(e.fns.len(), 1);
+}
+
+/// [platform-effect] An ordinary `effect` is not a platform effect — the
+/// flag defaults off, so nothing existing changes meaning.
+#[test]
+fn a_plain_effect_is_not_a_platform_effect() {
+    let source = "effect Console {\n    fn print(message: Str) -> [message] None\n}\n";
+    let (module, _diagnostics) = salvo_syntax::parse_module(source);
+    let salvo_syntax::ast::Item::Effect(e) = &module.items[0] else {
+        panic!("expected an effect item");
+    };
+    assert!(!e.platform);
+}
+
+/// [platform-effect] `platform` takes nothing but `effect`: a platform
+/// declaration groups the functions the host implements. The diagnostic
+/// says so rather than reporting a bare "expected item".
+#[test]
+fn platform_on_a_non_effect_is_an_error_naming_the_form() {
+    for source in ["platform type Handle\n", "platform fn now() [] -> [] Int\n"] {
+        let (_module, diagnostics) = salvo_syntax::parse_module(source);
+        assert!(
+            diagnostics.iter().any(|d| d.is_error()
+                && d.message.contains("expected `effect` after `platform`")
+                && d.message.contains("always an effect")),
+            "expected a platform-form error for {source:?}, got {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+}

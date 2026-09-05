@@ -466,6 +466,11 @@ fn handler_dep_params<'a>(h: &'a HandlerDecl, symbols: &Symbols<'_>) -> Vec<&'a 
 }
 
 /// Rust reserved words that need escaping as identifiers.
+/// [platform-effect] The name a `main` that needs platform effects is
+/// emitted under. Rust requires `fn main` in the crate root, so the host's
+/// entry takes that name and calls this.
+pub const SALVO_ENTRY: &str = "salvo_main";
+
 const RUST_KEYWORDS: &[&str] = &[
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue",
     "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "if", "impl",
@@ -1371,7 +1376,9 @@ impl<'p> Emitter<'p> {
             }
             self.bindings.insert(var.clone(), BindKind::RefMut);
             params.push(format!("{var}: {param_ty}"));
-        } else if !is_main && handler_of_style.is_none() {
+        } else if (!is_main || self.declares_platform_effect(f))
+            && handler_of_style.is_none()
+        {
             let checked_effects: Option<Vec<Ty>> = self
                 .checked
                 .fn_refs
@@ -1389,6 +1396,13 @@ impl<'p> Emitter<'p> {
                             continue;
                         }
                         let rendered = self.rust_ty(&ty);
+                        // [platform-effect] `main` takes only its *platform*
+                        // effects: the host supplies those by calling the
+                        // entry point, while everything else it needs is
+                        // registered inside it with `use`.
+                        if is_main && !self.is_platform_effect(Some(&ty), &rendered) {
+                            continue;
+                        }
                         effects.push((Some(ty), rendered));
                     }
                 }
@@ -1399,6 +1413,9 @@ impl<'p> Emitter<'p> {
                                 continue;
                             }
                             let rendered = self.emit_type_ref(r);
+                            if is_main && !self.is_platform_effect(None, &rendered) {
+                                continue;
+                            }
                             effects.push((None, rendered));
                         }
                     }
@@ -1541,7 +1558,14 @@ impl<'p> Emitter<'p> {
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
-            "main".to_string()
+            // [platform-effect] A `main` needing platform effects is not the
+            // crate's `main` any more — the host's is, and it calls this
+            // after constructing the implementations.
+            if self.declares_platform_effect(f) {
+                SALVO_ENTRY.to_string()
+            } else {
+                "main".to_string()
+            }
         } else if top_level || matches!(style, FnStyle::QualifierFn) {
             self.rust_fn_name(f)
         } else {
@@ -2001,6 +2025,44 @@ impl<'p> Emitter<'p> {
         } else {
             inner
         }
+    }
+
+    /// [platform-effect] Whether an effect is host-implemented, from either
+    /// the checker's resolved type or (in unchecked contexts) its rendered
+    /// name — the same table/fallback pair every effect lookup here uses.
+    fn is_platform_effect(&self, ty: Option<&Ty>, rendered: &str) -> bool {
+        if let Some(Ty::Named { name, .. }) = ty.map(Ty::strip_quals) {
+            if let Some(e) = self.symbols.effects.get(name.as_str()) {
+                return e.platform;
+            }
+        }
+        // An effect's rendered Rust name is its Salvo name through
+        // `rs_ident`, minus any generic arguments; platform effects may not
+        // be generic, so the base name is the whole name.
+        let base = rendered.split('<').next().unwrap_or(rendered);
+        self.symbols
+            .effects
+            .keys()
+            .any(|n| rs_ident(n) == base)
+            && self
+                .symbols
+                .effects
+                .iter()
+                .any(|(n, e)| rs_ident(n) == base && e.platform)
+    }
+
+    /// [platform-effect] Whether this fn's declared effect list mentions a
+    /// platform effect — which is what turns `main` into an entry point the
+    /// host calls rather than the crate's own `main`.
+    fn declares_platform_effect(&self, f: &FnDecl) -> bool {
+        f.effects.iter().flatten().any(|eff| match eff {
+            EffectRef::Effect(r) => self
+                .symbols
+                .effects
+                .get(r.name.name.as_str())
+                .is_some_and(|e| e.platform),
+            _ => false,
+        })
     }
 
     /// Renders a checker `Ty` as Rust (qualifiers erased, unions as the
