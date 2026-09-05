@@ -687,6 +687,21 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   checker consumes the spread base [deduce-consume] — replacing the
   clone with a real move is a deferred performance refinement.
 
+## Running the output [rs-run]
+
+* [cli-run] [rs-run] `salvo run --backend rust` builds the crate root with
+  `rustc --edition 2021 <target>/<root>.rs -o <target>/.salvo_bin/<name>`
+  and runs the binary. One invocation is enough: the root reaches every
+  other emitted module through its `mod` declarations [rs-crate].
+  * The binary directory is dot-prefixed so a target nested in the source
+    tree stays invisible to source discovery [mod-ignore].
+  * **The chosen entry must reach the emitter**, because the crate root
+    *is* the `main`-declaring module: with several candidates the emitter
+    would otherwise pick the first it found, and building any other one
+    leaves the `mod` declarations behind — rustc then reports unresolved
+    imports for every module. This is why `Backend::emit` takes the
+    entry.
+
 ## Deliberate cuts ([backend-never-wrong])
 
 Reported as codegen errors, never silent wrong code:

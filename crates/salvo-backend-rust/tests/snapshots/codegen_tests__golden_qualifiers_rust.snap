@@ -101,10 +101,10 @@ pub fn main() {
         let mut c = current.unwrap();
         println(&mut console, &(format!("tick {}", c)));
         current = if c > 1 {
-Some(c - 1)
-} else {
-None
-};
+            Some(c - 1)
+        } else {
+            None
+        };
     }
     let mut inner: Union2<String, i32> = Union2::<String, i32>::U1(ok("yes".to_string()));
     let mut nested: Union2<Union2<String, i32>, bool> = Union2::<Union2<String, i32>, bool>::U1(ok(inner));

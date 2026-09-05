@@ -490,3 +490,45 @@ fn matching_a_qualified_union_directly_names_the_remedy() {
         "expected the remedy-naming diagnostic, got: {errs:?}"
     );
 }
+
+// ===== a `try` body is ordinary code to every traversal =====
+
+/// [try] [narrow-assign-reset] An assignment inside a `try` body resets an
+/// earlier `is` narrowing, like an assignment anywhere else. (Flow-sensitive
+/// checking of the body is what achieves this, not the syntactic
+/// assigned-name scan — verified by reverting that scan's `Expr::Try` arm
+/// and watching this test still pass. Kept as a behavioural regression: the
+/// body is code, and `try` must not become a narrowing barrier.)
+#[test]
+fn an_assignment_inside_a_try_body_resets_narrowing() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn probe(value: Str | Int) [] -> [] None {{\n\
+         if value is Str {{\n\
+         let outcome = try {{\n\
+         value = 7\n\
+         parse(\"x\")\n\
+         }}\n\
+         note(value)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("note")),
+        "expected the reset narrowing to reject the `Str` read, got: {errs:?}"
+    );
+    // The control: without the assignment the narrowing stands and the
+    // read is fine, so the rejection above means what it says.
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn probe(value: Str | Int) [] -> [] None {{\n\
+         if value is Str {{\n\
+         let outcome = try {{\n\
+         parse(\"x\")\n\
+         }}\n\
+         note(value)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}

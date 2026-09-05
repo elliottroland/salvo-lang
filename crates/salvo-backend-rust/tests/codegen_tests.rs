@@ -3546,3 +3546,41 @@ fn rustc_compiles_and_runs_when_cond() {
     let files = generate(&[("main.sv", WHEN_COND_DEMO, false)]);
     run_rust_files(&files, "when-cond", WHEN_COND_STDOUT);
 }
+
+// ===== a `try` body is ordinary code to the name/mutability censuses =====
+
+// [try] The Rust counterpart of the Kotlin `var` miss: `collect_mutated_expr`
+// and `collect_declared_expr` had no `Expr::Try` arm, so a variable assigned
+// only inside a `try` body — and a local *declared* only inside one, which
+// the generated-name census must know about — were invisible. Rust emits
+// `let mut` unconditionally, so the mutability half is latent here rather
+// than fatal; the declaration half is what would collide.
+const TRY_MUTATION_DEMO: &str = r#"
+fn risky(n: Int) [Abort<Str>] -> [] Int {
+    if n < 0 {
+        abort("negative")
+    }
+    return n
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let counter = 0
+    let outcome = try {
+        counter = counter + 1
+        let step = risky(3)
+        step
+    }
+    println("counter ${counter}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_try_mutation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    run_rust_files(&files, "try-mutation", "counter 1\n");
+}

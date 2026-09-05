@@ -60,13 +60,13 @@ pub fn parse_age(input: i32) -> Union2<i32, String> {
 
 pub fn describe(result: &Union2<i32, String>) -> String {
     let mut msg = match result {
-    Union2::U1(_) => {
-format!("age {}", *result.u1())
-    }
-    Union2::U2(_) => {
-format!("error: {}", result.u2().clone())
-    }
-};
+        Union2::U1(_) => {
+            format!("age {}", *result.u1())
+        }
+        Union2::U2(_) => {
+            format!("error: {}", result.u2().clone())
+        }
+    };
     return msg;
 }
 
@@ -85,13 +85,13 @@ pub fn main() {
         println(&mut console, &(format!("err bool: {}", *precise.u3())));
     }
     let mut value = match good {
-    Union2::U1(_) => {
-*good.u1()
-    }
-    Union2::U2(_) => {
-return;
-    }
-};
+        Union2::U1(_) => {
+            *good.u1()
+        }
+        Union2::U2(_) => {
+            return;
+        }
+    };
     println(&mut console, &(format!("value plus one is {}", value + 1)));
 }
 

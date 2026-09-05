@@ -424,6 +424,27 @@ same programs running ([rs-effect-fusion]).
   and the same holds for tracked moved-position projections of mutable
   data.
 
+## Running the output [kt-run]
+
+* [cli-run] [kt-run] `salvo run --backend kotlin` compiles every emitted
+  `.kt` file with `kotlinc -d <target>/.salvo_classes`, then launches
+  `kotlin -cp <that dir> <entry class>`. Companion files
+  [backend-companion] are `.kt` too, so they are part of the emitted set
+  and compile with the rest.
+  * The classes directory is dot-prefixed so a target nested in the source
+    tree stays invisible to source discovery [mod-ignore].
+  * **The entry class is named after the *file*, not the function.** Kotlin
+    puts a file's top-level declarations in a facade class named for the
+    file: module `other` is emitted as `other.kt` in package
+    `salvo.other`, so its `main` lands in `salvo.other.OtherKt`. The hint
+    printed by `salvo compile` said `…MainKt` unconditionally until
+    `salvo run --main` exercised a non-`main.sv` entry — correct only
+    because every entry file until then was `main.sv`.
+  * Nothing about the *emitted code* depends on which entry was chosen:
+    Kotlin compiles a top-level `main` in every module that declares one,
+    so the choice only picks the launch class (unlike Rust's crate root
+    [rs-crate]).
+
 ## Deliberate cuts ([backend-never-wrong])
 
 Reported as codegen errors, never silent wrong code:

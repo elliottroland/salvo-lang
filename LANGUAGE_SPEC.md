@@ -1670,8 +1670,62 @@ Conventions:
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
-* [cli-lsp] `salvo lsp [--backend NAME]` starts a language server
-  speaking LSP over stdio. The workspace root comes from the client's
+* [cli-run] `salvo run --backend NAME (--src DIR | --main FILE)
+  [--target DIR] [--clean-target before|both]` compiles and then runs the
+  program with the backend's own toolchain (user decisions 2026-09-05).
+  One command from `.sv` source to program output.
+  * `--backend` is **required**: it decides which toolchain must be
+    installed, so there is no sensible default (unlike `compile`, which
+    defaults to `kotlin`).
+  * **`--src` and `--main` are independent; at least one is required**, and
+    each supplies a reasonable default for the other (user decision
+    2026-09-05):
+    * `--src DIR` alone compiles the directory and uses the unique `main`
+      it declares (several is a warning naming them, and the first wins).
+    * `--main FILE` alone additionally implies `--src $(dirname FILE)`.
+    * **Both** is the only way to say "compile this tree, start at this
+      file" when the entry sits in a *subdirectory* — which is also when it
+      matters, since a module shared from above the entry's own directory
+      is out of reach for `--main` alone. The file must be inside the
+      source directory, at any depth; outside it is an error, not an
+      ignored flag.
+    * Either way `--main` is how you choose between several entry points. A
+      define file is rejected as an entry (it holds templates, not code
+      [backend-define-inline]), by its double extension rather than by
+      failing to find `main`, so the message can say why.
+    * The entry choice reaches the backend, because it can shape the
+      *output* and not just the launch command: Rust gives the
+      `main`-declaring module the crate root [rs-crate].
+    * Considered and dropped as premature (user decision 2026-09-05):
+      `--main` including only the modules its imports transitively reach.
+      The whole directory is compiled either way; reachability already
+      prunes the *output* to the modules actually used.
+  * `--target` defaults to `.salvo_tmp_run` in the working directory.
+    Dot-prefixed on purpose: source discovery skips hidden directories
+    [mod-ignore], so the default works even though it normally lands
+    inside the source tree.
+  * **The target may not overlap the sources**, for two separate reasons,
+    both errors before anything is built or deleted:
+    * It may not *be* or *contain* the source directory — the target is
+      deleted before the build, so that would delete the program.
+    * It may not sit *visibly* inside the sources, where the next build
+      would read the emitted files back: output carrying the backend's
+      native extension is indistinguishable from a hand-written companion
+      file [backend-companion]. Nesting is allowed under a dot-prefixed
+      directory, which discovery skips.
+    * Independently, clearing a target that holds any `.sv` file is
+      refused — a guard on the deletion itself, not on the paths.
+  * `--clean-target` (default `both`) says what survives. Both modes clear
+    the target *before* the build, so a run never picks up the previous
+    run's output; `before` leaves the generated sources for inspection,
+    `both` deletes them after the run. A failed *build* leaves the target
+    alone (there was no run to clean up after, and the output is what one
+    would want to look at).
+  * **The command's exit code is the program's**, so `salvo run` can stand
+    in for running the binary. Program stdio is inherited rather than
+    captured. A toolchain that is not installed, or that fails, is an
+    error from the command itself.
+* [cli-lsp] `salvo lsp [--backend NAME]` starts a language server  speaking LSP over stdio. The workspace root comes from the client's
   `initialize` request; `--backend` selects define files exactly like
   `analyze --backend`.
   * No incremental state: every document event re-runs the [cli-analyze]

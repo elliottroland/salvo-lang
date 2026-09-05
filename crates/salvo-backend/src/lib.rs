@@ -5,9 +5,9 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use salvo_core::Program;
+use salvo_core::{ModulePath, Program};
 
 #[derive(Debug)]
 pub enum BackendError {
@@ -50,11 +50,65 @@ pub trait Backend {
 
     /// Emits target source code for the program into `target_dir`.
     /// Returns the list of files written (relative to `target_dir`).
+    ///
+    /// `entry` is the module the driver selected as the program's entry
+    /// point (`salvo run --main`), or `None` to let the backend discover
+    /// it. It matters wherever the entry shapes the *output* and not just
+    /// the launch command: Rust gives the `main`-declaring module the crate
+    /// root [rs-crate], so with several candidates the backend must be told
+    /// which one, while Kotlin emits a `MainKt` per module and needs
+    /// nothing.
     fn emit(
         &self,
         program: &Program,
         target_dir: &Path,
+        entry: Option<&ModulePath>,
     ) -> Result<Vec<std::path::PathBuf>, BackendError>;
+
+    /// How a human starts the emitted program — a JVM class name, a
+    /// `rustc` invocation. `main_module` is the module declaring `main`.
+    /// Printed by `salvo compile`; the knowledge belongs to the backend,
+    /// not to the CLI.
+    fn entry_hint(&self, target_dir: &Path, main_module: &ModulePath) -> String;
+
+    /// Builds the emitted sources with the target toolchain and runs the
+    /// program, returning its exit code [cli-run]. `emitted` is what
+    /// [`Backend::emit`] wrote (relative to `target_dir`), so the backend
+    /// need not re-discover it. The program's stdio is inherited: its
+    /// output is the command's output.
+    ///
+    /// A backend that cannot run programs returns
+    /// [`BackendError::Unsupported`], which is the default.
+    fn run(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+    ) -> Result<i32, BackendError> {
+        let _ = (target_dir, main_module, emitted);
+        Err(BackendError::Unsupported(format!(
+            "backend `{}` cannot run programs",
+            self.name()
+        )))
+    }
+}
+
+/// Runs a toolchain command with inherited stdio, mapping a missing
+/// executable to a message that names it [cli-run]. `Ok(code)` carries the
+/// tool's own exit code — a compiler failing is not an error *here*, it is
+/// a result the caller reports.
+pub fn run_tool(program: &str, args: &[&std::ffi::OsStr]) -> Result<i32, BackendError> {
+    use std::process::Command;
+    match Command::new(program).args(args).status() {
+        Ok(status) => Ok(status.code().unwrap_or(1)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(BackendError::Unsupported(format!(
+                "`{program}` was not found on PATH: it is needed to build and run \
+                 the emitted code"
+            )))
+        }
+        Err(err) => Err(BackendError::Io(err)),
+    }
 }
 
 /// Registry of available backends, keyed by name.

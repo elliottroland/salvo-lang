@@ -37,6 +37,17 @@ const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused
 /// [mod-used-only], plus the generated `unions.rs` and the crate-root
 /// module header [rs-crate].
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    emit_program_with_entry(program, None)
+}
+
+/// [rs-crate] As [`emit_program`], with the crate root chosen explicitly:
+/// `entry` names the module whose `main` is the program's entry point
+/// (`salvo run --main`). `None` keeps the historical behaviour — the first
+/// emitted module that declares one.
+pub fn emit_program_with_entry(
+    program: &Program,
+    entry: Option<&ModulePath>,
+) -> Result<Vec<EmittedFile>, Vec<String>> {
     let symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
@@ -78,16 +89,21 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
         mod_names.insert(module.clone(), name);
     }
 
-    // The module declaring `fn main` becomes the crate root [rs-crate].
+    // The module declaring `fn main` becomes the crate root [rs-crate]. The
+    // driver's choice wins when it made one: with several `main`s, only it
+    // knows which the user asked for, and the crate root is the one file
+    // that carries the `mod` declarations.
+    let declares_main = |u: &salvo_core::program::Unit| {
+        u.file.kind == SourceKind::Language
+            && emitted_modules.contains(&u.file.module)
+            && u.ast.items.iter().any(|item| {
+                matches!(item, Item::Fn(f) if f.name.name == "main" && f.body.is_some())
+            })
+    };
     let root_module: Option<&ModulePath> = program
         .units()
-        .find(|u| {
-            u.file.kind == SourceKind::Language
-                && emitted_modules.contains(&u.file.module)
-                && u.ast.items.iter().any(|item| {
-                    matches!(item, Item::Fn(f) if f.name.name == "main" && f.body.is_some())
-                })
-        })
+        .find(|u| declares_main(u) && entry.is_some_and(|e| *e == u.file.module))
+        .or_else(|| program.units().find(declares_main))
         .map(|u| &u.file.module);
 
     // [backend-external] Everything external in `core.*` must be covered
@@ -3764,7 +3780,12 @@ impl<'p> Emitter<'p> {
                 branches,
                 else_block,
                 ..
-            } => self.emit_if_expr(branches, else_block.as_ref()),
+            } => {
+                // Captured before emitting: statement emission inside the
+                // branches moves `expr_indent`.
+                let indent = self.expr_indent;
+                self.emit_if_expr(branches, else_block.as_ref(), indent)
+            }
             Expr::Lambda { params, body, span } => self.emit_lambda(params, body, *span),
             Expr::Try { body, span } => {
                 let indent = self.expr_indent;
@@ -3774,13 +3795,19 @@ impl<'p> Emitter<'p> {
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
                 subject, branches, ..
-            } => self.emit_when(subject, branches, 0, StmtCtx::Normal, true),
+            } => {
+                let indent = self.expr_indent;
+                self.emit_when(subject, branches, indent, StmtCtx::Normal, true)
+            }
             // [when-condition] / [rs-when-cond]
             Expr::WhenCond {
                 branches,
                 else_block,
                 ..
-            } => self.emit_if_expr(branches, Some(else_block)),
+            } => {
+                let indent = self.expr_indent;
+                self.emit_if_expr(branches, Some(else_block), indent)
+            }
             Expr::Error { .. } => "todo!()".to_string(),
         }
     }
@@ -4229,37 +4256,47 @@ impl<'p> Emitter<'p> {
 
     /// An `if`/`elif`/`else` chain in value position: Rust `if` is an
     /// expression; a missing `else` contributes `None` [if-else-none]
-    /// (branch values carry their `WrapOption`/wrap coercions).
-    fn emit_if_expr(&mut self, branches: &[(Expr, Block)], else_block: Option<&Block>) -> String {
+    /// (branch values carry their `WrapOption`/wrap coercions). `indent` is
+    /// the column of the *statement* the expression sits in — the opening
+    /// `if ` is written inline after whatever precedes it, so only the branch
+    /// bodies and the closing braces need padding.
+    fn emit_if_expr(
+        &mut self,
+        branches: &[(Expr, Block)],
+        else_block: Option<&Block>,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
         let mut out = String::new();
         for (i, (cond, block)) in branches.iter().enumerate() {
             let kw = if i == 0 { "if" } else { " else if" };
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} {} {{\n", cond_code(c)));
-            out.push_str(&self.emit_is_bindings(cond, 0));
+            out.push_str(&self.emit_is_bindings(cond, indent + 1));
             // [qual-widen]
-            let (shadows, saved) = self.emit_widen_shadows(cond, 0);
+            let (shadows, saved) = self.emit_widen_shadows(cond, indent + 1);
             out.push_str(&shadows);
-            out.push_str(&self.emit_value_block(block));
+            out.push_str(&self.emit_value_block(block, indent + 1));
             self.restore_bindings(saved);
-            out.push('}');
+            out.push_str(&format!("{pad}}}"));
         }
         match else_block {
             Some(block) => {
                 out.push_str(" else {\n");
-                out.push_str(&self.emit_value_block(block));
-                out.push('}');
+                out.push_str(&self.emit_value_block(block, indent + 1));
+                out.push_str(&format!("{pad}}}"));
             }
             None => {
-                out.push_str(" else {\nNone\n}");
+                let inner = "    ".repeat(indent + 1);
+                out.push_str(&format!(" else {{\n{inner}None\n{pad}}}"));
             }
         }
         out
     }
 
     /// A block in value position: statements plus the trailing expression
-    /// as the block's value.
-    fn emit_value_block(&mut self, block: &Block) -> String {
+    /// as the block's value. `indent` is the column its statements sit at.
+    fn emit_value_block(&mut self, block: &Block, indent: usize) -> String {
         let mut out = String::new();
         // [rs-effect-fusion] Save the whole environment, not just its
         // depth: a `use` inside the block *rewrites* the outer entries to
@@ -4270,6 +4307,7 @@ impl<'p> Emitter<'p> {
         // is computed, so a tail with deferred code behind it is hoisted
         // into a temporary.
         let mut tail_tmp: Option<String> = None;
+        let pad = "    ".repeat(indent);
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -4277,26 +4315,26 @@ impl<'p> Emitter<'p> {
                     // The tail is the value. `Nothing`-typed tails
                     // (`return`-like) stay statements.
                     if matches!(self.ty_of(e.span()), Some(Ty::Nothing)) {
-                        out.push_str(&self.emit_expr_stmt(e, 0, StmtCtx::Normal));
+                        out.push_str(&self.emit_expr_stmt(e, indent, StmtCtx::Normal));
                     } else {
+                        self.expr_indent = indent;
                         let code = self.emit_expr(e);
                         if self.defers.len() > defer_floor {
                             let tmp = self.fresh_defer_var();
-                            out.push_str(&format!("let {tmp} = {code};\n"));
+                            out.push_str(&format!("{pad}let {tmp} = {code};\n"));
                             tail_tmp = Some(tmp);
                         } else {
-                            out.push_str(&code);
-                            out.push('\n');
+                            out.push_str(&format!("{pad}{code}\n"));
                         }
                     }
                     continue;
                 }
             }
-            out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
+            out.push_str(&self.emit_stmt(stmt, indent, StmtCtx::Normal));
         }
-        out.push_str(&self.splice_defers(defer_floor, 0, true));
+        out.push_str(&self.splice_defers(defer_floor, indent, true));
         if let Some(tmp) = tail_tmp {
-            out.push_str(&format!("{tmp}\n"));
+            out.push_str(&format!("{pad}{tmp}\n"));
         }
         self.effect_env = saved_env;
         out
@@ -4409,7 +4447,7 @@ impl<'p> Emitter<'p> {
                 }
             }
             if value_pos {
-                out.push_str(&self.emit_value_block(&branch.body));
+                out.push_str(&self.emit_value_block(&branch.body, indent + 2));
             } else {
                 out.push_str(&self.emit_block_stmts(&branch.body, indent + 2, ctx));
             }
@@ -6317,7 +6355,21 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             LambdaBody::Expr(e) => collect_mutated_expr(e, out),
             LambdaBody::Block(b) => collect_mutated(b, out),
         },
-        _ => {}
+        // [try] The delimiter's body is ordinary code: a variable mutated
+        // only inside it still needs the mutable declaration.
+        Expr::Try { body, .. } => collect_mutated(body, out),
+        // [qual-widen] The check reads its subject.
+        Expr::Widen { subject, .. } => collect_mutated_expr(subject, out),
+        // Leaves: no sub-expression, so nothing can be mutated inside.
+        // Listed rather than defaulted, because a missed form emits an
+        // immutable declaration for a variable the code assigns and the
+        // target compiler is what reports it [backend-never-wrong].
+        Expr::Ident(_)
+        | Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Error { .. } => {}
     }
 }
 
@@ -6488,7 +6540,21 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 }
             }
         }
-        _ => {}
+        // [qual-widen] No binding of its own — the subject reads widened —
+        // but the subject expression may declare one.
+        Expr::Widen { subject, .. } => collect_declared_expr(subject, out),
+        // [try] The delimiter's body is ordinary code and declares its own
+        // locals.
+        Expr::Try { body, .. } => collect_declared(body, out),
+        // Leaves: nothing declared inside. Listed rather than defaulted so
+        // a new binding form cannot escape the name census that keeps
+        // generated locals from colliding with user names.
+        Expr::Ident(_)
+        | Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Error { .. } => {}
     }
 }
 
@@ -6562,7 +6628,35 @@ fn expr_terminates(expr: &Expr) -> bool {
             block_terminates(else_block)
                 && branches.iter().all(|(_, b)| block_terminates(b))
         }
-        _ => false,
+        // Nothing else terminates the enclosing Rust block by itself.
+        // Listed rather than defaulted: a missed control-flow form would
+        // get unreachable code emitted after it, which rustc rejects.
+        Expr::While { .. }
+        | Expr::For { .. }
+        | Expr::Lambda { .. }
+        | Expr::Try { .. }
+        | Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Str { .. }
+        | Expr::Ident(_)
+        | Expr::Field { .. }
+        | Expr::TupleIndex { .. }
+        | Expr::Call { .. }
+        | Expr::Index { .. }
+        | Expr::ArrayLit { .. }
+        | Expr::ArrayInit { .. }
+        | Expr::Tuple { .. }
+        | Expr::StructLit { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Is { .. }
+        | Expr::Widen { .. }
+        | Expr::NonNull { .. }
+        | Expr::PostIncrement { .. }
+        | Expr::Spread { .. }
+        | Expr::Error { .. } => false,
     }
 }
 

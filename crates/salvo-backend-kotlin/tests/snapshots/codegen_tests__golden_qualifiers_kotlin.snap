@@ -87,10 +87,10 @@ fun main() {
         val c = current as Int
         println(console, "tick $c")
         current = if (c > 1) {
-c - 1
-} else {
-null
-}
+            c - 1
+        } else {
+            null
+        }
     }
     val inner: Union2<String, Int> = U2_1<String, Int>(ok("yes"))
     val nested: Union2<Union2<String, Int>, Boolean> = U2_1<Union2<String, Int>, Boolean>(ok(inner))

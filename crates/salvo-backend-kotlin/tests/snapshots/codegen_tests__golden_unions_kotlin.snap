@@ -47,13 +47,13 @@ fun parse_age(input: Int): Union2<Int, String> {
 
 fun describe(result: Union2<Int, String>): String {
     val msg = when (result) {
-    is U2_1<*, *> -> {
-"age ${(result.value as Int)}"
+        is U2_1<*, *> -> {
+            "age ${(result.value as Int)}"
+        }
+        is U2_2<*, *> -> {
+            "error: ${(result.value as String)}"
+        }
     }
-    is U2_2<*, *> -> {
-"error: ${(result.value as String)}"
-    }
-}
     return msg
 }
 
@@ -72,13 +72,13 @@ fun main() {
         println(console, "err bool: ${(precise.value as Boolean)}")
     }
     val value = when (good) {
-    is U2_1<*, *> -> {
-(good.value as Int)
+        is U2_1<*, *> -> {
+            (good.value as Int)
+        }
+        is U2_2<*, *> -> {
+            return
+        }
     }
-    is U2_2<*, *> -> {
-return
-    }
-}
     println(console, "value plus one is ${value + 1}")
 }
 

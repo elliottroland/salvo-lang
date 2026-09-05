@@ -3126,7 +3126,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.block_exits(else_block)
                     && branches.iter().all(|(_, b)| self.block_exits(b))
             }
-            _ => false,
+            // Nothing else exits its enclosing block by itself. Loops are
+            // deliberately excluded (they may run zero times), a lambda
+            // owns its own control flow, and a `try` body's exits are
+            // caught by the delimiter. Listed rather than defaulted so a
+            // new control-flow form has to be classified here
+            // [fn-must-return].
+            Expr::While { .. }
+            | Expr::For { .. }
+            | Expr::Lambda { .. }
+            | Expr::Try { .. }
+            | Expr::Int { .. }
+            | Expr::Float { .. }
+            | Expr::Bool { .. }
+            | Expr::Char { .. }
+            | Expr::Str { .. }
+            | Expr::Ident(_)
+            | Expr::Field { .. }
+            | Expr::TupleIndex { .. }
+            | Expr::Call { .. }
+            | Expr::Index { .. }
+            | Expr::ArrayLit { .. }
+            | Expr::ArrayInit { .. }
+            | Expr::Tuple { .. }
+            | Expr::StructLit { .. }
+            | Expr::Unary { .. }
+            | Expr::Binary { .. }
+            | Expr::Is { .. }
+            | Expr::Widen { .. }
+            | Expr::NonNull { .. }
+            | Expr::PostIncrement { .. }
+            | Expr::Spread { .. }
+            | Expr::Error { .. } => false,
         }
     }
 
@@ -3168,7 +3199,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.block_returns(else_block)
                     && branches.iter().all(|(_, b)| self.block_returns(b))
             }
-            _ => false,
+            // Nothing else returns from the enclosing fn by itself — see
+            // `expr_exits` for why each is listed rather than defaulted.
+            Expr::While { .. }
+            | Expr::For { .. }
+            | Expr::Lambda { .. }
+            | Expr::Try { .. }
+            | Expr::Int { .. }
+            | Expr::Float { .. }
+            | Expr::Bool { .. }
+            | Expr::Char { .. }
+            | Expr::Str { .. }
+            | Expr::Ident(_)
+            | Expr::Field { .. }
+            | Expr::TupleIndex { .. }
+            | Expr::Call { .. }
+            | Expr::Index { .. }
+            | Expr::ArrayLit { .. }
+            | Expr::ArrayInit { .. }
+            | Expr::Tuple { .. }
+            | Expr::StructLit { .. }
+            | Expr::Unary { .. }
+            | Expr::Binary { .. }
+            | Expr::Is { .. }
+            | Expr::Widen { .. }
+            | Expr::NonNull { .. }
+            | Expr::PostIncrement { .. }
+            | Expr::Spread { .. }
+            | Expr::Error { .. } => false,
         }
     }
 
@@ -4391,12 +4449,19 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
     }
 }
 
+/// Collects the names assigned anywhere inside `expr` [narrow-assign-reset].
+///
+/// Exhaustive over `Expr` **on purpose**: a wildcard arm here loses
+/// assignments inside a new syntactic form silently, and the narrowing that
+/// should have been reset stays in place — a wrong-code bug, not a
+/// diagnostic. A new variant must be classified, not defaulted.
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
         Expr::PostIncrement { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
             }
+            collect_assigned_expr(operand, out);
         }
         Expr::If { branches, else_block, .. } => {
             for (c, b) in branches {
@@ -4435,7 +4500,71 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
             collect_assigned(else_block, out);
         }
-        _ => {}
+        // [try] The delimiter's body is ordinary code.
+        Expr::Try { body, .. } => collect_assigned(body, out),
+        // A lambda body's assignments happen when the value is called, and
+        // the checker cannot see where that is: counted here, so a
+        // narrowing an enclosing branch relied on is reset conservatively.
+        Expr::Lambda { body, .. } => match body {
+            LambdaBody::Expr(e) => collect_assigned_expr(e, out),
+            LambdaBody::Block(b) => collect_assigned(b, out),
+        },
+        Expr::Call { callee, args, .. } => {
+            collect_assigned_expr(callee, out);
+            for a in args {
+                collect_assigned_expr(a, out);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            collect_assigned_expr(base, out);
+            collect_assigned_expr(index, out);
+        }
+        Expr::ArrayInit { size, init, .. } => {
+            collect_assigned_expr(size, out);
+            collect_assigned_expr(init, out);
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_assigned_expr(lhs, out);
+            collect_assigned_expr(rhs, out);
+        }
+        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            for e in elems {
+                collect_assigned_expr(e, out);
+            }
+        }
+        Expr::StructLit { fields, .. } => {
+            for f in fields {
+                match &f.kind {
+                    StructLitFieldKind::Named { value, .. } => {
+                        collect_assigned_expr(value, out)
+                    }
+                    StructLitFieldKind::Spread(e) => collect_assigned_expr(e, out),
+                }
+            }
+        }
+        Expr::Str { parts, .. } => {
+            for p in parts {
+                if let StrExprPart::Interp(e) = p {
+                    collect_assigned_expr(e, out);
+                }
+            }
+        }
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
+            collect_assigned_expr(base, out)
+        }
+        Expr::Unary { operand, .. }
+        | Expr::NonNull { operand, .. }
+        | Expr::Spread { operand, .. } => collect_assigned_expr(operand, out),
+        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
+            collect_assigned_expr(subject, out)
+        }
+        // Leaves: no sub-expression, so nothing can be assigned inside.
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Ident(_)
+        | Expr::Error { .. } => {}
     }
 }
 
@@ -4487,6 +4616,9 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
 /// capture. Used for same-call ordering [deduce-same-call]: arguments
 /// are evaluated left to right, so mentioning a value that an earlier
 /// argument of the same call consumed is a use-after-move.
+///
+/// Exhaustive over `Expr` **on purpose**: a wildcard arm here answers "no"
+/// for a form it has never heard of, and a use-after-move goes unreported.
 fn expr_mentions(expr: &Expr, name: &str) -> bool {
     let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
@@ -4555,7 +4687,15 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             LambdaBody::Expr(e) => expr_mentions(e, name),
             LambdaBody::Block(b) => block_mentions(b),
         },
-        _ => false,
+        // [try] The delimiter's body is ordinary code — a value mentioned
+        // only inside it is still mentioned.
+        Expr::Try { body, .. } => block_mentions(body),
+        // Leaves: no sub-expression, so nothing to mention.
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Error { .. } => false,
     }
 }
 

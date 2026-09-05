@@ -28,6 +28,18 @@ specification and [PROGRESS.md](PROGRESS.md) for implementation status.
 cargo build        # build the compiler
 cargo test         # run the test suite
 
+# Compile and run in one step (requires the backend's toolchain on PATH):
+cargo run -- run --backend kotlin --src ./my_project
+cargo run -- run --backend rust --main ./my_project/main.sv
+
+# `--main` names the file holding `main`, which is how you pick between
+# several entry points; on its own it also implies its own directory as the
+# source directory. Pass both to start at a file in a subdirectory:
+cargo run -- run --backend rust --src ./my_project --main ./my_project/bin/tool.sv
+
+# Output goes to `.salvo_tmp_run` and is cleaned up afterwards; `--target DIR`
+# and `--clean-target before` change where and whether.
+
 # Type-check a directory of .sv sources without generating code:
 cargo run -- analyze --src ./my_project              # or --format json
 
@@ -36,13 +48,10 @@ cargo run -- lsp
 # A VS Code extension bundling syntax highlighting and the language server
 # lives in vscode/ — see vscode/README.md.
 
-# Compile a directory of .sv sources to Kotlin:
+# Or generate the target sources and build them yourself:
 cargo run -- compile --backend kotlin --src ./my_project --target ./out
-
-# Compile and run the output (requires kotlinc on PATH):
 kotlinc out/*.kt out/core/*.kt -d classes && kotlin -cp classes salvo.main.MainKt
 
-# Or compile the same sources to Rust:
 cargo run -- compile --backend rust --src ./my_project --target ./out_rs
 rustc --edition 2021 out_rs/main.rs -o program && ./program
 ```

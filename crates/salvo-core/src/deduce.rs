@@ -829,7 +829,20 @@ impl<'p> Walk<'_, 'p> {
                 LambdaBody::Expr(e) => self.expr(e),
                 LambdaBody::Block(b) => self.block(b),
             },
-            _ => {}
+            // [qual-widen] The check reads its subject.
+            Expr::Widen { subject, .. } => self.expr(subject),
+            // [try] The delimiter's body is ordinary code: the calls in it
+            // contribute to the enclosing fn's inferred contract.
+            Expr::Try { body, .. } => self.block(body),
+            // Leaves: nothing to walk into. Listed rather than defaulted so
+            // a new expression form cannot hide a consuming call from the
+            // inference [deduce-syntax].
+            Expr::Ident(_)
+            | Expr::Int { .. }
+            | Expr::Float { .. }
+            | Expr::Bool { .. }
+            | Expr::Char { .. }
+            | Expr::Error { .. } => {}
         }
     }
 

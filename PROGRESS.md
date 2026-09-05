@@ -130,6 +130,65 @@ one widened view (each arm peels a different wrapper position) — the latter
 rejected in the checker, so it reads as a language rule rather than a codegen
 failure.
 
+**`salvo run` landed 2026-09-05 (user design).** One command from `.sv`
+source to program output: compile with a backend, then build and run the
+result with that backend's own toolchain [cli-run].
+
+```bash
+salvo run --backend kotlin --src ./my_project
+salvo run --backend rust --main ./my_project/main.sv
+salvo run --backend rust --src ./my_project --main ./my_project/bin/tool.sv
+```
+
+`--backend` is required (it decides which toolchain must be installed, so
+there is no defensible default). **`--src` and `--main` are independent, and
+each supplies a reasonable default for the other** (user decision
+2026-09-05): `--src` alone uses the unique `main` the directory declares,
+`--main` alone additionally implies `--src $(dirname FILE)`, and **both** is
+the only way to say "compile this tree, start at this file" when the entry
+sits in a subdirectory. That last case is the one that earns the
+combination: `--main bin/tool.sv` alone would take `bin/` as the source
+directory, leaving a module shared from above it outside the compilation.
+Either way `--main` is how you pick between several entry points.
+
+The first sketch had `--main` walk imports and include only the modules it
+transitively reached; the user cut that as premature (2026-09-05), and
+rightly — the whole directory is compiled either way, and reachability
+already prunes the *output* to the modules actually used.
+
+`--target` defaults to `.salvo_tmp_run` in the working directory, and
+`--clean-target` (`before` | `both`, default `both`) says what survives:
+both modes clear the target *before* the build, so a run never picks up the
+previous run's output. **The command's exit code is the program's** and its
+stdio is inherited, so `salvo run` can stand in for running the binary
+(verified: a Rust panic propagates 101, a JVM exception 1).
+
+Two design points worth keeping:
+
+- **The target may not overlap the sources**, for two *separate* reasons.
+  It may not be or contain the source directory, because the target is
+  deleted before the build. And it may not sit *visibly* inside the sources,
+  because the next build would read the emitted files back — output carrying
+  the backend's native extension is indistinguishable from a hand-written
+  companion file [backend-companion]. Nesting under a dot-prefixed
+  directory is fine, since discovery skips those [mod-ignore]; that is
+  exactly why the default target is `.salvo_tmp_run` and why the literal
+  reading of "no overlap" had to be rejected — it would have made the
+  default illegal for the most natural invocation (`cd project && salvo run
+  --main main.sv`). Independently, clearing a target that holds any `.sv`
+  file is refused: a guard on the deletion itself, not on the paths.
+- **The entry choice had to reach the backend**, not just the launch
+  command. Running is not purely a post-processing step: Rust gives the
+  `main`-declaring module the crate root [rs-crate], so with two entry
+  points the emitter picked the first it found and `--main other.sv` built a
+  module with no `mod` declarations — rustc reported unresolved imports for
+  every module. `Backend::emit` now takes the selected entry; Kotlin ignores
+  it (a `MainKt`-style facade per module means the choice only picks the
+  launch class). This also moved the `entry point:` hint out of the CLI's
+  `match backend.name()` and into the trait, where that knowledge belongs —
+  and immediately exposed the hint's own bug (see the gotchas: the Kotlin
+  facade class is named after the *file*, so it is not always `MainKt`).
+
 **The subject-less `when` landed 2026-09-05 (user design).** `when` was
 already the exhaustive construct; it is now exhaustive in *two* ways.
 With a subject it branches on a union's arms and takes **no `else`**
@@ -3297,9 +3356,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 481)
+## Test inventory (all green: 501)
 
-- `salvo-core`: 184 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 185 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3418,7 +3477,7 @@ spec rule; consolidated here for findability):
   required at the call, and a fn value called where its effect is
   unavailable rejected — the reason "forbid escape" was unnecessary; and
   `use` in a fn type rejected)
-  + 19 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
+  + 20 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
   outcome type read off an annotation mismatch (`Ok Int | Aborted Str`),
   several message types unioning (`Aborted (Str | Int)`), an always-leaving
   body still carrying `Ok None`, a `try` that cannot abort rejected, an
@@ -3434,7 +3493,10 @@ spec rule; consolidated here for findability):
   design asked to test rather than assume — a nested result outcome and a
   union message, both taken apart through a binding at the inner type — and
   the diagnostic that names that remedy when a qualified union is matched
-  directly [when-union-subject])
+  directly [when-union-subject]; and an assignment inside a `try` body
+  resetting an earlier `is` narrowing, with the no-assignment control —
+  behavioural, since flow-sensitive checking is what achieves it rather
+  than the syntactic assigned-name scan)
   + 12 deferred-block tests (`tests/defer_tests.rs` [defer]
   [defer-no-escape]: a linear obligation discharged on both paths of a fn
   with an early `return` — with the no-`defer` control proving the
@@ -3458,7 +3520,7 @@ spec rule; consolidated here for findability):
   boolean rule on all four condition positions, on the offending *leaf* of
   a compound condition only, on `Bool?` (with `!` accepted), and staying
   quiet on an un-inferred type [type-unknown-lenient]).
-- `salvo-cli`: 56 - 46 `analyze` integration tests running the built
+- `salvo-cli`: 72 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -3579,7 +3641,28 @@ spec rule; consolidated here for findability):
   + 3 grammar tests
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
-  every keyword, checked-in VS Code grammar matches the generated one).
+  every keyword, checked-in VS Code grammar matches the generated one)
+  + 16 `run` tests (`tests/run_tests.rs` [cli-run], each in its own
+  working directory so the default `--target` lands in the sandbox): the
+  same program compiled and run on *both* backends with identical asserted
+  stdout; `--main` alone implying its directory as the source root;
+  `--src` and `--main` *together* reaching a nested entry point on both
+  backends, with the `--main`-alone control failing on the unresolved
+  import that proves the combination is not redundant; an entry outside
+  `--src` rejected; `--main` choosing between two entry points in one
+  directory on both backends —
+  which is the [rs-crate] regression, since the emitter used to pick the
+  first `main` it found and the other choice built a module without the
+  `mod` declarations; the program's exit code and stderr reaching the
+  caller (a Rust panic, so nonzero rather than a fixed code); the two
+  `--clean-target` modes and the fact that both clear the target first;
+  and the validation that needs no toolchain — a target that is, contains,
+  or sits visibly inside the sources (each with the sources asserted
+  intact afterwards), at least one of `--src`/`--main` required, a
+  required and validated `--backend`, a missing `main` from either
+  direction, a define file rejected as an entry point, a check error
+  stopping the run with a single un-double-prefixed diagnostic, and the
+  deletion guard refusing a target that holds a `.sv` file).
 - `salvo-syntax`: 51 (the corpus grew three LANGUAGE.md examples with E3: a
   `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
@@ -3615,7 +3698,7 @@ spec rule; consolidated here for findability):
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 109 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 111 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3713,8 +3796,11 @@ spec rule; consolidated here for findability):
   filler, and the `is` binding declared inside its arm; plus the kotlinc
   run of the demo — value and statement position, `is` heads, a chain
   returning from every branch, and one nested in a subject `when`'s arm —
-  whose stdout matches the Rust run byte for byte).
-- `salvo-backend-rust`: 81 - golden snapshots of the same five demos
+  whose stdout matches the Rust run byte for byte)
+  and 2 `try`-body tests ([try]: a variable assigned *only* inside a `try`
+  body declared `var` — the traversal gap that emitted `val` and had
+  kotlinc reject the output — plus the kotlinc run of the same program).
+- `salvo-backend-rust`: 82 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3810,7 +3896,10 @@ spec rule; consolidated here for findability):
   `if`/`else if`/`else` chain, no `else { None }` filler in value position
   and no `unreachable!()` arm (the mandatory `else` makes it total), and
   the `is` binding declared inside its branch; plus the rustc run of the
-  demo Kotlin also runs, with the same stdout).
+  demo Kotlin also runs, with the same stdout); and 1 `try`-body test
+  ([try]: the rustc run of the program whose `try` body assigns an outer
+  variable and declares a local — the Rust half of the same traversal
+  gap).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -3818,9 +3907,36 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`try` was invisible to four traversals, and one of them emitted wrong
+  code.** `Expr::Try`'s body is ordinary code, but the wildcard arms of the
+  scanning traversals never looked into it. The mutability census was the
+  fatal one: a variable assigned *only* inside a `try` body was declared
+  `val`, and kotlinc rejected the output — a [backend-never-wrong] miss that
+  nothing but the toolchain would have caught. (Proven by reverting the arm:
+  `'val' cannot be reassigned`.) Also missing: `collect_declared` (generated
+  locals could collide with a name declared in a `try` body),
+  `expr_mentions` (a use-after-move mentioned only inside a `try` would go
+  unreported), and the deduction walk (a consuming call inside a `try` did
+  not reach the inferred contract). Rust's mutability census was missing
+  `Expr::Widen` too.
+- **New AST variants are only half-caught by the compiler.** Adding
+  `Expr::WhenCond` produced five `non-exhaustive patterns` errors (the two
+  `check_expr` dispatches, `expr_defer_escape`, and each emitter's
+  expression dispatch); the *dozen* other traversals that needed an arm
+  ended in `_ => {}` or `_ => false` and compiled silently. All of them are
+  now exhaustive, so the next variant is a compile error at every site —
+  which is how the `try` gaps above were found, since making the match
+  exhaustive forces every variant to be *classified* rather than defaulted.
+  The ones that matter fail quietly: `reach.rs`'s `expr_names` (a module
+  used only inside the new construct has its import pruned), `block_exits` /
+  `block_returns` / `expr_terminates` (a total chain not counting as
+  returning), `collect_assigned_expr` / `expr_mentions`, `deduce.rs`'s walk,
+  `collect_mutated` / `collect_declared` in both emitters, and each
+  emitter's `emit_operand` parenthesization list.
 - **A rule can sit in the spec for eight milestones without being
-  enforced.** `[if-bool]` ("`if`/`elif` conditions must be boolean
-  expressions; there is no truthiness") was written in M0 and never
+  enforced.** `[if-bool]` (now `[cond-bool]`, renamed when the rule grew to
+  cover `while` and subject-less `when` heads) said "`if`/`elif` conditions
+  must be boolean expressions; there is no truthiness" from M0 and was never
   checked: `analyze_cond`'s fallback arm typed the condition and threw the
   type away. Nothing caught it because nobody *wrote* a truthy condition —
   the spec was describing a convention the authors were already following.
@@ -3828,19 +3944,15 @@ snapshot diffs.
   to come back empty and do not read that as evidence the rule was
   redundant; the next contributor is who it is for. Worth auditing the
   other "must"s in LANGUAGE_SPEC.md the same way.
-- **New AST variants are only half-caught by the compiler.** Adding
-  `Expr::WhenCond` produced five `non-exhaustive patterns` errors (the two
-  `check_expr` dispatches, `expr_defer_escape`, and each emitter's
-  expression dispatch); the *dozen* other traversals that needed an arm end
-  in `_ => {}` or `_ => false` and compiled silently. The ones that matter
-  fail quietly: `reach.rs`'s `expr_names` (a module used only inside the
-  new construct would have had its import pruned), `block_exits` /
-  `block_returns` / `expr_terminates` (a total chain would not have counted
-  as returning), `collect_assigned_expr` / `expr_mentions`,
-  `deduce.rs`'s walk, `collect_mutated` / `collect_declared` in both
-  emitters, and each emitter's `emit_operand` parenthesization list. Grep
-  `Expr::If` and `Expr::While` — the two variants every traversal handles —
-  and add an arm at each site rather than trusting the build.
+- **The Kotlin entry class is named after the file, not the function.** The
+  `entry point:` hint `salvo compile` prints read `salvo.<module>.MainKt`
+  unconditionally — right only because every entry file so far was
+  `main.sv`. Kotlin puts a file's top-level declarations in a facade class
+  named for the *file*, so `other.sv` gives `salvo.other.OtherKt`. Latent
+  as long as the hint was only ever read by a human who then typed the
+  right thing; `salvo run` executes it, so it had to be correct
+  [kt-run].
+
 
 - **"Erased at runtime" does not mean "no lowering".** `^` removes a
   qualifier, and qualifiers are erased, so it looked like a typing-only

@@ -1844,7 +1844,7 @@ impl<'p> Emitter<'p> {
                 }
             }
             if value_pos {
-                out.push_str(&self.emit_value_block(&branch.body));
+                out.push_str(&self.emit_value_block(&branch.body, indent + 2));
             } else {
                 out.push_str(&self.emit_block_stmts(&branch.body, indent + 2));
             }
@@ -1874,7 +1874,7 @@ impl<'p> Emitter<'p> {
             out.push_str(&self.emit_is_bindings(cond, indent + 2));
             out.push_str(&self.emit_widen_shadows(cond, indent + 2));
             if value_pos {
-                out.push_str(&self.emit_value_block(block));
+                out.push_str(&self.emit_value_block(block, indent + 2));
             } else {
                 out.push_str(&self.emit_block_stmts(block, indent + 2));
             }
@@ -1882,7 +1882,7 @@ impl<'p> Emitter<'p> {
         }
         out.push_str(&format!("{pad}    else -> {{\n"));
         if value_pos {
-            out.push_str(&self.emit_value_block(else_block));
+            out.push_str(&self.emit_value_block(else_block, indent + 2));
         } else {
             out.push_str(&self.emit_block_stmts(else_block, indent + 2));
         }
@@ -2453,19 +2453,30 @@ impl<'p> Emitter<'p> {
                 branches,
                 else_block,
                 ..
-            } => self.emit_if_expr(branches, else_block.as_ref()),
+            } => {
+                // Captured before emitting: statement emission inside the
+                // branches moves `expr_indent`.
+                let indent = self.expr_indent;
+                self.emit_if_expr(branches, else_block.as_ref(), indent)
+            }
             Expr::Lambda { params, body, span } => self.emit_lambda(params, body, *span),
             Expr::Try { body, span } => self.emit_try(body, *span),
             Expr::Spread { operand, .. } => format!("*{}", self.emit_expr(operand)),
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
             Expr::When {
                 subject, branches, ..
-            } => self.emit_when(subject, branches, 0, true),
+            } => {
+                let indent = self.expr_indent;
+                self.emit_when(subject, branches, indent, true)
+            }
             Expr::WhenCond {
                 branches,
                 else_block,
                 ..
-            } => self.emit_when_cond(branches, else_block, 0, true),
+            } => {
+                let indent = self.expr_indent;
+                self.emit_when_cond(branches, else_block, indent, true)
+            }
             Expr::Error { .. } => "TODO()".to_string(),
         }
     }
@@ -2510,36 +2521,48 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    fn emit_if_expr(&mut self, branches: &[(Expr, Block)], else_block: Option<&Block>) -> String {
+    /// An `if`/`elif`/`else` chain in value position. `indent` is the column
+    /// of the *statement* the expression sits in: the opening `if (` is
+    /// written inline after whatever precedes it, so only the branch bodies
+    /// and the closing braces need padding.
+    fn emit_if_expr(
+        &mut self,
+        branches: &[(Expr, Block)],
+        else_block: Option<&Block>,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
         let mut out = String::new();
         for (i, (cond, block)) in branches.iter().enumerate() {
             let kw = if i == 0 { "if" } else { " else if" };
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} ({c}) {{\n"));
-            out.push_str(&self.emit_is_bindings(cond, 0));
-            out.push_str(&self.emit_widen_shadows(cond, 0));
-            out.push_str(&self.emit_value_block(block));
-            out.push('}');
+            out.push_str(&self.emit_is_bindings(cond, indent + 1));
+            out.push_str(&self.emit_widen_shadows(cond, indent + 1));
+            out.push_str(&self.emit_value_block(block, indent + 1));
+            out.push_str(&format!("{pad}}}"));
         }
         match else_block {
             Some(block) => {
                 out.push_str(" else {\n");
-                out.push_str(&self.emit_value_block(block));
-                out.push('}');
+                out.push_str(&self.emit_value_block(block, indent + 1));
+                out.push_str(&format!("{pad}}}"));
             }
             None => {
                 // A missing else means the expression's value is None.
-                out.push_str(" else {\nnull\n}");
+                let inner = "    ".repeat(indent + 1);
+                out.push_str(&format!(" else {{\n{inner}null\n{pad}}}"));
             }
         }
         out
     }
 
     /// A block in value position: all statements plus the trailing
-    /// expression as the block's value.
-    fn emit_value_block(&mut self, block: &Block) -> String {
+    /// expression as the block's value. `indent` is the column its
+    /// statements sit at.
+    fn emit_value_block(&mut self, block: &Block, indent: usize) -> String {
         let env_depth = self.effect_env.len();
-        let out = self.emit_value_stmts(&block.stmts);
+        let out = self.emit_value_stmts(&block.stmts, indent);
         self.effect_env.truncate(env_depth);
         out
     }
@@ -2547,27 +2570,30 @@ impl<'p> Emitter<'p> {
     /// The statements of a value-position block. [kt-defer-finally] A
     /// `defer` wraps the rest in `try`/`finally`; `try` is an expression
     /// in Kotlin, so the block's value still comes out of it.
-    fn emit_value_stmts(&mut self, stmts: &[Stmt]) -> String {
+    fn emit_value_stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
+        let pad = "    ".repeat(indent);
         let mut out = String::new();
         let n = stmts.len();
         for (i, stmt) in stmts.iter().enumerate() {
             if let Stmt::Defer { body, .. } = stmt {
-                let rest = self.emit_value_stmts(&stmts[i + 1..]);
-                let deferred = self.emit_block_stmts(body, 0);
-                out.push_str(&format!("try {{\n{rest}}} finally {{\n{deferred}}}\n"));
+                let rest = self.emit_value_stmts(&stmts[i + 1..], indent + 1);
+                let deferred = self.emit_block_stmts(body, indent + 1);
+                out.push_str(&format!(
+                    "{pad}try {{\n{rest}{pad}}} finally {{\n{deferred}{pad}}}\n"
+                ));
                 return out;
             }
             // Kotlin loops are never expressions, so a trailing loop (the
             // block's value [while-value]) needs the value lowering.
             if i + 1 == n {
                 if let Stmt::Expr(e @ (Expr::While { .. } | Expr::For { .. })) = stmt {
+                    self.expr_indent = indent;
                     let code = self.emit_expr(e);
-                    out.push_str(&code);
-                    out.push('\n');
+                    out.push_str(&format!("{pad}{code}\n"));
                     continue;
                 }
             }
-            out.push_str(&self.emit_stmt(stmt, 0));
+            out.push_str(&self.emit_stmt(stmt, indent));
         }
         out
     }
@@ -4198,7 +4224,19 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             LambdaBody::Expr(e) => collect_mutated_expr(e, out),
             LambdaBody::Block(b) => collect_mutated(b, out),
         },
-        _ => {}
+        // [try] The delimiter's body is ordinary code: a variable mutated
+        // only inside it still needs the mutable declaration.
+        Expr::Try { body, .. } => collect_mutated(body, out),
+        // Leaves: no sub-expression, so nothing can be mutated inside.
+        // Listed rather than defaulted, because a missed form emits an
+        // immutable declaration for a variable the code assigns and the
+        // target compiler is what reports it [backend-never-wrong].
+        Expr::Ident(_)
+        | Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Bool { .. }
+        | Expr::Char { .. }
+        | Expr::Error { .. } => {}
     }
 }
 

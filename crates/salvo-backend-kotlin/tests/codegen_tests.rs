@@ -4202,3 +4202,59 @@ fn kotlinc_compiles_and_runs_when_cond() {
     });
     run_kotlin_files(&files, "when-cond", WHEN_COND_STDOUT);
 }
+
+// ===== a `try` body is ordinary code to the mutability census =====
+
+// [try] A variable assigned *only* inside a `try` body still needs the
+// mutable declaration. `collect_mutated_expr` had no `Expr::Try` arm, so it
+// emitted `val counter` next to `counter = counter + 1` and kotlinc
+// rejected the output — a [backend-never-wrong] miss caught by nothing but
+// the toolchain.
+const TRY_MUTATION_DEMO: &str = r#"
+fn risky(n: Int) [Abort<Str>] -> [] Int {
+    if n < 0 {
+        abort("negative")
+    }
+    return n
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    let counter = 0
+    let outcome = try {
+        counter = counter + 1
+        risky(3)
+    }
+    println("counter ${counter}")
+}
+"#;
+
+#[test]
+fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
+    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("var counter = 0"),
+        "expected `var` for a variable the `try` body assigns:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_try_mutation() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", TRY_MUTATION_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "try-mutation", "counter 1\n");
+}
