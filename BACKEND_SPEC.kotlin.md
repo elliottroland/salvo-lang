@@ -188,8 +188,8 @@ Conventions:
     range out of a std intrinsic, say — where the Rust splice does not run
     the deferred code on a panic. Salvo has no `catch`, so side effects
     during a crash are not part of a program's meaning; tightening this
-    would mean catching the abort signal specifically and rethrowing
-    (revisit with roadmap E3's `abort`).
+    would mean catching the throw signal specifically and rethrowing
+    (revisit with roadmap E3's `throw`).
 * [qual-widen] [kt-widen-shadow] A `^` check emits the same test `is` would
   (or `true` for a tautology). Where it peels a wrapper arm, the widened
   value is bound to a **shadowing `val`** at the top of the branch
@@ -212,22 +212,22 @@ Conventions:
     caller passes and forwards what the fn needs.
   * Inside a lambda body an effect resolves to the lambda's own parameter
     (innermost-first lookup), not to the enclosing fn's.
-* [abort] [kt-abort-signal] The JVM's unwinding *is* the propagation, so
-  aborting needs no return-shape change and no colouring: `abort(m)` throws
-  a generated `salvo.AbortSignal`, an intermediate frame does nothing at
-  all, and `try` catches. `Abort` is never a handler parameter, and the
+* [throw] [kt-throw-signal] The JVM's unwinding *is* the propagation, so
+  throwing needs no return-shape change and no colouring: `throw(m)` throws
+  a generated `salvo.ThrowSignal`, an intermediate frame does nothing at
+  all, and `try` catches. `Throw` is never a handler parameter, and the
   effect declaration emits no interface (it has no handlers).
-  * The signal is `class AbortSignal(val payload: Any?, val tag: String) :
+  * The signal is `class ThrowSignal(val payload: Any?, val tag: String) :
     RuntimeException(null, null, false, false)` — no stack trace, no
     suppression bookkeeping: it is a control transfer, not an error. It is
-    generated once per program into `abort.kt` (package `salvo`), like the
+    generated once per program into `throw.kt` (package `salvo`), like the
     union wrappers.
   * `try { ... }` is Kotlin's own `try`/`catch`, which is an **expression**,
     so the outcome falls out of it: the body's tail wrapped in the `Ok` arm,
-    or the caught payload wrapped in the `Aborted` arm. Catching the
+    or the caught payload wrapped in the `Thrown` arm. Catching the
     innermost signal *is* [try-innermost].
   * **The arm is chosen at the `catch`, not at the throw** — the divergence
-    from [rs-abort-controlflow], and a forced one: Rust wraps a message into
+    from [rs-throw-controlflow], and a forced one: Rust wraps a message into
     the delimiter's arm at the *propagation* site, which the JVM does not
     have (the exception flies through untouched), and a throwing frame
     cannot know which `try` will catch it. So the signal carries the Salvo
@@ -246,13 +246,31 @@ Conventions:
 
 * [qual-erasure] Qualifiers erase entirely from emitted Kotlin; wrapper
   arm choice, casts, predicate calls, and mangled names are what survive.
-* [kt-qual-mangling] Overloads identical after erasure get a deterministic
-  `__Qual` suffix on the qualified overload (`full_name__Surname`),
-  applied consistently at declarations and checker-resolved call sites.
+* [kt-fn-mangling] **Overload dispatch is the checker's, and Kotlin must not
+  get a second opinion.** Whenever a name has more than one emitted
+  overload, each gets a unique Kotlin name, by exactly the rule
+  [rs-fn-mangling] states: the `__Qual` suffix where it disambiguates,
+  then positional suffixes (`name__2`, `name__3`, ... in declaration
+  order; the first keeps the base name) for whatever still collides. Both
+  backends therefore choose the same names.
+  * Sharing a name is unsound even when the erased parameter *strings*
+    differ, because Kotlin then resolves by **Kotlin's** type lattice:
+    two Salvo types with no subtype relation at all can map onto Kotlin
+    types that have one (`Iter<T>` → `Iterable<T>`, `List<T>` → `List<T>`,
+    and Kotlin's `List` *is* an `Iterable`). A `twice(xs.iter(), f)` in
+    the `List` overload of `twice` emitted `twice(xs, f)` — `iter(List)`
+    lowers to the identity — whose most specific Kotlin candidate is that
+    same `List` overload: infinite recursion, with no diagnostic anywhere
+    [backend-never-wrong].
+  * Unchecked (arity-fallback) calls to a mangled overload would emit the
+    base name — known leftover, shared with [rs-fn-mangling].
+* [kt-qual-mangling] The suffix itself: overloads identical after erasure
+  get a deterministic `__Qual` on the qualified overload
+  (`full_name__Surname`), applied consistently at declarations and
+  checker-resolved call sites.
   * The collision test compares *emitted* Kotlin parameter strings, so
     the `Mut List` → `MutableList` mapping naturally avoids false
-    collisions. Unchecked (arity-fallback) calls to a mangled overload
-    would emit the base name — known leftover.
+    collisions.
 * [kt-nested-dot-name] A dot-named struct [name-dot] emits as a Kotlin
   **nested** class inside its namespace class — never `inner`, which
   would capture an outer instance and could not be constructed on its
@@ -278,8 +296,8 @@ Conventions:
 
 ## Effects
 
-* [effect-decl] Effects emit as Kotlin `interface`s. The abort effect is the
-  exception: it emits nothing, since it has no handlers [kt-abort-signal].
+* [effect-decl] Effects emit as Kotlin `interface`s. The throw effect is the
+  exception: it emits nothing, since it has no handlers [kt-throw-signal].
 * [kt-handler-class] All handlers — intrinsic ones included — emit as
   Kotlin *classes* (never `object`s) and are instantiated at their `use`
   site; state fields become `private var`, constructor params
@@ -367,6 +385,16 @@ same programs running ([rs-effect-fusion]).
 * [fn-iterator] Iterator fns emit
   `return Iterable<T> { iterator { ... } }`; `yield x` → `yield(x)`; bare
   `return` → `return@iterator`.
+  * That builder is already exactly what [fn-iterator] now requires of both
+    backends — lazy per element, repeatable per pass — so Kotlin needed no
+    change when `Iter<T>` was made lazy on Rust (2026-09-05). What it
+    gained is a guarantee: the Rust output agrees element for element, and
+    the two backends' end-to-end tests share their source and their
+    expected stdout.
+  * [iter-effect-free] The captured handler that made the JVM side *work*
+    here is what the restriction protects against: Kotlin could happily
+    perform an effect from inside the builder long after the call returned,
+    and Rust could not, so the program would mean two different things.
 * [fn-dot] Dot-notation calls resolve to a declared fn or effect
   member and normalize to `f(base, args)`. There is no method-call
   fallback: an unresolved name here is a *codegen error* naming an internal

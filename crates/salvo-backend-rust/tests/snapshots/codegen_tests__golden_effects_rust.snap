@@ -39,12 +39,12 @@ pub trait Random<T> {
     fn next_random(&mut self) -> T;
 }
 
-pub struct CyclicRandom<T: Clone> {
+pub struct CyclicRandom<T: Clone + 'static> {
     values: Vec<T>,
     i: i32,
 }
 
-impl<T: Clone> CyclicRandom<T> {
+impl<T: Clone + 'static> CyclicRandom<T> {
     pub fn new(values: Vec<T>) -> Self {
         Self {
             values,
@@ -53,7 +53,7 @@ impl<T: Clone> CyclicRandom<T> {
     }
 }
 
-impl<T: Clone> Random<T> for CyclicRandom<T> {
+impl<T: Clone + 'static> Random<T> for CyclicRandom<T> {
 
     fn next_random(&mut self) -> T {
         let mut value = self.values.get((self.i % (self.values.len() as i32)) as usize).cloned().unwrap();

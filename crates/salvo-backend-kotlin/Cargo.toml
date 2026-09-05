@@ -11,4 +11,5 @@ salvo-core = { workspace = true }
 salvo-backend = { workspace = true }
 
 [dev-dependencies]
+salvo-testkit = { workspace = true }
 insta = { workspace = true }

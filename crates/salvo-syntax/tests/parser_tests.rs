@@ -610,7 +610,7 @@ fn defer_without_a_block_is_an_error() {
     );
 }
 
-// [try] `try` takes a block and is an *expression* — the abort delimiter.
+// [try] `try` takes a block and is an *expression* — the throw delimiter.
 #[test]
 fn try_parses_as_a_block_expression() {
     let source = "fn f() {\n    let outcome = try {\n        parse(line)\n    }\n}\n";

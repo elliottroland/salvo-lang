@@ -17,7 +17,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+const STD_PRELUDE: &str =
+    "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Iter<T>\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -317,4 +318,69 @@ fn use_in_a_fn_type_is_rejected() {
             .any(|e| e.contains("a fn type cannot declare `use`")),
         "expected the `use` rejection, got: {errs:?}"
     );
+}
+
+// ===== [iter-effect-free] an iterator fn performs no effects =====
+//
+// `Iter<T>` is lazy on both backends (user decision 2026-09-05): the body
+// runs in pieces, driven by whoever consumes the elements, after the call
+// that created the iterator returned. Handlers cannot live that long — on
+// Rust literally so, since one arrives as a borrow — and Kotlin's captured
+// handler would make the two backends disagree about *when* effects happen.
+// So the producer is effect-free and the consumer does as it likes.
+
+/// [iter-effect-free] A declared effect on an iterator fn is rejected, and
+/// the diagnostic names the remedy: perform it where the elements are used.
+#[test]
+fn an_iterator_fn_cannot_declare_an_effect() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn counted(n: Int) [Logger] -> Iter<Int> {{\n\
+         log(\"start\")\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| {
+            e.contains("an iterator function cannot declare effects")
+                && e.contains("where the elements are consumed")
+        }),
+        "expected the iterator-effect rejection with its remedy, got: {errs:?}"
+    );
+}
+
+/// `use` is the same hole by another route — it would let the body register
+/// its own handler and perform effects without declaring any.
+#[test]
+fn an_iterator_fn_cannot_declare_use() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn counted(n: Int) [use] -> Iter<Int> {{\n\
+         use QuietLogger()\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("an iterator function cannot declare effects")),
+        "expected the iterator-effect rejection for `use`, got: {errs:?}"
+    );
+}
+
+/// The restriction is on *producing*, not consuming: a `for` loop over an
+/// iterator sits in an ordinary fn and may perform whatever it declares.
+#[test]
+fn consuming_an_iterator_may_perform_effects() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn counted(n: Int) -> Iter<Int> {{\n\
+         yield n\n\
+         }}\n\
+         fn report(n: Int) [Logger] -> [] None {{\n\
+         for v in counted(n) {{\n\
+         log(\"one\")\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
 }

@@ -76,8 +76,9 @@ crates/
 │   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
-└── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
+├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+└── salvo-testkit/        # dev-dependency: toolchain probing + the e2e content cache
 std/core/                 # Salvo stdlib (.sv); each backend lowers its `intrinsic` declarations in src/intrinsics.rs
 ```
 
@@ -88,18 +89,55 @@ This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
 
 ```bash
 cargo build                 # must stay warning-free
-cargo test                  # full suite; see PROGRESS.md "Test inventory" for the current count
+cargo test                  # the suite; toolchain tests are content-cached, so a
+                            # re-run costs seconds. See "Test inventory" in PROGRESS.md
+SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache
+SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
+cargo nextest run           # same tests, with per-test timings (diagnosis; slower)
 ```
 
-- **Always run `cargo build` and `cargo test` before presenting changes.**
+Three speeds, and it matters which one you use:
+
+| command | what it does | wall time |
+|---|---|---|
+| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~4s |
+| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~8s warm, ~80s cold |
+| `SALVO_E2E_FRESH=1 cargo test` | runs everything, ignoring the cache | ~70s |
+
+- **Always run `cargo build` and `cargo test` before presenting changes**, and
+  `SALVO_E2E_FRESH=1 cargo test` before anything that gets committed or
+  handed over.
+- **`cargo test` is complete, not partial.** A toolchain test that has
+  already compiled and run *this exact generated code*, with *this exact
+  toolchain*, is not repeated: `salvo-testkit` writes a stamp keyed by the
+  content hash of the generated files, the expected output and the compiler
+  version. Touch the emitter and every affected stamp misses, so the cache
+  cannot hide a regression it caused. A stamp is written only after every
+  assertion passes.
+- **`SALVO_SKIP_E2E=1` is for the inner loop, never for the final check.**
+  It skips the toolchain tests — and those tests still report as *passing*,
+  so a skipped run looks identical in the summary. The wall time is the tell.
 - **Temporary files stay inside the repository**: put scratch files,
   debug scripts, and throwaway output in the repo-local `tmp/` directory
   (gitignored) — never in `/tmp` or elsewhere outside the repo. Tests
-  use `env!("CARGO_TARGET_TMPDIR")`. Clean up `tmp/` contents when done.
+  use `env!("CARGO_TARGET_TMPDIR")` (via `salvo_testkit::scratch`), and the
+  stamp cache lives in `target/tmp/salvo-e2e-cache` — delete that directory
+  to reset it.
 - Some tests invoke `kotlinc` (or `rustc` for the Rust backend) to compile
   and run emitted code with exact stdout assertions; they skip gracefully if
   the toolchain is not on PATH. If you have it, treat those tests as required.
+  - The availability probe is **cached per test binary** by
+    `salvo_testkit::kotlinc()` / `rustc()` / `tool()`: `kotlinc -version`
+    starts a JVM and costs about as much as a small compile, so a per-test
+    probe made the *check* one of the most expensive things in the suite.
+  - The gate and the cache both sit inside the runner helpers
+    (`run_kotlin_files`, `run_kotlin_entry`, `run_rust_files`), so a new test
+    that forgets its own guard still skips instead of failing.
+  - The CLI tests cache per *test*, keyed on the `salvo` binary and the test
+    binary rather than on generated text, since there the thing under test is
+    a subprocess. Those stamps therefore miss on every compiler rebuild —
+    correctly: they pay off in the re-run and test-editing loops.
 - insta snapshot tests fail on first run by design; accept intentional
   changes with `INSTA_UPDATE=always` and *review every snapshot diff* —
   snapshots encode the parser AST and emitter output contracts.

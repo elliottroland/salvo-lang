@@ -25,8 +25,35 @@ fn salvo_in(dir: &Path, args: &[&str]) -> Output {
         .expect("failed to run salvo")
 }
 
+/// Whether a toolchain should be exercised. Probed once per tool per test
+/// binary by `salvo-testkit`, which also owns the `SALVO_SKIP_E2E` gate.
 fn have(tool: &str) -> bool {
-    Command::new(tool).arg("-version").output().is_ok()
+    salvo_testkit::tool(tool).available
+}
+
+/// A stamp for one toolchain test, so a re-run that cannot have a different
+/// outcome does not pay for it again. Three things decide that outcome: the
+/// `salvo` binary (the thing under test), this test binary (where the test's
+/// inputs and assertions live, so editing a test invalidates it), and the
+/// toolchains the command shells out to. `SALVO_E2E_FRESH=1` ignores stamps;
+/// a stamp is written only after every assertion has passed.
+///
+/// Unlike the backends' stamps, these miss on *every* compiler rebuild —
+/// the binary is an input — which is exactly right: they pay off in the
+/// re-run and test-editing loops, not when the compiler itself changed.
+fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
+    let mut parts: Vec<Vec<u8>> = vec![
+        test.as_bytes().to_vec(),
+        salvo_testkit::file_fingerprint(env!("CARGO_BIN_EXE_salvo")).into_bytes(),
+        salvo_testkit::self_fingerprint().into_bytes(),
+    ];
+    for tool in tools {
+        parts.push(
+            salvo_testkit::tool(tool).version.into_bytes(),
+        );
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("cli {test}"), &refs)
 }
 
 /// A platform effect, an intermediate frame that performs it, and a `main`
@@ -80,6 +107,9 @@ const EXPECTED: &str = "[telemetry] work=41\nresult=42\n";
 /// parity means here.
 #[test]
 fn generate_then_run_works_for_each_backend() {
+    let Some(__stamp) = e2e_stamp("generate_then_run_works_for_each_backend", &["kotlinc", "rustc"]) else {
+        return;
+    };
     for (backend, tool, ext) in [("kotlin", "kotlinc", "kt"), ("rust", "rustc", "rs")] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
@@ -118,6 +148,7 @@ fn generate_then_run_works_for_each_backend() {
             "{backend} stdout (stderr: {stderr})"
         );
     }
+    __stamp.verified();
 }
 
 /// [cli-platform] The command never overwrites. With an interface between
@@ -193,6 +224,9 @@ fn a_program_without_platform_effects_generates_nothing() {
 /// Salvo would notice.
 #[test]
 fn the_platform_tree_mirrors_the_source_tree() {
+    let Some(__stamp) = e2e_stamp("the_platform_tree_mirrors_the_source_tree", &["kotlinc", "rustc"]) else {
+        return;
+    };
     for (backend, tool, ext, stub, body) in [
         (
             "kotlin",
@@ -271,4 +305,5 @@ fn the_platform_tree_mirrors_the_source_tree() {
             "{backend} stdout (stderr: {stderr})"
         );
     }
+    __stamp.verified();
 }

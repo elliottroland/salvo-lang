@@ -2277,7 +2277,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `try { ... }` — the abort delimiter [try]. Always a block, like
+    /// `try { ... }` — the throw delimiter [try]. Always a block, like
     /// every other body-taking construct.
     fn parse_try(&mut self) -> Option<Expr> {
         let start = self.expect(&TokenKind::KwTry)?.span;

@@ -107,14 +107,14 @@ Conventions:
 * [type-any-nothing] `Any` is the top type; `Nothing` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
   * A *written* `Nothing` lowers to the bottom type, not to a nominal type
-    that happens to be spelled that way: `abort`'s declared
-    `-> [] Nothing` [abort] means callers see a value that fits everywhere
+    that happens to be spelled that way: `throw`'s declared
+    `-> [] Nothing` [throw] means callers see a value that fits everywhere
     and ends the path.
   * **A `Nothing`-typed expression statement terminates its path**, which
     both path analyses read from the checker's recorded types rather than
-    syntax: a branch ending in `abort(m)` satisfies [fn-must-return], and
+    syntax: a branch ending in `throw(m)` satisfies [fn-must-return], and
     its consumption never reaches the code after the branch
-    [deduce-consume]. Any diverging call qualifies, not just `abort`.
+    [deduce-consume]. Any diverging call qualifies, not just `throw`.
 * [type-alias] `type Name<G> = ...` declares a type alias; aliases can be
   generic and must be imported like other declarations.
   * Aliases expand *structurally* at use sites (with generic
@@ -459,7 +459,7 @@ Conventions:
   parse error naming the subject-less form [when-condition]. Field
   subjects stay rejected even though
   they now narrow (user decision 2026-09-03): `if … is` covers them.
-  * A **qualified union** (`Ok (A | B)`, an `Aborted (Str | Int)` message
+  * A **qualified union** (`Ok (A | B)`, a `Thrown (Str | Int)` message
     [try]) is a claim *about* a union, so its arms belong to the inner
     type. Reach them with a `^` branch head ([qual-widen]:
     `when v { ^ Ok { when v { … } } }`), or bind at the inner type
@@ -533,7 +533,7 @@ Conventions:
     block and consumes it *there*. That is what makes it discharge a
     linear obligation on every path [linear-obligation] — reason enough to
     build it before non-resumption (roadmap E3), where a value live across
-    a may-abort call needs a discharge on the abort path.
+    a may-throw call needs a discharge on the throw path.
   * **Checked once, where it stands.** The body is type-checked in the
     scope and flow state at the `defer` statement (nothing is consumed
     *there* — the state is restored), and what running it does is applied
@@ -549,20 +549,20 @@ Conventions:
   * **Neither produces nor consumes the block's value**: a trailing
     `defer` leaves the block's value where it was, and the value is
     computed before the deferred code runs.
-  * A `defer` inside an *iterator* fn body inherits [rs-iter-vec]'s
-    pre-existing cut: Rust collects eagerly and Kotlin is lazy, so the
-    deferred prints interleave with the consumer differently. Same values,
-    different side-effect *timing* — a plain `println` after a `yield`
-    diverges identically, so this is not a `defer` property.
+  * A `defer` inside an *iterator* fn body runs on the way out of the
+    block as everywhere else, and both backends drive the body lazily
+    [fn-iterator], so the deferred code interleaves with the consumer
+    identically. (Before `Iter<T>` was made lazy on Rust this was a
+    documented divergence in side-effect *timing*.)
 * [defer-no-escape] `return`, `yield`, and a `break`/`continue` not bound
   by a loop *inside* the deferred body are errors: the body runs on the way
   out of its block, so there is no path to leave through. Loops written in
   the body own their own `break`/`continue`; a lambda owns its own
   `return`.
-  * **Aborting from a deferred body is an error too** [abort]: both the
-    `abort` operation and a call that merely *may* abort, since the block
+  * **Throwing from a deferred body is an error too** [throw]: both the
+    `throw` operation and a call that merely *may* throw, since the block
     runs while its scope is being left — there is no delimiter left to
-    abort to, and unwinding out of an unwind path is a hole neither
+    throw to, and unwinding out of an unwind path is a hole neither
     lowering wants.
 
 ## Functions
@@ -605,7 +605,7 @@ Conventions:
 * [fn-must-return] A fn with a non-`None` return type must return on
   every path. Definitely-returning constructs: `return`, a **diverging
   expression** ([type-any-nothing]: a statement the checker typed
-  `Nothing`, e.g. `abort(m)`), `if` with an `else` where every branch
+  `Nothing`, e.g. `throw(m)`), `if` with an `else` where every branch
   returns, `when` where every branch returns (exhaustiveness is enforced
   separately [when-exhaustive]).
   * Conservative by design: loops never count as returning (they may run
@@ -652,6 +652,26 @@ Conventions:
     callee's declaration order, which the backends' intrinsic lowerings
     consume — e.g. the element type in Kotlin's `mutableListOf<Int>()`
     [backend-intrinsic].
+* [call-generic-progressive] A callee's type variables bind **progressively,
+  left to right**: each argument's expected type is its parameter pattern
+  with everything the earlier arguments — and any explicit type-argument
+  list — already determined substituted in. That is what types an
+  un-annotated lambda from its *siblings*: in `map(xs.iter(), n -> n * 2)`
+  the first argument binds `T = Int`, so the lambda is checked against
+  `(Int) -> U` and its body determines `U`. The same rule effect member
+  generics already state [effect-member-generics].
+  * Not merely convenience: checking the lambda against an *unsubstituted*
+    pattern gives it a type that mentions the callee's own variable
+    (`(T) -> T`), which is exactly what `unify`'s deliberate lack of an
+    occurs check assumes cannot happen [fn-overload] — so the call failed
+    to match itself, and even an explicit type-argument list did not help.
+  * Left to right, and no further: a lambda written *before* the argument
+    that would bind its parameter type is not inferred (annotate the
+    parameter). Salvo does not look forward [call-type-args], and a
+    fixed-point pass over arguments would reorder the fate events a call
+    records [deduce-consume].
+  * The bindings are a *hint* for expected types only; the candidate scoring
+    below re-derives them from the argument types it ends up with.
 * [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
   declared fn or effect member. There is no method-call fallback: an
   undeclared name is an unresolved call ([call-resolve]), and the
@@ -690,6 +710,31 @@ Conventions:
   iterator function: `yield` produces elements; `return` only
   short-circuits (no value). `Iter<T>` is an `intrinsic type` each backend
   maps to its native iterable.
+  * **`Iter<T>` is lazy, on both backends** (user decision 2026-09-05):
+    an element is produced when the consumer asks for it, so a producer's
+    work interleaves with the loop that drives it and an unbounded
+    generator (`while true { yield … }`) is a normal thing to write.
+    Creating an iterator runs none of the body.
+  * **And repeatable**: `Iter<T>` is a *factory* of passes, not a
+    position in one. Two `for` loops over the same value both start from
+    the beginning, each re-running the producer — which is what Kotlin's
+    `Iterable` already did, and what keeps `for` from consuming its
+    subject.
+* [iter-effect-free] An iterator function declares **no effects** — not
+  even `use` (user decision 2026-09-05). Laziness is the reason: the body
+  runs after the call that created the iterator returned, so a handler it
+  performed against would have to outlive the scope that supplied it. The
+  consumer is where effects belong; a `for` loop in an effectful function
+  may do whatever that function declares.
+  * The rule is on the *declaration*, which is enough: performing an
+    effect requires declaring it [fn-effects], and `use` is excluded
+    because it would let the body register its own handler and perform
+    effects undeclared.
+  * The same reasoning bars a callback with mutable state of its own: an
+    iterator function's fn-typed parameter is called once per element in
+    *every* pass, so accumulating state would depend on how many times the
+    iterator was consumed. Rust enforces it (`impl Fn`, not `FnMut`
+    [rs-iter-lazy]); the checker does not reject it up front — known gap.
 
 ## Effects
 
@@ -813,31 +858,31 @@ Conventions:
   * Checker `effect_env` and emitter environments truncate at block
     boundaries identically.
 
-### Non-resumption: `abort` and `try`
+### Non-resumption: `throw` and `try`
 
-* [abort] `abort(message)` leaves the enclosing delimiter instead of
-  resuming. It is declared in std (`core.abort`) as the sole member of
-  `effect Abort<M> { fn abort(message: M) -> [] Nothing }` and known to the
+* [throw] `throw(message)` leaves the enclosing delimiter instead of
+  resuming. It is declared in std (`core.throw`) as the sole member of
+  `effect Throw<M> { fn throw(message: M) -> [] Nothing }` and known to the
   compiler by name; the message is *moved* into the outcome.
   * Its type is `Nothing`, the bottom type: nothing after it runs, so the
-    intermediate frames stay silent. A fn that may abort declares
-    `[Abort<M>]` and keeps its **own** return type — it never also returns
+    intermediate frames stay silent. A fn that may throw declares
+    `[Throw<M>]` and keeps its **own** return type — it never also returns
     an outcome union, which would be `Result` plumbing with extra steps
-    and would defeat abort being an effect.
+    and would defeat throw being an effect.
   * **The ability to not resume is declared, never discovered from a
     handler**, which is what keeps the colouring honest: the shape of a fn
     cannot depend on which handler flows in, so it is exactly the effect
     annotation the author already writes.
-  * `Abort` has **no handlers**: `handler X of Abort` is an error, and it
+  * `Throw` has **no handlers**: `handler X of Throw` is an error, and it
     is never threaded as an effect parameter (both backends exclude it).
     What *provides* it is an enclosing `try`, or a caller that declares it
     in turn.
-  * A site that may abort is every `abort` call **and** every call whose
-    callee declares `[Abort<M>]`; each is recorded in `Checked::may_abort`,
-    since taking the abort is the emitters' job.
-  * The message type must fit the landing site's: an `Str` abort inside a
-    fn declaring `[Abort<Int>]` is an error naming both.
-* [abort-not-main] `main` may not declare `[Abort<M>]`: there is no caller
+  * A site that may throw is every `throw` call **and** every call whose
+    callee declares `[Throw<M>]`; each is recorded in `Checked::may_throw`,
+    since taking the throw is the emitters' job.
+  * The message type must fit the landing site's: a `Str` throw inside a
+    fn declaring `[Throw<Int>]` is an error naming both.
+* [throw-not-main] `main` may not declare `[Throw<M>]`: there is no caller
   to receive it, Rust cannot express a `main` returning `ControlFlow`, and
   Kotlin would die on an uncaught signal. The delimiter goes inside.
 * [try] `try { block }` is the delimiter: a **compiler intrinsic**, not an
@@ -845,37 +890,37 @@ Conventions:
   declaring the `Try` effect in its signature any more than there is in
   declaring that it uses loops or if-expressions"). So no `Try` handler, no
   `[Try]` in signatures, and no collision with the fusion.
-  * It is an **expression** of type `Ok T | Aborted M`, where `T` is the
+  * It is an **expression** of type `Ok T | Thrown M`, where `T` is the
     body's value type and `M` the message type. Both arms are qualified,
     reusing `Ok` from `core.result`, so `is`, `when` and exhaustiveness
     need no new rules — the outcome is structurally an `Ok T | Err M`.
-    `Err` is deliberately *not* reused: an abort is not an error value.
+    `Err` is deliberately *not* reused: a throw is not an error value.
   * **`M` is the union of the message types the body performs** (user
     decision 2026-09-04, chosen for consistency with `if`/`when` branch
     types): one type stays bare, several form a union, and the generated
     code only wraps when a union is present.
-  * `Aborted M` is **forgeable**, deliberately: the qualifier carries no
-    authority, so `core.abort`'s `aborted(message)` constructor produces a
-    value in the aborted arm without transferring control. The authority is
-    `[Abort<M>]` availability alone.
+  * `Thrown M` is **forgeable**, deliberately: the qualifier carries no
+    authority, so `core.throw`'s `thrown(message)` constructor produces a
+    value in the thrown arm without transferring control. The authority is
+    `[Throw<M>]` availability alone.
   * A body whose every path leaves still has an `Ok` arm — `Ok None`.
-  * **A `try` whose body cannot abort is an error** (user decision
-    2026-09-04): nothing can produce the aborted arm, so it is dead
-    scaffolding. The alternative (`Aborted None`) would force callers to
+  * **A `try` whose body cannot throw is an error** (user decision
+    2026-09-04): nothing can produce the thrown arm, so it is dead
+    scaffolding. The alternative (`Thrown None`) would force callers to
     handle an arm nothing can make.
   * A `return` inside a `try` body returns from the enclosing *fn*: the
-    delimiter catches aborts, not returns.
-* [try-innermost] An abort lands in the **innermost** enclosing `try`.
-  There are no labelled aborts; a nested delimiter takes its own body's
-  aborts and lets an outer one pass through.
-* [abort-linear] Nothing linear may be live across a site that may abort
+    delimiter catches throws, not returns.
+* [try-innermost] A throw lands in the **innermost** enclosing `try`.
+  There are no labelled throws; a nested delimiter takes its own body's
+  throws and lets an outer one pass through.
+* [throw-linear] Nothing linear may be live across a site that may throw
   unless a `defer` releases it [linear-obligation] [defer]: the code after
-  the site does not run on the abort path. The diagnostic names `defer`,
+  the site does not run on the throw path. The diagnostic names `defer`,
   since it is the only way to discharge on a path the author does not
   write — which is why `defer` was built first.
-  * The frames that die are those inside the delimiter (an abort caught by
+  * The frames that die are those inside the delimiter (a throw caught by
     an enclosing `try` does not leave the fn), so the check's floor is the
-    `try` body's scope, or the fn's when the abort propagates out.
+    `try` body's scope, or the fn's when the throw propagates out.
 
 ## Deductions
 

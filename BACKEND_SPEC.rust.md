@@ -62,13 +62,38 @@ Conventions:
 * [type-array] `T[]` maps to `Vec<T>`; literals emit `vec![...]`;
   `Int[5] { i: Int -> 0 }` emits an iterator-map-collect; indexing casts
   the `i32` index (`v[(i) as usize]`).
-* [rs-iter-vec] `Iter<T>` maps to `Vec<T>`, and iterator functions
-  (`yield`) are *eager*: the body collects into a `__yielded: Vec<T>`
-  local (`yield x` → `__yielded.push(x)`, bare `return` →
-  `return __yielded`, falling off the end returns it too)
-  [fn-iterator]. Deliberate cut: Rust generators are unstable; eager
-  collection changes side-effect *timing* (not values) versus Kotlin's
-  lazy sequences, and an infinite iterator would not terminate.
+* [rs-iter-lazy] `Iter<T>` maps to the generated `SalvoIter<T>`, and
+  iterator functions (`yield`) are **lazy and repeatable**, matching
+  Kotlin's `Iterable { iterator { … } }` element for element
+  [fn-iterator]. Stable Rust has no generators, so the state machine is
+  borrowed from `async`: rustc builds it, and the generated `SalvoGen`
+  drives it with a no-op waker. Nothing is `unsafe` and nothing needs a
+  crate.
+  * `SalvoIter<T>` is a **factory** — `Rc<dyn Fn() -> Box<dyn
+    Iterator<Item = T>>>` — so a second `for` re-runs the producer as on
+    Kotlin, `for` never consumes its subject, and nothing about linearity
+    changes. Its manual `Clone` and `Debug` impls are what let an
+    `Iter<T>` sit in a `#[derive(Clone, Debug)]` struct field.
+  * The body becomes `SalvoIter::from_factory(Rc::new(move || {
+    Box::new(SalvoGen::new(move |__slot| async move { … })) }))`, with
+    `yield v` as `__slot.replace(Some(v)); SalvoYield::once().await;` and
+    a bare `return` as `return;`.
+  * Every parameter is captured once into the factory and cloned per
+    pass, so each pass starts from the beginning and the captured state is
+    `'static`. That is sound only because an iterator fn performs no
+    effects [iter-effect-free]: a handler arrives as `&mut dyn E`
+    borrowed for the call and could not live this long.
+  * A fn-typed parameter of an iterator fn is the one convention
+    exception to [rs-fn-param-convention]: it arrives **owned** as
+    `impl Fn(…) + 'static` (wrapped in an `Rc` internally, so it is shared
+    by every pass) rather than `&mut impl FnMut(…)`, and its own
+    parameters keep the ordinary convention. `Fn` rather than `FnMut`
+    because a pass may run more than once [iter-effect-free].
+  * Generic parameters carry `'static` alongside the blanket `Clone`
+    bound: every Salvo type is owned data with no lifetime of its own, and
+    a captured element type has to outlive the call.
+  * The support code is generated once per program into `iter.rs` and
+    mounted like `unions.rs`, only when the program touches `Iter<T>`.
 * [type-tuple] Tuples map to native Rust tuples (any size).
 * [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
   positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
@@ -332,24 +357,24 @@ derives them mechanically:
     decision 2026-09-04): a panic out of a std intrinsic unwinds *past* the
     splice, so deferred code does not run on a crash path, where the JVM's
     `finally` would run it. See [kt-defer-finally].
-* [abort] [rs-abort-controlflow] A fn declaring `[Abort<M>]` returns
+* [throw] [rs-throw-controlflow] A fn declaring `[Throw<M>]` returns
   `ControlFlow<M, T>` — the message type *is* `ControlFlow`'s `Break`
   payload, so the propagation falls out of the design rather than being
-  imposed on it. `Abort` is filtered out of the effect *parameters* (it is a
+  imposed on it. `Throw` is filtered out of the effect *parameters* (it is a
   return shape, not a capability), and the effect declaration itself emits
   no trait: it has no handlers to implement.
-  * `abort(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch,
+  * `throw(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch,
     no allocation. `return v` becomes `ControlFlow::Continue(v)`, and a
     `None`-returning fn ends with `return ControlFlow::Continue(())`.
-  * A call that may abort unwraps with `?` — but only when the abort would
+  * A call that may throw unwraps with `?` — but only when the throw would
     leave *this* fn unchanged. Inside a `try`, when the message must be
     wrapped into a union arm, or when deferred blocks have to run first, the
     propagation is written out as `match call { Continue(__v) => __v,
     Break(__m) => <transfer> }`. That is an *expression*, so it works in
     argument position with no hoisting — and it is the only way the deferred
-    release can run on the abort path, since `?` returns without it.
+    release can run on the throw path, since `?` returns without it.
   * Verified by hand before implementation (`?` on `ControlFlow` is stable;
-    a may-abort call in a loop stays a loop, no trampoline): the three
+    a may-throw call in a loop stays a loop, no trampoline): the three
     compositions the roadmap asked for are in the E3 notes.
 * [try] [rs-try-label] `try { ... }` is a **labelled block**
   (`'try_N: { ... }`), not a closure. The sketch's closure
@@ -357,13 +382,13 @@ derives them mechanically:
   effect parameters and any local the body mutates — the same exclusivity
   trap the fusion hits; a labelled block captures nothing.
   * The price is that `?` cannot be used inside a `try` body (it would
-    return from the *fn*), so every may-abort call there takes the `match`
-    form above and `break`s the label with the outcome's aborted arm. The
+    return from the *fn*), so every may-throw call there takes the `match`
+    form above and `break`s the label with the outcome's thrown arm. The
     body's tail is wrapped into the `Ok` arm (arm 0); a body that always
     leaves still needs a value for the block, which the checker made
     `Ok None` [try].
   * Nesting needs no token: the label decides where a `break` lands, so an
-    inner delimiter cannot swallow an outer abort [try-innermost].
+    inner delimiter cannot swallow an outer throw [try-innermost].
 
 ## Qualifiers
 
@@ -382,13 +407,29 @@ derives them mechanically:
   suffix (`name__2`, `name__3`, ... in declaration order; the first
   keeps the base name). Call sites resolved by the checker use the same
   mangled name; unchecked arity-fallback calls share Kotlin's known
-  mangling gap.
+  mangling gap. Kotlin applies the identical rule for a different reason
+  — it *has* overloading, and would resolve by its own lattice
+  [kt-fn-mangling].
+* [rs-fn-param-convention] A lambda passed into a fn-typed parameter binds
+  its parameters the way the **callee's declared fn type** renders them,
+  not the way the lambda's own annotation would: the callee fixes the
+  calling convention, and its declaration is the only thing both sides can
+  agree on. `f: (T) -> U` declares `FnMut(&T)` — a type variable is never
+  known to be `Copy` — so an annotated `(n: Int) -> …` argument emits
+  `|n: &i32|` and binds by reference.
+  * The two sides used to decide `Copy`-ness on *different* types (the
+    declaration on `T`, the lambda on its own `Int`), which disagreed
+    precisely when the callee was generic: rustc rejected the call with
+    `E0631`, and only when the lambda was annotated — an un-annotated one
+    compiled, because rustc inferred the parameter from the bound. The
+    convention is computed by one function mirroring the `Type::Fn` arm of
+    `emit_type`.
 
 ## Effects [rs-effects]
 
 * [effect-decl] Effects emit as Rust `pub trait`s whose methods take
-  `&mut self` (handlers are stateful). The abort effect is the exception:
-  it emits nothing, since it has no handlers [rs-abort-controlflow].
+  `&mut self` (handlers are stateful). The throw effect is the exception:
+  it emits nothing, since it has no handlers [rs-throw-controlflow].
 * [effect-args-hoisted] An argument whose code reaches an effect value the
   *same call* threads is hoisted into a `let` before the call
   (`{ let __a1 = inner(&mut console, 1); outer(&mut console, __a1) }`).
@@ -754,8 +795,7 @@ Reported as codegen errors, never silent wrong code:
   ([rs-effect-fusion]);
 * struct destructuring in `for` patterns (same as Kotlin).
 
-Known acceptable divergences (documented, not errors): eager iterator
-functions [rs-iter-vec]; extra `.clone()`s where Kotlin shares
-references; `Debug`/`Display` formatting of `Option` values differs from
-Kotlin's `null` printing (the checker's narrowing rules make user
-programs format only unwrapped values).
+Known acceptable divergences (documented, not errors): extra `.clone()`s
+where Kotlin shares references; `Debug`/`Display` formatting of `Option`
+values differs from Kotlin's `null` printing (the checker's narrowing rules
+make user programs format only unwrapped values).

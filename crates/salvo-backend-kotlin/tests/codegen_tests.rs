@@ -6,6 +6,14 @@ use std::process::Command;
 
 use salvo_core::{Program, SourceSet};
 
+/// Whether the compile-and-run tests should exercise the Kotlin toolchain.
+/// Probed once per test binary by `salvo-testkit`, which also owns the
+/// `SALVO_SKIP_E2E` gate and the version string that goes into every cache
+/// key.
+fn kotlin_toolchain() -> bool {
+    salvo_testkit::kotlinc().available
+}
+
 /// The demo program exercising M2 features: structs, defaults, spread/copy,
 /// nullability + `is` with binding, string interpolation, effects (Console),
 /// `use`, iterator functions with `yield`, `for`/`while` loops, and std
@@ -275,8 +283,7 @@ fn f() -> Ok Int | Err Str {
 /// is not installed).
 #[test]
 fn kotlinc_compiles_and_runs_unions() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let files = generate_unions_demo();
@@ -408,8 +415,7 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
 /// kotlinc is not installed).
 #[test]
 fn kotlinc_compiles_and_runs_qualifiers() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let files = generate_qualifiers_demo();
@@ -644,8 +650,7 @@ fn mut_requires_a_with_mut_declaration() {
 /// checking the program output. Skipped when kotlinc is not installed.
 #[test]
 fn kotlinc_compiles_and_runs_demo() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let files = generate_demo();
@@ -741,8 +746,7 @@ fn effects_resolve_through_checker_tables() {
 /// kotlinc is not installed).
 #[test]
 fn kotlinc_compiles_and_runs_effects() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let files = generate_effects_demo();
@@ -851,8 +855,20 @@ handler LoudPing of Ping {
 /// Compiles the given files with kotlinc, runs `salvo.MainKt`, and asserts
 /// the exact stdout.
 fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expected: &str) {
-    let dir = std::env::temp_dir().join(format!("salvo-kt-test-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // The gate lives here as well as in the callers, so a
+    // test that forgets it still skips rather than failing without a
+    // toolchain — three did.
+    let kotlinc = salvo_testkit::kotlinc();
+    if !kotlinc.available {
+        return;
+    }
+    // Compiling and running generated code is a pure function of the code,
+    // the expected output and the compiler doing it — so a pass is worth
+    // remembering. `SALVO_E2E_FRESH=1` ignores the stamps.
+    let Some(stamp) = cache_stamp(&kotlinc.version, "kotlin-files", tag, files, expected) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-{tag}"));
     let src_dir = dir.join("src");
     let out_dir = dir.join("out");
     let mut kt_paths = Vec::new();
@@ -889,7 +905,38 @@ fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expe
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert_eq!(stdout, expected, "unexpected program output");
 
+    stamp.verified();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The cache key for one compile-and-run: the toolchain that would do it,
+/// every generated file (path *and* content), and the output asserted.
+/// Nothing else can change the outcome, and a change to any of them must
+/// invalidate the stamp — which is what makes the cache safe to have on by
+/// default.
+fn cache_stamp(
+    version: &str,
+    kind: &str,
+    entry: &str,
+    files: &[salvo_backend_kotlin::EmittedFile],
+    expected: &str,
+) -> Option<salvo_testkit::Stamp> {
+    let mut parts: Vec<Vec<u8>> = vec![
+        kind.as_bytes().to_vec(),
+        version.as_bytes().to_vec(),
+        entry.as_bytes().to_vec(),
+        expected.as_bytes().to_vec(),
+    ];
+    for f in files {
+        parts.push(f.rel_path.to_string_lossy().as_bytes().to_vec());
+        parts.push(f.content.as_bytes().to_vec());
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    salvo_testkit::cached(
+        env!("CARGO_TARGET_TMPDIR"),
+        &format!("{kind} {entry}"),
+        &refs,
+    )
 }
 
 // ===== M6: loops as values =====
@@ -1041,8 +1088,7 @@ fn break_outside_a_loop_is_an_error() {
 /// kotlinc is not installed).
 #[test]
 fn kotlinc_compiles_and_runs_loops() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let files = generate_loops_demo();
@@ -1222,8 +1268,7 @@ fn aliased_import_of_mangled_overload_keeps_suffix() {
 
 #[test]
 fn kotlinc_compiles_and_runs_mangled_alias() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[
@@ -1299,8 +1344,7 @@ fn main() [use] -> [] None {
 /// together for this to compile and run.
 #[test]
 fn kotlinc_compiles_and_runs_multi_module() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_multi_module();
@@ -1531,8 +1575,7 @@ fn copy_of_nested_mutable_type_is_an_error() {
 
 #[test]
 fn kotlinc_compiles_and_runs_copy() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", COPY_DEMO)]);
@@ -1586,8 +1629,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_move_modes() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", S2_DEMO)]);
@@ -1638,8 +1680,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_borrows() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", S3_DEMO)]);
@@ -1685,8 +1726,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_linear() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", LINEAR_DEMO)]);
@@ -1732,8 +1772,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_linear_generics() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO)]);
@@ -1772,8 +1811,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_once_fns() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", ONCE_DEMO)]);
@@ -1826,8 +1864,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_derived_returns() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", DERIVED_DEMO)]);
@@ -1879,8 +1916,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_fn_contracts() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", CONTRACTS_DEMO)]);
@@ -1931,8 +1967,7 @@ fn binary_rendering_preserves_grouping() {
 
 #[test]
 fn kotlinc_compiles_and_runs_precedence() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
@@ -2004,8 +2039,7 @@ fn iterator_bare_return_in_value_loop_retargets() {
 
 #[test]
 fn kotlinc_compiles_and_runs_iterator_return() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", ITER_RETURN_DEMO)]);
@@ -2060,8 +2094,7 @@ fn field_subject_is_lowers_to_union_test() {
 
 #[test]
 fn kotlinc_compiles_and_runs_field_is() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
@@ -2183,8 +2216,7 @@ fn narrowed_field_reads_unwrap() {
 
 #[test]
 fn kotlinc_compiles_and_runs_place_narrowing() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
@@ -2246,8 +2278,7 @@ fn narrowed_val_field_relies_on_the_smart_cast() {
 
 #[test]
 fn kotlinc_compiles_and_runs_place_operand() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
@@ -2309,8 +2340,7 @@ fn tuple_elements_emit_pair_components() {
 
 #[test]
 fn kotlinc_compiles_and_runs_tuple_index() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
@@ -2361,8 +2391,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_list_element_types() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let src = r#"
@@ -2450,8 +2479,7 @@ fn handler_dependencies_inject_at_construction() {
 
 #[test]
 fn kotlinc_compiles_and_runs_handler_dependencies() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
@@ -2549,8 +2577,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_handler_deps_in_anger() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO)]);
@@ -2631,8 +2658,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_handler_deps_chain() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO)]);
@@ -2721,8 +2747,7 @@ fn main() [use] -> [] None {
 
 #[test]
 fn kotlinc_compiles_and_runs_handler_deps_mixed() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO)]);
@@ -2804,8 +2829,7 @@ fn union_coercion_in_array_tuple_lambda() {
 
 #[test]
 fn kotlinc_compiles_and_runs_nested_coercion() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
@@ -2858,8 +2882,7 @@ fn effect_member_generics_render_on_the_interface() {
 
 #[test]
 fn kotlinc_compiles_and_runs_member_generics() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
@@ -2961,8 +2984,7 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
 
 #[test]
 fn kotlinc_compiles_and_runs_aliased_effects() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
@@ -3031,8 +3053,7 @@ fn array_std_functions_lower() {
 
 #[test]
 fn kotlinc_compiles_and_runs_array_std() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
@@ -3392,8 +3413,7 @@ fn defer_lowers_to_try_finally() {
 
 #[test]
 fn kotlin_compiles_and_runs_defer() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", DEFER_DEMO)]);
@@ -3403,14 +3423,14 @@ fn kotlin_compiles_and_runs_defer() {
     run_kotlin_files(&files, "defer", DEFER_OUTPUT);
 }
 
-// ===== E3 step 2: abort and `try` [abort] [try] [kt-abort-signal] =====
+// ===== E3 step 2: throw and `try` [throw] [try] [kt-throw-signal] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
 /// that declares the effect, a linear resource released by a deferred block
-/// *on the abort path*, two message types meeting at one delimiter
-/// (`Aborted (Str | Int)`), a may-abort call inside a loop, and a nested
-/// delimiter that must not swallow the outer abort.
-const ABORT_DEMO: &str = r#"
+/// *on the throw path*, two message types meeting at one delimiter
+/// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
+/// delimiter that must not swallow the outer throw.
+const THROW_DEMO: &str = r#"
 struct FileHandle canbe Linear {
     fd: Int
 }
@@ -3425,29 +3445,29 @@ fn close_file(h: FileHandle) [Console] -> [] None {
     discard(h)
 }
 
-fn parse(line: Str) [Abort<Str>, Console] -> [] Int {
+fn parse(line: Str) [Throw<Str>, Console] -> [] Int {
     println("parse ${line}")
     if size(line) == 0 {
-        abort("empty line")
+        throw("empty line")
     }
     return size(line)
 }
 
-fn limit(n: Int) [Abort<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> [] Int {
     if n > 4 {
-        abort(n)
+        throw(n)
     }
     return n
 }
 
-fn measure(line: Str) [Abort<Str>, Console] -> [] Int {
+fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
     let h = open_file(1)
     defer { close_file(h) }
     let n = parse(line)
     return n + h.fd
 }
 
-fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
+fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
     let sum = 0
     for line in lines {
         let inner = try {
@@ -3457,7 +3477,7 @@ fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
             is Ok {
                 println("within limit ${inner}")
             }
-            is Aborted {
+            is Thrown {
                 println("over limit ${inner}")
             }
         }
@@ -3466,13 +3486,13 @@ fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
     return sum
 }
 
-fn report_text(outcome: Ok Int | Aborted Str) [Console] -> [] None {
+fn report_text(outcome: Ok Int | Thrown Str) [Console] -> [] None {
     when outcome {
         is Ok {
             println("ok ${outcome}")
         }
-        is Aborted {
-            println("aborted: ${outcome}")
+        is Thrown {
+            println("thrown: ${outcome}")
         }
     }
 }
@@ -3489,8 +3509,8 @@ fn main() [use] -> [] None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        is Aborted {
-            println("mixed aborted")
+        is Thrown {
+            println("mixed thrown")
         }
     }
     let counted = try {
@@ -3500,28 +3520,28 @@ fn main() [use] -> [] None {
         is Ok {
             println("counted ${counted}")
         }
-        is Aborted {
-            println("counted aborted: ${counted}")
+        is Thrown {
+            println("counted thrown: ${counted}")
         }
     }
     println("done")
 }
 "#;
 
-const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
-                            open 1\nparse \nclose fd=1\naborted: empty line\n\
-                            open 1\nparse longer line\nclose fd=1\nmixed aborted\n\
+const THROW_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
+                            open 1\nparse \nclose fd=1\nthrown: empty line\n\
+                            open 1\nparse longer line\nclose fd=1\nmixed thrown\n\
                             within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
                             counted 7\ndone\n";
 
-/// [kt-abort-signal] The JVM's unwinding *is* the propagation: `abort`
+/// [kt-throw-signal] The JVM's unwinding *is* the propagation: `throw`
 /// throws a generated stack-trace-less signal, an intermediate frame does
 /// nothing at all (no `ControlFlow`, no colouring), and `try` is Kotlin's
-/// own `try`/`catch` *expression*, so the outcome falls out of it. `Abort`
+/// own `try`/`catch` *expression*, so the outcome falls out of it. `Throw`
 /// is never a handler parameter.
 #[test]
-fn abort_lowers_to_a_signal_and_try_to_a_catch() {
-    let program = build_program(&[("main.sv", ABORT_DEMO)]);
+fn throw_lowers_to_a_signal_and_try_to_a_catch() {
+    let program = build_program(&[("main.sv", THROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
@@ -3532,29 +3552,29 @@ fn abort_lowers_to_a_signal_and_try_to_a_catch() {
     // The signal class is generated once for the program.
     let signal = files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("abort.kt"))
-        .expect("expected a generated abort.kt");
+        .find(|f| f.rel_path == std::path::Path::new("throw.kt"))
+        .expect("expected a generated throw.kt");
     assert!(
-        signal.content.contains("class AbortSignal(val payload: Any?, val tag: String)")
+        signal.content.contains("class ThrowSignal(val payload: Any?, val tag: String)")
             && signal.content.contains("RuntimeException(null, null, false, false)"),
         "expected a stack-trace-less signal in:\n{}",
         signal.content
     );
-    // [abort] The effect itself emits nothing: there are no handlers to
+    // [throw] The effect itself emits nothing: there are no handlers to
     // implement, so an interface for it would be dead code.
-    let std_abort = files
+    let std_throw = files
         .iter()
-        .find(|f| f.rel_path.ends_with("core/abort.kt"))
+        .find(|f| f.rel_path.ends_with("core/throw.kt"))
         .map(|f| f.content.clone())
         .unwrap_or_default();
     assert!(
-        !std_abort.contains("interface Abort"),
-        "expected no interface for the abort effect in:\n{std_abort}"
+        !std_throw.contains("interface Throw"),
+        "expected no interface for the throw effect in:\n{std_throw}"
     );
-    // `abort` throws; the message is *not* wrapped at the throw (the
+    // `throw` throws; the message is *not* wrapped at the throw (the
     // throwing frame cannot know which `try` will catch it).
     assert!(
-        main.content.contains("throw AbortSignal(\"empty line\", \"Str\")"),
+        main.content.contains("throw ThrowSignal(\"empty line\", \"Str\")"),
         "expected a tagged throw in:\n{}",
         main.content
     );
@@ -3571,7 +3591,7 @@ fn abort_lowers_to_a_signal_and_try_to_a_catch() {
     );
     // The delimiter picks the arm at the catch, by tag.
     assert!(
-        main.content.contains("catch (__signal: AbortSignal)")
+        main.content.contains("catch (__signal: ThrowSignal)")
             && main.content.contains("when (__signal.tag)")
             && main.content.contains("else -> throw __signal"),
         "expected tag dispatch with a rethrow fallback in:\n{}",
@@ -3580,16 +3600,15 @@ fn abort_lowers_to_a_signal_and_try_to_a_catch() {
 }
 
 #[test]
-fn kotlin_compiles_and_runs_abort() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+fn kotlin_compiles_and_runs_throw() {
+    if !kotlin_toolchain() {
         return;
     }
-    let program = build_program(&[("main.sv", ABORT_DEMO)]);
+    let program = build_program(&[("main.sv", THROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "abort", ABORT_OUTPUT);
+    run_kotlin_files(&files, "throw", THROW_OUTPUT);
 }
 
 // ===== E3 step 3: effects threaded into fn values [fn-effects] =====
@@ -3686,8 +3705,7 @@ fn fn_type_effects_thread_into_lambdas() {
 
 #[test]
 fn kotlinc_compiles_and_runs_fn_type_effects() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
@@ -3702,9 +3720,9 @@ fn kotlinc_compiles_and_runs_fn_type_effects() {
 // [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
-fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
+fn wrapped(n: Int) [Throw<Str>] -> [] Ok Int | Err Str {
     if n < 0 {
-        abort("negative")
+        throw("negative")
     }
     if n == 0 {
         return err("zero")
@@ -3712,9 +3730,9 @@ fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
     return ok(n)
 }
 
-fn limit(n: Int) [Abort<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> [] Int {
     if n > 4 {
-        abort(n)
+        throw(n)
     }
     return n
 }
@@ -3732,8 +3750,8 @@ fn describe(n: Int) [Console] -> [] None {
                 }
             }
         }
-        is Aborted {
-            println("aborted ${nested}")
+        is Thrown {
+            println("thrown ${nested}")
         }
     }
 }
@@ -3751,7 +3769,7 @@ fn main() [use] -> [] None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        ^ Aborted {
+        ^ Thrown {
             when mixed {
                 is Str {
                     println("message text ${mixed}")
@@ -3765,7 +3783,7 @@ fn main() [use] -> [] None {
 }
 "#;
 
-const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage number 9\n";
+const WIDEN_STDOUT: &str = "value 7\nerror zero\nthrown negative\nmessage number 9\n";
 
 /// [qual-widen] Kotlin materializes the same peel with a shadowing `val`
 /// (the alternative, a fresh name, would need every read rewritten).
@@ -3789,8 +3807,7 @@ fn widening_materializes_the_peel_kotlin() {
 
 #[test]
 fn kotlinc_compiles_and_runs_widening() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", WIDEN_DEMO)]);
@@ -3913,8 +3930,7 @@ fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
 
 #[test]
 fn kotlinc_compiles_and_runs_when_cond() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
@@ -3932,9 +3948,9 @@ fn kotlinc_compiles_and_runs_when_cond() {
 // rejected the output — a [backend-never-wrong] miss caught by nothing but
 // the toolchain.
 const TRY_MUTATION_DEMO: &str = r#"
-fn risky(n: Int) [Abort<Str>] -> [] Int {
+fn risky(n: Int) [Throw<Str>] -> [] Int {
     if n < 0 {
-        abort("negative")
+        throw("negative")
     }
     return n
 }
@@ -3969,8 +3985,7 @@ fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
 
 #[test]
 fn kotlinc_compiles_and_runs_try_mutation() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
@@ -4129,8 +4144,7 @@ fn a_missing_host_file_names_the_command() {
 /// Rust backend's run of the same program, which is what parity means here.
 #[test]
 fn kotlinc_compiles_and_runs_a_platform_effect() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
-        eprintln!("skipping: kotlinc not found on PATH");
+    if !kotlin_toolchain() {
         return;
     }
     let skeleton = platform_skeleton();
@@ -4152,8 +4166,16 @@ fn run_kotlin_entry(
     entry: &str,
     expected: &str,
 ) {
-    let dir = std::env::temp_dir().join(format!("salvo-kt-test-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // As in `run_kotlin_files`: the gate and the cache are at the point of
+    // use, so a test that forgets them still behaves.
+    let kotlinc = salvo_testkit::kotlinc();
+    if !kotlinc.available {
+        return;
+    }
+    let Some(stamp) = cache_stamp(&kotlinc.version, "kotlin-entry", entry, files, expected) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-{tag}"));
     let src_dir = dir.join("src");
     let out_dir = dir.join("out");
     let mut kt_paths = Vec::new();
@@ -4190,5 +4212,172 @@ fn run_kotlin_entry(
         expected,
         "unexpected program output"
     );
+    stamp.verified();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====
+
+/// Two overloads the *checker* tells apart by Salvo types that have no
+/// subtype relation — `Iter<Int>` and `List<Int>` — where the emitted
+/// Kotlin types do have one (`List` *is* an `Iterable`). The `List`
+/// overload delegates to the `Iter` one, which is the shape that turns a
+/// second opinion into a crash rather than a wrong answer.
+const OVERLOAD_DELEGATION: &str = r#"
+fn twice(it: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
+    for x in it {
+        yield f(x)
+    }
+}
+
+fn twice(xs: List<Int>, f: (Int) -> Int) -> Iter<Int> {
+    return twice(xs.iter(), f)
+}
+
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3)
+    for v in xs.twice(double) {
+        println("v=${v}")
+    }
+}
+"#;
+
+/// [kt-fn-mangling] [fn-overload] Every emitted overload of a name gets a
+/// unique Kotlin name, so Kotlin never re-resolves a call the checker
+/// already resolved. Sharing the name let Kotlin apply *its* lattice:
+/// `iter(list)` lowers to the identity, so the `List` overload's
+/// `twice(xs.iter(), f)` emitted `twice(xs, f)`, whose most specific
+/// Kotlin candidate is the `List` overload itself — an infinite recursion,
+/// with no diagnostic anywhere [backend-never-wrong].
+#[test]
+fn every_emitted_overload_gets_its_own_kotlin_name() {
+    let program = build_program(&[("main.sv", OVERLOAD_DELEGATION)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    assert!(
+        main.contains("fun twice(it: Iterable<Int>") && main.contains("fun twice__2(xs: List<Int>"),
+        "expected the second overload to be renamed in:\n{main}"
+    );
+    // The delegation calls the *other* overload, by its own name.
+    assert!(
+        main.contains("return twice(xs,"),
+        "expected the delegation to reach the `Iter` overload in:\n{main}"
+    );
+}
+
+/// The same program under kotlinc: before the rule it ran until the stack
+/// ran out, so the assertion that matters is that it terminates with the
+/// right output.
+#[test]
+fn kotlinc_compiles_and_runs_overload_delegation() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", OVERLOAD_DELEGATION)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "overload-delegation", "v=2\nv=4\nv=6\n");
+}
+
+// ===== [fn-iterator] `Iter<T>` is lazy on both backends =====
+
+/// The same source and the same expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_lazy_iterator` — an unbounded producer that
+/// only terminates because elements are made on demand, and a factory that
+/// a second `for` runs again from the start. Kotlin needed no change for
+/// this: `Iterable { iterator { … } }` was already both. What it gained is
+/// the guarantee that Rust now agrees, which is why the two tests share
+/// their source and their assertion.
+const LAZY_ITER_DEMO: &str = r#"
+fn naturals(from: Int) -> Iter<Int> {
+    let i = from
+    while true {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn evens(it: Iter<Int>) -> [it] Iter<Int> {
+    for x in it {
+        if x % 2 == 0 {
+            yield copy(x)
+        }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let unconsumed = naturals(100)
+    println("created")
+    for v in evens(naturals(0)) {
+        if v > 6 {
+            break
+        }
+        println("even ${v}")
+    }
+    let twice = evens(naturals(0))
+    for v in twice {
+        if v > 2 {
+            break
+        }
+        println("first ${v}")
+    }
+    for v in twice {
+        if v > 2 {
+            break
+        }
+        println("second ${v}")
+    }
+}
+"#;
+
+const LAZY_ITER_OUTPUT: &str = "created\neven 0\neven 2\neven 4\neven 6\n\
+                                first 0\nfirst 2\nsecond 0\nsecond 2\n";
+
+/// [fn-iterator] The lowering that was already lazy, pinned: a `sequence`-
+/// style `Iterable { iterator { … } }` whose body suspends at each `yield`.
+#[test]
+fn an_iterator_fn_lowers_to_a_lazy_iterable() {
+    let program = build_program(&[("main.sv", LAZY_ITER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    for expected in [
+        "fun naturals(from: Int): Iterable<Int> {",
+        "return Iterable<Int> {",
+        "iterator {",
+        "yield(",
+    ] {
+        assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
+    }
+}
+
+/// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
+#[test]
+fn kotlinc_compiles_and_runs_a_lazy_iterator() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", LAZY_ITER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }

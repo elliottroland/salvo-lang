@@ -30,17 +30,17 @@ fn age_prediction(person: Surname Person) [Random<Int>, Console] -> [person] Non
     println("In ${years} years, ${full_name(person)} will be ${person.age + years}")
 }
 
-// [abort] A fn that may leave early declares the effect and keeps its own
-// return type; `abort` returns `Nothing`, so nothing after it runs.
-fn parse_length(line: Str) [Abort<Str>] -> Int {
+// [throw] A fn that may leave early declares the effect and keeps its own
+// return type; `throw` returns `Nothing`, so nothing after it runs.
+fn parse_length(line: Str) [Throw<Str>] -> Int {
     if size(line) == 0 {
-        abort("empty line")
+        throw("empty line")
     }
     return size(line)
 }
 
 // [try] The delimiter is an intrinsic expression whose value is an ordinary
-// union: `Ok Int | Aborted Str`.
+// union: `Ok Int | Thrown Str`.
 fn describe_length(line: Str) [Console] -> None {
     let outcome = try {
         parse_length(line)
@@ -49,7 +49,7 @@ fn describe_length(line: Str) [Console] -> None {
         is Ok {
             println("length ${outcome}")
         }
-        is Aborted {
+        is Thrown {
             println("could not parse: ${outcome}")
         }
     }

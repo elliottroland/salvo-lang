@@ -1,5 +1,162 @@
 # Salvo Compiler — Progress & Plan
 
+**The suite got its iteration cost back, 2026-09-05.** The toolchain tests
+had grown to ~75 of the ~80 seconds a `cargo test` took, which was starting
+to shape how often it got run. Three findings, in order of how much they
+returned:
+
+1. **The availability *probe* was nearly as expensive as the work.** Each of
+   39 Kotlin tests ran `kotlinc -version` as its guard, and that starts a
+   JVM: 1.4s, against 2.4s for the compile it guarded. Probing once per test
+   binary took the Kotlin crate from 44s to 32s without touching a test.
+2. **A verification is worth remembering.** Compiling and running generated
+   code is a pure function of the code, the expected output and the compiler
+   doing it, so `salvo-testkit` writes a stamp keyed by the content hash of
+   exactly those inputs and skips the work when one already exists. A plain
+   `cargo test` is therefore still complete but now costs **~8s warm** (80s
+   cold). Touch the emitter and every affected stamp misses — verified by
+   adding one comment line to the emitted output and watching the suite go
+   straight back to 15s of real toolchain work. A stamp is written only after
+   every assertion passes, so a failure is never remembered as a success.
+   `SALVO_E2E_FRESH=1` ignores stamps: that is what **full** means, ~70s with
+   nothing taken on trust.
+3. **`cargo nextest` did not help, and is kept for diagnosis.** It runs each
+   test in its own process, which is a loss when 531 of them are mostly
+   microseconds: 18s warm against `cargo test`'s 8s, and a wash on a fresh
+   run (74s vs 71s). Thread count does not change the picture (`-j6` 22s,
+   `-j20` 18s). What it *is* good for is per-test timings, which stock
+   libtest will not print on stable — that is how the CLI's five long poles
+   were found. Config in `.config/nextest.toml`.
+
+Two smaller things fell out. The Kotlin and Rust runners were writing their
+scratch trees to the *system* temp dir, against the repository's own rule
+that temporary files stay inside it; they now use `CARGO_TARGET_TMPDIR` like
+everything else. And three Kotlin tests had no toolchain guard at all, so
+they would have *failed* rather than skipped on a machine without `kotlinc`
+— found by moving the gate inside the runner helpers, where a test cannot
+forget it.
+
+**`Iter<T>` is now lazy on both backends (user decision 2026-09-05, option 3
+of the four costed below).** The divergence that prompted it: the same
+program printed different things, because Kotlin's `Iterable { iterator { …
+} }` produced elements on demand and re-ran its producer per pass while
+Rust's `Vec` materialised everything at creation — so *when* a producer's
+effects happened, *whether* they interleaved with the consumer, and
+*whether* a second `for` re-ran them all differed. The user chose lazy on
+both **with iterator functions restricted to being effect-free**, on the
+grounds that "other functions can just use them with effects via
+for-loops".
+
+What that took:
+
+- **[iter-effect-free]** An iterator fn declares no effects, `use`
+  included. Checked once at the declaration, which is enough: performing an
+  effect requires declaring it, and `use` is what would otherwise let a
+  body register its own handler. The diagnostic names the remedy (perform
+  it where the elements are consumed).
+- **[rs-iter-lazy]** `Iter<T>` is a generated `SalvoIter<T>` — a *factory*
+  of passes, `Rc<dyn Fn() -> Box<dyn Iterator<Item = T>>>`, which is
+  exactly what Kotlin's `Iterable` already was. Keeping it a factory rather
+  than a one-shot iterator is what avoided the second decision the costing
+  flagged: `for` still does not consume its subject, and linearity is
+  untouched.
+- **Stable Rust has no generators, so the state machine came from
+  `async`**: rustc builds one for an `async` block, and the generated
+  `SalvoGen` drives it with `Waker::noop()`. `yield v` becomes
+  `__slot.replace(Some(v)); SalvoYield::once().await;`. No `unsafe`, no
+  crates, ~120 generated lines in `iter.rs` (mounted like `unions.rs`, only
+  when the program touches `Iter<T>`). Hand-written and verified before
+  being taught to the emitter, per the gotcha that says to do exactly that.
+- **Parameters are captured once into the factory and cloned per pass**, so
+  each pass starts from the beginning and the captured state is `'static`.
+  Sound *because* of [iter-effect-free]: a handler arrives as `&mut dyn E`
+  borrowed for the call and could not live that long. Generic parameters
+  gained `'static` next to the blanket `Clone` bound for the same reason.
+- **One convention exception**: an iterator fn's fn-typed parameter arrives
+  owned as `impl Fn(…) + 'static` (shared across passes via `Rc`) rather
+  than `&mut impl FnMut(…)`, because it is called in every pass rather than
+  during the call. `Fn` rather than `FnMut` follows from repeatability —
+  callback state would depend on how many times the iterator was consumed,
+  which is the same divergence [iter-effect-free] rules out for effects.
+  The checker does not reject a state-mutating callback up front; rustc
+  does. Known gap, recorded in [fn-iterator].
+
+Verified end to end on both backends with one shared program and one shared
+expected stdout: an *unbounded* producer (`while true { yield … }`) that
+terminates because the consumer `break`s — it would previously have hung
+forever on Rust — a filter over it, and a factory consumed twice that
+starts over each time.
+
+**Three defects found by writing `map`/`filter`/`reduce` in Salvo, fixed
+2026-09-05.** Testing the combinators — rather than reasoning about them —
+turned up one checker bug and two silent-wrong-code bugs, all independent of
+the traits question that prompted the exercise:
+
+- **[call-generic-progressive]** A callee's type variables now bind
+  *progressively*, left to right, so an un-annotated lambda argument is
+  checked against the pattern its *siblings* already determined
+  (`map(xs.iter(), n -> n * 2)`). Before, the lambda was checked against an
+  unsubstituted `(T) -> U`, so its inferred type mentioned the callee's own
+  variable (`(T) -> T`) — exactly what `unify`'s deliberate lack of an
+  occurs check assumes cannot happen [fn-overload] — and the call failed to
+  match itself. An explicit type-argument list did not help either; it is
+  now what seeds the substitution. Left-to-right only: a lambda written
+  before the argument that would bind its parameter type still needs an
+  annotation, because Salvo does not look forward [call-type-args] and a
+  fixed-point pass would reorder the fate events a call records.
+- **[rs-fn-param-convention]** A lambda in a fn-typed parameter position
+  now binds its parameters the way the *callee's declared* fn type renders
+  them. The two sides used to test `Copy`-ness on different types — the
+  declaration on `T` (never known to be `Copy`, hence `FnMut(&T)`), the
+  lambda on its own annotation (`Int`, hence `|n: i32|`) — so rustc
+  rejected the call with `E0631`. Invisible until a lambda was *annotated*:
+  the un-annotated form compiled, because rustc inferred the parameter from
+  the bound.
+- **[kt-fn-mangling]** Overload dispatch is the checker's, and Kotlin no
+  longer gets a second opinion: every emitted overload of a name gets a
+  unique Kotlin name, by the same rule the Rust backend already used
+  [rs-fn-mangling]. Sharing the name let Kotlin resolve by *Kotlin's*
+  lattice, and two Salvo types with no subtype relation can map onto Kotlin
+  types that have one (`Iter<T>` → `Iterable<T>`, `List<T>` → `List<T>`,
+  and Kotlin's `List` *is* an `Iterable`). A `List` overload delegating to
+  its `Iter` sibling emitted a call that re-resolved to itself: infinite
+  recursion, no diagnostic anywhere [backend-never-wrong].
+
+**The `Iter<T>` laziness divergence is closed** — see the lead entry: option
+3 was chosen and built on 2026-09-05. The divergence as measured (Kotlin's
+`Iterable { iterator { … } }` lazy and re-running its producer per pass,
+Rust's `Vec` materialising at creation) is gone, and the obstacle that
+shaped the decision — a lazy Rust iterator would have to hold the fn's
+effect handlers *across* the suspension, where emitted Rust borrows them
+only for the call — is what [iter-effect-free] removes rather than works
+around.
+
+**Non-resumption was renamed 2026-09-05 (user decision): `Abort` → `Throw`,
+`abort` → `throw`, `Aborted` → `Thrown`.** A pure rename of the E3 step-2
+feature, taken under the no-backwards-compatibility invariant: the old
+spelling simply stopped being the language, with no transitional
+diagnostic. What moved: the std module `std/core/abort.sv` →
+`std/core/throw.sv` (module `core.abort` → `core.throw`), the compiler's
+known names (`ABORT_EFFECT`/`ABORTED_QUALIFIER` → `THROW_EFFECT`/
+`THROWN_QUALIFIER`, with `OK_QUALIFIER` untouched), `Checked::may_abort` →
+`may_throw` with `AbortSite` → `ThrowSite`, the Kotlin signal
+`salvo.AbortSignal` → `salvo.ThrowSignal` in `abort.kt` → `throw.kt`, and
+the rule labels `[abort]` → `[throw]`,
+`[abort-not-main]` → `[throw-not-main]`, `[abort-linear]` →
+`[throw-linear]`, `[kt-abort-signal]` → `[kt-throw-signal]`,
+`[rs-abort-controlflow]` → `[rs-throw-controlflow]`. `try` is untouched:
+it was never named after the operation. Nothing about the *semantics*
+changed — `throw` is still an ordinary effect operation returning
+`Nothing`, still handler-less, still delimited by the intrinsic `try`
+yielding `Ok T | Thrown M`; in particular it is **not** a keyword, so
+`throw(message)` is a plain call. The test suite kept its 514 tests
+(`crates/salvo-core/tests/abort_tests.rs` → `throw_tests.rs`), and both
+backends still compile and run the demo byte-identically under `kotlinc`
+and `rustc`. Two sites were deliberately left alone because their `abort`
+is the English verb, not the feature: `salvo-cli`'s "does not abort the
+analysis" / "aborting due to N parse errors", and the roadmap's
+"panic/abort semantics out of scope" (Rust's process abort).
+
 **Interop was redesigned 2026-09-05 (user decisions): string-template
 interop was replaced by `platform effect`, and the redesign is complete.**
 The old model — `external` declarations resolved by `define` templates that
@@ -302,18 +459,18 @@ One divergence is accepted and recorded for future work: Kotlin's
 `finally` also runs while an *unexpected* exception unwinds (a panic out of
 a std intrinsic), where the Rust splice does not. Salvo has no `catch`, so
 side effects during a crash are not part of a program's meaning; tightening
-it means catching the abort signal specifically once `abort` exists.
+it means catching the throw signal specifically once `throw` exists.
 
 Probed by hand on both backends beyond the test demo (identical output
 except where noted): a `defer` in a value-position block, a `defer` nested
 inside a deferred body, a deferred call through an *effect* member with the
 handler registered by `use`, a `defer` inside a lambda block body passed to
-a fn-typed parameter — and a `defer` in an *iterator* body, which is the
-one that differs: Rust's eager collection ([rs-iter-vec]) runs the deferred
-prints before the consumer sees any element while Kotlin's lazy sequence
-interleaves them. That cut predates `defer` (a plain `println` after a
-`yield` diverges the same way) and is already recorded under
-[rs-iter-vec].
+a fn-typed parameter — and a `defer` in an *iterator* body, which differed
+at the time: Rust's eager collection ran the deferred prints before the
+consumer saw any element while Kotlin's lazy sequence interleaved them.
+That cut predated `defer` (a plain `println` after a `yield` diverged the
+same way) and is **closed** as of 2026-09-05, when `Iter<T>` was made lazy
+on both backends [rs-iter-lazy].
 
 **The widening check `^` landed 2026-09-05 (user design).** The dual of
 `is`: boolean-valued, same places, same runtime test, but a successful check
@@ -529,46 +686,46 @@ type it had to adapt to; and the emitters' effect lookups searched
 outermost-first, so a lambda's own effect parameter was shadowed *by* the
 enclosing fn's value instead of the other way round.
 
-**E3 step 2 landed 2026-09-04: `abort` + the intrinsic `try` on both
-backends.** Non-resumption works end to end: a fn that may abort declares
-`[Abort<M>]` and keeps its own return type, `abort(m)` returns `Nothing` so
+**E3 step 2 landed 2026-09-04: `throw` + the intrinsic `try` on both
+backends.** Non-resumption works end to end: a fn that may throw declares
+`[Throw<M>]` and keeps its own return type, `throw(m)` returns `Nothing` so
 the frames in between stay silent, and `try { ... }` — a compiler
-intrinsic, not an effect — yields `Ok T | Aborted M`. Four user decisions
+intrinsic, not an effect — yields `Ok T | Thrown M`. Four user decisions
 shaped the open questions (all 2026-09-04): **`M` is the union** of the
 body's message types (chosen for consistency with `if`/`when` branch types,
 with generated code wrapping only when a union is present), a **`try` whose
-body cannot abort is an error** rather than `Aborted None`, **`main` may not
-declare `[Abort<M>]`**, and `Abort`/`Aborted` are **declared in std**
-(`std/core/abort.sv`) with the compiler knowing only their names.
+body cannot throw is an error** rather than `Thrown None`, **`main` may not
+declare `[Throw<M>]`**, and `Throw`/`Thrown` are **declared in std**
+(`std/core/throw.sv`) with the compiler knowing only their names.
 
 The roadmap said to hand-write and run the three deciding Rust shapes first;
 that paid for itself twice. It confirmed `?` on `ControlFlow` is stable and
-that a may-abort call inside a loop stays a loop (no trampoline — the reason
+that a may-throw call inside a loop stays a loop (no trampoline — the reason
 CPS-splitting was rejected for this rung). And it showed the sketch's
 closure lowering for `try` is the wrong shape: a closure would capture the
 fn's effect parameters, so **`try` is a labelled block** instead
 ([rs-try-label]) — no captures at all. The price is that `?` cannot be used
-inside a `try` body, so a may-abort call there becomes an inline `match`
+inside a `try` body, so a may-throw call there becomes an inline `match`
 that breaks the label. The same `match` form is what lets a deferred release
-run on the abort path, since `?` returns without running the splice — which
+run on the throw path, since `?` returns without running the splice — which
 is the third shape, and the concrete payoff of building `defer` first.
 
 Kotlin diverges in mechanism, as expected: the JVM's unwinding *is* the
-propagation, so `abort` throws a generated stack-trace-less
-`salvo.AbortSignal` and an intermediate frame does nothing at all. One
-consequence was not obvious and is worth remembering: **the aborted arm has
+propagation, so `throw` throws a generated stack-trace-less
+`salvo.ThrowSignal` and an intermediate frame does nothing at all. One
+consequence was not obvious and is worth remembering: **the thrown arm has
 to be chosen at the `catch`, not at the throw.** Rust wraps a message into
 the delimiter's union arm at the propagation site; the JVM has no such site,
 and a throwing frame cannot know which `try` will catch it. So the signal
 carries the Salvo type name of the message as a `tag` and the delimiter
 dispatches on it, with an `else -> throw __signal` rethrow for a signal from
-outside its set ([kt-abort-signal]). Comparing Salvo type *names* rather
+outside its set ([kt-throw-signal]). Comparing Salvo type *names* rather
 than JVM classes keeps it erasure-proof.
 
 Verified by compiling and running the same program on both: the value path,
-the abort path with a linear handle released by `defer` *on it*, two message
-types meeting at one delimiter (`Aborted (Str | Int)`), a may-abort call
-inside a loop, and a nested delimiter that does not swallow the outer abort
+the throw path with a linear handle released by `defer` *on it*, two message
+types meeting at one delimiter (`Thrown (Str | Int)`), a may-throw call
+inside a loop, and a nested delimiter that does not swallow the outer throw
 — byte-identical stdout under `rustc` and `kotlinc`.
 
 Two latent bugs fell out of the work, both fixed. `TokenKind::symbol()`
@@ -796,8 +953,8 @@ like struct defaults [effect-handler].
 
 **Next effects slice: E3 steps 1–3 landed 2026-09-04; step 4 (effect
 transformers) is what remains.** Handler *control* beyond "always resumes":
-`defer`, then `abort` returning `Nothing` with a compiler-intrinsic `try`
-yielding `Ok T | Aborted M`, then effects on fn types threaded into the
+`defer`, then `throw` returning `Nothing` with a compiler-intrinsic `try`
+yielding `Ok T | Thrown M`, then effects on fn types threaded into the
 value (which lifted the fusion's structural cut) — all three **done**, see
 the entries above. Step 4 is transformers: an effect member that runs a
 fn-typed parameter with *additional* effects available. The gate step 3 was
@@ -1142,9 +1299,15 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 514 tests; includes thirty-five kotlinc and thirty-four rustc
-                            # compile+run tests (skipped gracefully when the
-                            # toolchain is not on PATH)
+cargo test                  # 531 tests, complete: the toolchain tests are
+                            # content-cached, so an unchanged one is not
+                            # recompiled — ~8s warm, ~80s cold
+SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
+SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
+                            # out to kotlinc/rustc. Those tests still report as
+                            # *passing*, so this is never the pre-submit check.
+cargo nextest run           # the same tests with per-test timings (diagnosis only;
+                            # measured slower here — a process per test)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
 # End-to-end:
@@ -1188,9 +1351,10 @@ crates/
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 ├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-└── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+└── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
+                          #   (once per binary) + the e2e content-hash cache
 std/                      # stdlib: core/ (basic, string, list, console) + random.sv
-                          #   (+ .kotlin.sv/.rust.sv defines next to each module)
 vscode/                   # VS Code extension: LSP client + generated TextMate grammar
 ```
 
@@ -1269,8 +1433,9 @@ that still shape the code, and where to look for the mechanics.
   language-level qualifier any type opts into with `canbe Mut`
   [type-canbe-mut]; backends map it per type (`Mut inline:` define
   sections). Unions are generated enums; effects are traits with
-  `&mut dyn` threading; iterators are *eager* (`Iter<T>` = `Vec<T>`,
-  documented divergence [rs-iter-vec]); `WrapOption` coercion added
+  `&mut dyn` threading; iterators are lazy on both backends (`Iter<T>` is
+  a generated factory type [rs-iter-lazy]; it was `Vec<T>` and eager
+  until 2026-09-05); `WrapOption` coercion added
   because optionals are physical in Rust and transparent in Kotlin
   [type-nullable]. Crate layout: main-declaring module is the crate root
   with `#[path]` mounts [rs-crate].
@@ -2564,11 +2729,11 @@ the backend define template:
   source), so findings should be *warnings* with an opt-out, never hard
   errors — a false positive must not block a legitimate define.
 
-### E3 — Non-resumption: `defer`, `abort`, and an intrinsic `try` (user decisions 2026-09-04)
+### E3 — Non-resumption: `defer`, `throw`, and an intrinsic `try` (user decisions 2026-09-04)
 
 The first slice of *handler control* beyond "always resumes at the tail",
 which is all E1 supports. The exploration ran through four rungs of handler
-power — tail-resumptive (today, free), abort (resume zero or one time),
+power — tail-resumptive (today, free), throw (resume zero or one time),
 suspend (resume later), multi-shot (resume repeatedly) — and settled on
 building the second, with the third deferred to an *explicit* async effect
 and the fourth ruled out.
@@ -2594,14 +2759,14 @@ arrives later as an explicit effect (likely a compiler intrinsic).
 #### The design as decided
 
 ```
-qualifier Aborted<M> of M            // mirrors `Err<T> of T` in core.result
+qualifier Thrown<M> of M            // mirrors `Err<T> of T` in core.result
 
-effect Abort<M> {                    // intrinsic; message is moved, like `err`
-    fn abort(message: M) [] -> [] Nothing
+effect Throw<M> {                    // intrinsic; message is moved, like `err`
+    fn throw(message: M) [] -> [] Nothing
 }
 
 // `try` is a compiler intrinsic, not an effect:
-try { body } : Ok T | Aborted M
+try { body } : Ok T | Thrown M
 ```
 
 - **`try` is an intrinsic, not an effect** (user decision 2026-09-04):
@@ -2609,32 +2774,32 @@ try { body } : Ok T | Aborted M
   signature any more than there is in declaring that it uses loops or
   if-expressions". So no `Try` handler to register, no `[Try]` in
   signatures, and — see below — no collision with the fusion.
-- **Both arms are qualified: `Ok T | Aborted M`** (user decision
+- **Both arms are qualified: `Ok T | Thrown M`** (user decision
   2026-09-04), reusing `Ok` from `core.result` so ordinary `is` checks and
   exhaustive `when` work on the outcome exactly as they do on a result.
-  `Err` is deliberately *not* reused: an abort is not an error value.
-- **`Aborted M` is parameterized by a message type** (user decision
+  `Err` is deliberately *not* reused: a throw is not an error value.
+- **`Thrown M` is parameterized by a message type** (user decision
   2026-09-04), mirroring `Err`. It follows that the outcome union is
   structurally an `Ok T | Err M`, so union arm identity, narrowing and
   exhaustiveness need no new rules.
-- **`Aborted M` is forgeable, deliberately** (user decision 2026-09-04):
-  the qualifier carries no *authority* — a hand-written `-> M as Aborted`
-  produces a value in the aborted arm but transfers no control. The
-  authority is `[Abort<M>]` availability alone, which is why the original
-  sketch's "only `abort()` may construct it" rule turned out to be
+- **`Thrown M` is forgeable, deliberately** (user decision 2026-09-04):
+  the qualifier carries no *authority* — a hand-written `-> M as Thrown`
+  produces a value in the thrown arm but transfers no control. The
+  authority is `[Throw<M>]` availability alone, which is why the original
+  sketch's "only `throw()` may construct it" rule turned out to be
   unnecessary. No provenance semantics, no intrinsic qualifier.
-- **`abort` returns `Nothing`**, which is what keeps intermediate frames
-  silent: a fn that may abort declares `[Abort<Str>]` and returns `Int`.
-  It does *not* also return `Aborted` — that would be `Result` plumbing
-  with extra steps and would defeat abort being an effect. `Aborted M`
+- **`throw` returns `Nothing`**, which is what keeps intermediate frames
+  silent: a fn that may throw declares `[Throw<Str>]` and returns `Int`.
+  It does *not* also return `Thrown` — that would be `Result` plumbing
+  with extra steps and would defeat throw being an effect. `Thrown M`
   appears in exactly one place: the `try` outcome.
 
 #### Lowering
 
 Rust: the message type *is* `ControlFlow`'s `Break` type, so the
 propagation falls out of the design rather than being imposed on it.
-`abort(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch, no
-allocation — every call in a fn with `[Abort<M>]` is `f(..)?`, and the
+`throw(m)` is `return ControlFlow::Break(m)` — no handler, no dispatch, no
+allocation — every call in a fn with `[Throw<M>]` is `f(..)?`, and the
 intrinsic converts at the delimiter:
 
 ```rust
@@ -2649,10 +2814,10 @@ match (|| -> ControlFlow<String, i32> { … })() {
 
 Kotlin: a private stack-trace-less signal, with the delimiter's identity as
 an unforgeable token — nesting must not let an inner `try` swallow an outer
-abort:
+throw:
 
 ```kotlin
-private class Abort_Signal(val message: Any?, val token: Any) :
+private class Throw_Signal(val message: Any?, val token: Any) :
     RuntimeException(null, null, false, false)
 ```
 
@@ -2666,12 +2831,12 @@ either way — *provided* `defer` is what puts code on that path.
 Not tidiness; three reasons:
 
 1. **It turns a prohibition into a pattern.** Without it, a linear value
-   live across a may-abort call cannot discharge its obligation on the
-   abort path, so the checker would have to forbid the combination. With
+   live across a may-throw call cannot discharge its obligation on the
+   throw path, so the checker would have to forbid the combination. With
    `defer close(f)` the author discharges on every path and the existing
    flow analysis can count it.
-2. **It proves both backends can run code on an abort path** before
-   anything depends on that. The two lowerings are exactly the two abort
+2. **It proves both backends can run code on a throw path** before
+   anything depends on that. The two lowerings are exactly the two throw
    mechanisms' unwind paths: a `Drop` guard in Rust (whose reverse
    declaration order gives LIFO for free) and nested `try/finally` in
    Kotlin.
@@ -2680,7 +2845,7 @@ Not tidiness; three reasons:
    whether a deferred body captures by move or by reference — the
    fn-boundary contract question again.
 
-Doing abort first would mean revisiting its lowering to add guards and
+Doing throw first would mean revisiting its lowering to add guards and
 `finally` afterwards: the interesting part, twice.
 
 **Built 2026-09-04** — see the decision-log entry at the top for the four
@@ -2689,7 +2854,7 @@ the `Drop` guard is not a usable Rust lowering (it must own the value from
 the `defer` onward, killing the very pattern), and the capture question
 does not arise at all under splice-at-exit. What it got right: it does turn
 the linear-across-an-exit prohibition into a pattern, and both backends
-demonstrably run code on the way out of a block — the guarantee `abort`
+demonstrably run code on the way out of a block — the guarantee `throw`
 now builds on. Reason 3 (exercising the capture machinery the `try` body
 needs) is *not* discharged: nothing was captured, so `try`'s body closure
 is still unexercised ground.
@@ -2698,8 +2863,8 @@ is still unexercised ground.
 
 - **`M` inference collides with [call-type-args].** ✅ Settled by the
   generalization: `M` is the **union** of the message types the body
-  performs (user decision), and a body that cannot abort at all is an
-  *error* rather than `Aborted None` (user decision) — so nothing has to be
+  performs (user decision), and a body that cannot throw at all is an
+  *error* rather than `Thrown None` (user decision) — so nothing has to be
   inferred from an empty set. The union costs a wrap at each propagation
   site on Rust (`?` needs identical `Break` types) and a tag dispatch at the
   catch on Kotlin; both are in the backend specs.
@@ -2708,12 +2873,12 @@ is still unexercised ground.
   (`block_returns` for [fn-must-return], `block_exits` for branch merging)
   became *type-aware* Checker methods reading the recorded types, and a
   written `Nothing` now lowers to the bottom type rather than a nominal
-  type spelled that way. Without the second half, `abort(n)` in a branch
+  type spelled that way. Without the second half, `throw(n)` in a branch
   leaked its consumption of `n` to the fall-through path.
 - **The intrinsic couples the compiler to two core qualifier names.** ✅
-  `Ok` and `Aborted` are resolved by name from the implicitly imported core,
+  `Ok` and `Thrown` are resolved by name from the implicitly imported core,
   with a diagnostic naming the missing one; the compiler knows three names
-  in total (`Abort` the effect, `Ok` and `Aborted` the arms) and nothing
+  in total (`Throw` the effect, `Ok` and `Thrown` the arms) and nothing
   else about them.
 - **Nested qualification is the honest consequence of wrapping in `Ok`.**
   ✅ Confirmed, both shapes tested: `Ok None`, and `Ok (Ok Int | Err Str)`
@@ -2721,7 +2886,7 @@ is still unexercised ground.
   qualified-group subject, but that is not a dead end — the droppable
   qualifier rule unwraps it; see "Nested qualification" below for the two
   alternatives that were rejected.
-- **Abort targets the innermost `try`.** ✅ [try-innermost]. Rust needs no
+- **Throw targets the innermost `try`.** ✅ [try-innermost]. Rust needs no
   token at all (the block label decides where a `break` lands); Kotlin's
   catch-all is innermost by construction, and its `else -> throw` rethrow is
   what an escaped function value would hit.
@@ -2729,8 +2894,8 @@ is still unexercised ground.
 #### Nested qualification: resolved without new surface (2026-09-04)
 
 `try`'s outcome makes two qualified-union shapes reachable — a
-result-returning body (`Ok (Ok Int | Err Str) | Aborted Str`) and a union
-message (`Aborted (Str | Int)`) — and `when` rejects a qualified-group
+result-returning body (`Ok (Ok Int | Err Str) | Thrown Str`) and a union
+message (`Thrown (Str | Int)`) — and `when` rejects a qualified-group
 subject. That looked like a dead end and was reported as one; it is not.
 The **droppable-qualifier rule already unwraps**: `Qual T <: T`, so a
 binding at the inner type takes the level off, and both backends emit it
@@ -2743,7 +2908,7 @@ when nested {
         let inner: Ok Int | Err Str = nested     // outer claim dropped
         when inner { is Ok { … } is Err { … } }
     }
-    is Aborted {
+    is Thrown {
         let message: Str | Int = mixed           // union message, same idiom
         when message { is Str { … } is Int { … } }
     }
@@ -2784,11 +2949,11 @@ body as a lambda. That form needs work this one does not:
   check under the enclosing fn's effect environment (lexically). "The
   lambda gets an effect its enclosing scope does not have" — the core of an
   *effect transformer* — is therefore not expressible yet, and neither is
-  the dual guarantee that a body carrying `[Abort<M>]` cannot outlive its
+  the dual guarantee that a body carrying `[Throw<M>]` cannot outlive its
   delimiter. [effect-not-data] already stops the capability escaping as a
   *value*; the lambda case is what remains.
 - It collides head-on with the fusion cut landed 2026-09-04: a realistic
-  body performs other effects (`try { println("x"); abort("bad") }`), so
+  body performs other effects (`try { println("x"); throw("bad") }`), so
   the lambda would capture the fused value while the call to the `try`
   *member* borrows it too — exactly the reported `E0499` shape.
 
@@ -2808,13 +2973,13 @@ transformer if that reads better.
 
 #### Sequencing
 
-1. ~~`defer` — standalone, testable, settles linear-on-abort first.~~
+1. ~~`defer` — standalone, testable, settles linear-on-throw first.~~
    **Done 2026-09-04** ([defer], [defer-no-escape], [kt-defer-finally],
    [rs-defer-splice]).
-2. ~~`abort` returning `Nothing` + intrinsic `try`, with `Aborted<M>` in
-   std.~~ **Done 2026-09-04** ([abort], [try], [try-innermost],
-   [abort-not-main], [abort-linear], [rs-abort-controlflow],
-   [rs-try-label], [kt-abort-signal]). What the design got right and wrong
+2. ~~`throw` returning `Nothing` + intrinsic `try`, with `Thrown<M>` in
+   std.~~ **Done 2026-09-04** ([throw], [try], [try-innermost],
+   [throw-not-main], [throw-linear], [rs-throw-controlflow],
+   [rs-try-label], [kt-throw-signal]). What the design got right and wrong
    is in the decision-log entry at the top; the short version is that the
    `ControlFlow` propagation and the `defer`-first ordering both held, and
    the closure lowering for `try` did not.
@@ -2827,7 +2992,7 @@ transformer if that reads better.
 4. Transformers, and async as the second one.
 
 Before (2), hand-write and run the Rust shapes for the three compositions
-that decide whether propagation stays clean: a may-abort call inside a
+that decide whether propagation stays clean: a may-throw call inside a
 loop, one inside a nested `try`, and one with a live linear value plus a
 `defer` across it. Loops are the specific reason CPS-splitting into
 continuation legs was rejected for this rung — a `perform` inside a loop
@@ -2837,6 +3002,52 @@ hand-build a trampoline, which is the async machinery under another name.
 The legs idea is right for rung 3, where the continuation must be reified
 anyway; there its cost (a boxed closure per call, answer-type erasure) buys
 something.
+
+## Roadmap: iterators — `Iter<T>` laziness (**DECIDED and built 2026-09-05**)
+
+`Iter<T>` mapped to Kotlin `Iterable<T>` (lazy, re-iterable) and Rust
+`Vec<T>` (eager, materialised). That was a [backend-parity] violation, not a
+representation detail: the same program printed different things. Measured
+2026-09-05 with a `yield` fn that prints per element —
+
+| | Kotlin | Rust |
+|---|---|---|
+| created, never consumed | nothing | producer runs |
+| consumed once | producer/consumer interleave | producer fully, then consumer |
+| consumed twice | producer re-runs | second pass replays the buffer |
+
+The obstacle was never the `Iter` mapping, which is easy on both sides, but
+the body of a Salvo `yield` fn: on the JVM the emitted `iterator { … }`
+builder suspends and resumes for free, while stable Rust has no generators,
+and — the part that decided the design — a suspended iterator must hold the
+fn's *effect handlers* across the suspension. Emitted Rust takes them as
+`&mut dyn E` borrowed for the call, which a returned iterator cannot
+outlive.
+
+The four options as costed, with the user's choice marked:
+
+1. **Eager on both** — Kotlin materialises. Parity by restriction, small
+   change, no lifetimes. Loses lazy chains *and* infinite generators.
+2. **Lazy where free, eager where not** — `Iter<T>` a repeatable factory,
+   std combinators as intrinsics over each target's lazy adapters; a
+   user-written `yield` fn stays eager on both. Parity exact, no new rule,
+   moderate cost. Loses user-written lazy generators. (This was the
+   recommendation.)
+3. ✅ **Lazy on both, effects forbidden in `yield` fns** — a checker
+   restriction buys `'static` generators, so no lifetimes; Rust lowers the
+   body to a state machine. Infinite and lazy generators work; effectful
+   ones are rejected on *both* backends. **Chosen** (user, 2026-09-05): "I'm
+   happy with iterators needing to be effect-free, since other functions can
+   just use them with effects via for-loops."
+4. **Lazy on both, lifetimes in the Rust output** — nothing lost, nothing
+   restricted, but lifetimes propagate through returns, locals, struct
+   fields and unions. Largest change; not taken.
+
+Built as [iter-effect-free] + [rs-iter-lazy]; the lead entry records what it
+took. The second decision the costing flagged — whether a lazy `Iter` is
+**one-shot**, which would make `for` consume its subject and interact with
+linear types — did **not** have to be taken: keeping `SalvoIter` a factory
+preserves Kotlin's repeatable semantics exactly.
 
 ## Roadmap: shared mutable state (`Cell`)
 
@@ -3600,7 +3811,13 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 514)
+## Test inventory (all green: 531)
+
+The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
+`cargo test` still runs every one of them, but only recompiles the ones whose
+generated code, expected output or toolchain actually changed. Use
+`SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
+and `cargo nextest run` when you want to see which tests cost what.
 
 - `salvo-core`: 196 - 15 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
@@ -3696,7 +3913,7 @@ spec rule; consolidated here for findability):
   [effect-handler-deps]; and 2 handler-state tests [effect-handler]: a
   state field initializer checked against its declared type, a well-typed
   one accepted)
-  + 10 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
+  + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
   enclosing return type, and by a *concrete* parameter of a nested call;
@@ -3705,14 +3922,20 @@ spec rule; consolidated here for findability):
   an unknown-typed argument keeping the call lenient so one mistake yields
   one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
   per call, which is what a backend's intrinsic lowering renders
-  [backend-intrinsic])
+  [backend-intrinsic]; plus 5 progressive-binding tests
+  [call-generic-progressive]: an earlier argument typing a later
+  un-annotated lambda, the lambda's *body* determining the result type
+  argument, an explicit type-argument list doing the same, an annotated
+  parameter needing no binding in any position, and the deliberate
+  left-to-right limit — a lambda before its binding argument is not
+  inferred)
   + 9 widening tests (`tests/widen_tests.rs` [qual-widen]: a `^` branch head
   opening a nested union, `^ Mut` stripping in an `if` with the mutation it
   then rejects, the intrinsic qualifiers refused with their reasons from the
   shared exclusion list, nothing-to-remove rejected, a *type* on the right
   rejected, more than one arm rejected, the no-binding parse error, and a
   `^` branch consuming its arms so exhaustiveness still reports the rest)
-  + 11 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
+  + 14 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its
   fn-typed parameters' effects, through a qualifier too, with its caller
@@ -3721,20 +3944,24 @@ spec rule; consolidated here for findability):
   un-annotated lambda's effects inferred from its body; each declared effect
   required at the call, and a fn value called where its effect is
   unavailable rejected — the reason "forbid escape" was unnecessary; and
-  `use` in a fn type rejected)
-  + 20 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
-  outcome type read off an annotation mismatch (`Ok Int | Aborted Str`),
-  several message types unioning (`Aborted (Str | Int)`), an always-leaving
-  body still carrying `Ok None`, a `try` that cannot abort rejected, an
-  abort with nowhere to land rejected while declaring the effect
+  `use` in a fn type rejected; plus 3 iterator tests [iter-effect-free]: an
+  iterator fn declaring an effect rejected with its remedy, the same for
+  `use` (the hole that would let the body register its own handler), and a
+  `for` loop over an iterator performing effects freely — the restriction is
+  on producing, not consuming)
+  + 20 throw/`try` tests (`tests/throw_tests.rs` [throw] [try]: the
+  outcome type read off an annotation mismatch (`Ok Int | Thrown Str`),
+  several message types unioning (`Thrown (Str | Int)`), an always-leaving
+  body still carrying `Ok None`, a `try` that cannot throw rejected, an
+  throw with nowhere to land rejected while declaring the effect
   propagates, a message the target cannot carry rejected, `main` declaring
-  `Abort` rejected [abort-not-main], a handler *for* `Abort` rejected, an
-  aborting branch counting as returning [fn-must-return] and not leaking
+  `Throw` rejected [throw-not-main], a handler *for* `Throw` rejected, an
+  throwing branch counting as returning [fn-must-return] and not leaking
   its consumption to the fall-through path [type-any-nothing], a linear
-  value across a may-abort call rejected with the `defer` remedy accepted
-  [abort-linear], `abort` *and* a may-abort call inside a deferred block
+  value across a may-throw call rejected with the `defer` remedy accepted
+  [throw-linear], `throw` *and* a may-throw call inside a deferred block
   rejected [defer-no-escape], an inner delimiter taking only its own
-  aborts [try-innermost]; plus the two nested-qualification shapes the
+  throws [try-innermost]; plus the two nested-qualification shapes the
   design asked to test rather than assume — a nested result outcome and a
   union message, both taken apart through a binding at the inner type — and
   the diagnostic that names that remedy when a qualified union is matched
@@ -3941,7 +4168,7 @@ spec rule; consolidated here for findability):
   `effect` leaves it clear so nothing existing changed meaning, and
   `platform type` / `platform fn` are parse errors naming the form) (the
   corpus grew three LANGUAGE.md examples with E3: a
-  `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`, an effectful
+  `defer` in `control_flow.sv`, `throw`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
   LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
@@ -4050,12 +4277,12 @@ spec rule; consolidated here for findability):
   capture, a matching named fn passing as `::name` and a pure one wrapped in
   an adapter; plus the kotlinc run of the program the Rust fusion used to
   reject, with the same stdout);
-  and 2 abort tests ([abort] [try] [kt-abort-signal]:
-  `abort_lowers_to_a_signal_and_try_to_a_catch` asserting the generated
+  and 2 throw tests ([throw] [try] [kt-throw-signal]:
+  `throw_lowers_to_a_signal_and_try_to_a_catch` asserting the generated
   stack-trace-less signal, a tagged `throw`, a *plain* call in the
   propagating frame (no colouring), the delimiter's tag dispatch with its
   rethrow fallback, and no interface emitted for the effect; plus the
-  kotlinc run of the abort demo, whose stdout matches the Rust run byte for
+  kotlinc run of the throw demo, whose stdout matches the Rust run byte for
   byte);
   and 2 `defer` tests ([defer] [kt-defer-finally]:
   `defer_lowers_to_try_finally` asserting one `try` per `defer`, nested
@@ -4063,7 +4290,17 @@ spec rule; consolidated here for findability):
   two-exit fn; plus the kotlinc run of the defer demo — LIFO at a block
   end, an early `return`, `continue`/`break` out of a loop body, and a
   linear handle released on both paths — whose stdout matches the Rust
-  run byte for byte)
+  run byte for byte);
+  and 2 overload-dispatch tests ([kt-fn-mangling] [fn-overload]:
+  `every_emitted_overload_gets_its_own_kotlin_name` asserting the second
+  overload is renamed and the delegation reaches its sibling; plus the
+  kotlinc run of a `List`→`Iter` delegation, which before the rule
+  recursed until the stack ran out);
+  and 2 lazy-iterator tests ([fn-iterator]:
+  `an_iterator_fn_lowers_to_a_lazy_iterable` pinning the builder that was
+  already lazy; plus the kotlinc run of the *same source* the Rust backend
+  runs, asserting the *same stdout* — which is the parity claim itself, not
+  a Kotlin property)
   and 2 subject-less `when` tests ([when-condition] [kt-when-cond]:
   `a_subjectless_when_emits_a_subjectless_kotlin_when` asserting the
   Kotlin `when {` with `cond ->` arms, a plain `else ->` with no optional
@@ -4167,10 +4404,10 @@ spec rule; consolidated here for findability):
   scaffolding, the hoisted `return` value, and the loop body's deferred
   code appearing at its `continue`, its `break` and the block end; plus the
   rustc run of the same demo Kotlin runs, with the same stdout); and 3
-  abort tests ([abort] [try] [rs-abort-controlflow] [rs-try-label]:
-  `abort_lowers_to_controlflow` asserting the `ControlFlow<M, T>` return
-  shape, `abort` as a `Break` return, `Continue`-wrapped returns, no trait
-  for the effect, and the deferred release on the abort path of a
+  throw tests ([throw] [try] [rs-throw-controlflow] [rs-try-label]:
+  `throw_lowers_to_controlflow` asserting the `ControlFlow<M, T>` return
+  shape, `throw` as a `Break` return, `Continue`-wrapped returns, no trait
+  for the effect, and the deferred release on the throw path of a
   propagating call; `try_lowers_to_a_labelled_block` asserting the label,
   the *absence* of a closure, and the message wrapped into its union arm;
   plus the rustc run of the demo Kotlin also runs); and 3 fn-type-effect
@@ -4189,7 +4426,21 @@ spec rule; consolidated here for findability):
   demo Kotlin also runs, with the same stdout); and 1 `try`-body test
   ([try]: the rustc run of the program whose `try` body assigns an outer
   variable and declares a local — the Rust half of the same traversal
-  gap); and 4 platform tests
+  gap); and 2 generic-higher-order tests ([rs-fn-param-convention]
+  [fn-contract]: `a_lambda_binds_a_generic_fn_parameter_by_reference`
+  asserting the declared `FnMut(&T)` convention and the `|n: &i32|` /
+  `|s: &String|` annotations that now follow it; plus the rustc run of a
+  generic `map` in every argument form — bare lambda, annotated lambda and
+  named fn, over a `Copy` and a non-`Copy` element type — which before the
+  fix failed with `E0631` for the annotated forms only); and 3 lazy-iterator
+  tests ([rs-iter-lazy] [fn-iterator] [iter-effect-free]:
+  `an_iterator_fn_lowers_to_a_lazy_factory` asserting the factory, the
+  `async` body, the slot-and-suspend `yield`, the absence of the old
+  `__yielded` collection and the generated-and-mounted `iter.rs`;
+  `a_for_loop_borrows_an_iter_subject`, the pairing that makes a second pass
+  possible; plus the rustc run of an *unbounded* producer that terminates
+  because the consumer `break`s and a factory consumed twice — the same
+  source and stdout the Kotlin backend asserts); and 4 platform tests
   ([platform-effect] [rs-platform-entry] [platform-tree]
   [rs-platform-host]:
   `platform_effect_emits_a_trait_and_a_host_entry` asserting the generated
@@ -4395,11 +4646,76 @@ snapshot diffs.
   base-name fallback, where "the same effect twice" (an inner scope
   shadowing an outer) had to stop counting as ambiguity while two genuinely
   different generic instances still do.
+- **A cache is only safe if its key is the whole input.** The e2e stamps hash
+  the generated files, the expected output and the toolchain version — so
+  changing the emitter invalidates exactly the tests whose output changed,
+  and nothing else. Where the thing under test is a *subprocess* (the CLI
+  tests), the key has to include the binary instead, which is why those
+  stamps miss on every rebuild: correct, if less rewarding. Fingerprint a
+  binary by length and mtime, not by content — hashing tens of megabytes in
+  a debug build cost more than the tests it saved (+12s, measured).
+- **The availability *probe* was one of the most expensive things in the
+  suite.** Each of 39 Kotlin tests ran `kotlinc -version` as its guard, and
+  that starts a JVM: 1.4s a time, against 2.4s for the compile it was
+  guarding. Probing once per test binary (`OnceLock`) took the Kotlin crate
+  from 44s to 32s without touching a single test. When a test suite is slow,
+  measure the scaffolding before the work.
+- **A gate belongs at the point of use, not in every caller.** Three tests
+  called the Kotlin runner with no toolchain guard at all, so they would
+  have *failed* rather than skipped on a machine without `kotlinc` — found
+  only by putting the check inside `run_kotlin_files`/`run_kotlin_entry`/
+  `run_rust_files`, where it cannot be forgotten.
+- **An `async` block is a state machine you are allowed to borrow.** Rust
+  has no stable generators, which is why `Iter<T>` was eager for eight
+  milestones — but rustc *will* build a resumable state machine for an
+  `async` block, and driving one by hand needs nothing but `Box::pin` and
+  `Waker::noop()`. No `unsafe`, no crates, no CPS transformation of the
+  body. The lesson generalises: when the target lacks a feature, check
+  whether it lacks a *mechanism* or only the syntax.
+- **Restricting the feature was cheaper than plumbing lifetimes, and it
+  came from the same place the divergence did.** A lazy iterator has to
+  hold whatever its body needs across the suspension; effects are the only
+  thing emitted Rust holds as a borrow. Forbidding them
+  ([iter-effect-free]) bought `'static` captures — which is why the whole
+  change needed no lifetimes anywhere in the Rust output. Both parity
+  strategies were available; the restriction was an order of magnitude
+  less work than faithful emission would have been.
+- **Write the feature in the language before designing around it.** The
+  traits discussion assumed `map`/`filter`/`reduce` needed an `Iterable`
+  bound. Actually writing them found the opposite: monomorphic combinators
+  over `Iter<T>` already worked on both backends, and the three things in
+  the way were a checker inference gap and two emitter bugs
+  ([call-generic-progressive], [rs-fn-param-convention],
+  [kt-fn-mangling]) — none of which a trait would have fixed, and two of
+  which emitted silently wrong code. The trait question survived the
+  exercise, but its *justification* changed from "needed for combinators"
+  to "needed for `for` and for one body over many collections".
+- **An emitted-name collision is only safe if the target agrees with the
+  checker about which overload it is.** Kotlin's overload resolution
+  follows Kotlin's type lattice, and Salvo types that are unrelated can map
+  onto Kotlin types that are not (`Iter`/`List` both reach
+  `Iterable`). Mangling every overload [kt-fn-mangling] is cheaper than
+  reasoning about the target's subtyping — and the Rust backend had it
+  right for a different reason all along.
+- **Two renderers of the same contract must share one function.** The
+  fn-type declaration and the lambda that fills it decided `Copy`-ness
+  independently, on different types, and agreed everywhere except generics
+  — where the failure was an `E0631` in *generated* code and only for
+  *annotated* lambdas. The fix that sticks is one function computing the
+  convention, called by both sides [rs-fn-param-convention].
 - **A new file under `std/` needs a touch to be seen.** `std/` is embedded
   into the CLI with `include_dir`, which has no rerun-if-changed trigger for
   *added* files: `cargo run -- analyze` kept reporting "7 std files" after
-  `std/core/abort.sv` appeared. `touch crates/salvo-cli/src/main.rs` (or any
+  `std/core/throw.sv` appeared. `touch crates/salvo-cli/src/main.rs` (or any
   edit to the crate) picks it up.
+- **A std module may be named after a target-language keyword, but only
+  because the emitters already escape identifiers.** `core.throw` emits
+  ``package salvo.core.`throw` `` on Kotlin — backticks are legal in a
+  package declaration *and* in the matching import, verified with `kotlinc`
+  before committing to the name — and a plain `mod`/`#[path]` pair on Rust,
+  where `throw` is not a keyword at all. The escape comes free from
+  `kt_ident`/the Rust equivalent; a module name that needed escaping in a
+  position those functions do not cover would not have worked.
 - **A hand-maintained copy of a keyword list will drift, and this one
   panicked the compiler.** `TokenKind::symbol()` matched every keyword
   explicitly and `unreachable!()`d otherwise, so *any diagnostic* mentioning
@@ -4412,12 +4728,12 @@ snapshot diffs.
   writing it showed the closure has to capture the fn's effect parameters
   (the same exclusivity trap the fusion hits), while a *labelled block*
   captures nothing. Ten minutes of `rustc` saved a rewrite — and the same
-  probe confirmed `?` on `ControlFlow` is stable and that a may-abort call
+  probe confirmed `?` on `ControlFlow` is stable and that a may-throw call
   in a loop stays a loop.
 - **`?` is not usable where deferred code must run**: it returns without
-  running the splice. That is why a may-abort call with pending `defer`s
+  running the splice. That is why a may-throw call with pending `defer`s
   becomes an inline `match` — and it is the concrete reason `defer` had to
-  be built before `abort` rather than after.
+  be built before `throw` rather than after.
 - **Where a union arm gets wrapped is a backend-shaped decision.** Rust
   wraps at the propagation site (it has one); the JVM does not have one, so
   Kotlin must choose the arm at the `catch` — which the throwing frame
@@ -5078,10 +5394,11 @@ snapshot diffs.
   (the checker proved them impossible).
 - (M8) Enum-variant wraps need turbofish (`Union2::<A, B>::U1(x)`): the
   other type parameters are not inferable from one arm's payload.
-- (M8) Eager iterators change side-effect *timing* vs Kotlin's lazy
-  `Iterable` (documented divergence [rs-iter-vec]); values are equal for
-  finite iterators, and infinite ones would hang - revisit if generators
-  stabilize.
+- (M8) Eager iterators changed side-effect *timing* vs Kotlin's lazy
+  `Iterable`, and infinite ones hung. **Closed 2026-09-05** without waiting
+  for generators to stabilize: an `async` block *is* a state machine rustc
+  will build, so the lowering drives one with a no-op waker
+  [rs-iter-lazy].
 - (M8) The crate root must carry `#![allow(...)]` *before* any item, and
   `#[path]` mounts resolve relative to the file containing them - the
   root-file header is prepended after all files are emitted, when the

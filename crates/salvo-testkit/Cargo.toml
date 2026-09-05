@@ -1,0 +1,8 @@
+[package]
+name = "salvo-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared scaffolding for Salvo's toolchain-dependent tests: toolchain probing and content-hash caching"
+
+[dependencies]

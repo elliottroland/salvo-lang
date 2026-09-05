@@ -525,7 +525,7 @@ fn describe(p: Mut Person) [Console] {
 Its reason to exist is the qualified union. `Ok (Ok Int | Err Str)` is a claim *about* a union, so `when` cannot take its arms apart — they belong to the inner type. A `^` branch head tests the arm and removes the claim in one step:
 
 ```
-let nested = try { wrapped(7) }        // Ok (Ok Int | Err Str) | Aborted Str
+let nested = try { wrapped(7) }        // Ok (Ok Int | Err Str) | Thrown Str
 when nested {
     ^ Ok {
         // `nested` reads as `Ok Int | Err Str` here
@@ -534,8 +534,8 @@ when nested {
             is Err { println("error ${nested}") }
         }
     }
-    is Aborted {
-        println("aborted ${nested}")
+    is Thrown {
+        println("thrown ${nested}")
     }
 }
 ```
@@ -571,7 +571,7 @@ Details worth knowing:
 - **The block, not the function, is the scope.** A `defer` inside a loop body runs at the end of each iteration; one inside an `if` runs when that `if` block ends.
 - **Latest first.** Several `defer`s in one block run in reverse order of registration, so a value acquired later is released first.
 - **The block's value is computed first.** A deferred block runs after the `return` value (or the block's own value) has been evaluated, so it can release what that value was read from.
-- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Aborting](#aborting-leaving-early-with-a-message) from one is an error for the same reason.
+- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Throwing](#throwing-leaving-early-with-a-message) from one is an error for the same reason.
 - **It is checked where it stands.** The body sees the scope and the flow facts at the `defer` statement, and those facts must still hold at each exit: if a call in between takes the value away, or invalidates a narrowing the deferred block relied on, the deferred block is rejected there (bind the narrowed value to a local and defer that instead).
 
 ## Functions
@@ -751,6 +751,23 @@ fn rangeIncl(start: Int, end: Int) -> Iter<Int> {
 }
 ```
 
+An iterator is **lazy**: an element is produced when whatever consumes it asks for the next one, so a producer's work interleaves with the loop that drives it, creating an iterator runs none of its body, and an unbounded generator (`while true { yield ... }`) is a normal thing to write — the consumer decides when to stop. An iterator is also **repeatable**: two `for`-loops over the same `Iter<T>` both start from the beginning, each running the producer again. Both backends behave identically in all of this.
+
+The price is that **an iterator function declares no effects** — not even `use`. Its body runs after the call that created the iterator has returned, so there is no longer a scope to hold the handlers it would need. Effects belong to the consumer instead, which costs nothing: the `for`-loop that walks the elements sits in a function of its own and may do anything that function declares.
+
+```
+// Rejected: `naturals` would perform Console after its caller returned.
+fn naturals() [Console] -> Iter<Int> { ... }
+
+// Fine: the effect is where the elements are used.
+fn show(limit: Int) [Console] -> None {
+    for n in naturals() {
+        if n > limit { break }
+        println("${n}")
+    }
+}
+```
+
 When a `for`-loop is used over a data type `T`, then this is assumed to be using a function `iter(T)`. If no such function exists, or the resolution is ambiguous, then it is a compile-time error. For example, the `List<T>` type has an `iter` function:
 
 ```
@@ -872,28 +889,28 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 }
 ```
 
-### Aborting: leaving early with a message
+### Throwing: leaving early with a message
 
-Handlers so far always *resume*: an effect operation runs and control comes back. `abort` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
+Handlers so far always *resume*: an effect operation runs and control comes back. `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
 
 ```
-effect Abort<M> {
-    fn abort(message: M) -> [] Nothing
+effect Throw<M> {
+    fn throw(message: M) -> [] Nothing
 }
 ```
 
-A function that may abort says so in its effect list, and keeps its own return type:
+A function that may throw says so in its effect list, and keeps its own return type:
 
 ```
-fn parse(line: Str) [Abort<Str>] -> Int {
+fn parse(line: Str) [Throw<Str>] -> Int {
     if size(line) == 0 {
-        abort("empty line")        // does not return
+        throw("empty line")        // does not return
     }
     return size(line)
 }
 ```
 
-`abort` returns `Nothing`, the bottom type, so the code after it never runs — which is what keeps the frames in between silent. `parse` returns `Int`, not an outcome union: no `Result` plumbing, no unwrapping at each call. A function that calls `parse` either declares `[Abort<Str>]` too, passing the abort on, or delimits it.
+`throw` returns `Nothing`, the bottom type, so the code after it never runs — which is what keeps the frames in between silent. `parse` returns `Int`, not an outcome union: no `Result` plumbing, no unwrapping at each call. A function that calls `parse` either declares `[Throw<Str>]` too, passing the throw on, or delimits it.
 
 The delimiter is `try`, a **compiler intrinsic** rather than an effect — there is no `Try` handler to register, just as there is nothing to register for loops or `if`. It evaluates to an outcome:
 
@@ -902,31 +919,31 @@ let outcome = try {
     let n = parse(line)
     n * 2
 }
-// outcome: Ok Int | Aborted Str
+// outcome: Ok Int | Thrown Str
 
 when outcome {
     is Ok {
         println("length doubled: ${outcome}")
     }
-    is Aborted {
+    is Thrown {
         println("could not parse: ${outcome}")
     }
 }
 ```
 
-Both arms are qualified, and the outcome is an ordinary union, so `is`, `when` and exhaustiveness work exactly as they do on `Ok Int | Err Str`. `Ok` is the same tag `core.result` uses; `Err` is deliberately *not* reused, because an abort is not an error value.
+Both arms are qualified, and the outcome is an ordinary union, so `is`, `when` and exhaustiveness work exactly as they do on `Ok Int | Err Str`. `Ok` is the same tag `core.result` uses; `Err` is deliberately *not* reused, because a throw is not an error value.
 
 Details worth knowing:
 
-- **`M` is the union of the message types the body can abort with.** A body that aborts with a `Str` in one place and an `Int` in another yields `Ok T | Aborted (Str | Int)`, the same way an `if` with two branch types yields their union. With one message type it stays bare.
-- **An abort lands in the innermost `try`.** There are no labelled aborts; a nested delimiter takes its own body's aborts and lets an outer one pass through.
-- **A `try` whose body cannot abort is an error.** Nothing can produce the `Aborted` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
-- **`main` cannot declare `[Abort<M>]`**: there is no caller to receive the abort, so the delimiter has to be inside.
-- **`Aborted M` is forgeable, deliberately.** The qualifier carries no authority — `core.abort`'s `aborted(message)` constructor produces a value in the aborted arm without transferring control. The authority to abort is `[Abort<M>]` availability alone.
-- **Nothing linear may be live across a call that may abort** unless it is released in a [`defer`](#deferred-blocks): the code after the call does not run on the abort path, so the deferred block is what discharges the obligation on both paths. This is the reason `defer` exists before `abort`.
-- **An abort inside a deferred block is an error**: that block runs *while* a scope is being left, so there is no delimiter left to abort to.
+- **`M` is the union of the message types the body can throw with.** A body that throws with a `Str` in one place and an `Int` in another yields `Ok T | Thrown (Str | Int)`, the same way an `if` with two branch types yields their union. With one message type it stays bare.
+- **A throw lands in the innermost `try`.** There are no labelled throws; a nested delimiter takes its own body's throws and lets an outer one pass through.
+- **A `try` whose body cannot throw is an error.** Nothing can produce the `Thrown` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
+- **`main` cannot declare `[Throw<M>]`**: there is no caller to receive the throw, so the delimiter has to be inside.
+- **`Thrown M` is forgeable, deliberately.** The qualifier carries no authority — `core.throw`'s `thrown(message)` constructor produces a value in the thrown arm without transferring control. The authority to throw is `[Throw<M>]` availability alone.
+- **Nothing linear may be live across a call that may throw** unless it is released in a [`defer`](#deferred-blocks): the code after the call does not run on the throw path, so the deferred block is what discharges the obligation on both paths. This is the reason `defer` exists before `throw`.
+- **A throw inside a deferred block is an error**: that block runs *while* a scope is being left, so there is no delimiter left to throw to.
 
-Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Abort<M>]` (an abort is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches. Deferred blocks run on the way out either way.
+Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Throw<M>]` (a throw is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches. Deferred blocks run on the way out either way.
 
 ### Deductions
 
@@ -1580,5 +1597,5 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * `T?` maps to a physical `Option<T>`; union types map to generated enums (`Union2<T1, T2>` with one variant per non-`None` arm).
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
 * Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
-* The `Iter<T>` type maps to `Vec<T>`: iterator functions collect eagerly (`yield` pushes into a result vector).
+* The `Iter<T>` type maps to a generated factory type: iterator functions are lazy and repeatable, as on Kotlin. Stable Rust has no generators, so the body becomes an `async` block — a state machine rustc builds — driven one element at a time. This is why an iterator function may perform no effects: its captured state has to outlive the call.
 * See BACKEND_SPEC.rust.md for the full rules.

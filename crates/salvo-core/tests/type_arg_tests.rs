@@ -70,6 +70,8 @@ const PRELUDE: &str = r#"
 fn size<T>(list: List<T>) [] -> [list] Int { return 0 }
 fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None {}
 fn ignore<T>(value: T) [] -> [] None {}
+fn apply<T, U>(value: T, f: (T) -> U) [] -> [] U { return f(value) }
+fn apply_late<T, U>(f: (T) -> U, value: T) [] -> [] U { return f(value) }
 "#;
 
 fn src(body: &str) -> String {
@@ -164,5 +166,60 @@ fn resolved_type_arguments_are_recorded_per_call() {
             .iter()
             .any(|args| args.len() == 1 && args[0] == Ty::named("Str")),
         "expected `T = Str` to be recorded, got {recorded:?}"
+    );
+}
+
+// ===== [call-generic-progressive] lambda arguments =====
+//
+// A callee's type variables bind progressively, left to right, so an
+// argument's expected type is the parameter pattern with everything the
+// earlier arguments already determined substituted in. Without it an
+// un-annotated lambda is checked against a pattern still mentioning `T`,
+// so its inferred type *contains the callee's own variable* — the one
+// thing `unify`'s deliberate lack of an occurs check assumes cannot
+// happen [fn-overload] — and the call fails to match itself.
+
+/// [call-generic-progressive] The lambda's parameter type comes from the
+/// binding an *earlier* argument made (`T = Int`), and its body then
+/// determines the callee's remaining variable (`U = Int`).
+#[test]
+fn an_earlier_argument_types_a_later_lambda() {
+    let msgs = messages(&src("    let n = apply(1, x -> x)"));
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
+/// The lambda's *return* is what determines `U`, so a body of a different
+/// type than the parameter binds it to that type — the call still matches.
+#[test]
+fn a_lambda_body_determines_the_result_type_argument() {
+    let msgs = messages(&src("    let s = apply(1, x -> size(of_list(x)))"));
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
+/// An explicit type-argument list seeds the bindings before the first
+/// argument is checked, so it types the lambda too [call-type-args].
+#[test]
+fn an_explicit_type_argument_types_a_lambda() {
+    let msgs = messages(&src("    let n = apply<Int, Int>(1, x -> x)"));
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
+/// An annotated lambda parameter needs no binding at all, in any position.
+#[test]
+fn an_annotated_lambda_parameter_needs_no_earlier_binding() {
+    let msgs = messages(&src("    let n = apply_late((x: Int) -> x, 1)"));
+    assert!(msgs.is_empty(), "{msgs:?}");
+}
+
+/// Left to right, deliberately: a lambda *before* the argument that would
+/// bind its parameter type has nothing to go on, and says so rather than
+/// inventing one. (Annotating the parameter is the remedy — the test
+/// above.)
+#[test]
+fn a_lambda_before_its_binding_argument_is_not_inferred() {
+    let msgs = messages(&src("    let n = apply_late(x -> x, 1)"));
+    assert!(
+        !msgs.is_empty(),
+        "expected the un-inferrable lambda to be reported"
     );
 }

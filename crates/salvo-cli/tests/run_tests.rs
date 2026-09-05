@@ -30,8 +30,35 @@ fn salvo_in(dir: &Path, args: &[&str]) -> Output {
         .expect("failed to run salvo")
 }
 
+/// Whether a toolchain should be exercised. Probed once per tool per test
+/// binary by `salvo-testkit`, which also owns the `SALVO_SKIP_E2E` gate.
 fn have(tool: &str) -> bool {
-    Command::new(tool).arg("-version").output().is_ok()
+    salvo_testkit::tool(tool).available
+}
+
+/// A stamp for one toolchain test, so a re-run that cannot have a different
+/// outcome does not pay for it again. Three things decide that outcome: the
+/// `salvo` binary (the thing under test), this test binary (where the test's
+/// inputs and assertions live, so editing a test invalidates it), and the
+/// toolchains the command shells out to. `SALVO_E2E_FRESH=1` ignores stamps;
+/// a stamp is written only after every assertion has passed.
+///
+/// Unlike the backends' stamps, these miss on *every* compiler rebuild —
+/// the binary is an input — which is exactly right: they pay off in the
+/// re-run and test-editing loops, not when the compiler itself changed.
+fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
+    let mut parts: Vec<Vec<u8>> = vec![
+        test.as_bytes().to_vec(),
+        salvo_testkit::file_fingerprint(env!("CARGO_BIN_EXE_salvo")).into_bytes(),
+        salvo_testkit::self_fingerprint().into_bytes(),
+    ];
+    for tool in tools {
+        parts.push(
+            salvo_testkit::tool(tool).version.into_bytes(),
+        );
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("cli {test}"), &refs)
 }
 
 /// Prints three lines, one per branch of a subject-less `when`
@@ -62,6 +89,9 @@ const HELLO_STDOUT: &str = "negative\nzero\npositive\n";
 /// here.
 #[test]
 fn run_compiles_and_runs_with_each_backend() {
+    let Some(__stamp) = e2e_stamp("run_compiles_and_runs_with_each_backend", &["kotlinc", "rustc"]) else {
+        return;
+    };
     for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
@@ -78,6 +108,7 @@ fn run_compiles_and_runs_with_each_backend() {
             "{backend} stdout (stderr: {stderr})"
         );
     }
+    __stamp.verified();
 }
 
 /// `--main` names the entry file and, on its own, implies its directory as
@@ -107,6 +138,9 @@ fn main_flag_implies_the_source_directory() {
 /// without the `mod` declarations and rustc rejected it.
 #[test]
 fn main_flag_selects_among_several_entry_points() {
+    let Some(__stamp) = e2e_stamp("main_flag_selects_among_several_entry_points", &["kotlinc"]) else {
+        return;
+    };
     let dir = work_dir("several_mains");
     for (file, text) in [("main.sv", "from main.sv"), ("other.sv", "from other.sv")] {
         fs::write(
@@ -140,6 +174,7 @@ fn main_flag_selects_among_several_entry_points() {
             );
         }
     }
+    __stamp.verified();
 }
 
 /// The command's exit code is the program's, so `salvo run` can replace
@@ -148,6 +183,9 @@ fn main_flag_selects_among_several_entry_points() {
 /// (rustc panics with 101, the JVM exits 1), so only "nonzero" is asserted.
 #[test]
 fn the_programs_exit_code_is_the_commands() {
+    let Some(__stamp) = e2e_stamp("the_programs_exit_code_is_the_commands", &["rustc"]) else {
+        return;
+    };
     if !have("rustc") {
         eprintln!("skipping: rustc not found on PATH");
         return;
@@ -171,6 +209,7 @@ fn the_programs_exit_code_is_the_commands() {
         "the program's own stderr should reach the terminal: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    __stamp.verified();
 }
 
 // ===== --clean-target =====
@@ -180,6 +219,9 @@ fn the_programs_exit_code_is_the_commands() {
 /// run's files.
 #[test]
 fn clean_target_decides_what_survives_the_run() {
+    let Some(__stamp) = e2e_stamp("clean_target_decides_what_survives_the_run", &["rustc"]) else {
+        return;
+    };
     if !have("rustc") {
         eprintln!("skipping: rustc not found on PATH");
         return;
@@ -214,6 +256,7 @@ fn clean_target_decides_what_survives_the_run() {
     );
     assert!(out.status.success());
     assert!(!stale.exists(), "the target is cleared before the build");
+    __stamp.verified();
 }
 
 // ===== argument validation (no toolchain needed) =====
@@ -258,6 +301,9 @@ fn a_target_equal_to_the_source_directory_is_rejected() {
 /// [mod-ignore], which is why the default target is `.salvo_tmp_run`.
 #[test]
 fn a_visible_target_inside_the_sources_is_rejected() {
+    let Some(__stamp) = e2e_stamp("a_visible_target_inside_the_sources_is_rejected", &["rustc"]) else {
+        return;
+    };
     let dir = work_dir("target_inside_src");
     fs::write(dir.join("main.sv"), HELLO).unwrap();
     let out = salvo_in(&dir, &["run", "--backend", "rust", "--src", ".", "--target", "out"]);
@@ -275,6 +321,7 @@ fn a_visible_target_inside_the_sources_is_rejected() {
         !stderr.contains("read the emitted files back"),
         "a hidden nested target should be allowed: {stderr}"
     );
+    __stamp.verified();
 }
 
 /// `--src` and `--main` are independent, each supplying a default for the
@@ -284,6 +331,9 @@ fn a_visible_target_inside_the_sources_is_rejected() {
 /// one level up is out of reach for `--main` alone.
 #[test]
 fn src_and_main_together_allow_a_nested_entry_point() {
+    let Some(__stamp) = e2e_stamp("src_and_main_together_allow_a_nested_entry_point", &["kotlinc"]) else {
+        return;
+    };
     let dir = work_dir("src_and_main");
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
@@ -327,6 +377,7 @@ fn src_and_main_together_allow_a_nested_entry_point() {
         "stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    __stamp.verified();
 }
 
 /// The entry file has to be one of the compiled sources, so a `--main`

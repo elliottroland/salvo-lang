@@ -1,0 +1,19 @@
+# cargo-nextest configuration.
+#
+# nextest is kept for *diagnosis*, not as the default runner: it reports each
+# test's duration (stock libtest will not, on stable), which is how the slow
+# tests in this suite were found. Measured on this suite it is slightly
+# slower than `cargo test` — it runs every test in its own process, and 500+
+# mostly-microsecond tests pay that spawn cost — so the documented commands
+# stay `cargo test` and `SALVO_SKIP_E2E=1 cargo test`.
+#
+#   cargo nextest run                 # all tests, with per-test timings
+#   cargo nextest run -p salvo-cli    # one crate
+#   cargo nextest list                # what would run
+[profile.default]
+# The toolchain tests are minutes-long only when something is wrong; a test
+# that hangs should say so rather than stall the run.
+slow-timeout = { period = "30s", terminate-after = 8 }
+# Show a line per test as it finishes, so the timings are the point.
+status-level = "pass"
+final-status-level = "slow"

@@ -59,8 +59,13 @@ pub fn fn_call(
         ("size", Some("List")) | ("size", Some("[]")) => {
             format!("({}.len() as i32)", a(0))
         }
-        // Iterators are eager: `Iter<T>` is `Vec<T>` [rs-iter-vec].
-        ("iter", Some("List")) | ("iter", Some("[]")) => format!("{}.clone()", a(0)),
+        // Iterators are lazy: `Iter<T>` is the generated factory type
+        // [rs-iter-lazy].
+        ("iter", Some("List")) | ("iter", Some("[]")) => {
+            // [rs-iter-lazy] The elements are already there, so a pass is a
+            // walk over a copy of them.
+            format!("SalvoIter::from_vec({}.clone())", a(0))
+        }
 
         // core.string ----------------------------------------------------
         // Characters, not bytes: `Str` is a `String`, whose `len()` counts
@@ -93,8 +98,9 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "None" => "()",
         // Only reachable in dead positions.
         "Nothing" => "()",
-        // Iterators are eager [rs-iter-vec].
-        "Iter" => "Vec",
+        // Iterators are lazy [rs-iter-lazy]: a factory of passes, like
+        // Kotlin's `Iterable<T>`.
+        "Iter" => "SalvoIter",
         "List" => "Vec",
         _ => return None,
     })

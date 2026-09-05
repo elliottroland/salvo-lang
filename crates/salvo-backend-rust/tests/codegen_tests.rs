@@ -48,8 +48,33 @@ fn expect_errors(src: &str) -> Vec<String> {
 /// Compiles the generated files with rustc and runs the binary, asserting
 /// the exact stdout. Skipped when rustc is not installed.
 fn run_rust_files(files: &[salvo_backend_rust::EmittedFile], tag: &str, expected: &str) {
-    let dir = std::env::temp_dir().join(format!("salvo-rs-test-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // As in the Kotlin backend: the gate and the cache are at the point of
+    // use, so neither can be bypassed by a test that forgets them.
+    let rustc = salvo_testkit::rustc();
+    if !rustc.available {
+        return;
+    }
+    // A pass is a pure function of the generated code, the expected output
+    // and the compiler, so it is worth remembering; `SALVO_E2E_FRESH=1`
+    // ignores the stamps.
+    let mut parts: Vec<Vec<u8>> = vec![
+        b"rust-files".to_vec(),
+        rustc.version.as_bytes().to_vec(),
+        expected.as_bytes().to_vec(),
+    ];
+    for f in files {
+        parts.push(f.rel_path.to_string_lossy().as_bytes().to_vec());
+        parts.push(f.content.as_bytes().to_vec());
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    let Some(stamp) = salvo_testkit::cached(
+        env!("CARGO_TARGET_TMPDIR"),
+        &format!("rust-files {tag}"),
+        &refs,
+    ) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rs-{tag}"));
     let src_dir = dir.join("src");
     for f in files {
         let path = src_dir.join(&f.rel_path);
@@ -78,11 +103,15 @@ fn run_rust_files(files: &[salvo_backend_rust::EmittedFile], tag: &str, expected
     );
     let stdout = String::from_utf8_lossy(&run.stdout);
     assert_eq!(stdout, expected, "unexpected program output");
+    stamp.verified();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Whether the compile-and-run tests should exercise `rustc`. Probed once
+/// per test binary by `salvo-testkit`, which also owns the `SALVO_SKIP_E2E`
+/// gate and the version string that goes into every cache key.
 fn rustc_available() -> bool {
-    Command::new("rustc").arg("--version").output().is_ok()
+    salvo_testkit::rustc().available
 }
 
 // ===== demo: structs, defaults, spread, nullability, effects, iterators =====
@@ -487,7 +516,7 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
         .unwrap();
     assert!(main.content.contains("pub trait Random<T> {"));
     assert!(main.content.contains("fn next_random(&mut self) -> T;"));
-    assert!(main.content.contains("impl<T: Clone> Random<T> for CyclicRandom<T>"));
+    assert!(main.content.contains("impl<T: Clone + 'static> Random<T> for CyclicRandom<T>"));
     // Effect deps as leading `&mut dyn` parameters.
     assert!(main.content.contains(
         "pub fn draw(random_i32: &mut dyn Random<i32>, random_string: &mut dyn Random<String>, console: &mut dyn Console)"
@@ -2794,14 +2823,14 @@ fn rustc_compiles_and_runs_defer() {
     run_rust_files(&files, "defer", DEFER_OUTPUT);
 }
 
-// ===== E3 step 2: abort and `try` [abort] [try] [rs-abort-controlflow] =====
+// ===== E3 step 2: throw and `try` [throw] [try] [rs-throw-controlflow] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
 /// that declares the effect, a linear resource released by a deferred block
-/// *on the abort path*, two message types meeting at one delimiter
-/// (`Aborted (Str | Int)`), a may-abort call inside a loop, and a nested
-/// delimiter that must not swallow the outer abort.
-const ABORT_DEMO: &str = r#"
+/// *on the throw path*, two message types meeting at one delimiter
+/// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
+/// delimiter that must not swallow the outer throw.
+const THROW_DEMO: &str = r#"
 struct FileHandle canbe Linear {
     fd: Int
 }
@@ -2816,29 +2845,29 @@ fn close_file(h: FileHandle) [Console] -> [] None {
     discard(h)
 }
 
-fn parse(line: Str) [Abort<Str>, Console] -> [] Int {
+fn parse(line: Str) [Throw<Str>, Console] -> [] Int {
     println("parse ${line}")
     if size(line) == 0 {
-        abort("empty line")
+        throw("empty line")
     }
     return size(line)
 }
 
-fn limit(n: Int) [Abort<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> [] Int {
     if n > 4 {
-        abort(n)
+        throw(n)
     }
     return n
 }
 
-fn measure(line: Str) [Abort<Str>, Console] -> [] Int {
+fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
     let h = open_file(1)
     defer { close_file(h) }
     let n = parse(line)
     return n + h.fd
 }
 
-fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
+fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
     let sum = 0
     for line in lines {
         let inner = try {
@@ -2848,7 +2877,7 @@ fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
             is Ok {
                 println("within limit ${inner}")
             }
-            is Aborted {
+            is Thrown {
                 println("over limit ${inner}")
             }
         }
@@ -2857,13 +2886,13 @@ fn total(lines: Str[]) [Abort<Str>, Console] -> [] Int {
     return sum
 }
 
-fn report_text(outcome: Ok Int | Aborted Str) [Console] -> [] None {
+fn report_text(outcome: Ok Int | Thrown Str) [Console] -> [] None {
     when outcome {
         is Ok {
             println("ok ${outcome}")
         }
-        is Aborted {
-            println("aborted: ${outcome}")
+        is Thrown {
+            println("thrown: ${outcome}")
         }
     }
 }
@@ -2880,8 +2909,8 @@ fn main() [use] -> [] None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        is Aborted {
-            println("mixed aborted")
+        is Thrown {
+            println("mixed thrown")
         }
     }
     let counted = try {
@@ -2891,27 +2920,27 @@ fn main() [use] -> [] None {
         is Ok {
             println("counted ${counted}")
         }
-        is Aborted {
-            println("counted aborted: ${counted}")
+        is Thrown {
+            println("counted thrown: ${counted}")
         }
     }
     println("done")
 }
 "#;
 
-const ABORT_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
-                            open 1\nparse \nclose fd=1\naborted: empty line\n\
-                            open 1\nparse longer line\nclose fd=1\nmixed aborted\n\
+const THROW_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
+                            open 1\nparse \nclose fd=1\nthrown: empty line\n\
+                            open 1\nparse longer line\nclose fd=1\nmixed thrown\n\
                             within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
                             counted 7\ndone\n";
 
-/// [rs-abort-controlflow] A fn that may abort returns `ControlFlow<M, T>`:
-/// the message type *is* the `Break` payload, so `abort` is a plain return
-/// and propagation is `?` — no handler, no dispatch, no allocation. `Abort`
+/// [rs-throw-controlflow] A fn that may throw returns `ControlFlow<M, T>`:
+/// the message type *is* the `Break` payload, so `throw` is a plain return
+/// and propagation is `?` — no handler, no dispatch, no allocation. `Throw`
 /// is never a `&mut dyn` parameter.
 #[test]
-fn abort_lowers_to_controlflow() {
-    let files = generate(&[("main.sv", ABORT_DEMO)]);
+fn throw_lowers_to_controlflow() {
+    let files = generate(&[("main.sv", THROW_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2924,7 +2953,7 @@ fn abort_lowers_to_controlflow() {
     );
     assert!(
         main.content.contains("return ControlFlow::Break(\"empty line\".to_string());"),
-        "expected `abort` to return Break in:\n{}",
+        "expected `throw` to return Break in:\n{}",
         main.content
     );
     assert!(
@@ -2932,15 +2961,15 @@ fn abort_lowers_to_controlflow() {
         "expected returns to wrap in Continue in:\n{}",
         main.content
     );
-    // [abort] The effect emits no trait: there are no handlers to implement.
-    let std_abort = files
+    // [throw] The effect emits no trait: there are no handlers to implement.
+    let std_throw = files
         .iter()
-        .find(|f| f.rel_path.ends_with("core/abort.rs"))
+        .find(|f| f.rel_path.ends_with("core/throw.rs"))
         .map(|f| f.content.clone())
         .unwrap_or_default();
     assert!(
-        !std_abort.contains("trait Abort"),
-        "expected no trait for the abort effect in:\n{std_abort}"
+        !std_throw.contains("trait Throw"),
+        "expected no trait for the throw effect in:\n{std_throw}"
     );
     // Propagation with a pending deferred block cannot use `?`: the
     // deferred release has to run before the frame is left [defer].
@@ -2953,16 +2982,16 @@ fn abort_lowers_to_controlflow() {
     assert!(
         measure.contains("ControlFlow::Break(__m) => {")
             && measure.contains("close_file(console, h);"),
-        "expected the deferred release on the abort path in:\n{measure}"
+        "expected the deferred release on the throw path in:\n{measure}"
     );
 }
 
 /// [rs-try-label] `try` is a *labelled block*, not a closure: nothing is
 /// captured (the body reads the fn's effect parameters directly), and an
-/// abort inside it breaks the label with the outcome's aborted arm.
+/// throw inside it breaks the label with the outcome's thrown arm.
 #[test]
 fn try_lowers_to_a_labelled_block() {
-    let files = generate(&[("main.sv", ABORT_DEMO)]);
+    let files = generate(&[("main.sv", THROW_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
@@ -2988,13 +3017,13 @@ fn try_lowers_to_a_labelled_block() {
 }
 
 #[test]
-fn rustc_compiles_and_runs_abort() {
+fn rustc_compiles_and_runs_throw() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", ABORT_DEMO)]);
-    run_rust_files(&files, "abort", ABORT_OUTPUT);
+    let files = generate(&[("main.sv", THROW_DEMO)]);
+    run_rust_files(&files, "throw", THROW_OUTPUT);
 }
 
 // ===== E3 step 3: effects threaded into fn values [fn-effects] =====
@@ -3098,9 +3127,9 @@ fn rustc_compiles_and_runs_fn_type_effects() {
 // [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
-fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
+fn wrapped(n: Int) [Throw<Str>] -> [] Ok Int | Err Str {
     if n < 0 {
-        abort("negative")
+        throw("negative")
     }
     if n == 0 {
         return err("zero")
@@ -3108,9 +3137,9 @@ fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
     return ok(n)
 }
 
-fn limit(n: Int) [Abort<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> [] Int {
     if n > 4 {
-        abort(n)
+        throw(n)
     }
     return n
 }
@@ -3128,8 +3157,8 @@ fn describe(n: Int) [Console] -> [] None {
                 }
             }
         }
-        is Aborted {
-            println("aborted ${nested}")
+        is Thrown {
+            println("thrown ${nested}")
         }
     }
 }
@@ -3147,7 +3176,7 @@ fn main() [use] -> [] None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        ^ Aborted {
+        ^ Thrown {
             when mixed {
                 is Str {
                     println("message text ${mixed}")
@@ -3161,7 +3190,7 @@ fn main() [use] -> [] None {
 }
 "#;
 
-const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage number 9\n";
+const WIDEN_STDOUT: &str = "value 7\nerror zero\nthrown negative\nmessage number 9\n";
 
 /// [qual-widen] The peel is *materialized*: the widened value is bound to a
 /// shadowing local, so a nested `when` scrutinizes the inner union rather
@@ -3336,9 +3365,9 @@ fn rustc_compiles_and_runs_when_cond() {
 // `let mut` unconditionally, so the mutability half is latent here rather
 // than fatal; the declaration half is what would collide.
 const TRY_MUTATION_DEMO: &str = r#"
-fn risky(n: Int) [Abort<Str>] -> [] Int {
+fn risky(n: Int) [Throw<Str>] -> [] Int {
     if n < 0 {
-        abort("negative")
+        throw("negative")
     }
     return n
 }
@@ -3525,4 +3554,211 @@ fn rustc_compiles_and_runs_a_platform_effect() {
     let files = generate_platform_demo_with(&host);
     let expected = "[telemetry] work=41\nresult=42\n";
     run_rust_files(&files, "platform", expected);
+}
+
+// ===== [rs-fn-param-convention] generic fn-typed parameters =====
+
+/// A generic higher-order fn, in every argument form: an un-annotated
+/// lambda, an *annotated* one, and a named fn — over a `Copy` element type
+/// (`Int`) and a non-`Copy` one (`Str`).
+const GENERIC_HOF: &str = r#"
+fn map<T, U>(it: Iter<T>, f: (T) -> U) -> Iter<U> {
+    for x in it {
+        yield f(x)
+    }
+}
+
+fn apply<T, U>(value: T, f: (T) -> U) -> U {
+    return f(value)
+}
+
+fn shout(word: Str) -> Str {
+    return "${word}!"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let ns = list(1, 2)
+    for v in map(ns.iter(), n -> n * 2) { println("bare=${v}") }
+    for v in map(ns.iter(), (n: Int) -> n * 3) { println("ann=${v}") }
+    let ws = list("hi")
+    for w in map(ws.iter(), (s: Str) -> shout(s)) { println("str=${w}") }
+    for w in map(ws.iter(), shout) { println("named=${w}") }
+    for n in map(ws.iter(), s -> size(s)) { println("size=${n}") }
+    println("applied=${apply(2, (n: Int) -> n + 1)}")
+}
+"#;
+
+const GENERIC_HOF_OUTPUT: &str =
+    "bare=2\nbare=4\nann=3\nann=6\nstr=hi!\nnamed=hi!\nsize=2\napplied=3\n";
+
+/// [rs-fn-param-convention] [fn-contract] The declaration of a generic
+/// fn-typed parameter borrows — a type variable is never known to be
+/// `Copy` — so a lambda passed into that position has to bind its
+/// parameters the same way. Deciding from the lambda's *own* annotation
+/// instead disagreed exactly where the two types differ: `(n: Int) -> …`
+/// rendered `|n: i32|` against `FnMut(&T)` and rustc rejected the call
+/// with `E0631`, while the un-annotated form compiled — so the bug was
+/// invisible until a lambda was annotated.
+///
+/// [rs-iter-lazy] An *iterator* fn's callback is the exception on the outer
+/// level only: it arrives owned and `'static`, since it is called in every
+/// pass rather than during the call. The inner convention is the same.
+#[test]
+fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
+    let files = generate(&[("main.sv", GENERIC_HOF)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The plain generic higher-order fn: borrowed `FnMut`.
+        "f: &mut impl FnMut(&T) -> U",
+        // The iterator fn: owned, `'static`, and `Fn`.
+        "f: impl Fn(&T) -> U + 'static",
+        // Both give the lambda the same *inner* convention.
+        "|n: &i32|",
+        "|s: &String|",
+    ] {
+        assert!(
+            src.contains(expected),
+            "expected `{expected}` in:\n{src}"
+        );
+    }
+}
+
+/// The same program under rustc: the conventions have to agree for every
+/// argument form and both `Copy`-ness cases, and the output is what the
+/// Kotlin backend asserts for the same source.
+#[test]
+fn rustc_compiles_and_runs_a_generic_higher_order_fn() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", GENERIC_HOF)]);
+    run_rust_files(&files, "generic-hof", GENERIC_HOF_OUTPUT);
+}
+
+// ===== [rs-iter-lazy] `Iter<T>` is lazy on both backends =====
+
+/// An effect-free producer of an *unbounded* stream, a filter over it, and
+/// two passes: the program only terminates if the elements are produced on
+/// demand, and only prints twice from the start if the iterator is a
+/// factory rather than a one-shot. The Kotlin backend asserts the same
+/// stdout for the same source.
+pub const LAZY_ITER_DEMO: &str = r#"
+fn naturals(from: Int) -> Iter<Int> {
+    let i = from
+    while true {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn evens(it: Iter<Int>) -> [it] Iter<Int> {
+    for x in it {
+        if x % 2 == 0 {
+            yield copy(x)
+        }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let unconsumed = naturals(100)
+    println("created")
+    for v in evens(naturals(0)) {
+        if v > 6 {
+            break
+        }
+        println("even ${v}")
+    }
+    let twice = evens(naturals(0))
+    for v in twice {
+        if v > 2 {
+            break
+        }
+        println("first ${v}")
+    }
+    for v in twice {
+        if v > 2 {
+            break
+        }
+        println("second ${v}")
+    }
+}
+"#;
+
+pub const LAZY_ITER_OUTPUT: &str = "created\neven 0\neven 2\neven 4\neven 6\n\
+                                    first 0\nfirst 2\nsecond 0\nsecond 2\n";
+
+/// [rs-iter-lazy] [fn-iterator] An iterator fn lowers to a *factory* of
+/// passes: the parameters are captured once, cloned per pass, and the body
+/// becomes an `async` block that `SalvoGen` drives one element at a time.
+/// The `Vec` it used to build is gone, and with it the divergence from
+/// Kotlin over when a producer's work happens.
+#[test]
+fn an_iterator_fn_lowers_to_a_lazy_factory() {
+    let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        "-> SalvoIter<i32>",
+        "SalvoIter::from_factory(std::rc::Rc::new(move || {",
+        "Box::new(SalvoGen::<i32>::new(move |__slot| async move {",
+        "__slot.replace(Some(",
+        "SalvoYield::once().await;",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("__yielded"),
+        "the eager collection should be gone from:\n{src}"
+    );
+    // The support module is generated and mounted only when needed.
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path == std::path::Path::new("iter.rs")),
+        "expected a generated iter.rs"
+    );
+    assert!(
+        src.contains("#[path = \"iter.rs\"]") && src.contains("use crate::iter::*;"),
+        "expected the support module mounted and imported in:\n{src}"
+    );
+}
+
+/// An `Iter<T>` subject is borrowed by a `for` loop while its elements
+/// arrive owned — the opposite pairing from a collection, and what lets a
+/// second `for` run the producer again.
+#[test]
+fn a_for_loop_borrows_an_iter_subject() {
+    let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("for mut v in &twice {"),
+        "expected the second pass to borrow the factory in:\n{src}"
+    );
+}
+
+/// Under rustc: an unbounded producer that terminates, and a second pass
+/// that starts over. Before the change the first `for` never finished
+/// building its `Vec`.
+#[test]
+fn rustc_compiles_and_runs_a_lazy_iterator() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
+    run_rust_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }

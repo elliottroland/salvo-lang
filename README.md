@@ -135,9 +135,9 @@ fn main() [use] {
   function inherits its callback's effects and needs no annotation of its
   own.
 - **Non-resumption**: a function that may leave early declares
-  `[Abort<Str>]` and keeps its own return type; `abort(message)` returns
+  `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
   `Nothing`, so intermediate frames stay silent. The delimiter is
-  `try { ... }`, whose value is `Ok T | Aborted M` — an ordinary union, so
+  `try { ... }`, whose value is `Ok T | Thrown M` — an ordinary union, so
   `when` reads it like any result.
 - **Deductions**: `-> [list: Mut] T` annotations describing what a function
   does to its parameters — the ownership contract for the Rust backend.
