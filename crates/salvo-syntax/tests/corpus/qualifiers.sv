@@ -55,3 +55,29 @@ fn checks(person: Person) -> None {
     let nested: Ok (Ok Str | Err Int) | Err Bool = some_function()
     let pair = (person, check_surname(person))
 }
+
+// [qual-widen] `^` is the dual of `is`: a successful check reads the subject
+// with the qualifier *removed*, which is what opens a qualified union.
+fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
+    when outcome {
+        ^ Ok {
+            when outcome {
+                is Ok {
+                    println("value ${outcome}")
+                }
+                is Err {
+                    println("inner error ${outcome}")
+                }
+            }
+        }
+        is Err {
+            println("outer error ${outcome}")
+        }
+    }
+}
+
+fn read_only(list: Mut List<Int>) [Console] -> [list: Mut] None {
+    if list ^ Mut {
+        println("size ${size(list)}")
+    }
+}

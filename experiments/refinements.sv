@@ -34,9 +34,9 @@ struct Person {
 // qualifiers do; the same restriction applies: constructors must live in
 // the same file as the qualifier definition.
 // Because [first] is given, we know that the result will be non-empty.
-fn list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
-    return init_list(first, ...rest)
-}
+// fn list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
+//     return init_list(first, ...rest)
+// }
 
 fn first<T>(list: List<T>) -> T? {
     return list.get(0)
@@ -51,9 +51,9 @@ fn give_back<T>(list: NonEmpty List<T>) -> List<T> {
 }
 
 // Does something
-fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
-    return list.remove_at(0)
-}
+// fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
+//     return list.remove_at(0)
+// }
 
 provenance qualifier T of Int
 
@@ -71,12 +71,17 @@ fn main() [use] {
     use StdOutConsole
     use DefaultRandom
 
-    let number = 10
     let person = Person { id_number: "1231232", name: "Roland", age: number }
-    // let person2 = Person { ...person, id_number: "34578346584" }
-    // println(person.id_number)
+    let name = person.name
+    // let person2 = Person { name: person.name, id_number: "34578346584", age: 16 }
+    discard(person)
+    println(name)
 
-    let fh = get_fh()
+    try {
+        let fh = get_fh()
+        defer { close(fh) }
+        throws()
+    }
 
     let n = try_get_number()
     let message = when n {
@@ -87,6 +92,7 @@ fn main() [use] {
     }
 
     let strings = mutable_list("name", "surname", "something")
+
     if strings is NonEmpty {
         println("First element length: ${strings.first().size()}")
         give_back(strings)
@@ -97,7 +103,7 @@ fn main() [use] {
 
     let (a, b) = (1, 2)
     let c = a.add(b)
-    close(fh)
+    // close(fh)
 }
 
 fn close(fh: FileHandle) -> [] None {
@@ -127,4 +133,12 @@ fn try_get_number() [Random] -> Ok Int | Err Str | Bool | None {
     } else {
         return err("it was negative")
     }
+}
+
+fn may_fail(fh: FileHandle) [Abort<Str>] -> [] None {
+    throws()
+}
+
+fn throws() [Abort<Str>] {
+    abort("Something went wrong")
 }

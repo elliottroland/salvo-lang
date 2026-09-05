@@ -477,6 +477,7 @@ impl<'s> Lexer<'s> {
             ('*', _) => TokenKind::Star,
             ('/', _) => TokenKind::Slash,
             ('%', _) => TokenKind::Percent,
+            ('^', _) => TokenKind::Caret,
             _ => {
                 let span = Span::new(start, self.offset());
                 self.error(format!("unexpected character `{c}`"), span);

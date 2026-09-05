@@ -1327,5 +1327,537 @@ Module {
                 span: 963..1335,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[qual-widen] `^` is the dual of `is`: a successful check reads the subject",
+                    "with the qualifier *removed*, which is what opens a qualified union.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "describe",
+                    span: 1490..1498,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "outcome",
+                            span: 1499..1506,
+                        },
+                        ty: Union {
+                            arms: [
+                                QualifiedGroup {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Ok",
+                                                span: 1508..1510,
+                                            },
+                                            args: [],
+                                            span: 1508..1510,
+                                        },
+                                    ],
+                                    base: Union {
+                                        arms: [
+                                            Named {
+                                                qualifiers: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Ok",
+                                                            span: 1512..1514,
+                                                        },
+                                                        args: [],
+                                                        span: 1512..1514,
+                                                    },
+                                                ],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "Int",
+                                                        span: 1515..1518,
+                                                    },
+                                                    args: [],
+                                                    span: 1515..1518,
+                                                },
+                                            },
+                                            Named {
+                                                qualifiers: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Err",
+                                                            span: 1521..1524,
+                                                        },
+                                                        args: [],
+                                                        span: 1521..1524,
+                                                    },
+                                                ],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "Str",
+                                                        span: 1525..1528,
+                                                    },
+                                                    args: [],
+                                                    span: 1525..1528,
+                                                },
+                                            },
+                                        ],
+                                        span: 1512..1528,
+                                    },
+                                    span: 1508..1528,
+                                },
+                                Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Err",
+                                                span: 1532..1535,
+                                            },
+                                            args: [],
+                                            span: 1532..1535,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 1536..1539,
+                                        },
+                                        args: [],
+                                        span: 1536..1539,
+                                    },
+                                },
+                            ],
+                            span: 1508..1539,
+                        },
+                        variadic: false,
+                        span: 1499..1539,
+                    },
+                ],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1542..1549,
+                                },
+                                args: [],
+                                span: 1542..1549,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1554..1558,
+                            },
+                            args: [],
+                            span: 1554..1558,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                When {
+                                    subject: Ident(
+                                        Ident {
+                                            name: "outcome",
+                                            span: 1570..1577,
+                                        },
+                                    ),
+                                    branches: [
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Ok",
+                                                        span: 1590..1592,
+                                                    },
+                                                    args: [],
+                                                    span: 1590..1592,
+                                                },
+                                            ],
+                                            binding: None,
+                                            widen: true,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        When {
+                                                            subject: Ident(
+                                                                Ident {
+                                                                    name: "outcome",
+                                                                    span: 1612..1619,
+                                                                },
+                                                            ),
+                                                            branches: [
+                                                                WhenBranch {
+                                                                    check: [
+                                                                        TypeRef {
+                                                                            name: Ident {
+                                                                                name: "Ok",
+                                                                                span: 1641..1643,
+                                                                            },
+                                                                            args: [],
+                                                                            span: 1641..1643,
+                                                                        },
+                                                                    ],
+                                                                    binding: None,
+                                                                    widen: false,
+                                                                    body: Block {
+                                                                        stmts: [
+                                                                            Expr(
+                                                                                Call {
+                                                                                    callee: Ident(
+                                                                                        Ident {
+                                                                                            name: "println",
+                                                                                            span: 1666..1673,
+                                                                                        },
+                                                                                    ),
+                                                                                    type_args: [],
+                                                                                    args: [
+                                                                                        Str {
+                                                                                            parts: [
+                                                                                                Text(
+                                                                                                    "value ",
+                                                                                                ),
+                                                                                                Interp(
+                                                                                                    Ident(
+                                                                                                        Ident {
+                                                                                                            name: "outcome",
+                                                                                                            span: 1683..1690,
+                                                                                                        },
+                                                                                                    ),
+                                                                                                ),
+                                                                                            ],
+                                                                                            span: 1674..1692,
+                                                                                        },
+                                                                                    ],
+                                                                                    span: 1666..1693,
+                                                                                },
+                                                                            ),
+                                                                        ],
+                                                                        span: 1644..1711,
+                                                                    },
+                                                                    span: 1638..1711,
+                                                                },
+                                                                WhenBranch {
+                                                                    check: [
+                                                                        TypeRef {
+                                                                            name: Ident {
+                                                                                name: "Err",
+                                                                                span: 1731..1734,
+                                                                            },
+                                                                            args: [],
+                                                                            span: 1731..1734,
+                                                                        },
+                                                                    ],
+                                                                    binding: None,
+                                                                    widen: false,
+                                                                    body: Block {
+                                                                        stmts: [
+                                                                            Expr(
+                                                                                Call {
+                                                                                    callee: Ident(
+                                                                                        Ident {
+                                                                                            name: "println",
+                                                                                            span: 1757..1764,
+                                                                                        },
+                                                                                    ),
+                                                                                    type_args: [],
+                                                                                    args: [
+                                                                                        Str {
+                                                                                            parts: [
+                                                                                                Text(
+                                                                                                    "inner error ",
+                                                                                                ),
+                                                                                                Interp(
+                                                                                                    Ident(
+                                                                                                        Ident {
+                                                                                                            name: "outcome",
+                                                                                                            span: 1780..1787,
+                                                                                                        },
+                                                                                                    ),
+                                                                                                ),
+                                                                                            ],
+                                                                                            span: 1765..1789,
+                                                                                        },
+                                                                                    ],
+                                                                                    span: 1757..1790,
+                                                                                },
+                                                                            ),
+                                                                        ],
+                                                                        span: 1735..1808,
+                                                                    },
+                                                                    span: 1728..1808,
+                                                                },
+                                                            ],
+                                                            span: 1607..1822,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1593..1832,
+                                            },
+                                            span: 1588..1832,
+                                        },
+                                        WhenBranch {
+                                            check: [
+                                                TypeRef {
+                                                    name: Ident {
+                                                        name: "Err",
+                                                        span: 1844..1847,
+                                                    },
+                                                    args: [],
+                                                    span: 1844..1847,
+                                                },
+                                            ],
+                                            binding: None,
+                                            widen: false,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 1862..1869,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "outer error ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "outcome",
+                                                                                    span: 1885..1892,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                    span: 1870..1894,
+                                                                },
+                                                            ],
+                                                            span: 1862..1895,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1848..1905,
+                                            },
+                                            span: 1841..1905,
+                                        },
+                                    ],
+                                    span: 1565..1911,
+                                },
+                            ),
+                        ],
+                        span: 1559..1913,
+                    },
+                ),
+                span: 1487..1913,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                backing: None,
+                name: Ident {
+                    name: "read_only",
+                    span: 1918..1927,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 1928..1932,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 1934..1937,
+                                    },
+                                    args: [],
+                                    span: 1934..1937,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 1938..1942,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Int",
+                                                span: 1943..1946,
+                                            },
+                                            args: [],
+                                            span: 1943..1946,
+                                        },
+                                    },
+                                ],
+                                span: 1938..1947,
+                            },
+                        },
+                        variadic: false,
+                        span: 1928..1947,
+                    },
+                ],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1950..1957,
+                                },
+                                args: [],
+                                span: 1950..1957,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "list",
+                                span: 1963..1967,
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 1969..1972,
+                                        },
+                                        args: [],
+                                        span: 1969..1972,
+                                    },
+                                ],
+                            ),
+                            span: 1963..1972,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1974..1978,
+                            },
+                            args: [],
+                            span: 1974..1978,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Widen {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "list",
+                                                        span: 1988..1992,
+                                                    },
+                                                ),
+                                                quals: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Mut",
+                                                            span: 1995..1998,
+                                                        },
+                                                        args: [],
+                                                        span: 1995..1998,
+                                                    },
+                                                ],
+                                                span: 1988..1998,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "println",
+                                                                    span: 2009..2016,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "size ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Call {
+                                                                                callee: Ident(
+                                                                                    Ident {
+                                                                                        name: "size",
+                                                                                        span: 2025..2029,
+                                                                                    },
+                                                                                ),
+                                                                                type_args: [],
+                                                                                args: [
+                                                                                    Ident(
+                                                                                        Ident {
+                                                                                            name: "list",
+                                                                                            span: 2030..2034,
+                                                                                        },
+                                                                                    ),
+                                                                                ],
+                                                                                span: 2025..2035,
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                    span: 2017..2037,
+                                                                },
+                                                            ],
+                                                            span: 2009..2038,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1999..2044,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 1985..2044,
+                                },
+                            ),
+                        ],
+                        span: 1979..2046,
+                    },
+                ),
+                span: 1915..2046,
+            },
+        ),
     ],
 }

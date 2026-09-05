@@ -1765,6 +1765,7 @@ impl<'p> Emitter<'p> {
                 param_names,
                 deductions,
                 ret,
+                effects,
                 ..
             } => {
                 // Only meaningful in parameter position [fn-lambda].
@@ -1792,7 +1793,13 @@ impl<'p> Emitter<'p> {
                     Type::Named { base, .. } if base.name.name == "None" => String::new(),
                     other => format!(" -> {}", self.emit_type(other)),
                 };
-                format!("impl FnMut({}){ret}", ps.join(", "))
+                // [fn-effects] The effects a call performs are threaded in,
+                // so they are leading `&mut dyn E` parameters of the closure
+                // type — nothing is captured, which is what lets an
+                // effect-using fn value cross an effectful call.
+                let mut all = self.fn_type_effect_params(effects.as_deref());
+                all.extend(ps);
+                format!("impl FnMut({}){ret}", all.join(", "))
             }
             Type::Tuple { elems, .. } => {
                 let parts: Vec<String> = elems.iter().map(|e| self.emit_type(e)).collect();
@@ -1806,7 +1813,13 @@ impl<'p> Emitter<'p> {
                 // capture inference makes consuming closures `FnOnce`
                 // on its own.
                 if qualifiers.iter().any(|q| q.name.name == "Once") {
-                    if let Type::Fn { params, ret, .. } = base.as_ref() {
+                    if let Type::Fn {
+                        params,
+                        ret,
+                        effects,
+                        ..
+                    } = base.as_ref()
+                    {
                         let ps: Vec<String> =
                             params.iter().map(|p| self.emit_type(p)).collect();
                         let ret = match ret.as_ref() {
@@ -1815,12 +1828,29 @@ impl<'p> Emitter<'p> {
                             }
                             other => format!(" -> {}", self.emit_type(other)),
                         };
-                        return format!("impl FnOnce({}){ret}", ps.join(", "));
+                        // [fn-effects] as for `FnMut` above.
+                        let mut all = self.fn_type_effect_params(effects.as_deref());
+                        all.extend(ps);
+                        return format!("impl FnOnce({}){ret}", all.join(", "));
                     }
                 }
                 self.emit_type(base)
             }
         }
+    }
+
+    /// [fn-effects] The leading parameters a fn type's effects contribute:
+    /// one `&mut dyn Effect` each, in declaration order. A fused value
+    /// reborrows into them at the call site, so this stays fusion-agnostic.
+    fn fn_type_effect_params(&mut self, effects: Option<&[EffectRef]>) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for eff in effects.into_iter().flatten() {
+            if let EffectRef::Effect(r) = eff {
+                let rendered = self.emit_type_ref(r);
+                out.push(format!("&mut dyn {rendered}"));
+            }
+        }
+        out
     }
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
@@ -3080,7 +3110,11 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} {} {{\n", cond_code(c)));
             out.push_str(&self.emit_is_bindings(cond, indent + 1));
+            // [qual-widen] A `^` condition peels a wrapper for the branch.
+            let (shadows, saved) = self.emit_widen_shadows(cond, indent + 1);
+            out.push_str(&shadows);
             out.push_str(&self.emit_block_stmts(block, indent + 1, ctx));
+            self.restore_bindings(saved);
             out.push_str(&format!("{pad}}} "));
         }
         if let Some(block) = else_block {
@@ -3123,6 +3157,54 @@ impl<'p> Emitter<'p> {
             ));
         }
         out
+    }
+
+    /// [qual-widen] Materializes the peel a `^` check performs: the widened
+    /// value is bound to a **shadowing** local for the branch, so reads of
+    /// the subject — and any nested `when` on it — see it at the widened
+    /// type. Returns the emitted lines and the binding kinds to restore when
+    /// the branch ends (the shadow is owned; the outer binding may not be).
+    fn emit_widen_shadows(
+        &mut self,
+        cond: &Expr,
+        indent: usize,
+    ) -> (String, Vec<(String, Option<BindKind>)>) {
+        let pad = "    ".repeat(indent);
+        let mut sites: Vec<(&Expr, Span)> = Vec::new();
+        collect_widen_checks(cond, &mut |subject, span| sites.push((subject, span)));
+        let mut out = String::new();
+        let mut saved: Vec<(String, Option<BindKind>)> = Vec::new();
+        for (subject, span) in sites {
+            let Some(target) = self.checked.widen_targets.get(&(self.file_idx, span)).cloned()
+            else {
+                // No wrapper was peeled (the qualifier was statically
+                // present and is erased): nothing to materialize.
+                continue;
+            };
+            let Expr::Ident(id) = subject else {
+                let place = self.emit_raw(subject);
+                self.error(format!(
+                    "`^` on a projection is not supported yet: widening                      materializes a local for the branch, which needs a plain                      variable — bind `{place}` to one first"
+                ));
+                continue;
+            };
+            let test = self.is_test_of(span).cloned();
+            let code = self.emit_narrowed_read(subject, Some(&target), test);
+            let displaced = self.bindings.insert(id.name.clone(), BindKind::Owned);
+            saved.push((id.name.clone(), displaced));
+            out.push_str(&format!("{pad}let mut {} = {code};\n", rs_ident(&id.name)));
+        }
+        (out, saved)
+    }
+
+    /// Restores binding kinds displaced by a `^` shadow [qual-widen].
+    fn restore_bindings(&mut self, saved: Vec<(String, Option<BindKind>)>) {
+        for (name, kind) in saved.into_iter().rev() {
+            match kind {
+                Some(k) => self.bindings.insert(name, k),
+                None => self.bindings.remove(&name),
+            };
+        }
     }
 
     /// Reads the narrowed payload out of a subject for an `is` binding:
@@ -3651,6 +3733,16 @@ impl<'p> Emitter<'p> {
                 span,
                 ..
             } => self.emit_is_check(subject, check, *span),
+            // [qual-widen] The same runtime test as `is`, or `true` when the
+            // qualifiers are statically present: qualifiers are erased, so
+            // widening is a typing act, not a run-time one.
+            Expr::Widen { subject, span, .. } => match self.is_test_of(*span).cloned() {
+                Some(test) => {
+                    let subj = self.place_storage(subject);
+                    self.emit_union_test(&subj, &test)
+                }
+                None => "true".to_string(),
+            },
             Expr::NonNull { operand, .. } => {
                 format!("{}.unwrap()", self.emit_owned(operand))
             }
@@ -3685,7 +3777,9 @@ impl<'p> Emitter<'p> {
         let code = self.emit_expr(expr);
         match expr {
             Expr::Binary { op, .. } if bin_prec(*op) <= parent_prec => format!("({code})"),
-            Expr::Is { .. } | Expr::Lambda { .. } => format!("({code})"),
+            Expr::Is { .. } | Expr::Widen { .. } | Expr::Lambda { .. } => {
+                format!("({code})")
+            }
             _ => code,
         }
     }
@@ -3695,7 +3789,9 @@ impl<'p> Emitter<'p> {
         let code = self.emit_expr(expr);
         match expr {
             Expr::Binary { op, .. } if bin_prec(*op) < parent_prec => format!("({code})"),
-            Expr::Is { .. } | Expr::Lambda { .. } => format!("({code})"),
+            Expr::Is { .. } | Expr::Widen { .. } | Expr::Lambda { .. } => {
+                format!("({code})")
+            }
             _ => code,
         }
     }
@@ -3840,12 +3936,47 @@ impl<'p> Emitter<'p> {
             params: exp_params,
             param_names,
             deductions,
+            effects: exp_effects,
             ..
         } = expected
         else {
             return None;
         };
         let rust_name = self.rust_fn_name(decl);
+        // [fn-effects] The adapter takes the *expected* effect parameters —
+        // the caller passes them whatever this fn does with them — and
+        // forwards the ones the declaration actually needs. A named fn with
+        // fewer effects simply ignores the rest (the variance rule).
+        let mut effect_params: Vec<String> = Vec::new();
+        let mut effect_args: Vec<(String, String)> = Vec::new();
+        for eff in exp_effects.iter().flatten() {
+            if let EffectRef::Effect(r) = eff {
+                let rendered = self.emit_type_ref(r);
+                let var = format!("__fx{}", effect_params.len());
+                effect_params.push(format!("{var}: &mut dyn {rendered}"));
+                effect_args.push((rendered, var));
+            }
+        }
+        let mut forwarded_effects: Vec<String> = Vec::new();
+        for eff in decl.effects.iter().flatten() {
+            if let EffectRef::Effect(r) = eff {
+                if r.name.name == salvo_core::ABORT_EFFECT {
+                    continue;
+                }
+                let rendered = self.emit_type_ref(r);
+                match effect_args.iter().find(|(key, _)| *key == rendered) {
+                    Some((_, var)) => forwarded_effects.push(format!("&mut *{var}")),
+                    None => {
+                        // The checker's fits rule makes this unreachable:
+                        // a fn value may only perform effects its type
+                        // declares [fn-effects] [backend-never-wrong].
+                        self.error(format!(
+                            "internal error: `{name}` needs effect `{rendered}`, which                              the function type it is passed as does not declare"
+                        ));
+                    }
+                }
+            }
+        }
         let names: Vec<String> = (0..decl.params.len())
             .map(|i| format!("__a{i}"))
             .collect();
@@ -3878,14 +4009,14 @@ impl<'p> Emitter<'p> {
                 }
             })
             .collect();
+        let mut all_params = effect_params;
+        all_params.extend(names.iter().map(|p| format!("mut {p}")));
+        let mut all_args = forwarded_effects;
+        all_args.extend(fwd);
         Some(format!(
             "&mut |{}| {rust_name}({})",
-            names
-                .iter()
-                .map(|p| format!("mut {p}"))
-                .collect::<Vec<_>>()
-                .join(", "),
-            fwd.join(", ")
+            all_params.join(", "),
+            all_args.join(", ")
         ))
     }
 
@@ -4091,7 +4222,11 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} {} {{\n", cond_code(c)));
             out.push_str(&self.emit_is_bindings(cond, 0));
+            // [qual-widen]
+            let (shadows, saved) = self.emit_widen_shadows(cond, 0);
+            out.push_str(&shadows);
             out.push_str(&self.emit_value_block(block));
+            self.restore_bindings(saved);
             out.push('}');
         }
         match else_block {
@@ -4223,11 +4358,47 @@ impl<'p> Emitter<'p> {
                     rs_ident(&b.name)
                 ));
             }
+            // [qual-widen] A `^` branch head peels the arm it matched: bind
+            // the widened value to a shadowing local so the body — and any
+            // nested `when` on the subject — sees it at the widened type.
+            let mut saved_widen: Vec<(String, Option<BindKind>)> = Vec::new();
+            if branch.widen {
+                if let Some(target) = self
+                    .checked
+                    .widen_targets
+                    .get(&(self.file_idx, branch.span))
+                    .cloned()
+                {
+                    match subject {
+                        Expr::Ident(id) => {
+                            let code = self.emit_narrowed_read(
+                                subject,
+                                Some(&target),
+                                Some(test.clone()),
+                            );
+                            let displaced =
+                                self.bindings.insert(id.name.clone(), BindKind::Owned);
+                            saved_widen.push((id.name.clone(), displaced));
+                            out.push_str(&format!(
+                                "{pad}        let mut {} = {code};\n",
+                                rs_ident(&id.name)
+                            ));
+                        }
+                        other => {
+                            let place = self.emit_raw(other);
+                            self.error(format!(
+                                "`^` on a projection is not supported yet: widening                                  materializes a local for the branch, which needs a                                  plain variable — bind `{place}` to one first"
+                            ));
+                        }
+                    }
+                }
+            }
             if value_pos {
                 out.push_str(&self.emit_value_block(&branch.body));
             } else {
                 out.push_str(&self.emit_block_stmts(&branch.body, indent + 2, ctx));
             }
+            self.restore_bindings(saved_widen);
             out.push_str(&format!("{pad}    }}\n"));
         }
         // Arms the narrowed subject can no longer hold: the checker
@@ -4482,25 +4653,44 @@ impl<'p> Emitter<'p> {
                 (p.name.name.clone(), old)
             })
             .collect();
-        let param_list: Vec<String> = params
-            .iter()
-            .enumerate()
-            .map(|(i, p)| match &p.ty {
-                Some(t) => {
-                    let ty = self.emit_type(t);
-                    // [fn-contract] Annotations match the binding mode.
-                    let ty = match contract.as_ref().and_then(|c| c.get(i)) {
-                        Some(e) if e.kept && e.mutable => format!("&mut {ty}"),
-                        Some(e) if e.kept && !self.is_copy_ast_type(t) => {
-                            format!("&{ty}")
-                        }
-                        _ => ty,
-                    };
-                    format!("{}: {ty}", rs_ident(&p.name.name))
-                }
-                None => rs_ident(&p.name.name),
-            })
-            .collect();
+        // [fn-effects] The effects a call of this value performs arrive as
+        // *leading parameters*, not captures: that is what keeps the closure
+        // from holding a borrow across an effectful call [rs-effect-fusion].
+        let lambda_effects: Vec<Ty> = self
+            .checked
+            .lambda_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        let saved_effect_env = self.effect_env.clone();
+        let mut param_list: Vec<String> = Vec::new();
+        for ty in &lambda_effects {
+            let rendered = self.rust_ty(ty);
+            let var = self.unique_name(effect_param_name(&rendered));
+            self.effect_env.push(EffectEntry {
+                ty: Some(ty.clone()),
+                key: rendered.clone(),
+                var: var.clone(),
+                is_local: false,
+            });
+            self.bindings.insert(var.clone(), BindKind::RefMut);
+            param_list.push(format!("{var}: &mut dyn {rendered}"));
+        }
+        param_list.extend(params.iter().enumerate().map(|(i, p)| match &p.ty {
+            Some(t) => {
+                let ty = self.emit_type(t);
+                // [fn-contract] Annotations match the binding mode.
+                let ty = match contract.as_ref().and_then(|c| c.get(i)) {
+                    Some(e) if e.kept && e.mutable => format!("&mut {ty}"),
+                    Some(e) if e.kept && !self.is_copy_ast_type(t) => {
+                        format!("&{ty}")
+                    }
+                    _ => ty,
+                };
+                format!("{}: {ty}", rs_ident(&p.name.name))
+            }
+            None => rs_ident(&p.name.name),
+        }));
         let out = match body {
             LambdaBody::Expr(expr) => {
                 format!("|{}| {}", param_list.join(", "), self.emit_expr(expr))
@@ -4548,6 +4738,7 @@ impl<'p> Emitter<'p> {
                 out
             }
         };
+        self.effect_env = saved_effect_env;
         for (name, old) in saved {
             match old {
                 Some(kind) => self.bindings.insert(name, kind),
@@ -4729,9 +4920,11 @@ impl<'p> Emitter<'p> {
             let arg_refs: Vec<&Expr> = args.iter().collect();
             self.emit_resolved_call(&id.name, type_args, &arg_refs, span)
         } else {
-            // Calling a computed value (lambda etc.): owned args [fn-lambda].
+            // Calling a computed value (lambda etc.): owned args [fn-lambda],
+            // with its effects threaded first [fn-effects].
             let callee_code = self.emit_owned(callee);
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
+            arg_code.extend(args.iter().map(|a| self.emit_expr(a)));
             format!("{callee_code}({})", arg_code.join(", "))
         }
     }
@@ -4785,10 +4978,6 @@ impl<'p> Emitter<'p> {
                     trait_path_of_rendered(&rendered)
                 }
             };
-            if let Some(m) = member {
-                let params = m.params.clone();
-                self.reject_fused_fn_args(name, &params, &arg_code);
-            }
             let (prelude, arg_code) =
                 self.hoist_effect_args(Some(&[handler.clone()]), arg_code);
             let mut all = vec![handler];
@@ -4900,8 +5089,27 @@ impl<'p> Emitter<'p> {
                 .collect(),
             None => args.iter().map(|a| self.emit_expr(a)).collect(),
         };
+        // [fn-effects] A fn value takes its effects as leading arguments.
+        let mut all = self.fn_value_effect_args(span);
+        all.extend(arg_code);
         let generics = self.emit_call_type_args(type_args);
-        format!("{}{generics}({})", rs_ident(name), arg_code.join(", "))
+        format!("{}{generics}({})", rs_ident(name), all.join(", "))
+    }
+
+    /// [fn-effects] The effect arguments a fn-value call threads, from the
+    /// instances the checker resolved for it. A fused value reborrows into
+    /// the `&mut dyn Effect` parameter, so this works under the fusion too.
+    fn fn_value_effect_args(&mut self, span: Span) -> Vec<String> {
+        let effects: Vec<Ty> = self
+            .checked
+            .call_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        effects
+            .iter()
+            .map(|ty| self.thread_effect_by_ty(ty))
+            .collect()
     }
 
     /// Explicit call-site generic args (`next_random<Int>()` outside the
@@ -5194,7 +5402,6 @@ impl<'p> Emitter<'p> {
             if all.is_empty() {
                 (Vec::new(), rendered)
             } else {
-                self.reject_fused_fn_args(name, &f.params, &rendered);
                 let threaded = all.clone();
                 self.hoist_effect_args(Some(&threaded), rendered)
             }
@@ -5297,34 +5504,6 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [rs-effect-fusion] [backend-never-wrong] A **fn-typed** argument that
-    /// reaches the fused value cannot be rescued by hoisting: a closure
-    /// *keeps* the borrow it captured, so it is still alive while the call
-    /// borrows the same value for its own effects (`E0499`). This is the one
-    /// place the fusion loses a program Kotlin runs (objects alias), so it
-    /// is reported.
-    ///
-    /// It covers both an effect-using lambda and a named effectful fn passed
-    /// by value (its adapter closure captures the fused value the same way).
-    fn reject_fused_fn_args(&mut self, callee: &str, params: &[Param], args: &[String]) {
-        let Some((var, _)) = self.fused_var() else {
-            return;
-        };
-        for (p, code) in params.iter().zip(args) {
-            let fn_typed = matches!(p.ty, Type::Fn { .. }) || is_fn_group(&p.ty);
-            if fn_typed && mentions_ident(code, &var) {
-                self.error(format!(
-                    "the function passed as `{}` to `{callee}` uses an effect, and \
-                     `{callee}` needs one too — the rust backend cannot fuse that \
-                     yet (the closure would hold the fused value while the call \
-                     borrows it); pass the effect's result instead, or give \
-                     `{callee}` no effects",
-                    p.name.name
-                ));
-            }
-        }
-    }
-
     /// The expression a member call dispatches through for an effect
     /// instance (local handler variables and `&mut dyn` parameters both
     /// auto-reborrow on method calls) [rs-effects]. Under the fusion,
@@ -5417,17 +5596,28 @@ impl<'p> Emitter<'p> {
     /// Exact-key lookup, then a unique same-base-name fallback (generic
     /// callee effects like `Random<T>` against a concrete `Random<i32>`).
     fn effect_entry(&self, effect_ty: &str) -> Option<EffectEntry> {
-        if let Some(entry) = self.effect_env.iter().find(|e| e.key == effect_ty) {
+        // Innermost first, as in `effect_entry_by_ty` [fn-effects].
+        if let Some(entry) = self.effect_env.iter().rev().find(|e| e.key == effect_ty) {
             return Some(entry.clone());
         }
         let base = effect_ty.split('<').next().unwrap_or(effect_ty);
         let matches: Vec<&EffectEntry> = self
             .effect_env
             .iter()
+            .rev()
             .filter(|e| e.key.split('<').next().unwrap_or(&e.key) == base)
             .collect();
         if matches.len() == 1 {
             Some(matches[0].clone())
+        } else if matches
+            .first()
+            .is_some_and(|first| matches.iter().all(|e| e.key == first.key))
+        {
+            // The same effect twice: an inner scope (a `use`, or a lambda's
+            // effect parameter [fn-effects]) shadowing an outer entry. The
+            // innermost wins; genuine ambiguity — *different* instances of a
+            // generic effect — stays an error [effect-disambiguation].
+            matches.first().copied().cloned()
         } else {
             None
         }
@@ -5437,9 +5627,13 @@ impl<'p> Emitter<'p> {
     /// rendering-drift-immune path; falls back to the rendered key for
     /// entries that only exist as AST renderings.
     fn effect_entry_by_ty(&mut self, ty: &Ty) -> Option<EffectEntry> {
+        // Innermost first: a lambda's own effect *parameters* shadow the
+        // enclosing fn's, which is what keeps the closure from capturing
+        // them [fn-effects].
         if let Some(entry) = self
             .effect_env
             .iter()
+            .rev()
             .find(|e| e.ty.as_ref() == Some(ty))
         {
             return Some(entry.clone());
@@ -6254,6 +6448,25 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                     StructLitFieldKind::Spread(e) => collect_declared_expr(e, out),
                 }
             }
+        }
+        _ => {}
+    }
+}
+
+/// [qual-widen] Visits every `^` check a condition applies, including
+/// through `&&` chains and a `!`-free `||` (the same shape `is` bindings
+/// walk).
+fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
+    match cond {
+        Expr::Widen { subject, span, .. } => f(subject, *span),
+        Expr::Binary {
+            op: BinaryOp::And,
+            lhs,
+            rhs,
+            ..
+        } => {
+            collect_widen_checks(lhs, f);
+            collect_widen_checks(rhs, f);
         }
         _ => {}
     }

@@ -75,3 +75,17 @@ fn generic_calls() [Random<Int>, Random<Double>] -> None {
     let double: Double = next_random()
     let number = next_random<Int>()
 }
+
+// [fn-effects] A fn type may declare the effects a call of the value
+// performs; the function taking it inherits them.
+fn run_it(f: (s: Str) [Console] -> [s] Str, value: Str) -> [value] Str {
+    return f(value)
+}
+
+fn use_it() [Console] -> None {
+    let shouted = run_it(s -> {
+        println("shouting ${s}")
+        return "${s}!"
+    }, "hello")
+    println(shouted)
+}

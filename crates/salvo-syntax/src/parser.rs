@@ -1676,6 +1676,24 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
+                // [qual-widen] `expr ^ Qual...`, same precedence tier as `is`.
+                TokenKind::Caret if self.same_line() => {
+                    self.bump();
+                    let (quals, binding) = self.parse_is_check()?;
+                    if let Some(b) = &binding {
+                        self.error(
+                            "`^` takes no binding: the subject itself reads without                              the qualifier in the checked branch",
+                            b.span,
+                        );
+                    }
+                    let end = quals.last().map(|r| r.span).unwrap_or_else(|| lhs.span());
+                    let span = lhs.span().to(end);
+                    lhs = Expr::Widen {
+                        subject: Box::new(lhs),
+                        quals,
+                        span,
+                    };
+                }
                 TokenKind::Lt | TokenKind::Gt | TokenKind::LtEq | TokenKind::GtEq
                     if self.same_line() =>
                 {
@@ -2382,18 +2400,35 @@ impl<'s> Parser<'s> {
         Some(Expr::Try { body, span })
     }
 
-    fn parse_when(&mut self) -> Option<Expr> {        let start = self.expect(&TokenKind::KwWhen)?.span;
+    fn parse_when(&mut self) -> Option<Expr> {
+        let start = self.expect(&TokenKind::KwWhen)?.span;
         let subject = self.parse_condition()?;
         self.expect(&TokenKind::LBrace)?;
         let mut branches = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let is_span = self.expect(&TokenKind::KwIs)?.span;
+            // [qual-widen] A branch head is `is ...` (narrow) or `^ ...`
+            // (widen): the same arm test, opposite effect on the type.
+            let widen = self.at(&TokenKind::Caret);
+            let head_span = if widen {
+                self.bump().span
+            } else {
+                self.expect(&TokenKind::KwIs)?.span
+            };
             let (check, binding) = self.parse_is_check()?;
+            if widen {
+                if let Some(b) = &binding {
+                    self.error(
+                        "a `^` branch takes no binding: the subject itself reads                          without the qualifier inside the branch",
+                        b.span,
+                    );
+                }
+            }
             let body = self.parse_block()?;
-            let span = is_span.to(body.span);
+            let span = head_span.to(body.span);
             branches.push(WhenBranch {
                 check,
-                binding,
+                binding: if widen { None } else { binding },
+                widen,
                 body,
                 span,
             });

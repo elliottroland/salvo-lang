@@ -92,6 +92,7 @@ pub enum TokenKind {
     Slash,    // /
     Percent,  // %
     PlusPlus, // ++
+    Caret,    // ^ — the qualifier-widening check [qual-widen]
 
     Eof,
 }
@@ -241,6 +242,7 @@ impl TokenKind {
             TokenKind::Slash => "/",
             TokenKind::Percent => "%",
             TokenKind::PlusPlus => "++",
+            TokenKind::Caret => "^",
             _ => unreachable!("symbol() called on non-symbol token"),
         }
     }

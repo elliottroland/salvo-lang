@@ -83,6 +83,101 @@ interleaves them. That cut predates `defer` (a plain `println` after a
 `yield` diverges the same way) and is already recorded under
 [rs-iter-vec].
 
+**The widening check `^` landed 2026-09-05 (user design).** The dual of
+`is`: boolean-valued, same places, same runtime test, but a successful check
+reads the subject with the named qualifiers **removed** rather than added —
+`list ^ Mut` without `Mut`, `outcome ^ Ok` without `Ok`. A `when` branch head
+may be `^ Qual` too, which is the form that motivated it: `Ok (Ok Int | Err
+Str)` is a claim *about* a union, and `when o { ^ Ok { when o { … } } }`
+reaches the inner union with no intermediate binding and no repeated type.
+
+Decisions taken with it (all user, 2026-09-05): nothing to remove is an
+**error** (`^` removes a known claim; testing for one is `is`), qualifier
+**sequences** are allowed, there is **no binding form** (the subject itself
+reads widened), and droppability comes from **one exclusion list** —
+`types::qual_drop_block`, which `Qual T <: T` now reads as well, so the two
+cannot drift as intrinsics are added. That list is `Once` (restricts rather
+than refines), `Linear` (carries a use obligation) and `ReadOnly` (the value
+is derived from another); `ReadOnly` cannot be *written* in source today, so
+it is unreachable from a `^` and the list carries it for the day that
+changes.
+
+**The lowering needed a materialization the design did not anticipate, and
+finding it was the whole value of running the demo.** Qualifiers are erased,
+so widening looked like a pure typing act: emit `is`'s test and change the
+type. The emitted code compiled — and was **wrong**. Where the check peels a
+wrapper arm (`Ok (A | B)` → `A | B`), a nested `when` on the subject still
+scrutinized the *outer* wrapper, whose arm 0 is the one the outer test had
+already taken, so the second inner branch was dead code: `wrapped(0)`
+returning `err("zero")` printed `value zero` instead of `error zero`. The
+generated union's `Display` impl had been masking it, since printing either
+arm produced plausible output.
+
+The fix is to materialize the peel: the widened value is bound to a
+**shadowing local** at the top of the branch — `let mut nested =
+nested.u1().clone();` in Rust, `val nested = nested.value as Union2<Int,
+String>` in Kotlin — so reads and nested `when`s see the inner value.
+Shadowing (rather than a fresh name) is what avoids rewriting every read;
+Kotlin warns about it, which is the price. Rust also saves and restores the
+binding *kind* around the branch, since the shadow is owned where the outer
+binding may be a borrow. Checker-side this needed a physical-view override on
+the variable (`LocalVar::widened`), because `repr_of` reads the variable's
+declared type and a root narrow could not previously change it.
+
+Two cuts, both reported: `^` on a *projection* (`p.result ^ Ok`) needs a
+plain variable to shadow, and a `^` matching **more than one arm** cannot be
+one widened view (each arm peels a different wrapper position) — the latter
+rejected in the checker, so it reads as a language rule rather than a codegen
+failure.
+
+**E3 step 3 landed 2026-09-04: effects on fn types, threaded into the
+value.** Fn-type effect lists were parsed and dropped; now they are part of
+the type and mean **a requirement the caller of the value supplies**, not a
+capability the value carries (user decision). So a lambda body performs the
+effects *its type* declares rather than whatever its enclosing scope has,
+and both backends pass the effect *into* the closure as a leading parameter
+instead of capturing it.
+
+**The fusion's structural cut is lifted.** The one program shape Rust lost
+to Kotlin — an effect-using fn value passed to a callee that needs an effect
+too — compiles and runs: with nothing captured, the closure holds no borrow
+to overlap the call's own. Its codegen-error test is now a compile-and-run
+test, and the same source runs identically on both backends.
+
+**The user added an inference rule that removed the annotation tax:** a fn
+*inherits* the effects of its fn-typed parameters ("we only give the
+parameter `f` to `twice` so that it can call it"). So
+`fn run_it(f: (s: Str) [Logger] -> Str)` needs no list of its own — while its
+*callers* must still supply `Logger`, which is mechanically necessary, since
+that is where the value comes from at run time. Inheritance reaches through
+qualifiers (`Once () [Logger] -> None`), optionals and unions, and it is part
+of the callee's contract at call sites, so it had to be added to
+`check_callee_effects` as well as to the fn's own environment.
+
+**Two sub-items dissolved rather than shipped.** "Forbid escape" is
+unnecessary: a fn value carries no capability, so storing or returning one is
+safe and the error surfaces where it is *called* without its effects — the
+same shape as `defer`'s capture question in step 1. And a `use` in a fn
+type's effect list is rejected instead of represented: registering a handler
+is local to a body, so a lambda may `use` exactly when the function
+containing it may.
+
+Decided with it: **variance** (fewer effects fit where more are expected — a
+pure lambda is handed the effect and ignores it, never the reverse) and
+**inference** for un-annotated lambdas (from a visible body, which
+[decl-explicit] permits). Where a fn type *is* written, its list drives
+emission too: a pure lambda in an effectful position must still take the
+parameters the caller passes, which a hand-written Rust probe made obvious
+before any code was generated.
+
+The sweep cost four test programs (`ONCE_DEMO` and `FUSION_MIXED_DEMO` on
+both backends) and nothing in `std` — no std function takes a fn-typed
+parameter. Two bugs fell out: a bare *identifier* argument was checked
+without its expected type, so a named fn passed by value never saw the fn
+type it had to adapt to; and the emitters' effect lookups searched
+outermost-first, so a lambda's own effect parameter was shadowed *by* the
+enclosing fn's value instead of the other way round.
+
 **E3 step 2 landed 2026-09-04: `abort` + the intrinsic `try` on both
 backends.** Non-resumption works end to end: a fn that may abort declares
 `[Abort<M>]` and keeps its own return type, `abort(m)` returns `Nothing` so
@@ -346,15 +441,16 @@ surfaced: the `${T}` in a state field's `mutable_list()` had nothing to
 interpolate. State initializers are now checked against the declared type
 like struct defaults [effect-handler].
 
-**Next effects slice: E3 steps 1 (`defer`) and 2 (`abort` + `try`) landed
-2026-09-04; step 3 next.** Handler *control* beyond "always resumes":
-`defer` (**done** — see the entry above), then `abort` returning `Nothing`
-with a compiler-intrinsic `try` yielding `Ok T | Aborted M` (**done** — see
-the entry above). What remains under E3 is step 3 (enforce fn-type effect
-lists, pass effects *into* fn values, forbid their escape — which also
-lifts the fusion cut) and step 4 (transformers, with async as the second
-one). Async is explicitly *not* part of this arc: no silent
-`async`/`suspend` colouring, and async arrives later as an explicit
+**Next effects slice: E3 steps 1–3 landed 2026-09-04; step 4 (effect
+transformers) is what remains.** Handler *control* beyond "always resumes":
+`defer`, then `abort` returning `Nothing` with a compiler-intrinsic `try`
+yielding `Ok T | Aborted M`, then effects on fn types threaded into the
+value (which lifted the fusion's structural cut) — all three **done**, see
+the entries above. Step 4 is transformers: an effect member that runs a
+fn-typed parameter with *additional* effects available. The gate step 3 was
+supposed to build for it is in place, so the remaining question is the
+surface, not the mechanism. Async is explicitly *not* part of this arc: no
+silent `async`/`suspend` colouring, and async arrives later as an explicit
 effect.
 
 - **Still open: two effects cannot share a member name.**
@@ -367,18 +463,18 @@ effect.
   collision at declaration ([mod-collision]'s reasoning), or add a
   disambiguation form.
 
-Three cuts remain inside the fusion, all reported
-([backend-never-wrong]). Two are about type arguments the fusion does not
-derive — a dependent handler using its own generic parameters in a member
-signature, and a `use` whose effect instance is still generic. The third is
-structural and the only program shape the fusion *loses* to Kotlin: a
-**function value that uses an effect, passed to a callee that needs one
-too**. A closure keeps the borrow it captured, so it overlaps the call's own
-borrow of the same fused value, and argument hoisting — which rescues every
-other case — cannot separate them. Lifting it means passing the fused value
-*into* the closure (fn-type contracts carrying effects) instead of
-capturing it. Kotlin accepts all three (objects alias, generics erase), so
-each is a live divergence, documented under [rs-effect-fusion].
+**Two** cuts remain inside the fusion, both reported
+([backend-never-wrong]), and both about type arguments the fusion does not
+derive: a dependent handler using its own generic parameters in a member
+signature, and a `use` whose effect instance is still generic. Kotlin
+accepts both (generics erase), so each is a live divergence, documented
+under [rs-effect-fusion].
+
+The third — structural, and the only program shape the fusion *lost* to
+Kotlin — was **an effect-using function value passed to a callee that needs
+one too**, where the closure's captured borrow overlapped the call's own.
+**Lifted 2026-09-04 by E3 step 3**, exactly as predicted here: the fused
+value is passed *into* the closure instead of captured ([fn-effects]).
 
 **E1 prerequisite landed 2026-09-04: effects and handlers are not data.**
 The first buildable slice of the effects arc, and a live
@@ -2257,43 +2353,64 @@ is still unexercised ground.
   in total (`Abort` the effect, `Ok` and `Aborted` the arms) and nothing
   else about them.
 - **Nested qualification is the honest consequence of wrapping in `Ok`.**
-  ✅ Half-confirmed, and it turned up a **gap worth a decision** (see
-  below): `Ok None` works and is tested, but `Ok (Ok Int | Err Str)` cannot
-  be *destructured* — `when` rejects a qualified-group subject, so the inner
-  result is unreachable without a rule change. The same wall blocks reading
-  a union *message* out of `Aborted (Str | Int)`.
+  ✅ Confirmed, both shapes tested: `Ok None`, and `Ok (Ok Int | Err Str)`
+  taken apart through a binding at the inner type. `when` does reject a
+  qualified-group subject, but that is not a dead end — the droppable
+  qualifier rule unwraps it; see "Nested qualification" below for the two
+  alternatives that were rejected.
 - **Abort targets the innermost `try`.** ✅ [try-innermost]. Rust needs no
   token at all (the block label decides where a `break` lands); Kotlin's
   catch-all is innermost by construction, and its `else -> throw` rethrow is
   what an escaped function value would hit.
 
-#### Open **DECISION** (found 2026-09-04, while testing the above)
+#### Nested qualification: resolved without new surface (2026-09-04)
 
-**Should `when` see through a qualified group?** `try`'s outcome makes two
-qualified-union shapes reachable that the language cannot take apart:
+`try`'s outcome makes two qualified-union shapes reachable — a
+result-returning body (`Ok (Ok Int | Err Str) | Aborted Str`) and a union
+message (`Aborted (Str | Int)`) — and `when` rejects a qualified-group
+subject. That looked like a dead end and was reported as one; it is not.
+The **droppable-qualifier rule already unwraps**: `Qual T <: T`, so a
+binding at the inner type takes the level off, and both backends emit it
+correctly (Rust a plain unwrap, Kotlin a cast the narrowing makes
+unfailable — verified end to end, same stdout).
 
 ```
-let nested = try { wrapped(7) }     // Ok (Ok Int | Err Str) | Aborted Str
-when nested { is Ok { ... } }       // fine
-// inside that branch, `nested` is `Ok (Ok Int | Err Str)`:
-when nested { is Ok { ... } }       // ERROR: `when` requires a union-typed
-                                    // subject (found `Ok (Ok Int | Err Str)`)
+when nested {
+    is Ok {
+        let inner: Ok Int | Err Str = nested     // outer claim dropped
+        when inner { is Ok { … } is Err { … } }
+    }
+    is Aborted {
+        let message: Str | Int = mixed           // union message, same idiom
+        when message { is Str { … } is Int { … } }
+    }
+}
 ```
 
-The same applies to a union message: inside `is Aborted`, the value is
-`Aborted (Str | Int)` and there is no way to ask which arm. Options:
+Two alternatives were considered and rejected (user discussion
+2026-09-04):
 
-1. **`when` strips qualifiers from its subject** when the base is a union
-   (the qualifier is a claim *about* the union, not an arm of it). Cheapest,
-   and it matches how `is Ok` already reads through the wrapper.
-2. **A binding form** that unwraps: `is Ok inner` gives `inner: Ok Int | Err Str`
-   with the qualifier dropped — closer to today's `is Type name` form.
-3. **Leave it**: the outcome of a result-returning body has to be
-   destructured by re-wrapping (`if nested is Ok (Ok Int)`), which
-   [is-precise] may or may not already accept for a group.
+- **Merging nested qualifiers** (`Ok Err Str`) collides with an existing
+  meaning: a multi-qualifier type is a *set of claims* (`Mut NonEmpty
+  List<T>`), so `Ok Err Str` reads as both applying — a contradiction, not
+  nesting. It would also flatten the outcome union's arms, changing
+  [union-arm-identity] and the wrapper representation, and cost `try` its
+  uniform two-arm shape.
+- **A dedicated "check and unwrap" keyword.** Two objections. It conflates
+  a test with a *static* strip (inside `is Ok` the type is already known,
+  so nothing needs checking), and — decisively — the exclusions it would
+  need already exist: `Qual T <: T` is written "except `Once`", and
+  `Linear` is never a use-site qualifier, so the annotation path gets the
+  intrinsic-qualifier cases right for free. A keyword would re-implement
+  that list and have to keep it in sync as intrinsics are added (`Cell` is
+  next).
 
-Not urgent — no test needed it, and the abort demo works without it — but it
-is the one place where E3's outcome type is currently a dead end.
+What *was* wrong is discoverability: the diagnostic dead-ended. It now
+names the remedy — "`Ok (…)` is the claim `Ok` *about* a union: bind the
+inner union to a local and match that" — and the binding keeps which level
+is meant visible to a reader, which matters when the same qualifier name
+appears twice. Sugar (a stripping form on `is`) stays open, but it must
+reuse the subtype rule's exclusions rather than inventing its own.
 
 #### Why the intrinsic dodges a gate the library form would need
 
@@ -2338,8 +2455,12 @@ transformer if that reads better.
    is in the decision-log entry at the top; the short version is that the
    `ControlFlow` propagation and the `defer`-first ordering both held, and
    the closure lowering for `try` did not.
-3. Enforce fn-type effect lists; pass effects into fn values; forbid
-   escape. (Lifts the fusion cut, opens transformers.)
+3. ~~Enforce fn-type effect lists; pass effects into fn values; forbid
+   escape. (Lifts the fusion cut, opens transformers.)~~ **Done
+   2026-09-04** ([fn-effects], [rs-fn-effect-params],
+   [kt-fn-effect-params]) — with "forbid escape" dropped as unnecessary (a
+   fn value carries no capability) and the fusion cut duly lifted.
+   Transformers are now unblocked.
 4. Transformers, and async as the second one.
 
 Before (2), hand-write and run the Rust shapes for the three compositions
@@ -3116,9 +3237,9 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 428)
+## Test inventory (all green: 459)
 
-- `salvo-core`: 149 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 172 - 13 unit tests (file classification; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3221,7 +3342,23 @@ spec rule; consolidated here for findability):
   one diagnostic [type-unknown-lenient]; and the resolved bindings recorded
   per call, which is what `${T}` interpolates
   [backend-define-generics])
-  + 16 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
+  + 9 widening tests (`tests/widen_tests.rs` [qual-widen]: a `^` branch head
+  opening a nested union, `^ Mut` stripping in an `if` with the mutation it
+  then rejects, the intrinsic qualifiers refused with their reasons from the
+  shared exclusion list, nothing-to-remove rejected, a *type* on the right
+  rejected, more than one arm rejected, the no-binding parse error, and a
+  `^` branch consuming its arms so exhaustiveness still reports the rest)
+  + 11 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
+  declared effect available in a lambda body while an undeclared one is
+  rejected even with the effect in lexical scope; a fn *inheriting* its
+  fn-typed parameters' effects, through a qualifier too, with its caller
+  required to supply them; variance both ways (a pure fn and a pure lambda
+  fitting an effectful position, an effectful fn rejected by a pure one); an
+  un-annotated lambda's effects inferred from its body; each declared effect
+  required at the call, and a fn value called where its effect is
+  unavailable rejected — the reason "forbid escape" was unnecessary; and
+  `use` in a fn type rejected)
+  + 19 abort/`try` tests (`tests/abort_tests.rs` [abort] [try]: the
   outcome type read off an annotation mismatch (`Ok Int | Aborted Str`),
   several message types unioning (`Aborted (Str | Int)`), an always-leaving
   body still carrying `Ok None`, a `try` that cannot abort rejected, an
@@ -3232,8 +3369,12 @@ spec rule; consolidated here for findability):
   its consumption to the fall-through path [type-any-nothing], a linear
   value across a may-abort call rejected with the `defer` remedy accepted
   [abort-linear], `abort` *and* a may-abort call inside a deferred block
-  rejected [defer-no-escape], and an inner delimiter taking only its own
-  aborts [try-innermost])
+  rejected [defer-no-escape], an inner delimiter taking only its own
+  aborts [try-innermost]; plus the two nested-qualification shapes the
+  design asked to test rather than assume — a nested result outcome and a
+  union message, both taken apart through a binding at the inner type — and
+  the diagnostic that names that remedy when a qualified union is matched
+  directly [when-union-subject])
   + 12 deferred-block tests (`tests/defer_tests.rs` [defer]
   [defer-no-escape]: a linear obligation discharged on both paths of a fn
   with an early `return` — with the no-`defer` control proving the
@@ -3368,8 +3509,9 @@ spec rule; consolidated here for findability):
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one).
-- `salvo-syntax`: 45 (the corpus grew two LANGUAGE.md examples with E3: a
-  `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`) - std +
+- `salvo-syntax`: 45 (the corpus grew three LANGUAGE.md examples with E3: a
+  `defer` in `control_flow.sv`, `abort`/`try` in `effects.sv`, an effectful
+  fn type in `functions.sv`) - std +
   LANGUAGE.md-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
   error-reporting tests,
@@ -3398,7 +3540,7 @@ spec rule; consolidated here for findability):
   parse error naming the form), and 2 `try` tests ([try]: `try { ... }`
   parses as a block *expression*; a bodyless `try` is a parse error naming
   the form).
-- `salvo-backend-kotlin`: 103 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 107 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3470,6 +3612,12 @@ spec rule; consolidated here for findability):
   the last four are the handler-dependency programs the Rust fusion runs —
   the same sources, the same asserted stdout, which is what parity means
   here [effect-handler-deps] [rs-effect-fusion]);
+  and 2 fn-type-effect tests ([fn-effects] [kt-fn-effect-params]:
+  `fn_type_effects_thread_into_lambdas` asserting the inherited effect in
+  the signature, the effect as a leading *lambda parameter* rather than a
+  capture, a matching named fn passing as `::name` and a pure one wrapped in
+  an adapter; plus the kotlinc run of the program the Rust fusion used to
+  reject, with the same stdout);
   and 2 abort tests ([abort] [try] [kt-abort-signal]:
   `abort_lowers_to_a_signal_and_try_to_a_catch` asserting the generated
   stack-trace-less signal, a tagged `throw`, a *plain* call in the
@@ -3484,7 +3632,7 @@ spec rule; consolidated here for findability):
   end, an early `return`, `continue`/`break` out of a loop body, and a
   linear handle released on both paths — whose stdout matches the Rust
   run byte for byte).
-- `salvo-backend-rust`: 75 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 79 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -3567,7 +3715,14 @@ spec rule; consolidated here for findability):
   for the effect, and the deferred release on the abort path of a
   propagating call; `try_lowers_to_a_labelled_block` asserting the label,
   the *absence* of a closure, and the message wrapped into its union arm;
-  plus the rustc run of the demo Kotlin also runs).
+  plus the rustc run of the demo Kotlin also runs); and 3 fn-type-effect
+  tests ([fn-effects] [rs-fn-effect-params]:
+  `fn_type_effects_thread_into_closures` asserting the `&mut dyn` effect in
+  the closure *type* and as a leading closure parameter, and the named-fn
+  adapter forwarding or ignoring it;
+  `rustc_compiles_and_runs_effect_using_fn_value`, which is the **lifted
+  fusion cut** — the program this test used to assert *could not* be
+  emitted; and the shared demo Kotlin also runs).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -3575,6 +3730,31 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **"Erased at runtime" does not mean "no lowering".** `^` removes a
+  qualifier, and qualifiers are erased, so it looked like a typing-only
+  feature — but where the qualifier sat on a *union arm*, the value's
+  physical view moved inside a wrapper, and reads had to peel it. The
+  emitted code compiled and ran with plausible output while taking the wrong
+  branch. Two lessons: a wrapper-arm change is a representation change even
+  when the *type* change is pure, and a generated `Display` that prints
+  "whichever arm I hold" can hide exactly this class of bug — so test a
+  branch that distinguishes the arms (`err("zero")`, not just the happy
+  path).
+- **An expected type that only flows to *some* argument shapes will bite.**
+  `resolve_named_call` passed the parameter type down for lambda and call
+  arguments but not for a bare identifier — a deliberate old choice ("other
+  expressions keep the historical untyped probe"). With [fn-effects] that
+  silently broke a *named fn passed by value*: it never saw the fn type it
+  had to adapt to, so the Kotlin emitter kept `::plain` where a
+  `(Console, String) -> String` was wanted. When a feature depends on the
+  expectation reaching an argument, check *which* argument shapes get it.
+- **Innermost-first is the right search order for a scoped environment.**
+  Both emitters looked up effect values from the front of `effect_env`, so a
+  lambda's own effect *parameter* lost to the enclosing fn's value and the
+  closure captured after all. The same reversal was needed for the
+  base-name fallback, where "the same effect twice" (an inner scope
+  shadowing an outer) had to stop counting as ambiguity while two genuinely
+  different generic instances still do.
 - **A new file under `std/` needs a touch to be seen.** `std/` is embedded
   into the CLI with `include_dir`, which has no rerun-if-changed trigger for
   *added* files: `cargo run -- analyze` kept reporting "7 std files" after

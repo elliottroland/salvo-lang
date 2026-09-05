@@ -1240,7 +1240,7 @@ fn rustc_compiles_and_runs_linear_generics() {
 /// `Once`-typed by construction) and a plain lambda (inverted
 /// subtyping); the checker guarantees at most one call.
 const ONCE_DEMO: &str = r#"
-fn run_once(f: Once () -> None) {
+fn run_once(f: Once () [Console] -> None) {
     f()
 }
 
@@ -1269,7 +1269,8 @@ fn once_fn_params_emit_fnonce() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("pub fn run_once(f: impl FnOnce())"),
+        main.content
+            .contains("pub fn run_once(console: &mut dyn Console, f: impl FnOnce(&mut dyn Console))"),
         "generated:\n{}",
         main.content
     );
@@ -2234,7 +2235,7 @@ fn tallied(text: Str) [Console, use] -> [text] None {
     println("  tallied ${kept()}")
 }
 
-fn twice(f: (s: Str) -> [s] Str) -> [] Str {
+fn twice(f: (s: Str) [Logger] -> [s] Str) -> [] Str {
     return f("a")
 }
 
@@ -2278,12 +2279,14 @@ fn rustc_compiles_and_runs_fusion_mixed() {
     run_rust_files(&files, "fusion-mixed", FUSION_MIXED_STDOUT);
 }
 
-/// [backend-never-wrong] The one program the fusion loses to Kotlin: a
-/// function *value* that uses an effect, passed to a callee that needs one
-/// too. A closure keeps the borrow it captured, so hoisting cannot separate
-/// it from the call's own borrow of the same fused value (`E0499`).
+/// [fn-effects] The program the fusion used to lose to Kotlin: a function
+/// *value* that uses an effect, passed to a callee that needs one too.
+/// Capturing made the closure hold a borrow that overlapped the call's own
+/// (`E0499`), and hoisting could not separate them. Threading the effect
+/// *into* the value lifts it: the closure captures nothing, so the two
+/// borrows are of different things.
 #[test]
-fn effect_using_fn_value_at_an_effectful_call_is_a_codegen_error() {
+fn rustc_compiles_and_runs_effect_using_fn_value() {
     const SRC: &str = r#"
 effect Logger {
     fn log(message: Str) -> [message] None
@@ -2295,7 +2298,7 @@ handler ConsoleLogger(console: Console) of Logger {
     }
 }
 
-fn run_it(f: (s: Str) -> [s] Str) [Console] -> [] None {
+fn run_it(f: (s: Str) [Logger] -> [s] Str) [Console] -> [] None {
     println(f("x"))
 }
 
@@ -2312,19 +2315,22 @@ fn main() [use] -> [] None {
     demo()
 }
 "#;
-    let program = build_program(&[("main.sv", SRC, false)]);
-    let errors = match salvo_backend_rust::emit_program(&program) {
-        Ok(_) => panic!("expected a codegen error for an effect-using closure"),
-        Err(errors) => errors,
-    };
-    let msg = errors
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SRC, false)]);
+    let main = files
         .iter()
-        .find(|e| e.contains("uses an effect"))
-        .unwrap_or_else(|| panic!("got {errors:?}"));
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    // The effect arrives as a parameter of the closure, not a capture.
     assert!(
-        msg.contains("run_it") && msg.contains("borrows it"),
-        "the cut should name the callee and the reason: {msg}"
+        main.content.contains("|logger: &mut dyn Logger,"),
+        "expected the effect threaded into the closure:\n{}",
+        main.content
     );
+    run_rust_files(&files, "fn-effects", "LOG: in lambda x\ndone x\n");
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
@@ -3209,4 +3215,211 @@ fn rustc_compiles_and_runs_abort() {
     }
     let files = generate(&[("main.sv", ABORT_DEMO, false)]);
     run_rust_files(&files, "abort", ABORT_OUTPUT);
+}
+
+// ===== E3 step 3: effects threaded into fn values [fn-effects] =====
+
+/// The same program the Kotlin suite runs: an effect-using fn value passed
+/// to a callee that needs one too (what the fusion cut rejected), a named fn
+/// whose effect list matches, and a *pure* named fn in the same position.
+/// Identical stdout on both backends is what parity means here.
+const FN_EFFECTS_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+fn shout(s: Str) [Logger] -> [s] Str {
+    log("shouting ${s}")
+    return "${s}!"
+}
+
+fn plain(s: Str) -> [s] Str {
+    return "${s}."
+}
+
+// No effect list of its own: `run_it` *inherits* `[Logger]` from `f`.
+fn run_it(f: (s: Str) [Logger] -> [s] Str, value: Str) -> [value] Str {
+    return f(value)
+}
+
+fn demo() [Console, Logger] -> [] None {
+    println(run_it(s -> {
+        log("in lambda ${s}")
+        return "done ${s}"
+    }, "x"))
+    println(run_it(shout, "one"))
+    println(run_it(plain, "two"))
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    demo()
+}
+"#;
+
+const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
+
+/// [fn-effects] The effect is a leading `&mut dyn` parameter of the closure
+/// type, so nothing is captured — which is what lets the value cross a call
+/// that borrows the same effect value (the lifted fusion cut). A named fn is
+/// wrapped in an adapter that takes the expected effects and forwards the
+/// ones it declares.
+#[test]
+fn fn_type_effects_thread_into_closures() {
+    let files = generate(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content
+            .contains("f: &mut impl FnMut(&mut dyn Logger, &String) -> String"),
+        "expected the effect in the closure type:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("|logger: &mut dyn Logger,"),
+        "expected the effect as a leading closure parameter:\n{}",
+        main.content
+    );
+    // The adapter for a named fn: takes the expected effect, forwards what
+    // the declaration needs (`shout`), or ignores it (`plain`).
+    assert!(
+        main.content.contains("__fx0: &mut dyn Logger") && main.content.contains("shout(&mut *__fx0"),
+        "expected the named-fn adapter to forward the effect:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("plain(__a0)"),
+        "expected the pure fn to ignore the threaded effect:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_fn_type_effects() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    run_rust_files(&files, "fn-type-effects", FN_EFFECTS_STDOUT);
+}
+
+// ===== the widening check `^` [qual-widen] =====
+
+// [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
+// `when` the union inside a qualified one — the shape `try` outcomes produce.
+const WIDEN_DEMO: &str = r#"
+fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
+    if n < 0 {
+        abort("negative")
+    }
+    if n == 0 {
+        return err("zero")
+    }
+    return ok(n)
+}
+
+fn limit(n: Int) [Abort<Int>] -> [] Int {
+    if n > 4 {
+        abort(n)
+    }
+    return n
+}
+
+fn describe(n: Int) [Console] -> [] None {
+    let nested = try { wrapped(n) }
+    when nested {
+        ^ Ok {
+            when nested {
+                is Ok {
+                    println("value ${nested}")
+                }
+                is Err {
+                    println("error ${nested}")
+                }
+            }
+        }
+        is Aborted {
+            println("aborted ${nested}")
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    describe(7)
+    describe(0)
+    describe(-1)
+    let mixed = try {
+        let a = wrapped(1)
+        limit(9)
+    }
+    when mixed {
+        is Ok {
+            println("mixed ok ${mixed}")
+        }
+        ^ Aborted {
+            when mixed {
+                is Str {
+                    println("message text ${mixed}")
+                }
+                is Int {
+                    println("message number ${mixed}")
+                }
+            }
+        }
+    }
+}
+"#;
+
+const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage number 9\n";
+
+/// [qual-widen] The peel is *materialized*: the widened value is bound to a
+/// shadowing local, so a nested `when` scrutinizes the inner union rather
+/// than the wrapper it came out of. Without it the inner match reads the
+/// outer arm and the second branch is dead code — which is what this program
+/// caught while `^` was being built.
+#[test]
+fn widening_materializes_the_peel() {
+    let files = generate(&[("main.sv", WIDEN_DEMO, false)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains("let mut nested = nested.u1().clone();"),
+        "expected the widened value bound to a shadowing local:\n{}",
+        main.content
+    );
+    // The nested `when` then matches on the shadowed (inner) value.
+    let describe = main
+        .content
+        .split("pub fn describe")
+        .nth(1)
+        .and_then(|s| s.split("pub fn").next())
+        .unwrap();
+    assert_eq!(
+        describe.matches("match nested {").count(),
+        2,
+        "expected an outer and an inner match in:\n{describe}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_widening() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", WIDEN_DEMO, false)]);
+    run_rust_files(&files, "widen", WIDEN_STDOUT);
 }

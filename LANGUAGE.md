@@ -486,6 +486,44 @@ for i in range(0, person.age) {
 
 `for` loops evaluate to values just like `while` loops. They support `break`, `continue` and `else`.
 
+### Widening with `^`
+
+`is` narrows: a successful check means the value is *more* specific than its declared type. `^` is its dual — a successful check means the value may be read as *less* specific, with the named qualifiers removed:
+
+```
+fn describe(p: Mut Person) [Console] {
+    if p ^ Mut {
+        read_only_report(p)      // `p` reads as `Person` here
+    }
+}
+```
+
+Its reason to exist is the qualified union. `Ok (Ok Int | Err Str)` is a claim *about* a union, so `when` cannot take its arms apart — they belong to the inner type. A `^` branch head tests the arm and removes the claim in one step:
+
+```
+let nested = try { wrapped(7) }        // Ok (Ok Int | Err Str) | Aborted Str
+when nested {
+    ^ Ok {
+        // `nested` reads as `Ok Int | Err Str` here
+        when nested {
+            is Ok { println("value ${nested}") }
+            is Err { println("error ${nested}") }
+        }
+    }
+    is Aborted {
+        println("aborted ${nested}")
+    }
+}
+```
+
+The rules:
+
+- **Boolean-valued, like `is`**, and usable in the same places: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head. A `^` branch consumes the arms it matched, so exhaustiveness works unchanged.
+- **The qualifiers must be there.** Nothing to remove is an error, not a false test — `^` removes a known claim, it does not test for one (that is `is`).
+- **Several at once** is allowed: `v ^ Mut NonEmpty`.
+- **Some qualifiers can never be dropped**: `Once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `ReadOnly` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
+- **No binding form.** The subject itself reads widened, so `is Type name`'s counterpart would be redundant.
+
 ### Deferred blocks
 
 `defer { ... }` registers a block to run when the *enclosing block* ends:
@@ -626,6 +664,34 @@ fn do_something() {
 ```
 
 Lambdas can declare effects and deductions (to be discussed below), just like normal functions.
+
+#### Effects on function types
+
+A function *value* that performs an effect says so in its type, and the effect is supplied by whoever **calls** the value:
+
+```
+// `f` may log; `run_it` gets `[Logger]` for free — the only reason to take
+// `f` is to call it, and calling it needs Logger here.
+fn run_it(f: (s: Str) [Logger] -> [s] Str, value: Str) -> [value] Str {
+    return f(value)
+}
+
+fn demo() [Console, Logger] {
+    println(run_it(s -> {
+        log("in lambda ${s}")      // legal: the fn type declares Logger
+        return "done ${s}"
+    }, "x"))
+}
+```
+
+The rules follow from "the caller supplies it":
+
+- **A lambda body performs what its type declares** — not whatever its enclosing scope happens to have. A lambda passed where the fn type declares nothing may not log, even inside a function that can.
+- **A function inherits its fn-typed parameters' effects.** `run_it` above needs no effect list of its own, but its *callers* must have `Logger` available, because that is where the value comes from at run time.
+- **Fewer effects fit where more are expected.** A pure function passes wherever an effectful one is expected — it is handed the effect and ignores it. The reverse is an error: the value would reach a call site that cannot supply it.
+- **An un-annotated lambda's effects are inferred** from its body, so `let f = () -> { println("hi") }` has type `() [Console] -> None` and does not silently fit a pure position.
+- **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
+- `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.
 
 ### Iterator functions
 

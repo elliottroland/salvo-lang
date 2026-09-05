@@ -173,6 +173,28 @@ Conventions:
     during a crash are not part of a program's meaning; tightening this
     would mean catching the abort signal specifically and rethrowing
     (revisit with roadmap E3's `abort`).
+* [qual-widen] [kt-widen-shadow] A `^` check emits the same test `is` would
+  (or `true` for a tautology). Where it peels a wrapper arm, the widened
+  value is bound to a **shadowing `val`** at the top of the branch
+  (`val nested = nested.value as Union2<Int, String>`), so reads of the
+  subject and any nested `when` see the inner value. Kotlin warns about the
+  shadowing; the alternative — a fresh name — would need every read in the
+  branch rewritten. The cast cannot fail: the arm test just proved the arm.
+  * `^` on a projection is a reported codegen error for now, as in Rust.
+* [fn-effects] [kt-fn-effect-params] A fn type's effects are **leading
+  parameters** of the Kotlin function type: `(s: Str) [Logger] -> Str`
+  renders as `(Logger, String) -> String`, a lambda as
+  `{ logger: Logger, s: String -> … }`, and the call passes the handler
+  first. The JVM would let a closure capture the handler instead; threading
+  keeps one mechanism on both backends (user decision 2026-09-04), and the
+  checker's model — "the call supplies the effect" — is then the same story
+  everywhere.
+  * A **named fn** passes as a `::name` reference when its effect list
+    matches the expectation (its own effect parameters already come first);
+    when it declares *fewer* effects, an adapter lambda takes what the
+    caller passes and forwards what the fn needs.
+  * Inside a lambda body an effect resolves to the lambda's own parameter
+    (innermost-first lookup), not to the enclosing fn's.
 * [abort] [kt-abort-signal] The JVM's unwinding *is* the propagation, so
   aborting needs no return-shape change and no colouring: `abort(m)` throws
   a generated `salvo.AbortSignal`, an intermediate frame does nothing at

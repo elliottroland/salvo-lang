@@ -239,6 +239,13 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => block_names(body, used),
+        // [qual-widen] The qualifier names are type references.
+        Expr::Widen { subject, quals, .. } => {
+            expr_names(subject, used);
+            for q in quals {
+                type_ref_names(q, used);
+            }
+        }
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             expr_names(base, used)
         }

@@ -268,6 +268,36 @@ derives them mechanically:
   Kotlin).
 * [rs-postincrement] Rust has no `++`: statement-position `i++` emits
   `i += 1;`; value-position emits `({ let __t = i; i += 1; __t })`.
+* [qual-widen] [rs-widen-shadow] A `^` check emits the same test `is` would
+  (or `true` when the qualifiers are statically present — qualifiers are
+  erased, so widening is a typing act). Where it *peels a wrapper arm*, the
+  widened value is bound to a **shadowing local** at the top of the branch
+  (`let mut nested = nested.u1().clone();`), so reads of the subject and any
+  nested `when` see the inner value. The binding kind is saved and restored
+  around the branch, since the shadow is owned where the outer binding may be
+  a borrow.
+  * Without the shadow the emitted code compiles and is **wrong**: the nested
+    `match` scrutinizes the outer wrapper, whose arm 0 is the one the outer
+    test already took, so the second inner branch becomes dead code. Caught
+    by running the feature's own demo (`Display` on the generated union had
+    been masking it in the printed output).
+  * `^` on a *projection* (`p.result ^ Ok`) is a reported codegen error for
+    now: the materialization needs a plain variable to shadow.
+* [fn-effects] [rs-fn-effect-params] A fn type's effects are **leading
+  `&mut dyn Effect` parameters** of the closure: `(s: Str) [Logger] -> Str`
+  renders as `&mut impl FnMut(&mut dyn Logger, &String) -> String`, a lambda
+  as `|logger: &mut dyn Logger, s| …`, and the call passes the instance
+  first. Nothing is captured, which is what lifts the fusion cut above — and
+  a fused value coerces into the `&mut dyn` parameter, so this is
+  fusion-agnostic (verified by hand before implementation).
+  * Inside a lambda body an effect resolves to the lambda's *own* parameter:
+    the effect environment is searched innermost-first, so a parameter
+    shadows the enclosing fn's value rather than capturing it.
+  * A **named fn** passed by value gets an adapter closure taking the
+    *expected* effects and forwarding the ones it declares — a pure fn is
+    handed them and ignores them (the variance rule). A mismatch the
+    checker's fits rule should have caught is an internal-error codegen
+    diagnostic, never a guess [backend-never-wrong].
 * [defer] [rs-defer-splice] Rust has no `finally`, and a `Drop` guard
   cannot be used: `close(f)` consumes the handle, so the guard would have
   to own `f` from the `defer` onward, making it unusable for the rest of
@@ -558,16 +588,13 @@ effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
 
 #### Deliberate cuts inside the fusion ([backend-never-wrong])
 
-* A **function value that uses an effect, passed to a callee that needs one
-  too**. A closure keeps the borrow it captured, so it is still alive while
-  the call borrows the same fused value for its own effects (`E0499`), and
-  hoisting — which rescues every other argument — cannot separate them. This
-  covers an inline lambda and a named effectful fn passed by value (whose
-  adapter closure captures the same way). Reported at the call, naming the
-  parameter and the callee. Kotlin runs these (objects alias), so it is the
-  one program shape the fusion loses; the fix, if it is ever wanted, is to
-  pass the fused value *into* the closure — a fn-type contract carrying
-  effects — rather than capturing it.
+* ~~A **function value that uses an effect, passed to a callee that needs
+  one too**.~~ **Lifted 2026-09-04** by [fn-effects]: the effect is threaded
+  *into* the value instead of captured, so the closure holds no borrow and
+  the two borrows are of different things. The cut's own test program now
+  compiles and runs. (What it was: a captured borrow stayed alive while the
+  call borrowed the same fused value for its own effects — `E0499` — and
+  hoisting, which rescues every other argument, could not separate them.)
 * A **dependent handler that uses its own generic parameters** in a member
   signature: the generated `__Impl_H` trait is not generic (the fusion owns
   the handler behind an opaque `__H` and never derives its type arguments,
@@ -662,8 +689,7 @@ Reported as codegen errors, never silent wrong code:
 * referencing the `Any` type in emitted positions;
 * effect member fns with their own generic parameters;
 * a dependent handler using its own generic parameters in a member
-  signature, a `use` whose effect instance is still generic, and a
-  function value that uses an effect passed to a callee that needs one
+  signature, and a `use` whose effect instance is still generic
   ([rs-effect-fusion]);
 * struct destructuring in `for` patterns (same as Kotlin).
 

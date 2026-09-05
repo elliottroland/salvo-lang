@@ -381,3 +381,112 @@ fn an_inner_try_takes_only_its_own_aborts() {
     );
     assert_eq!(errs.len(), 1, "expected only the annotation error: {errs:?}");
 }
+
+// ===== nested qualification and union messages [try] =====
+// The two shapes the design flagged as wanting a test rather than an
+// assumption. Both are reachable: a *qualified union* is a claim about a
+// union, so the inner arms are matched by binding at the inner type — the
+// droppable-qualifier rule (`Qual T <: T`) does the unwrapping, which is
+// also why `Once` (never droppable) needs no special case here.
+
+/// [try] A body that already returns a result yields
+/// `Ok (Ok Int | Err Str) | Aborted M`, and the inner result is reachable.
+#[test]
+fn a_nested_result_outcome_can_be_taken_apart() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         qualifier Err<M> of M\n\
+         fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {{\n\
+         if flagged(\"x\") {{\n\
+         abort(\"bad\")\n\
+         }}\n\
+         return ok(n)\n\
+         }}\n\
+         fn ok(value: Int) [] -> [] Int as Ok {{\n\
+         return value\n\
+         }}\n\
+         fn probe() [] -> [] None {{\n\
+         let outcome = try {{ wrapped(1) }}\n\
+         when outcome {{\n\
+         is Ok {{\n\
+         let inner: Ok Int | Err Str = outcome\n\
+         when inner {{\n\
+         is Ok {{ note(\"value\") }}\n\
+         is Err {{ note(\"error\") }}\n\
+         }}\n\
+         }}\n\
+         is Aborted {{\n\
+         note(\"aborted\")\n\
+         }}\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [try] The same for a *union message*: `Aborted (Str | Int)`'s arms are
+/// reachable by binding at the message type.
+#[test]
+fn a_union_message_can_be_taken_apart() {
+    let errs = check(
+        r#"
+    let outcome = try {
+        let n = parse("x")
+        limit(n)
+    }
+    when outcome {
+        is Ok {
+            note("ok")
+        }
+        is Aborted {
+            let message: Str | Int = outcome
+            when message {
+                is Str {
+                    note("text")
+                }
+                is Int {
+                    note("number")
+                }
+            }
+        }
+    }
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [when-union-subject] Matching the qualified union *directly* is rejected
+/// with a diagnostic naming that remedy — the same qualifier name can appear
+/// at both levels (`Ok (Ok Int | …)`), so the binding is what makes which
+/// level is meant visible.
+#[test]
+fn matching_a_qualified_union_directly_names_the_remedy() {
+    let errs = check(
+        r#"
+    let outcome = try {
+        let n = parse("x")
+        limit(n)
+    }
+    when outcome {
+        is Ok {
+            note("ok")
+        }
+        is Aborted {
+            when outcome {
+                is Str {
+                    note("text")
+                }
+                is Int {
+                    note("number")
+                }
+            }
+        }
+    }
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("is the claim `Aborted` *about* a union")
+            && e.contains("bind the inner union to a local")),
+        "expected the remedy-naming diagnostic, got: {errs:?}"
+    );
+}

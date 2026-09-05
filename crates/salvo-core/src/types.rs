@@ -111,6 +111,13 @@ pub enum Ty {
         params: Vec<Ty>,
         ret: Box<Ty>,
         contract: Option<Vec<FnParamContract>>,
+        /// The effects a *call* of this fn value performs [fn-effects]:
+        /// declared on the type (`(s: Str) [Logger] -> Str`) or inferred
+        /// from a lambda's body. The value carries no capability — the
+        /// caller supplies these at each call — so a fn value may be
+        /// stored and passed freely; only *calling* it needs them in
+        /// scope.
+        effects: Vec<Ty>,
     },
     /// A generic type parameter in scope, e.g. `T`.
     Var(String),
@@ -306,10 +313,14 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         {
             is_subtype(a, base)
         }
-        // `Qual T <: T` — except `Once`, which may never be dropped
-        // (a once-callable fn is not a many-callable fn) [once-fn].
+        // `Qual T <: T` — except the qualifiers that may never be dropped
+        // ([qual-widen]'s single exclusion list: `Once`, `Linear`,
+        // `ReadOnly`).
         (Ty::Qualified { quals, base }, _) => {
-            !quals.iter().any(|q| q.name == "Once") && is_subtype(base, b)
+            quals
+                .iter()
+                .all(|q| qual_drop_block(&q.name).is_none())
+                && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb
@@ -321,13 +332,29 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| is_subtype(x, y))
         }
         (
-            Ty::Fn { params: pa, ret: ra, contract: ca },
-            Ty::Fn { params: pb, ret: rb, contract: cb },
+            Ty::Fn {
+                params: pa,
+                ret: ra,
+                contract: ca,
+                effects: ea,
+            },
+            Ty::Fn {
+                params: pb,
+                ret: rb,
+                contract: cb,
+                effects: eb,
+            },
         ) => {
             pa.len() == pb.len()
                 && pa.iter().zip(pb).all(|(x, y)| compatible(x, y))
                 && is_subtype(ra, rb)
                 && contract_fits(ca.as_deref(), cb.as_deref(), pa.len())
+                // [fn-effects] A fn value that performs *fewer* effects fits
+                // where more are expected — the caller supplies what it
+                // declared and the value simply does not use all of it. The
+                // reverse would let a value perform an effect its call site
+                // cannot provide.
+                && ea.iter().all(|e| eb.contains(e))
         }
         _ => false,
     }
@@ -362,6 +389,34 @@ pub fn contract_fits(
         let (_, a_mut) = keeps_all(a, i);
         (!b_kept || a_kept) && (!a_mut || b_mut || !b_kept)
     })
+}
+
+/// Why a qualifier may **not** be dropped from a type, if it may not
+/// [qual-widen]. The single exclusion list: `is_subtype`'s `Qual T <: T`
+/// rule and the `^` widening check both read it, so the two cannot drift as
+/// intrinsic qualifiers are added (user decision 2026-09-05).
+///
+/// Everything else is droppable: dropping a *claim* only loses knowledge
+/// (`NonEmpty`, `Ok`, provenance), and dropping a *permission* only loses
+/// permission (`Mut`, and `Cell` when it arrives).
+pub fn qual_drop_block(name: &str) -> Option<&'static str> {
+    match name {
+        // [once-fn] A once-callable fn is not a many-callable fn.
+        "Once" => Some(
+            "`Once` restricts rather than refines: dropping it would make a              once-callable value callable again",
+        ),
+        // [linear-obligation] Declared on the type, never written at a use
+        // site, so there is nothing to remove — and removing it would drop
+        // a use obligation.
+        "Linear" => Some(
+            "linearity is declared on the type, not applied at a use site, and              it carries a use obligation that cannot be dropped",
+        ),
+        // [readonly-return] The value is borrowed from somewhere else.
+        "ReadOnly" => Some(
+            "`ReadOnly` marks a value derived from another: dropping it would              claim ownership the value does not have",
+        ),
+        _ => None,
+    }
 }
 
 /// Invariant compatibility (used for generic arguments).
@@ -418,7 +473,12 @@ impl fmt::Display for Ty {
                 write!(f, ")")
             }
             Ty::Array(elem) => write!(f, "{elem}[]"),
-            Ty::Fn { params, ret, .. } => {
+            Ty::Fn {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -426,7 +486,14 @@ impl fmt::Display for Ty {
                     }
                     write!(f, "{p}")?;
                 }
-                write!(f, ") -> {ret}")
+                write!(f, ")")?;
+                // [fn-effects] Part of the type, so it is part of how the
+                // type reads in a diagnostic.
+                if !effects.is_empty() {
+                    let names: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+                    write!(f, " [{}]", names.join(", "))?;
+                }
+                write!(f, " -> {ret}")
             }
             Ty::Var(name) => write!(f, "{name}"),
             Ty::Any => write!(f, "Any"),

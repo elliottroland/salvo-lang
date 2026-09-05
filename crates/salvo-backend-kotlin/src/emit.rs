@@ -196,6 +196,24 @@ fn check_core_define_coverage(program: &Program, symbols: &Symbols<'_>) -> Vec<S
     errors
 }
 
+/// [qual-widen] Visits every `^` check a condition applies, through `&&`
+/// chains as well.
+fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
+    match cond {
+        Expr::Widen { subject, span, .. } => f(subject, *span),
+        Expr::Binary {
+            op: BinaryOp::And,
+            lhs,
+            rhs,
+            ..
+        } => {
+            collect_widen_checks(lhs, f);
+            collect_widen_checks(rhs, f);
+        }
+        _ => {}
+    }
+}
+
 /// The generated abort signal [kt-abort-signal]: the JVM's unwinding *is*
 /// the propagation, so `abort` throws and the innermost `try` catches. No
 /// stack trace and no suppression bookkeeping — it is a control transfer,
@@ -1030,8 +1048,21 @@ impl<'p> Emitter<'p> {
             Type::Nullable { inner, .. } => format!("{}?", self.emit_type(inner)),
             Type::Array { elem, .. } => format!("Array<{}>", self.emit_type(elem)),
             Type::Union { arms, .. } => self.emit_union_type(arms),
-            Type::Fn { params, ret, .. } => {
-                let ps: Vec<String> = params.iter().map(|p| self.emit_type(p)).collect();
+            Type::Fn {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
+                // [fn-effects] The effects are threaded in, so they are part
+                // of the Kotlin function type's parameter list.
+                let mut ps: Vec<String> = Vec::new();
+                for eff in effects.iter().flatten() {
+                    if let EffectRef::Effect(r) = eff {
+                        ps.push(self.emit_type_ref(r));
+                    }
+                }
+                ps.extend(params.iter().map(|p| self.emit_type(p)));
                 format!("({}) -> {}", ps.join(", "), self.emit_type(ret))
             }
             Type::Tuple { elems, .. } => match elems.len() {
@@ -1307,8 +1338,16 @@ impl<'p> Emitter<'p> {
                 }
             }
             Ty::Array(elem) => format!("Array<{}>", self.emit_ty(elem)),
-            Ty::Fn { params, ret, .. } => {
-                let ps: Vec<String> = params.iter().map(|p| self.emit_ty(p)).collect();
+            Ty::Fn {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
+                // [fn-effects]
+                let mut ps: Vec<String> =
+                    effects.iter().map(|e| self.kotlin_ty(e)).collect();
+                ps.extend(params.iter().map(|p| self.emit_ty(p)));
                 format!("({}) -> {}", ps.join(", "), self.emit_ty(ret))
             }
             Ty::Var(name) => name.clone(),
@@ -1607,6 +1646,8 @@ impl<'p> Emitter<'p> {
                 }
                 // `while x is T name` re-binds per iteration.
                 out.push_str(&self.emit_is_bindings(cond, indent + 1));
+            out.push_str(&self.emit_widen_shadows(cond, indent + 1));
+                out.push_str(&self.emit_widen_shadows(cond, indent + 1));
                 self.loop_results.push(None);
                 out.push_str(&self.emit_block_stmts(body, indent + 1));
                 self.loop_results.pop();
@@ -1682,6 +1723,7 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} ({c}) {{\n"));
             out.push_str(&self.emit_is_bindings(cond, indent + 1));
+            out.push_str(&self.emit_widen_shadows(cond, indent + 1));
             out.push_str(&self.emit_block_stmts(block, indent + 1));
             out.push_str(&format!("{pad}}} "));
         }
@@ -1765,6 +1807,32 @@ impl<'p> Emitter<'p> {
                 };
                 out.push_str(&bind);
             }
+            // [qual-widen] A `^` branch head peels the arm it matched.
+            if branch.widen {
+                if let Some(target) = self
+                    .checked
+                    .widen_targets
+                    .get(&(self.file_idx, branch.span))
+                    .cloned()
+                {
+                    match subject {
+                        Expr::Ident(id) => {
+                            let kt = self.emit_ty(&target);
+                            let access = if test.nullable { "?" } else { "" };
+                            out.push_str(&format!(
+                                "{pad}        val {} = {subj}{access}.value as {kt}\n",
+                                kt_ident(&id.name)
+                            ));
+                        }
+                        other => {
+                            let place = self.emit_expr_raw(other);
+                            self.error(format!(
+                                "`^` on a projection is not supported yet: widening                                  materializes a local for the branch, which needs a                                  plain variable — bind `{place}` to one first"
+                            ));
+                        }
+                    }
+                }
+            }
             if value_pos {
                 out.push_str(&self.emit_value_block(&branch.body));
             } else {
@@ -1773,6 +1841,43 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("{pad}    }}\n"));
         }
         out.push_str(&format!("{pad}}}"));
+        out
+    }
+
+    /// [qual-widen] Materializes the peel a `^` check performs: the widened
+    /// value is bound to a **shadowing** local for the branch, so reads of
+    /// the subject — and any nested `when` on it — see it at the widened
+    /// type. (Kotlin warns about the shadowing; the alternative, a fresh
+    /// name, would need every read rewritten.)
+    fn emit_widen_shadows(&mut self, cond: &Expr, indent: usize) -> String {
+        let pad = "    ".repeat(indent);
+        let mut sites: Vec<(&Expr, Span)> = Vec::new();
+        collect_widen_checks(cond, &mut |subject, span| sites.push((subject, span)));
+        let mut out = String::new();
+        for (subject, span) in sites {
+            let Some(target) = self.checked.widen_targets.get(&(self.file_idx, span)).cloned()
+            else {
+                continue;
+            };
+            let Expr::Ident(id) = subject else {
+                let place = self.emit_expr_raw(subject);
+                self.error(format!(
+                    "`^` on a projection is not supported yet: widening                      materializes a local for the branch, which needs a plain                      variable — bind `{place}` to one first"
+                ));
+                continue;
+            };
+            let subj = self.emit_place_storage(subject);
+            let kt = self.emit_ty(&target);
+            let nullable = self
+                .is_test_of(span)
+                .map(|t| t.nullable)
+                .unwrap_or(false);
+            let access = if nullable { "?" } else { "" };
+            out.push_str(&format!(
+                "{pad}val {} = {subj}{access}.value as {kt}\n",
+                kt_ident(&id.name)
+            ));
+        }
         out
     }
 
@@ -2120,7 +2225,11 @@ impl<'p> Emitter<'p> {
         let code = self.emit_expr(expr);
         match expr {
             Expr::Binary { op, .. } if bin_prec(*op) <= parent_prec => format!("({code})"),
-            Expr::Is { .. } | Expr::Lambda { .. } | Expr::If { .. } | Expr::When { .. } => {
+            Expr::Is { .. }
+            | Expr::Widen { .. }
+            | Expr::Lambda { .. }
+            | Expr::If { .. }
+            | Expr::When { .. } => {
                 format!("({code})")
             }
             _ => code,
@@ -2132,7 +2241,11 @@ impl<'p> Emitter<'p> {
         let code = self.emit_expr(expr);
         match expr {
             Expr::Binary { op, .. } if bin_prec(*op) < parent_prec => format!("({code})"),
-            Expr::Is { .. } | Expr::Lambda { .. } | Expr::If { .. } | Expr::When { .. } => {
+            Expr::Is { .. }
+            | Expr::Widen { .. }
+            | Expr::Lambda { .. }
+            | Expr::If { .. }
+            | Expr::When { .. } => {
                 format!("({code})")
             }
             _ => code,
@@ -2164,8 +2277,12 @@ impl<'p> Emitter<'p> {
                         .contains_key(&(self.file_idx, id.span))
                 {
                     // Passing a named fn by value [fn-contract]: Kotlin
-                    // needs the function-reference syntax.
-                    format!("::{}", kt_ident(&id.name))
+                    // needs the function-reference syntax — unless the
+                    // position expects a different effect list than the fn
+                    // declares [fn-effects], in which case an adapter lambda
+                    // takes what the caller passes and forwards what the fn
+                    // needs (a pure fn ignores the rest).
+                    self.named_fn_value(&id.name, id.span)
                 } else {
                     kt_ident(&id.name)
                 }
@@ -2245,6 +2362,20 @@ impl<'p> Emitter<'p> {
                 let r = self.emit_operand(rhs, prec);
                 format!("{l} {} {r}", binary_op(*op))
             }
+            // [qual-widen] The dual of `is`: the *same* runtime test (the
+            // qualifier is erased, so widening is a typing act), or `true`
+            // when the qualifiers are statically present and nothing has to
+            // be tested.
+            Expr::Widen { subject, span, .. } => {
+                let subj = self.emit_place_storage(subject);
+                match self.is_test_of(*span) {
+                    Some(test) => {
+                        let test = test.clone();
+                        self.emit_union_test(&subj, &test)
+                    }
+                    None => "true".to_string(),
+                }
+            }
             Expr::Is {
                 subject, check, span, ..
             } => {
@@ -2274,7 +2405,7 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => self.emit_if_expr(branches, else_block.as_ref()),
-            Expr::Lambda { params, body, .. } => self.emit_lambda(params, body),
+            Expr::Lambda { params, body, span } => self.emit_lambda(params, body, *span),
             Expr::Try { body, span } => self.emit_try(body, *span),
             Expr::Spread { operand, .. } => format!("*{}", self.emit_expr(operand)),
             Expr::While { .. } | Expr::For { .. } => self.emit_loop_value(expr),
@@ -2332,6 +2463,7 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} ({c}) {{\n"));
             out.push_str(&self.emit_is_bindings(cond, 0));
+            out.push_str(&self.emit_widen_shadows(cond, 0));
             out.push_str(&self.emit_value_block(block));
             out.push('}');
         }
@@ -2628,6 +2760,8 @@ impl<'p> Emitter<'p> {
                 }
                 // `while x is T name` re-binds per iteration.
                 out.push_str(&self.emit_is_bindings(cond, 0));
+                out.push_str(&self.emit_widen_shadows(cond, 0));
+            out.push_str(&self.emit_widen_shadows(cond, 0));
                 self.loop_results.push(Some(result.clone()));
                 out.push_str(&self.emit_loop_body_value(body, &result));
                 self.loop_results.pop();
@@ -2724,18 +2858,96 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    fn emit_lambda(&mut self, params: &[LambdaParam], body: &LambdaBody) -> String {
-        let param_list: Vec<String> = params
-            .iter()
-            .map(|p| match &p.ty {
-                Some(t) => {
-                    let ty = self.emit_type(t);
-                    format!("{}: {ty}", kt_ident(&p.name.name))
+    /// A named fn used as a value [fn-contract] [fn-effects]: a Kotlin
+    /// function reference when the effect lists line up, an adapter lambda
+    /// when they do not.
+    fn named_fn_value(&mut self, name: &str, span: Span) -> String {
+        let reference = format!("::{}", kt_ident(name));
+        let taken: Vec<Ty> = self
+            .checked
+            .lambda_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        let key = self.checked.fn_refs.get(&(self.file_idx, span)).copied();
+        let declared: Vec<Ty> = key
+            .and_then(|k| self.checked.fn_effects.get(&k).cloned())
+            .unwrap_or_default();
+        if taken == declared {
+            return reference;
+        }
+        let Some(decl) = key.and_then(|k| self.fn_by_key(k)) else {
+            return reference;
+        };
+        let arity = decl.params.len();
+        let mut params: Vec<String> = Vec::new();
+        let mut effect_args: Vec<(String, String)> = Vec::new();
+        for (i, ty) in taken.iter().enumerate() {
+            let rendered = self.kotlin_ty(ty);
+            let var = format!("__fx{i}");
+            params.push(format!("{var}: {rendered}"));
+            effect_args.push((rendered, var));
+        }
+        let mut args: Vec<String> = Vec::new();
+        for ty in &declared {
+            let rendered = self.kotlin_ty(ty);
+            match effect_args.iter().find(|(key, _)| *key == rendered) {
+                Some((_, var)) => args.push(var.clone()),
+                None => {
+                    // Unreachable under the checker's fits rule
+                    // [fn-effects] [backend-never-wrong].
+                    self.error(format!(
+                        "internal error: `{name}` needs effect `{rendered}`, which the                          function type it is passed as does not declare"
+                    ));
                 }
-                None => kt_ident(&p.name.name),
-            })
-            .collect();
-        match body {
+            }
+        }
+        let value_params: Vec<String> = (0..arity).map(|i| format!("__a{i}")).collect();
+        params.extend(value_params.clone());
+        args.extend(value_params);
+        format!(
+            "{{ {} -> {}({}) }}",
+            params.join(", "),
+            self.kotlin_fn_name(decl),
+            args.join(", ")
+        )
+    }
+
+    fn emit_lambda(
+        &mut self,
+        params: &[LambdaParam],
+        body: &LambdaBody,
+        span: salvo_syntax::Span,
+    ) -> String {
+        // [fn-effects] The effects a call of this value performs arrive as
+        // *leading parameters* rather than captures, so the value carries no
+        // handler and can be stored or passed freely.
+        let effects: Vec<Ty> = self
+            .checked
+            .lambda_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        let env_depth = self.effect_env.len();
+        let mut param_list: Vec<String> = Vec::new();
+        for ty in &effects {
+            let rendered = self.kotlin_ty(ty);
+            let var = self.unique_name(effect_param_name(&rendered));
+            self.effect_env.push(EffectEntry {
+                ty: Some(ty.clone()),
+                rendered: rendered.clone(),
+                expr: var.clone(),
+            });
+            param_list.push(format!("{var}: {rendered}"));
+        }
+        param_list.extend(params.iter().map(|p| match &p.ty {
+            Some(t) => {
+                let ty = self.emit_type(t);
+                format!("{}: {ty}", kt_ident(&p.name.name))
+            }
+            None => kt_ident(&p.name.name),
+        }));
+        let out = match body {
             LambdaBody::Expr(expr) => {
                 format!("{{ {} -> {} }}", param_list.join(", "), self.emit_expr(expr))
             }
@@ -2752,7 +2964,9 @@ impl<'p> Emitter<'p> {
                 self.stmt_ctx = saved_ctx;
                 out
             }
-        }
+        };
+        self.effect_env.truncate(env_depth);
+        out
     }
 
     fn emit_struct_lit(
@@ -2866,9 +3080,11 @@ impl<'p> Emitter<'p> {
             return self.emit_resolved_call(&id.name, type_args, &arg_refs, span);
         }
 
-        // Calling a computed value (lambda etc.).
+        // Calling a computed value (lambda etc.) — [fn-effects] threads its
+        // effects first, like any fn value.
         let callee_code = self.emit_expr(callee);
-        let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
+        arg_code.extend(args.iter().map(|a| self.emit_expr(a)));
         format!("{callee_code}({})", arg_code.join(", "))
     }
 
@@ -2970,9 +3186,27 @@ impl<'p> Emitter<'p> {
         }
 
         // 5. Handler constructor / struct / local callable: pass through.
-        let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        // [fn-effects] A *fn value* takes its effects as leading arguments;
+        // the checker recorded which instances to thread at this call.
+        let mut arg_code: Vec<String> = self.fn_value_effect_args(span);
+        arg_code.extend(args.iter().map(|a| self.emit_expr(a)));
         let generics = self.emit_type_args(type_args);
         format!("{}{generics}({})", kt_ident(name), arg_code.join(", "))
+    }
+
+    /// [fn-effects] The effect arguments a fn-value call threads, from the
+    /// instances the checker resolved for it.
+    fn fn_value_effect_args(&mut self, span: Span) -> Vec<String> {
+        let effects: Vec<Ty> = self
+            .checked
+            .call_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        effects
+            .iter()
+            .map(|ty| self.lookup_effect_handler_by_ty(ty))
+            .collect()
     }
 
     /// Finds the define template matching an external fn signature
@@ -3188,6 +3422,7 @@ impl<'p> Emitter<'p> {
             }
             Type::Fn { .. } => Some(Ty::Fn {
                 contract: None,
+                effects: Vec::new(),
                 params: Vec::new(),
                 ret: Box::new(Ty::Unknown),
             }),
@@ -3866,7 +4101,9 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_mutated_expr(base, out);
             collect_mutated_expr(index, out);
         }
-        Expr::Is { subject, .. } => collect_mutated_expr(subject, out),
+        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
+            collect_mutated_expr(subject, out)
+        }
         Expr::Str { parts, .. } => {
             for p in parts {
                 if let StrExprPart::Interp(e) = p {

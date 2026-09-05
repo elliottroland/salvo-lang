@@ -590,6 +590,18 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
+    /// `expr ^ Qual...` — the *widening* check [qual-widen]: the dual of
+    /// `is`. Where a successful `is` narrows the subject (a qualifier added,
+    /// a union arm picked), a successful `^` **generalizes** it by removing
+    /// the listed qualifiers — `list ^ Mut` reads `list` without `Mut`
+    /// afterwards, `outcome ^ Ok` without `Ok`. Boolean-valued, like `is`;
+    /// the runtime test is the same one `is` performs.
+    Widen {
+        subject: Box<Expr>,
+        /// The qualifiers to remove (all must be present and droppable).
+        quals: Vec<TypeRef>,
+        span: Span,
+    },
     /// `expr!` — non-null assertion.
     NonNull { operand: Box<Expr>, span: Span },
     /// `i++` — postfix increment.
@@ -663,9 +675,13 @@ pub enum StructLitFieldKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WhenBranch {
-    /// The `is ...` check.
+    /// The `is ...` / `^ ...` check.
     pub check: Vec<TypeRef>,
     pub binding: Option<Ident>,
+    /// The branch head was `^` rather than `is` [qual-widen]: the same arm
+    /// test, but the subject reads *without* the listed qualifiers inside
+    /// the branch.
+    pub widen: bool,
     pub body: Block,
     pub span: Span,
 }
@@ -727,6 +743,7 @@ impl Expr {
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Is { span, .. }
+            | Expr::Widen { span, .. }
             | Expr::NonNull { span, .. }
             | Expr::PostIncrement { span, .. }
             | Expr::If { span, .. }

@@ -512,6 +512,7 @@ Module {
                                                 },
                                             ],
                                             binding: None,
+                                            widen: false,
                                             body: Block {
                                                 stmts: [
                                                     Expr(
@@ -539,6 +540,7 @@ Module {
                                                 },
                                             ],
                                             binding: None,
+                                            widen: false,
                                             body: Block {
                                                 stmts: [
                                                     Expr(

@@ -412,9 +412,55 @@ Conventions:
 * [is-precise] Checks may include qualifiers and generics:
   `is Err Str` matches only the `Err Str` arm; `is Err` matches every
   `Err`-qualified arm; overlapping matches infer the smaller union.
+* [qual-widen] `expr ^ Qual...` is the **dual of `is`** (user decision
+  2026-09-05): boolean-valued, same places, same runtime test — but where a
+  successful `is` *narrows* the subject (a qualifier added, an arm picked), a
+  successful `^` **generalizes** it, removing the listed qualifiers for the
+  branch. `list ^ Mut` reads `list` without `Mut`; `outcome ^ Ok` without
+  `Ok`.
+  * A `when` **branch head** may be `^ Qual...` as well as `is ...`: the
+    same arm test, with the subject reading widened inside the branch. That
+    is the form the qualified-union case wants — `when o { ^ Ok { when o {
+    … } } }` reaches the union inside `Ok (Ok Int | Err Str)` with no
+    intermediate binding and no repeated type.
+  * The qualifiers must be **present**: nothing to remove is an error, not a
+    silently-false test (`^` is not a predicate test — that is `is`).
+    Several may be removed at once (`v ^ Mut NonEmpty`), and the right side
+    is qualifier names only: a *type* there is an `is` question.
+  * **Droppability comes from one list** — `types::qual_drop_block`, which
+    `Qual T <: T` also reads, so the two cannot drift as intrinsic
+    qualifiers are added. `Once` (restricts rather than refines), `Linear`
+    (carries a use obligation) and `ReadOnly` (the value is derived from
+    another) may never be dropped; every other qualifier may, since dropping
+    a *claim* only loses knowledge and dropping a *permission* only loses
+    permission.
+  * No binding form: the subject itself reads widened, so a second spelling
+    would be redundant.
+  * Widening more than one arm at a time is an error: each arm would peel a
+    different wrapper position, so one widened view cannot stand for all.
+  * Backends: the runtime test is `is`'s (qualifiers are erased, so widening
+    is a *typing* act), and where the check peels a wrapper arm the widened
+    value is bound to a **shadowing local** for the branch — see
+    [rs-widen-shadow] / [kt-widen-shadow]. Without that materialization a
+    nested `when` would scrutinize the wrapper it came out of, which is
+    exactly the wrong-code bug the feature's own demo caught while it was
+    being built.
 * [when-union-subject] `when` requires a union-typed *variable* subject;
   there is no default branch. Field subjects stay rejected even though
   they now narrow (user decision 2026-09-03): `if … is` covers them.
+  * A **qualified union** (`Ok (A | B)`, an `Aborted (Str | Int)` message
+    [try]) is a claim *about* a union, so its arms belong to the inner
+    type. Reach them with a `^` branch head ([qual-widen]:
+    `when v { ^ Ok { when v { … } } }`), or bind at the inner type
+    (`let inner: A | B = value`). The droppable-qualifier rule does the
+    unwrapping ([qual-erasure]: `Qual T <: T`), which is also why the
+    intrinsic capability qualifiers need no special case — `Once` is
+    excluded from dropping and `Linear` is never written at a use site.
+    The diagnostic names this remedy. Considered and rejected
+    (2026-09-04): merging nested qualifiers (`Ok Err Str` collides with
+    multi-qualifier types, which mean a *set* of claims) and a dedicated
+    unwrap keyword (it would re-implement the exclusion list the subtype
+    rule already has).
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A
@@ -1110,11 +1156,49 @@ Conventions:
     *consuming* one is expected (the caller merely over-estimates the
     damage), never the reverse; mutation permission must be granted by
     the expectation (`contract_fits`).
-  * Effect lists on fn types (`(v: T) [Console] -> ...`) parse but are
-    not yet enforced as contracts (deferred; lambda bodies use the
-    lexical effect environment). `Once` inference also remains open.
-  * Backends: Kotlin erases contracts (aliases throughout; named fns
-    pass as `::name` function references). Rust renders fn parameters
+  * Effect lists on fn types are enforced as of E3 step 3 — see
+    [fn-effects]. `Once` inference remains open.
+* [fn-effects] A fn type may declare effects — `(s: Str) [Logger] -> Str` —
+  and they mean **a requirement the caller of the value supplies**, not a
+  capability the value carries (user decision 2026-09-04). The effects are
+  *threaded into* the call on both backends; nothing is captured.
+  * A lambda body performs the effects **its type declares**, not whatever
+    its enclosing scope happens to have. Lexical leakage is what made a fn
+    value's capabilities invisible in its type — the same objection as
+    silent colouring elsewhere in E3.
+  * **A fn inherits its fn-typed parameters' effects** (user decision
+    2026-09-04): the only reason to take `f` is to call it, and calling it
+    needs those effects *here*, so `fn run(f: (s: Str) [Logger] -> Str)`
+    needs no list of its own — and its callers must supply `Logger`, since
+    that is where the value comes from at run time. Inheritance reaches
+    through qualifiers (`Once () [Logger] -> None`), optionals and unions,
+    and it is part of the callee's contract at call sites.
+  * **Variance**: a value performing *fewer* effects fits where more are
+    expected (a pure lambda passes to a `[Logger]` position and simply
+    ignores what it is given); never the reverse, which would reach a call
+    site that cannot supply it. Same direction as [fn-contract] and
+    [once-fn].
+  * **Inference**: an un-annotated lambda's effect set is inferred from its
+    body (inference from a *visible* body is what [decl-explicit] permits),
+    so it cannot silently fit a pure position. Where a fn type is written,
+    its list is authoritative — including for emission, since a pure lambda
+    in an effectful position must still *take* the parameters the caller
+    passes.
+  * **A fn value carries no capability, so it may be stored and passed
+    freely** — only *calling* it needs its effects in scope. That is why
+    the roadmap's third sub-item ("forbid escape") was dropped rather than
+    built (user decision 2026-09-04): the error surfaces at the call, not
+    at the storage.
+  * `use` in a fn type's effect list is an error: registering a handler is
+    local to a body, so a lambda may `use` exactly when the function
+    containing it may.
+  * A named fn used as a value performs exactly the effects it declares
+    (inherited ones included), which is what the variance rule compares.
+  * Backends: both **thread** the effects as leading parameters
+    ([rs-effect-fusion]'s cut is lifted by this; [kt-effect-params]).
+    Kotlin erases contracts (aliases throughout; named fns
+    pass as `::name` function references, or an adapter lambda when the
+    effect lists differ). Rust renders fn parameters
     as `&mut impl FnMut(…)` (accepting both plain and handler-mutating
     closures; `Once` stays owned `impl FnOnce`), argument types per
     contract (kept non-Copy `&T`, kept `Mut` `&mut T`, moved/Copy

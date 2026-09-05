@@ -1840,7 +1840,7 @@ fn kotlinc_compiles_and_runs_linear_generics() {
 /// `Once`-typed by construction) and a plain lambda (inverted
 /// subtyping); the checker guarantees at most one call.
 const ONCE_DEMO: &str = r#"
-fn run_once(f: Once () -> None) {
+fn run_once(f: Once () [Console] -> None) {
     f()
 }
 
@@ -2837,7 +2837,7 @@ fn tallied(text: Str) [Console, use] -> [text] None {
     println("  tallied ${kept()}")
 }
 
-fn twice(f: (s: Str) -> [s] Str) -> [] Str {
+fn twice(f: (s: Str) [Logger] -> [s] Str) -> [] Str {
     return f("a")
 }
 
@@ -3869,4 +3869,212 @@ fn kotlin_compiles_and_runs_abort() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "abort", ABORT_OUTPUT);
+}
+
+// ===== E3 step 3: effects threaded into fn values [fn-effects] =====
+
+/// The program the Rust fusion used to reject: a function *value* that uses
+/// an effect, passed to a callee that needs one too. Kotlin always accepted
+/// it (objects alias freely), so this is the parity anchor — the same source,
+/// the same stdout, now that Rust threads the effect in instead of capturing
+/// it.
+const FN_EFFECTS_DEMO: &str = r#"
+effect Logger {
+    fn log(message: Str) -> [message] None
+}
+
+handler ConsoleLogger(console: Console) of Logger {
+    fn log(message: Str) -> [message] None {
+        println("LOG: ${message}")
+    }
+}
+
+fn shout(s: Str) [Logger] -> [s] Str {
+    log("shouting ${s}")
+    return "${s}!"
+}
+
+fn plain(s: Str) -> [s] Str {
+    return "${s}."
+}
+
+// No effect list of its own: `run_it` *inherits* `[Logger]` from `f`, since
+// calling `f` is the only reason it takes it.
+fn run_it(f: (s: Str) [Logger] -> [s] Str, value: Str) -> [value] Str {
+    return f(value)
+}
+
+fn demo() [Console, Logger] -> [] None {
+    println(run_it(s -> {
+        log("in lambda ${s}")
+        return "done ${s}"
+    }, "x"))
+    println(run_it(shout, "one"))
+    println(run_it(plain, "two"))
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    use ConsoleLogger()
+    demo()
+}
+"#;
+
+const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
+
+/// [fn-effects] Kotlin threads the effect as a leading closure parameter
+/// too, rather than capturing it — one mechanism on both backends. A named
+/// fn whose effect list matches passes as a function reference; one with
+/// *fewer* effects gets an adapter that takes what the caller passes and
+/// ignores it (the variance rule).
+#[test]
+fn fn_type_effects_thread_into_lambdas() {
+    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    // The inherited effect is a real parameter of `run_it`.
+    assert!(
+        main.content.contains("fun run_it(logger: Logger, f: (Logger, String) -> String"),
+        "expected the inherited effect in the signature:\n{}",
+        main.content
+    );
+    // The lambda takes it rather than capturing it.
+    assert!(
+        main.content.contains("{ logger2: Logger, s: String ->")
+            || main.content.contains("{ logger2: Logger, s ->"),
+        "expected the effect as a leading lambda parameter:\n{}",
+        main.content
+    );
+    // A matching named fn passes as a reference; a pure one is adapted.
+    assert!(
+        main.content.contains("::shout"),
+        "expected a function reference for the matching fn:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("plain(__a0)"),
+        "expected an adapter for the pure fn:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_fn_type_effects() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", FN_EFFECTS_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "fn-effects", FN_EFFECTS_STDOUT);
+}
+
+// ===== the widening check `^` [qual-widen] =====
+
+// [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
+// `when` the union inside a qualified one — the shape `try` outcomes produce.
+const WIDEN_DEMO: &str = r#"
+fn wrapped(n: Int) [Abort<Str>] -> [] Ok Int | Err Str {
+    if n < 0 {
+        abort("negative")
+    }
+    if n == 0 {
+        return err("zero")
+    }
+    return ok(n)
+}
+
+fn limit(n: Int) [Abort<Int>] -> [] Int {
+    if n > 4 {
+        abort(n)
+    }
+    return n
+}
+
+fn describe(n: Int) [Console] -> [] None {
+    let nested = try { wrapped(n) }
+    when nested {
+        ^ Ok {
+            when nested {
+                is Ok {
+                    println("value ${nested}")
+                }
+                is Err {
+                    println("error ${nested}")
+                }
+            }
+        }
+        is Aborted {
+            println("aborted ${nested}")
+        }
+    }
+}
+
+fn main() [use] -> [] None {
+    use StdOutConsole
+    describe(7)
+    describe(0)
+    describe(-1)
+    let mixed = try {
+        let a = wrapped(1)
+        limit(9)
+    }
+    when mixed {
+        is Ok {
+            println("mixed ok ${mixed}")
+        }
+        ^ Aborted {
+            when mixed {
+                is Str {
+                    println("message text ${mixed}")
+                }
+                is Int {
+                    println("message number ${mixed}")
+                }
+            }
+        }
+    }
+}
+"#;
+
+const WIDEN_STDOUT: &str = "value 7\nerror zero\naborted negative\nmessage number 9\n";
+
+/// [qual-widen] Kotlin materializes the same peel with a shadowing `val`
+/// (the alternative, a fresh name, would need every read rewritten).
+#[test]
+fn widening_materializes_the_peel_kotlin() {
+    let program = build_program(&[("main.sv", WIDEN_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content
+            .contains("val nested = nested.value as Union2<Int, String>"),
+        "expected the widened value bound to a shadowing local:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_widening() {
+    if Command::new("kotlinc").arg("-version").output().is_err() {
+        eprintln!("skipping: kotlinc not found on PATH");
+        return;
+    }
+    let program = build_program(&[("main.sv", WIDEN_DEMO, false)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "widen", WIDEN_STDOUT);
 }

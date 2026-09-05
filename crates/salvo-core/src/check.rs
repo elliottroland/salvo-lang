@@ -145,6 +145,19 @@ pub struct Checked {
     pub call_type_args: HashMap<Key, Vec<Ty>>,
     /// Wrapper union sizes needed by the program (for `unions.kt`).
     pub union_sizes: BTreeSet<usize>,
+    /// [fn-effects] The effect values a lambda takes as leading
+    /// parameters, in order (keyed by the lambda expression's span): the
+    /// declared set of the fn type it was checked against, or the set
+    /// inferred from its body. Both emitters thread these *into* the
+    /// closure instead of capturing them.
+    pub lambda_effects: HashMap<Key, Vec<Ty>>,
+    /// [qual-widen] The type a `^` check widens its subject to, keyed by the
+    /// check's span (a `^` expression, or a `^` branch head in a `when`).
+    /// Present only when the check *peels a wrapper arm*, which is when the
+    /// emitters must materialize the peel: they bind the widened value to a
+    /// shadowing local for the branch, so reads and any nested `when` see it
+    /// at this type.
+    pub widen_targets: HashMap<Key, Ty>,
     /// Calls that may abort [abort], keyed by the call span: the `abort`
     /// operation itself and every call whose callee declares `[Abort<M>]`.
     /// The emitters need each one because the control transfer is *their*
@@ -389,6 +402,7 @@ fn check_once<'p>(
             defers: Vec::new(),
             try_stack: Vec::new(),
             in_defer_body: false,
+            effect_uses: Vec::new(),
         };
         checker.check_module(ast);
     }
@@ -439,6 +453,12 @@ struct LocalVar {
     /// takes ownership, exactly as a struct literal does
     /// [effect-state-store]. Ordinary locals link instead [fate-link].
     is_handler_state: bool,
+    /// [qual-widen] While a `^` check holds, the *physical* view of this
+    /// variable: the arm test peeled a wrapper, so reads and any further
+    /// narrowing compose on the inner value rather than on the storage.
+    /// `None` outside a widening branch (`declared` is then the view). The
+    /// emitters materialize the peel as a branch-local temporary.
+    widened: Option<Ty>,
     /// Narrowed *projections* out of this variable [flow-place]: flow
     /// facts about `h.field`, keyed by the projection path. The
     /// variable's own narrowing stays in `narrowed`; keeping the
@@ -614,6 +634,10 @@ struct Checker<'p, 'r> {
     /// Whether a *deferred* block's body is being checked [defer-no-escape]:
     /// an abort there would unwind out of an unwind path.
     in_defer_body: bool,
+    /// [fn-effects] Effect instances used inside each enclosing lambda
+    /// body, innermost last: an un-annotated lambda's effect set is
+    /// *inferred* from what its body performs.
+    effect_uses: Vec<Vec<Ty>>,
 }
 
 /// One enclosing `try` delimiter while its body is checked [try].
@@ -1123,7 +1147,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     decl_span: p.name.span,
                     lambda_kept: false,
                     is_handler_state: false,
-                    place_narrows: Vec::new(),
+                    widened: None,
+            place_narrows: Vec::new(),
                 },
             );
         }
@@ -1149,7 +1174,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     decl_span: field.name.span,
                     lambda_kept: false,
                     is_handler_state: true,
-                    place_narrows: Vec::new(),
+                    widened: None,
+            place_narrows: Vec::new(),
                 },
             );
         }
@@ -1189,6 +1215,19 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool) {
         let mut env: Vec<Ty> = Vec::new();
         let mut can_use = false;
+        // [fn-effects] A fn-typed parameter's effects are the enclosing fn's
+        // too (user decision 2026-09-04): the only reason to take `f` is to
+        // call it, and calling it needs those effects here — so they are
+        // *inherited* rather than repeated in the written list. Callers
+        // supply them like any declared effect.
+        for p in &f.params {
+            for ty in self.inherited_fn_effects(&p.ty) {
+                if !env.contains(&ty) {
+                    env.push(ty);
+                }
+            }
+        }
+        let mut written: Vec<Ty> = Vec::new();
         for eff in f.effects.iter().flatten() {
             match eff {
                 EffectRef::Use(_) => can_use = true,
@@ -1196,7 +1235,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
                     };
-                    if env.contains(&ty) {
+                    if written.contains(&ty) {
                         self.error(
                             r.span,
                             format!(
@@ -1205,7 +1244,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     } else {
-                        env.push(ty);
+                        written.push(ty.clone());
+                        if !env.contains(&ty) {
+                            env.push(ty);
+                        }
                     }
                 }
             }
@@ -1509,7 +1551,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 decl_span: name.span,
                 lambda_kept: false,
                 is_handler_state: false,
-                place_narrows: Vec::new(),
+                widened: None,
+            place_narrows: Vec::new(),
             },
         );
     }
@@ -2665,6 +2708,101 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    // ================= fn-type effects [fn-effects] =================
+
+    /// Lowers a fn type's effect list [fn-effects]. `use` is not meaningful
+    /// there: registering a handler is a *local* act, so a lambda may do it
+    /// exactly when the function containing it may.
+    fn lower_fn_effects(&mut self, effects: Option<&[EffectRef]>) -> Vec<Ty> {
+        let mut out: Vec<Ty> = Vec::new();
+        for eff in effects.into_iter().flatten() {
+            match eff {
+                EffectRef::Use(span) => self.error(
+                    *span,
+                    "a fn type cannot declare `use`: registering a handler is                      local to a body, so a lambda may `use` exactly when the                      function containing it may"
+                        .to_string(),
+                ),
+                EffectRef::Effect(r) => {
+                    if let Some(ty) = self.lower_effect_ref(r) {
+                        if !out.contains(&ty) {
+                            out.push(ty);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The effects a parameter's type contributes to the enclosing fn
+    /// [fn-effects]: those declared on a fn type, reached through
+    /// qualifiers (`Once () [Console] -> None`) and optional wrappers
+    /// (`((s: Str) [Logger] -> Str)?`).
+    fn inherited_fn_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
+        match ty {
+            ast::Type::Fn { effects, .. } => self.lower_fn_effects(effects.as_deref()),
+            ast::Type::QualifiedGroup { base, .. } => self.inherited_fn_effects(base),
+            ast::Type::Nullable { inner, .. } => self.inherited_fn_effects(inner),
+            ast::Type::Union { arms, .. } => arms
+                .iter()
+                .flat_map(|a| self.inherited_fn_effects(a))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Records that an effect instance was used, for the *inference* of an
+    /// enclosing un-annotated lambda's effect set [fn-effects].
+    fn note_effect_use(&mut self, ty: &Ty) {
+        if let Some(frame) = self.effect_uses.last_mut() {
+            if !frame.contains(ty) {
+                frame.push(ty.clone());
+            }
+        }
+    }
+
+    /// The effects a fn value's *call* requires, checked against what is
+    /// available here [fn-effects]. Records the instances to thread, keyed
+    /// by the call span, exactly as a named call's dependencies are.
+    fn check_fn_value_effects(&mut self, effects: &[Ty], span: Span) {
+        if effects.is_empty() {
+            return;
+        }
+        let mut resolved: Vec<Ty> = Vec::new();
+        for want in effects {
+            let found = self.effect_env.iter().find(|c| *c == want).cloned();
+            let found = found.or_else(|| {
+                let compatible: Vec<&Ty> = self
+                    .effect_env
+                    .iter()
+                    .filter(|c| unify(want, c, &mut HashMap::new()))
+                    .collect();
+                match compatible.len() {
+                    1 => Some(compatible[0].clone()),
+                    _ => None,
+                }
+            });
+            match found {
+                Some(instance) => {
+                    self.note_effect_use(&instance);
+                    resolved.push(instance);
+                }
+                None => {
+                    self.error(
+                        span,
+                        format!(
+                            "no handler for effect `{want}` in scope, required by \
+                             this function value (declare it in the function's \
+                             effect list or `use` a handler)"
+                        ),
+                    );
+                    resolved.push(want.clone());
+                }
+            }
+        }
+        self.out.call_effects.insert(self.key(span), resolved);
+    }
+
     // ================= abort and `try` [abort] [try] =================
 
     /// The enclosing fn's declared abort message type, if it declared
@@ -3184,11 +3322,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Applied place facts, with the fact each one displaced
         // [flow-place].
         let mut saved_places: Vec<(Place, Ty, Option<PlaceNarrow>)> = Vec::new();
+        // [qual-widen] Root narrows whose *view* differs from the variable's
+        // declared type (a `^` widening) install it for the branch.
+        let mut saved_views: Vec<(String, Option<Ty>)> = Vec::new();
         for n in narrows {
             if n.place.is_root() {
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     saved.push((n.place.root.clone(), var.narrowed.clone()));
                     var.narrowed = n.narrowed.clone();
+                    if n.declared != var.declared {
+                        saved_views.push((n.place.root.clone(), var.widened.clone()));
+                        var.widened = Some(n.declared.clone());
+                    }
                 }
             } else if self.lookup(&n.place.root).is_some() {
                 let displaced = self.set_place_narrow(n);
@@ -3196,6 +3341,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let result = f(self);
+        for (name, view) in saved_views.into_iter().rev() {
+            if let Some(var) = self.lookup_mut(&name) {
+                var.widened = view;
+            }
+        }
         for (name, ty) in saved.into_iter().rev() {
             if let Some(var) = self.lookup_mut(&name) {
                 // A value consumed while narrowed stays consumed: the
@@ -3512,8 +3662,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Array { elem, .. } => {
                 Ty::Array(Box::new(self.lower_type_subst(elem, subst, depth)))
             }
-            ast::Type::Fn { params, ret, .. } => Ty::Fn {
+            ast::Type::Fn {
+                params, ret, effects, ..
+            } => Ty::Fn {
                 contract: self.lower_fn_contract(ty),
+                // [fn-effects] The effects a call of the value performs.
+                effects: self.lower_fn_effects(effects.as_deref()),
                 params: params
                     .iter()
                     .map(|p| self.lower_type_subst(p, subst, depth))
@@ -4257,6 +4411,30 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
+/// Removes the named qualifiers from a type [qual-widen], or `None` when it
+/// does not carry all of them. `Qual T` with every qualifier removed is `T`.
+fn strip_quals_named(ty: &Ty, names: &[String]) -> Option<Ty> {
+    let Ty::Qualified { quals, base } = ty else {
+        return None;
+    };
+    if !names
+        .iter()
+        .all(|n| quals.iter().any(|q| q.name == *n))
+    {
+        return None;
+    }
+    let kept: Vec<Qual> = quals
+        .iter()
+        .filter(|q| !names.contains(&q.name))
+        .cloned()
+        .collect();
+    Some(if kept.is_empty() {
+        (**base).clone()
+    } else {
+        (**base).clone().qualify(kept)
+    })
+}
+
 /// Whether any statement of `block` mentions the variable `name` — the
 /// block half of [`expr_mentions`].
 fn block_mentions_name(block: &Block, name: &str) -> bool {
@@ -4315,7 +4493,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Binary { lhs, rhs, .. } => {
             expr_mentions(lhs, name) || expr_mentions(rhs, name)
         }
-        Expr::Is { subject, .. } => expr_mentions(subject, name),
+        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
+            expr_mentions(subject, name)
+        }
         Expr::If { branches, else_block, .. } => {
             branches
                 .iter()
@@ -4398,6 +4578,135 @@ struct IsInfo {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
+    // ================= widening checks [qual-widen] =================
+
+    /// Analyzes a `^` check: the **dual of `is`**. The runtime test is the
+    /// one `is` of the same qualifiers performs — same arm, same lowering —
+    /// but the matched type is *generalized* (the qualifiers removed) rather
+    /// than refined, so the subject reads without them inside the branch.
+    fn widen_info(&mut self, subject: &'p Expr, quals: &'p [TypeRef], span: Span) -> IsInfo {
+        let subj_ty = self.check_expr(subject, None);
+        let repr = self.repr_of(subject, &subj_ty);
+        let pat = self.parse_check(quals);
+        // Same places `is` narrows [flow-place]: a variable or a field chain
+        // out of a tracked local (user decision 2026-09-05: consistent with
+        // `is`).
+        let subject_place = Place::of_expr(subject)
+            .filter(|p| p.narrowable() && self.lookup(&p.root).is_some());
+        let unchanged = IsInfo {
+            subject_place: None,
+            subject_repr: repr.clone(),
+            matched: subj_ty.clone(),
+            remaining: None,
+            binding: None,
+        };
+        if pat.unresolved {
+            return unchanged;
+        }
+        // `^` removes qualifiers: a base type in the check would be an `is`
+        // question, not a widening one.
+        if pat.base.is_some() || pat.is_none {
+            self.error(
+                span,
+                "`^` removes qualifiers, so its right side is qualifier names only                  (use `is` to check a type)"
+                    .to_string(),
+            );
+            return unchanged;
+        }
+        if pat.quals.is_empty() {
+            self.error(span, "`^` needs a qualifier to remove".to_string());
+            return unchanged;
+        }
+        // [qual-widen] The single exclusion list, shared with `Qual T <: T`.
+        let mut blocked = false;
+        for q in &pat.quals {
+            if let Some(reason) = crate::types::qual_drop_block(q) {
+                self.error(span, format!("`{q}` cannot be removed with `^`: {reason}"));
+                blocked = true;
+            }
+        }
+        if blocked {
+            return unchanged;
+        }
+        // The same runtime test `is` would emit; absent for a tautology (the
+        // qualifiers are statically present), where the check is `true`.
+        if let Some(test) = self.union_test_for(&repr, &pat) {
+            self.out.is_tests.insert(self.key(span), test);
+        }
+        let (matched, remaining) = match &subj_ty {
+            Ty::Union(arms) => {
+                let (m, r): (Vec<Ty>, Vec<Ty>) = arms
+                    .iter()
+                    .cloned()
+                    .partition(|arm| self.arm_matches(arm, &pat));
+                if m.len() > 1 {
+                    // Each arm would peel a *different* wrapper position, so
+                    // one widened view cannot stand for all of them.
+                    self.error(
+                        span,
+                        format!(
+                            "`^ {}` matches more than one arm of `{subj_ty}`: widening                              removes a qualifier from a single arm",
+                            pat.quals.join(" ")
+                        ),
+                    );
+                    return unchanged;
+                }
+                let stripped: Vec<Ty> = m
+                    .iter()
+                    .filter_map(|arm| strip_quals_named(arm, &pat.quals))
+                    .collect();
+                if stripped.len() != m.len() || m.is_empty() {
+                    self.error(
+                        span,
+                        format!(
+                            "no arm of `{subj_ty}` carries `{}`, so there is nothing                              for `^` to remove",
+                            pat.quals.join(" ")
+                        ),
+                    );
+                    return unchanged;
+                }
+                (self.mk_union(stripped), Some(self.mk_union(r)))
+            }
+            other => match strip_quals_named(other, &pat.quals) {
+                // Statically present: the check cannot fail, and the else
+                // branch learns nothing.
+                Some(stripped) => (stripped, None),
+                None => {
+                    if !other.is_unknown() && !matches!(other, Ty::Nothing) {
+                        self.error(
+                            span,
+                            format!(
+                                "`{other}` does not carry `{}`, so there is nothing                                  for `^` to remove",
+                                pat.quals.join(" ")
+                            ),
+                        );
+                    }
+                    return unchanged;
+                }
+            },
+        };
+        // [qual-widen] Inside the branch the value is seen *at* the widened
+        // type: the arm test peeled the wrapper, so a further `is`/`when` on
+        // the subject must narrow relative to the stripped type, not to the
+        // storage it came out of. (The emitters materialize the peel as a
+        // branch-local temporary.)
+        let subject_repr = if self.out.is_tests.contains_key(&self.key(span)) {
+            self.out
+                .widen_targets
+                .insert(self.key(span), matched.clone());
+            matched.clone()
+        } else {
+            repr
+        };
+        IsInfo {
+            subject_place,
+            subject_repr,
+            matched,
+            remaining,
+            binding: None,
+        }
+    }
+
     // ================= blocks & statements =================
 
     /// Checks a block in value position: returns its value type (last
@@ -4923,7 +5232,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
         if let Expr::Ident(id) = expr {
             if let Some(var) = self.lookup(&id.name) {
-                return var.declared.clone();
+                // [qual-widen] Inside a `^` branch the value is seen at the
+                // widened type.
+                return var.widened.clone().unwrap_or_else(|| var.declared.clone());
             }
         }
         if matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. }) {
@@ -4980,7 +5291,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 if let Some(var) = self.lookup(&id.name) {
                     let narrowed = var.narrowed.clone();
-                    let declared = var.declared.clone();
+                    // [qual-widen] Inside a `^` branch the physical view is
+                    // the widened type: the wrapper the arm test peeled is
+                    // materialized by the emitters, so reads (and any
+                    // further narrowing) unwrap relative to *it*.
+                    let declared = var
+                        .widened
+                        .clone()
+                        .unwrap_or_else(|| var.declared.clone());
                     let poison = var.poison.clone();
                     let consumed_by = var.consumed_by;
                     let links = var.links.clone();
@@ -5115,10 +5433,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                             })
                             .collect()
                     });
+                    // [fn-effects] A named fn passed by value performs
+                    // exactly the effects it declares (inherited entries
+                    // included) — its callers supply them.
+                    let effects = self
+                        .out
+                        .fn_effects
+                        .get(&entry.key)
+                        .cloned()
+                        .unwrap_or_default();
+                    // [fn-effects] What the *use site* expects the value to
+                    // accept: a pure fn passed where effects are expected
+                    // must still take (and ignore) them, so the emitters
+                    // adapt against the expectation, not the declaration.
+                    let taken = match expected.map(|t| t.strip_quals()) {
+                        Some(Ty::Fn {
+                            effects: exp_effects,
+                            ..
+                        }) => exp_effects.clone(),
+                        _ => effects.clone(),
+                    };
+                    self.out.lambda_effects.insert(self.key(id.span), taken);
                     return Ty::Fn {
                         params,
                         ret: Box::new(ret),
                         contract,
+                        effects,
                     };
                 }
                 Ty::Unknown
@@ -5235,10 +5575,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.require_name(elem_type, false);
                 let elem = self.lower_base_ref(elem_type, &empty, 0);
                 self.check_expr(size, Some(&Ty::named("Int")));
+                // [type-array] The initializer is inlined at the
+                // construction site, so it performs whatever the enclosing
+                // scope allows: its expected type declares the effects in
+                // scope rather than none [fn-effects].
                 let init_ty = Ty::Fn {
                     params: vec![Ty::named("Int")],
                     ret: Box::new(elem.clone()),
                     contract: None,
+                    effects: self.effect_env.clone(),
                 };
                 self.check_expr(init, Some(&init_ty));
                 Ty::Array(Box::new(elem))
@@ -5318,6 +5663,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::Is { .. } => {
                 self.is_info(expr);
+                Ty::named("Bool")
+            }
+            // [qual-widen] Boolean-valued like `is`; the flow facts are
+            // produced by `analyze_cond` in condition position.
+            Expr::Widen { subject, quals, span } => {
+                self.widen_info(subject, quals, *span);
                 Ty::named("Bool")
             }
             Expr::NonNull { operand, .. } => {
@@ -5700,18 +6051,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         expected: Option<&Ty>,
     ) -> Ty {
-        let (exp_params, exp_ret, exp_contract) =
+        let (exp_params, exp_ret, exp_contract, exp_effects) =
             match expected.map(|t| t.strip_quals()) {
                 Some(Ty::Fn {
                     params,
                     ret,
                     contract,
+                    effects,
                 }) => (
                     Some(params.clone()),
                     Some((**ret).clone()),
                     contract.clone(),
+                    Some(effects.clone()),
                 ),
-                _ => (None, None, None),
+                _ => (None, None, None, None),
             };
         // [fate-lambda] Everything below this frame boundary is a
         // capture; the body's reads/mutations of such variables are
@@ -5754,6 +6107,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             &mut self.ret_ty,
             exp_ret.clone().unwrap_or(Ty::Unknown),
         );
+        // [fn-effects] The body performs the effects the fn *type* declares
+        // — the call site supplies them, so nothing is captured. With no
+        // expected type the set is *inferred* from the body, which is what
+        // `effect_uses` collects; the enclosing environment stands in for
+        // the duration so the calls resolve.
+        let saved_effects = match &exp_effects {
+            Some(effects) => {
+                Some(std::mem::replace(&mut self.effect_env, effects.clone()))
+            }
+            None => None,
+        };
+        self.effect_uses.push(Vec::new());
         // A lambda body is a loop barrier: `break`/`continue` inside it
         // never bind a loop enclosing the lambda expression.
         let saved_loops = std::mem::take(&mut self.loop_stack);
@@ -5775,13 +6140,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.run_defers_at_frame_end();
         self.check_linear_frame_drop();
         self.locals.pop();
+        let used = self.effect_uses.pop().unwrap_or_default();
+        if let Some(saved) = saved_effects {
+            self.effect_env = saved;
+        }
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
         let consumes_captures = ctx.captures.iter().any(|c| c.moved);
         self.finish_lambda_captures(ctx, span);
+        // [fn-effects] A declared set is the type's (even where the body
+        // uses less of it — the emitted signature has to match what the
+        // caller passes); otherwise the inferred set is the type's.
+        let effects = exp_effects.unwrap_or(used);
+        // What the emitters need: the effect values this lambda takes as
+        // leading parameters, in order.
+        self.out
+            .lambda_effects
+            .insert(self.key(span), effects.clone());
         let fn_ty = Ty::Fn {
             params: param_tys,
             ret: Box::new(ret),
             contract: None,
+            effects,
         };
         // [once-fn] A lambda that consumes a capture is callable at most
         // once: its type gains `Once`, so it only fits `Once` fn
@@ -6029,6 +6408,29 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Checks a condition expression and derives narrowing facts.
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
+            // [qual-widen] The dual of `is`: same test, generalized type.
+            Expr::Widen { subject, quals, span } => {
+                let info = self.widen_info(subject, quals, *span);
+                self.out
+                    .expr_ty
+                    .insert(self.key(*span), Ty::named("Bool"));
+                let mut out = CondInfo::default();
+                if let Some(place) = &info.subject_place {
+                    out.then_narrows.push(Narrow {
+                        place: place.clone(),
+                        narrowed: info.matched.clone(),
+                        declared: info.subject_repr.clone(),
+                    });
+                    if let Some(rem) = &info.remaining {
+                        out.else_narrows.push(Narrow {
+                            place: place.clone(),
+                            narrowed: rem.clone(),
+                            declared: info.subject_repr.clone(),
+                        });
+                    }
+                }
+                out
+            }
             Expr::Is { .. } => {
                 let info = self.is_info(cond);
                 self.out
@@ -6468,10 +6870,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let repr = self.repr_of(subject, &subj_ty);
         let Ty::Union(all_arms) = &subj_ty else {
-            self.error(
-                span,
-                format!("`when` requires a union-typed subject (found `{subj_ty}`)"),
-            );
+            // [when-union-subject] A *qualified* union (`Ok (A | B)`, or an
+            // `Aborted (Str | Int)` message [try]) is a claim **about** a
+            // union, not a union: its arms belong to the inner type. The
+            // qualifier is droppable ([qual-erasure]'s `Qual T <: T`), so
+            // the remedy is a binding at the inner type — which also keeps
+            // the level change visible to the reader, since the same
+            // qualifier name can appear at both levels.
+            let message = match &subj_ty {
+                Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) => {
+                    let qual = quals
+                        .iter()
+                        .map(|q| q.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!(
+                        "`when` requires a union-typed subject, and `{subj_ty}` is the \
+                         claim `{qual}` *about* a union: bind the inner union to a \
+                         local and match that (`let inner: {base} = ...`)"
+                    )
+                }
+                _ => format!("`when` requires a union-typed subject (found `{subj_ty}`)"),
+            };
+            self.error(span, message);
             for b in branches {
                 self.check_branch_block(&b.body, Vec::new());
             }
@@ -6505,7 +6926,50 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(test) = self.union_test_for(&repr, &pat) {
                 self.out.is_tests.insert(self.key(branch.span), test);
             }
-            let narrow_ty = self.mk_union(matched.clone());
+            // [qual-widen] A `^` branch tests the same arm and then reads the
+            // subject *without* the qualifiers: the whole point is the
+            // nested case, where the arm's payload is itself a union
+            // (`Ok (Ok Int | Err Str)`) that the branch can then `when` on.
+            let narrow_ty = if branch.widen {
+                let mut ok = !matched.is_empty();
+                if pat.base.is_some() || pat.is_none {
+                    self.error(
+                        branch.span,
+                        "a `^` branch removes qualifiers, so its head is qualifier                          names only (use `is` to match a type)"
+                            .to_string(),
+                    );
+                    ok = false;
+                }
+                for q in &pat.quals {
+                    if let Some(reason) = crate::types::qual_drop_block(q) {
+                        self.error(
+                            branch.span,
+                            format!("`{q}` cannot be removed with `^`: {reason}"),
+                        );
+                        ok = false;
+                    }
+                }
+                let stripped: Vec<Ty> = matched
+                    .iter()
+                    .filter_map(|arm| strip_quals_named(arm, &pat.quals))
+                    .collect();
+                if ok && stripped.len() == matched.len() {
+                    self.mk_union(stripped)
+                } else {
+                    if ok {
+                        self.error(
+                            branch.span,
+                            format!(
+                                "this arm does not carry `{}`, so there is nothing for                                  `^` to remove",
+                                pat.quals.join(" ")
+                            ),
+                        );
+                    }
+                    self.mk_union(matched.clone())
+                }
+            } else {
+                self.mk_union(matched.clone())
+            };
             let mut bindings = Vec::new();
             if let Some(b) = &branch.binding {
                 if matches!(narrow_ty, Ty::Union(_)) {
@@ -6521,10 +6985,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
+            // [qual-widen] A `^` branch sees the subject at the widened
+            // type, so nested narrowing composes on that rather than on the
+            // storage the arm test peeled it out of.
+            let declared = if branch.widen
+                && self.out.is_tests.contains_key(&self.key(branch.span))
+            {
+                self.out
+                    .widen_targets
+                    .insert(self.key(branch.span), narrow_ty.clone());
+                narrow_ty.clone()
+            } else {
+                repr.clone()
+            };
             let narrows = vec![Narrow {
                 place: Place::root(subject_id.name.clone()),
                 narrowed: narrow_ty,
-                declared: repr.clone(),
+                declared,
             }];
             // Isolate this branch's consumption effects; only
             // fall-through branches reach the code after the `when`
@@ -6819,11 +7296,13 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 params: pp,
                 ret: pr,
                 contract: pc,
+                ..
             },
             Ty::Fn {
                 params: ap,
                 ret: ar,
                 contract: ac,
+                ..
             },
         ) => {
             pp.len() == ap.len()
@@ -6910,12 +7389,14 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
             params,
             ret,
             contract,
+            effects,
         } => Ty::Fn {
             params: params
                 .iter()
                 .map(|p| substitute_vars(p, subst, callee_generics))
                 .collect(),
             contract: contract.clone(),
+            effects: effects.clone(),
             ret: Box::new(substitute_vars(ret, subst, callee_generics)),
         },
         other => other.clone(),
@@ -6982,7 +7463,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Ty::Unknown;
                 }
                 let once = vty.quals().iter().any(|q| q.name == "Once");
-                if let Ty::Fn { params, ret, contract } = vty.strip_quals().clone() {
+                if let Ty::Fn { params, ret, contract, effects } = vty.strip_quals().clone() {
+                    // [fn-effects] The call supplies the value's effects.
+                    self.check_fn_value_effects(&effects, span);
                     for (i, a) in args.iter().enumerate() {
                         self.check_expr(a, params.get(i));
                     }
@@ -7062,7 +7545,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Computed callee (a `Once`-typed temporary is called at most
         // once by construction [once-fn]).
         let cty = self.check_expr(callee, None);
-        if let Ty::Fn { params, ret, contract: _ } = cty.strip_quals().clone() {
+        if let Ty::Fn { params, ret, contract: _, effects } = cty.strip_quals().clone() {
+            // [fn-effects]
+            self.check_fn_value_effects(&effects, span);
             for (i, a) in args.iter().enumerate() {
                 self.check_expr(a, params.get(i));
             }
@@ -7198,6 +7683,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Expr::Call { .. } => {
                         let concrete = exp.filter(|t| !ty_mentions_vars(t, &single_generics));
                         self.check_expr(a, concrete)
+                    }
+                    // [fn-effects] A *named fn* passed by value needs the
+                    // expected fn type too: what the position expects it to
+                    // accept decides the value's shape (a pure fn passed
+                    // where effects are expected still takes them).
+                    Expr::Ident(id)
+                        if self.lookup(&id.name).is_none()
+                            && self.scope.fns.contains_key(id.name.as_str()) =>
+                    {
+                        self.check_expr(a, exp)
                     }
                     _ => self.check_expr(a, None),
                 }
@@ -7668,19 +8163,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let mut resolved: Vec<Ty> = Vec::new();
-        for eff in decl.effects.iter().flatten() {
-            let EffectRef::Effect(r) = eff else { continue };
-            // Unknown effect names are reported at the callee's own
-            // declaration; skip them here.
-            if !self.scope.effects.contains_key(r.name.name.as_str()) {
-                continue;
-            }
+        // The callee's *effective* effect list: what it declares, plus what
+        // it inherited from its fn-typed parameters [fn-effects] — a caller
+        // has to supply those too, since they are how the callee calls the
+        // value it was given.
+        let mut wants: Vec<Ty> = Vec::new();
+        {
             let saved = self.enter_generics(&decl.generics);
-            let lowered = {
+            for eff in decl.effects.iter().flatten() {
+                let EffectRef::Effect(r) = eff else { continue };
+                // Unknown effect names are reported at the callee's own
+                // declaration; skip them here.
+                if !self.scope.effects.contains_key(r.name.name.as_str()) {
+                    continue;
+                }
                 let empty = HashMap::new();
-                self.lower_base_ref(r, &empty, 0)
-            };
+                let lowered = self.lower_base_ref(r, &empty, 0);
+                if !wants.contains(&lowered) {
+                    wants.push(lowered);
+                }
+            }
+            for p in &decl.params {
+                for ty in self.inherited_fn_effects(&p.ty) {
+                    if !wants.contains(&ty) {
+                        wants.push(ty);
+                    }
+                }
+            }
             self.generics = saved;
+        }
+        for lowered in wants {
             let want = substitute_vars(&lowered, subst, callee_generics);
             // [abort] A callee that may abort does not need a handler — it
             // needs a delimiter. The call is an *exit* of everything up to
@@ -7707,7 +8219,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             });
             match found {
-                Some(instance) => resolved.push(instance),
+                Some(instance) => {
+                    // [fn-effects] Feeds an enclosing lambda's inferred set.
+                    self.note_effect_use(&instance);
+                    resolved.push(instance);
+                }
                 None => {
                     self.error(
                         span,
@@ -7952,9 +8468,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.apply_call_contract(args, &member_params, Some(&contract), span);
         }
         if let Some(instance) = &resolved {
-            self.out
-                .effect_calls
-                .insert(self.key(span), instance.clone());
+            // [fn-effects] Feeds an enclosing lambda's inferred set.
+            let instance = instance.clone();
+            self.note_effect_use(&instance);
+            self.out.effect_calls.insert(self.key(span), instance);
         }
         substitute_vars(&member_ret, &subst, &generic_set)
     }
@@ -8111,7 +8628,8 @@ fn expr_defer_escape(expr: &Expr, loop_depth: usize) -> Option<(&'static str, Sp
         | Expr::NonNull { operand: base, .. }
         | Expr::PostIncrement { operand: base, .. }
         | Expr::Spread { operand: base, .. }
-        | Expr::Is { subject: base, .. } => expr_defer_escape(base, loop_depth),
+        | Expr::Is { subject: base, .. }
+        | Expr::Widen { subject: base, .. } => expr_defer_escape(base, loop_depth),
         Expr::Index { base, index, .. } => expr_defer_escape(base, loop_depth)
             .or_else(|| expr_defer_escape(index, loop_depth)),
         Expr::Binary { lhs, rhs, .. } => expr_defer_escape(lhs, loop_depth)

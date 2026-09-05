@@ -2037,5 +2037,341 @@ Module {
                 span: 1433..1601,
             },
         ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[fn-effects] A fn type may declare the effects a call of the value",
+                    "performs; the function taking it inherits them.",
+                ],
+                backing: None,
+                name: Ident {
+                    name: "run_it",
+                    span: 1727..1733,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "f",
+                            span: 1734..1735,
+                        },
+                        ty: Fn {
+                            params: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 1741..1744,
+                                        },
+                                        args: [],
+                                        span: 1741..1744,
+                                    },
+                                },
+                            ],
+                            param_names: [
+                                Some(
+                                    Ident {
+                                        name: "s",
+                                        span: 1738..1739,
+                                    },
+                                ),
+                            ],
+                            effects: Some(
+                                [
+                                    Effect(
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Console",
+                                                span: 1747..1754,
+                                            },
+                                            args: [],
+                                            span: 1747..1754,
+                                        },
+                                    ),
+                                ],
+                            ),
+                            deductions: Some(
+                                [
+                                    Deduction {
+                                        param: Ident {
+                                            name: "s",
+                                            span: 1760..1761,
+                                        },
+                                        kind: KeepAll,
+                                        span: 1760..1761,
+                                    },
+                                ],
+                            ),
+                            ret: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 1763..1766,
+                                    },
+                                    args: [],
+                                    span: 1763..1766,
+                                },
+                            },
+                            span: 1737..1766,
+                        },
+                        variadic: false,
+                        span: 1734..1766,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1768..1773,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1775..1778,
+                                },
+                                args: [],
+                                span: 1775..1778,
+                            },
+                        },
+                        variadic: false,
+                        span: 1768..1778,
+                    },
+                ],
+                effects: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "value",
+                                span: 1784..1789,
+                            },
+                            kind: KeepAll,
+                            span: 1784..1789,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 1791..1794,
+                            },
+                            args: [],
+                            span: 1791..1794,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "f",
+                                                span: 1808..1809,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "value",
+                                                    span: 1810..1815,
+                                                },
+                                            ),
+                                        ],
+                                        span: 1808..1816,
+                                    },
+                                ),
+                                span: 1801..1816,
+                            },
+                        ],
+                        span: 1795..1818,
+                    },
+                ),
+                span: 1724..1818,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                backing: None,
+                name: Ident {
+                    name: "use_it",
+                    span: 1823..1829,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [],
+                effects: Some(
+                    [
+                        Effect(
+                            TypeRef {
+                                name: Ident {
+                                    name: "Console",
+                                    span: 1833..1840,
+                                },
+                                args: [],
+                                span: 1833..1840,
+                            },
+                        ),
+                    ],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 1845..1849,
+                            },
+                            args: [],
+                            span: 1845..1849,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "shouted",
+                                        span: 1860..1867,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "run_it",
+                                            span: 1870..1876,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Lambda {
+                                            params: [
+                                                LambdaParam {
+                                                    name: Ident {
+                                                        name: "s",
+                                                        span: 1877..1878,
+                                                    },
+                                                    ty: None,
+                                                    span: 1877..1878,
+                                                },
+                                            ],
+                                            body: Block(
+                                                Block {
+                                                    stmts: [
+                                                        Expr(
+                                                            Call {
+                                                                callee: Ident(
+                                                                    Ident {
+                                                                        name: "println",
+                                                                        span: 1892..1899,
+                                                                    },
+                                                                ),
+                                                                type_args: [],
+                                                                args: [
+                                                                    Str {
+                                                                        parts: [
+                                                                            Text(
+                                                                                "shouting ",
+                                                                            ),
+                                                                            Interp(
+                                                                                Ident(
+                                                                                    Ident {
+                                                                                        name: "s",
+                                                                                        span: 1912..1913,
+                                                                                    },
+                                                                                ),
+                                                                            ),
+                                                                        ],
+                                                                        span: 1900..1915,
+                                                                    },
+                                                                ],
+                                                                span: 1892..1916,
+                                                            },
+                                                        ),
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Interp(
+                                                                            Ident(
+                                                                                Ident {
+                                                                                    name: "s",
+                                                                                    span: 1935..1936,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                        Text(
+                                                                            "!",
+                                                                        ),
+                                                                    ],
+                                                                    span: 1932..1939,
+                                                                },
+                                                            ),
+                                                            span: 1925..1939,
+                                                        },
+                                                    ],
+                                                    span: 1882..1945,
+                                                },
+                                            ),
+                                            span: 1877..1945,
+                                        },
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "hello",
+                                                ),
+                                            ],
+                                            span: 1947..1954,
+                                        },
+                                    ],
+                                    span: 1870..1955,
+                                },
+                                span: 1856..1955,
+                            },
+                            Expr(
+                                Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "println",
+                                            span: 1960..1967,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "shouted",
+                                                span: 1968..1975,
+                                            },
+                                        ),
+                                    ],
+                                    span: 1960..1976,
+                                },
+                            ),
+                        ],
+                        span: 1850..1978,
+                    },
+                ),
+                span: 1820..1978,
+            },
+        ),
     ],
 }

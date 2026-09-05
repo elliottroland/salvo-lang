@@ -93,7 +93,9 @@ fn main() [use] {
   chains (`p.address.city`) — and exhaustive `when`.
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
   overloading, union tagging, and precise checks; `Mut` opts structs and
-  types (`canbe Mut`) into mutability. A qualifier is a claim about a
+  types (`canbe Mut`) into mutability. `is` narrows a value to a more
+  specific type, `^` widens it by removing a qualifier (`when o { ^ Ok { … } }`
+  reads the union inside an `Ok` claim). A qualifier is a claim about a
   value's *contents* (`NonEmpty`) or about where the *handle* came from
   (`provenance qualifier Authenticated of Request`) — only the former can
   be invalidated by mutation. Structs and qualifiers can be namespaced
@@ -110,7 +112,11 @@ fn main() [use] {
   them, `use` registers handlers in scope — dependencies are always visible
   in signatures. A handler may itself depend on another effect (declared as
   a constructor parameter of effect type); the compiler supplies it from
-  the enclosing scope, so callers never mention it.
+  the enclosing scope, so callers never mention it. A function *value* that
+  performs an effect declares it in its type (`(s: Str) [Logger] -> Str`),
+  and the effect is supplied by whoever calls the value — so a higher-order
+  function inherits its callback's effects and needs no annotation of its
+  own.
 - **Non-resumption**: a function that may leave early declares
   `[Abort<Str>]` and keeps its own return type; `abort(message)` returns
   `Nothing`, so intermediate frames stay silent. The delimiter is
