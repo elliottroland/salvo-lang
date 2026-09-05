@@ -66,10 +66,39 @@ pub trait Backend {
     ) -> Result<Vec<std::path::PathBuf>, BackendError>;
 
     /// How a human starts the emitted program — a JVM class name, a
-    /// `rustc` invocation. `main_module` is the module declaring `main`.
-    /// Printed by `salvo compile`; the knowledge belongs to the backend,
-    /// not to the CLI.
-    fn entry_hint(&self, target_dir: &Path, main_module: &ModulePath) -> String;
+    /// `rustc` invocation. `main_module` is the module declaring `main`,
+    /// and `emitted` is what [`Backend::emit`] wrote, which is how the
+    /// backend can tell whether the *host* owns the entry point
+    /// [platform-tree]. Printed by `salvo compile`; the knowledge belongs
+    /// to the backend, not to the CLI.
+    fn entry_hint(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+    ) -> String;
+
+    /// [platform-tree] Renders the host implementation skeleton for every
+    /// platform effect the program declares: `salvo platform generate`'s
+    /// output, as `(path relative to the source root, contents)` pairs.
+    /// `entry` is the driver's chosen entry module, which matters for the
+    /// same reason it does in [`Backend::emit`] — Rust puts it at the crate
+    /// root, so the host addresses its items differently.
+    ///
+    /// The compiler writes these once and never again — every later drift
+    /// between host and interface is a target-language compile error — so
+    /// the caller must not overwrite a file that already exists.
+    fn platform_skeletons(
+        &self,
+        program: &Program,
+        entry: Option<&ModulePath>,
+    ) -> Result<Vec<(PathBuf, String)>, BackendError> {
+        let _ = (program, entry);
+        Err(BackendError::Unsupported(format!(
+            "backend `{}` has no platform interop",
+            self.name()
+        )))
+    }
 
     /// Builds the emitted sources with the target toolchain and runs the
     /// program, returning its exit code [cli-run]. `emitted` is what

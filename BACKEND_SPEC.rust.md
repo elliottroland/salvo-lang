@@ -672,6 +672,28 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * An `intrinsic handler` is the mirror image: struct + `new()` + trait
     impl, with member signatures from the *effect* declaration and bodies
     from `intrinsics::handler_member`.
+* [rs-platform-host] [platform-tree] [cli-platform] The host file for module
+  `M` is `platform/<M>.rs`, mounted from the crate root as
+  `#[path = "platform/<M>.rs"] pub mod platform_<M>;` — the module's own mod
+  name with a `platform_` prefix, so a host and the module it implements for
+  can never collide [rs-crate].
+  * Rust requires `fn main` in the crate root, and the generated entry point
+    there is `salvo_main`, so the crate root gains a delegation:
+    `fn main() { crate::platform_<M>::main() }`. The `rustc` invocation is
+    therefore unchanged, and `entry_hint` still names the crate root.
+  * The generated skeleton is `pub struct <E>Host;` plus
+    `impl <path>::<E> for <E>Host` with every member stubbed
+    `todo!("implement <E>.<member>")`, followed (in the entry module) by
+    `pub fn main() { <path>::salvo_main(&mut <E>Host, …) }`. Member
+    signatures come from `emit_member_param_list`/`emit_return_type` — the
+    same renderers `emit_effect` uses.
+  * Every reference is a fully qualified `crate::…` path rather than an
+    import: the host is a mounted module, and `<path>` is `crate` for the
+    crate-root module and `crate::<mod_name>` otherwise. A host struct
+    belonging to another module's host file is reached as
+    `crate::platform_<N>::<E>Host`. `module_mod_names` is shared with
+    `emit_program` so the skeleton and the mounting cannot disagree on a
+    name.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic

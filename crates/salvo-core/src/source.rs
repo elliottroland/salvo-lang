@@ -43,6 +43,11 @@ pub struct SourceFile {
     pub is_std: bool,
 }
 
+/// The source-root directory holding host implementations of platform
+/// effects [platform-tree]: `platform/` mirrors the source tree, so
+/// `platform/app/entry.kt` belongs to module `app.entry`.
+pub const PLATFORM_DIR: &str = "platform";
+
 /// A backend-native source file living next to a Salvo module
 /// (`complicated.kt` beside `complicated.sv`): copied verbatim into the
 /// output when its module is needed [backend-companion].
@@ -53,6 +58,14 @@ pub struct CompanionFile {
     /// The module the companion belongs to (same directory + stem).
     pub module: ModulePath,
     pub content: String,
+    /// True for a file under the source root's `platform/` directory
+    /// [platform-tree]: the host implementation of that module's platform
+    /// effects, which is generated once by `salvo platform generate` and
+    /// owned by the customer afterwards. It is a companion in every other
+    /// respect — copied verbatim, gated on its module being reachable —
+    /// but the backends single it out: it holds the program's real entry
+    /// point.
+    pub platform: bool,
 }
 
 /// The full set of sources for a compilation: user sources plus the
@@ -112,7 +125,13 @@ impl SourceSet {
     /// Classifies a backend-native companion file (`complicated.kt` for
     /// native extension `kt`): the module is the directory path plus the
     /// file stem [backend-companion].
-    pub fn classify_companion(rel_path: &Path, native_ext: &str) -> Option<ModulePath> {
+    ///
+    /// A leading `platform/` segment is *stripped* and reported as the
+    /// second element [platform-tree]: `platform/app/entry.kt` implements
+    /// the platform effects of module `app.entry`, so it must be attributed
+    /// to that module — a companion is only copied when its module is
+    /// reachable, and no Salvo module is ever called `platform.app.entry`.
+    pub fn classify_companion(rel_path: &Path, native_ext: &str) -> Option<(ModulePath, bool)> {
         let file_name = rel_path.file_name()?.to_str()?;
         let stem = file_name.strip_suffix(&format!(".{native_ext}"))?;
         let mut components: Vec<String> = rel_path
@@ -123,8 +142,14 @@ impl SourceSet {
                     .collect()
             })
             .unwrap_or_default();
+        // Only at the source root: a nested `platform/` directory is an
+        // ordinary one, and a module *named* `platform` keeps its name.
+        let platform = components.first().map(String::as_str) == Some(PLATFORM_DIR);
+        if platform {
+            components.remove(0);
+        }
         components.push(stem.to_string());
-        Some(ModulePath(components))
+        Some((ModulePath(components), platform))
     }
 
     pub fn add_companion(
@@ -132,11 +157,13 @@ impl SourceSet {
         rel_path: impl Into<PathBuf>,
         module: ModulePath,
         content: String,
+        platform: bool,
     ) {
         self.companions.push(CompanionFile {
             rel_path: rel_path.into(),
             module,
             content,
+            platform,
         });
     }
 
@@ -203,11 +230,14 @@ impl SourceSet {
         for path in paths {
             let rel = path.strip_prefix(root).unwrap_or(&path);
             if path.extension().is_some_and(|e| e == native_ext) {
-                let Some(module) = Self::classify_companion(rel, native_ext) else {
+                let Some((module, platform)) = Self::classify_companion(rel, native_ext)
+                else {
                     continue;
                 };
                 match std::fs::read_to_string(&path) {
-                    Ok(content) => self.add_companion(rel.to_path_buf(), module, content),
+                    Ok(content) => {
+                        self.add_companion(rel.to_path_buf(), module, content, platform)
+                    }
                     Err(err) => errors.push((path, err.to_string())),
                 }
                 continue;
@@ -271,5 +301,48 @@ mod tests {
     fn nested_modules() {
         let (module, _) = SourceSet::classify(Path::new("list/ext.sv"), "kotlin").unwrap();
         assert_eq!(module.to_string(), "list.ext");
+    }
+
+    /// [backend-companion] An ordinary companion is attributed to the
+    /// module beside it and carries no platform flag.
+    #[test]
+    fn classifies_companion_files() {
+        let (module, platform) =
+            SourceSet::classify_companion(Path::new("app/geometry.kt"), "kt").unwrap();
+        assert_eq!(module.to_string(), "app.geometry");
+        assert!(!platform);
+        assert!(SourceSet::classify_companion(Path::new("app/geometry.rs"), "kt").is_none());
+    }
+
+    /// [platform-tree] The leading `platform/` is stripped, so the host
+    /// file is attributed to the module whose platform effects it
+    /// implements — which is what makes it reachable at all.
+    #[test]
+    fn platform_companions_are_attributed_to_their_module() {
+        let (module, platform) =
+            SourceSet::classify_companion(Path::new("platform/main.kt"), "kt").unwrap();
+        assert_eq!(module.to_string(), "main");
+        assert!(platform);
+
+        let (module, platform) =
+            SourceSet::classify_companion(Path::new("platform/app/entry.rs"), "rs").unwrap();
+        assert_eq!(module.to_string(), "app.entry");
+        assert!(platform);
+    }
+
+    /// [platform-tree] Only the source root's `platform/` is special: a
+    /// nested one is an ordinary directory, so a module *named* `platform`
+    /// keeps its own companions.
+    #[test]
+    fn only_the_root_platform_directory_is_special() {
+        let (module, platform) =
+            SourceSet::classify_companion(Path::new("app/platform/host.kt"), "kt").unwrap();
+        assert_eq!(module.to_string(), "app.platform.host");
+        assert!(!platform);
+
+        let (module, platform) =
+            SourceSet::classify_companion(Path::new("platform.kt"), "kt").unwrap();
+        assert_eq!(module.to_string(), "platform");
+        assert!(!platform);
     }
 }

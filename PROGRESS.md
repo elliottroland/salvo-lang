@@ -78,6 +78,71 @@ Landed so far (each step left the tree green):
    end to end: the same source, with a hand-written host implementation,
    prints `[telemetry] work=41` / `result=42` under both `kotlinc` and
    `rustc`.
+4. **`salvo platform generate` + the `platform/` tree wiring**, which
+   together close the loop: the compiler now writes the host skeleton and
+   builds it back in, so a platform program goes from `.sv` to program
+   output with two commands and no hand-written glue.
+
+   *The tree* is the source root's `platform/`, mirroring the source
+   layout (`platform/app/entry.kt` for `app/entry.sv`). It reuses the
+   companion mechanism [backend-companion] wholesale — `CompanionFile`
+   gained a `platform: bool`, and `classify_companion` strips a leading
+   `platform/` segment so the file is attributed to the module it
+   implements for. The strip is load-bearing, not cosmetic: a companion is
+   only copied when its *module* is reachable, and no Salvo module is ever
+   called `platform.app.entry`, so without it the host file would be
+   discovered and then silently dropped. Only the root's `platform/` is
+   special, so a module named `platform` keeps its own companions. Both
+   backends' hosts coexist in one tree, since discovery filters by the
+   active backend's extension.
+
+   *Kotlin* puts the host in package `salvo.platform.<module>`, not
+   `salvo.<module>`. That was forced: Kotlin names a facade class after the
+   **file**, so `platform/main.kt` sharing `salvo.main` would put a second
+   `MainKt` on the classpath. The consequence is that the launch class
+   changes when the host owns `main`, which is why `Backend::entry_hint`
+   now takes the emitted file list — the presence of the host file is the
+   evidence, and it is exactly the right one, since a platform `main`
+   cannot be emitted without it.
+
+   *Rust* mounts the host as `platform_<module>` (prefixed so it can never
+   collide with the module it implements for) and appends
+   `fn main() { crate::platform_<module>::main() }` to the crate root,
+   because `fn main` must live there. The `rustc` invocation is unchanged.
+   `module_mod_names` was extracted so `emit_program` and the skeleton
+   renderer cannot disagree about what a module is called — a skeleton
+   naming `crate::core_console::…` where the crate calls it something else
+   would be generated code that does not compile.
+
+   *The skeletons* are rendered by the same `Emitter` and the same
+   signature renderers the interface emission uses (`emit_param_list` /
+   `emit_member_param_list`, `emit_return_type`), on the same checked
+   program, and the entry-point arguments come from the same
+   `checked.fn_effects` table the entry's *parameters* come from. That is
+   the point: a skeleton that does not match the interface it implements is
+   impossible by construction rather than by test coverage. `TODO(…)` /
+   `todo!(…)` bodies typecheck in return position, so a value-returning
+   member stubs without a cast.
+
+   *The command* never overwrites — an existing file is reported and left
+   alone — which is the whole dividend of the interface framing recorded
+   above. It shares the front end with `compile`/`run`: `build` was split
+   into `assemble` (load, parse, resolve the entry) + emission, so
+   `platform generate` resolves `--src`/`--main` identically.
+
+   *The missing-host gap is closed by an error, not by hope*: any reachable
+   module whose `main` needs a platform effect and has no host file is a
+   codegen error naming `salvo platform generate` and the exact path. The
+   rule is per module and identical on both backends, so a two-entry
+   directory cannot compile on one backend and fail on the other. The old
+   symptoms (`'main' method not found in class salvo.main.MainKt`, rustc
+   `E0601`) are unreachable now.
+
+   Both backends' `platform` tests were rewritten around the *generated*
+   skeleton with only its stub body replaced, so what they prove is that
+   the skeleton is complete and correct everywhere else — package, imports,
+   trait path, member signature, entry-point call. Same stdout on both:
+   `[telemetry] work=41` / `result=42`.
 
 Still to do, in order: delete the `external`/`define` machinery and sweep
 the ~130 test sources that use it (most become ordinary fns with *written*
@@ -85,16 +150,7 @@ deduction lists, which gives the same declared-not-inferred contract while
 keeping them on the named-call path rather than moving them to
 `check_effect_call`); enforce intrinsic-as-std-only (needs the checker
 tests' preludes split into `is_std` files, since `is_std` currently affects
-only `reach.rs` roots and CLI/LSP filtering); `salvo platform generate`;
-wire the `platform/` tree into compile and run.
-
-**Known gap until that wiring lands**: `salvo run` on a program with a
-platform effect fails at the toolchain (`'main' method not found in class
-salvo.main.MainKt`, or rustc `E0601`) because the host entry does not exist
-yet. Loud and never silently wrong, but the diagnostic points at generated
-code instead of naming `salvo platform generate` — which is precisely what
-the "loud is not the same as an error" gotcha below warns about, so it is
-recorded rather than left to be rediscovered.
+only `reach.rs` roots and CLI/LSP filtering).
 
 **One cut taken beyond the decisions, flagged to the user**: generic
 platform *effects* are rejected as well as generic members. A generic
@@ -1006,7 +1062,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 386 tests; includes twenty-seven kotlinc and twenty-five rustc
+cargo test                  # 526 tests; includes thirty-six kotlinc and thirty-five rustc
                             # compile+run tests (skipped gracefully when the
                             # toolchain is not on PATH)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -1021,6 +1077,12 @@ cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # on
 cargo run -- analyze --src ./some_dir                       # text diagnostics, exit 1 on errors
 cargo run -- analyze --src ./some_dir --format json         # machine-readable diagnostics
 cargo run -- analyze --src ./some_dir --backend kotlin      # also parse kotlin define files
+
+# Generate the host side of `platform effect` declarations [cli-platform]:
+cargo run -- platform generate --backend kotlin --src ./some_dir
+# Writes ./some_dir/platform/<module>.kt once per module that declares
+# platform effects; never overwrites, so implement the stubs and re-run
+# `salvo run`.
 
 # Language server over stdio [cli-lsp] (point your editor's LSP client at it):
 cargo run -- lsp
@@ -3458,9 +3520,10 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 514)
+## Test inventory (all green: 526)
 
-- `salvo-core`: 194 - 13 unit tests (file classification; `types.rs` union
+- `salvo-core`: 197 - 16 unit tests (file classification, including the
+  `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
   different roots never relating, overlap symmetric, an unknown array
@@ -3631,7 +3694,7 @@ spec rule; consolidated here for findability):
   members of one effect sharing a name, the same name across two effects
   (reported *once*, at the second declaration), and distinct names across
   effects staying legal).
-- `salvo-cli`: 72 - 46 `analyze` integration tests running the built
+- `salvo-cli`: 77 - 46 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -3774,7 +3837,18 @@ spec rule; consolidated here for findability):
   direction, a define file rejected as an entry point, a check error
   stopping the run with a single un-double-prefixed diagnostic, and the
   deletion guard refusing a target that holds a `.sv` file).
-- `salvo-syntax`: 48 (three std *define-file* snapshot tests were deleted
+  + 5 `platform generate` tests (`tests/platform_tests.rs` [cli-platform]
+  [platform-tree]): the whole arc per backend — the run failing with an
+  error that names the command and the path, the command writing
+  `platform/main.<ext>`, the stub implemented, and the *same* `salvo run`
+  then printing identical stdout on both backends; a second generate
+  leaving an edited host byte-identical and saying so; both backends'
+  hosts coexisting in one tree; a program without platform effects
+  generating nothing; and a nested layout where the effect's module gets
+  the implementation and the entry's module (chosen with `--main`) gets the
+  `main`, each mirroring its own source path, with the cross-module
+  reference qualified as `crate::platform_telemetry::TelemetryHost`.
+- `salvo-syntax`: 51 (three std *define-file* snapshot tests were deleted
   with the define files themselves; three `platform effect` parser tests
   were added [platform-effect]: the flag is set by the modifier, a plain
   `effect` leaves it clear so nothing existing changed meaning, and
@@ -3814,7 +3888,7 @@ spec rule; consolidated here for findability):
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 113 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 115 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -3916,15 +3990,23 @@ spec rule; consolidated here for findability):
   and 2 `try`-body tests ([try]: a variable assigned *only* inside a `try`
   body declared `var` — the traversal gap that emitted `val` and had
   kotlinc reject the output — plus the kotlinc run of the same program).
-  and 2 platform-effect tests ([platform-effect] [kt-platform-entry]:
+  and 4 platform tests ([platform-effect] [kt-platform-entry]
+  [platform-tree] [kt-platform-host]:
   `platform_effect_emits_an_interface_and_a_host_entry` asserting the
   generated `interface`, the *absence* of a handler class, `salvoMain`
   taking the instance, no generated `fun main(`, and the effect threaded
-  into an intermediate frame; plus a kotlinc compile+run with a
-  hand-written host implementation and entry, whose stdout matches the Rust
-  run byte for byte — the new `run_kotlin_entry` helper exists because
-  `run_kotlin_files` hardcodes `salvo.main.MainKt`).
-- `salvo-backend-rust`: 84 - golden snapshots of the same five demos
+  into an intermediate frame; `platform_generate_renders_a_host_skeleton`
+  asserting the skeleton's path, its own `salvo.platform.main` package, the
+  import, the `TelemetryHost : Telemetry` class, the stubbed `override` and
+  the host `main`; `a_missing_host_file_names_the_command` asserting that a
+  platform program without a host does not emit and that the error carries
+  both the path and the command; plus a kotlinc compile+run of the
+  *generated* skeleton with only its `TODO` body replaced — so the test
+  proves the skeleton is right everywhere else — whose stdout matches the
+  Rust run byte for byte. The `run_kotlin_entry` helper exists because
+  `run_kotlin_files` hardcodes `salvo.main.MainKt`, and the entry here is
+  the host's `salvo.platform.main.MainKt`).
+- `salvo-backend-rust`: 86 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -4023,20 +4105,63 @@ spec rule; consolidated here for findability):
   demo Kotlin also runs, with the same stdout); and 1 `try`-body test
   ([try]: the rustc run of the program whose `try` body assigns an outer
   variable and declares a local — the Rust half of the same traversal
-  gap); and 2 platform-effect tests
-  ([platform-effect] [rs-platform-entry]:
+  gap); and 4 platform tests
+  ([platform-effect] [rs-platform-entry] [platform-tree]
+  [rs-platform-host]:
   `platform_effect_emits_a_trait_and_a_host_entry` asserting the generated
   `trait`, the *absence* of a handler struct, `salvo_main` taking
-  `&mut dyn`, no generated `pub fn main(`, and the effect threaded into an
-  intermediate frame; plus the rustc compile+run with a hand-written host
-  impl and the crate-root delegation, asserting the same stdout Kotlin
-  does).
+  `&mut dyn`, the effect threaded into an intermediate frame, and the
+  crate-root wiring — the `#[path]` mount of `platform/main.rs` as
+  `platform_main` plus the `fn main()` that delegates to it;
+  `platform_generate_renders_a_host_skeleton` asserting the skeleton's
+  path, the unit struct, `impl crate::Telemetry`, the stubbed member and
+  the `main` that calls `crate::salvo_main`;
+  `a_missing_host_file_names_the_command` asserting that a platform program
+  without a host does not emit and that the error carries both the path and
+  the command; plus the rustc compile+run of the *generated* skeleton with
+  only its `todo!` body replaced, asserting the same stdout Kotlin does).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Reuse the mechanism, and check what the mechanism keys on.** Mounting
+  the `platform/` tree looked like "companions already do this", and it
+  was — but companions are gated on their *module* being reachable, and
+  `platform/main.kt` classifies as module `platform.main`, which no Salvo
+  program declares. Discovery would have found the file and then dropped it
+  silently. Stripping the leading segment is one line and the whole reason
+  the reuse works; when adopting an existing mechanism, find the key it
+  filters on before assuming the fit.
+- **A generated file's name can collide in the target's namespace, not
+  just the filesystem's.** `platform/main.kt` and the generated `main.kt`
+  are different paths, so nothing looked wrong — but Kotlin names a facade
+  class after the *file*, so both would have produced `salvo.main.MainKt`
+  and the classpath would have carried two. The fix (host files live in
+  `salvo.platform.<module>`) then propagated: the launch class differs when
+  the host owns `main`, which is why `Backend::entry_hint` had to learn
+  what was emitted. Check the target language's naming rules, not just the
+  output paths.
+- **Two backends' checks should fire on the same condition.** The
+  missing-host error was first written per module for Kotlin (no crate
+  root, so any module's `main` can be launched) and only for the crate root
+  on Rust (only its `main` is reachable) — each locally correct, and
+  together a program that compiles on one backend and fails on the other.
+  Made uniform: any reachable module whose `main` needs a platform effect
+  must have a host. When a rule's natural scope differs per backend, pick
+  the stricter one rather than shipping the divergence.
+- **Render generated glue with the emitter that generates what it glues
+  to.** The host skeleton must match the interface member for member. It
+  does, because `host_impl` calls the same `emit_param_list` /
+  `emit_member_param_list` and `emit_return_type` that `emit_effect` does,
+  on the same checked program, and takes the entry's arguments from the
+  same `checked.fn_effects` table its parameters come from. Likewise
+  `module_mod_names` is shared, so a skeleton cannot name a Rust module
+  something the crate root calls otherwise. None of that needed a test to
+  hold — which is the point, since drift here would emit code that does not
+  compile, and a test only tells you afterwards.
 
 - **An unchanged golden snapshot is the best evidence a refactor is
   faithful.** Moving std's interop out of `define` templates and into

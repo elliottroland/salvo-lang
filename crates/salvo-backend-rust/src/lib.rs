@@ -3,7 +3,7 @@
 mod emit;
 mod intrinsics;
 
-pub use emit::{emit_program, emit_program_with_entry, EmittedFile};
+pub use emit::{emit_program, emit_program_with_entry, platform_skeletons, EmittedFile};
 
 use std::path::{Path, PathBuf};
 
@@ -50,13 +50,34 @@ impl Backend for RustBackend {
         Ok(written)
     }
 
-    fn entry_hint(&self, target_dir: &Path, main_module: &ModulePath) -> String {
+    /// [platform-tree] The crate root is still the file to build: when the
+    /// host owns `main`, the root's own `fn main` delegates to it, so the
+    /// `rustc` invocation is unchanged.
+    fn entry_hint(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        _emitted: &[PathBuf],
+    ) -> String {
         let root = target_dir.join(crate_root(main_module));
         format!(
             "{} (build with: rustc --edition 2021 {})",
             root.display(),
             root.display()
         )
+    }
+
+    fn platform_skeletons(
+        &self,
+        program: &Program,
+        entry: Option<&ModulePath>,
+    ) -> Result<Vec<(PathBuf, String)>, BackendError> {
+        let files =
+            emit::platform_skeletons(program, entry).map_err(BackendError::Codegen)?;
+        Ok(files
+            .into_iter()
+            .map(|f| (f.rel_path, f.content))
+            .collect())
     }
 
     /// [rs-run] The module declaring `main` is the crate root, so one

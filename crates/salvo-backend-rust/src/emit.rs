@@ -73,21 +73,7 @@ pub fn emit_program_with_entry(
 
     // The Rust module name of every emitted Salvo module [rs-crate]:
     // path parts joined with `_` (`core.console` -> `core_console`).
-    let mut mod_names: BTreeMap<ModulePath, String> = BTreeMap::new();
-    let mut used: HashSet<String> = HashSet::new();
-    used.insert("unions".to_string());
-    for module in emitted_modules.iter().copied().collect::<BTreeSet<_>>() {
-        let mut name = module
-            .0
-            .iter()
-            .map(|p| p.as_str())
-            .collect::<Vec<_>>()
-            .join("_");
-        while !used.insert(name.clone()) {
-            name.push('_');
-        }
-        mod_names.insert(module.clone(), name);
-    }
+    let (mod_names, mut used) = module_mod_names(&emitted_modules);
 
     // The module declaring `fn main` becomes the crate root [rs-crate]. The
     // driver's choice wins when it made one: with several `main`s, only it
@@ -168,13 +154,18 @@ pub fn emit_program_with_entry(
             ));
             continue;
         }
-        let mut name = comp
-            .module
-            .0
-            .iter()
-            .map(|p| p.as_str())
-            .collect::<Vec<_>>()
-            .join("_");
+        let mut name = if comp.platform {
+            // [platform-tree] A host file is mounted alongside the module
+            // it implements for, so it needs a name of its own.
+            host_mod_name(&comp.module)
+        } else {
+            comp.module
+                .0
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join("_")
+        };
         while !used.insert(name.clone()) {
             name.push('_');
         }
@@ -183,6 +174,26 @@ pub fn emit_program_with_entry(
             rel_path: comp.rel_path.clone(),
             content: comp.content.clone(),
         });
+    }
+
+    // [platform-tree] A `main` that needs a platform effect is not the
+    // program's entry point any more, so the host file must exist — and
+    // the error names the command that creates it, or the failure only
+    // surfaces as `rustc` reporting `E0601`.
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::Language
+            || unit.file.is_std
+            || !reachable.contains(&unit.file.module)
+            || salvo_core::platform_entry(unit.ast, &symbols).is_none()
+        {
+            continue;
+        }
+        if salvo_core::host_file(&program.companions, &unit.file.module).is_none() {
+            errors.push(salvo_core::missing_host_error(
+                &unit.file.module,
+                &salvo_core::host_rel_path(&unit.file.module, "rs"),
+            ));
+        }
     }
 
     // Crate-root assembly [rs-crate]: attributes + `#[path]` mod
@@ -225,15 +236,34 @@ pub fn emit_program_with_entry(
             header.push_str(&format!("#[path = \"{}\"]\npub mod {};\n", rel, rs_ident(&name)));
         }
         header.push('\n');
+        // [platform-tree] [rs-platform-host] Rust wants `fn main` in the
+        // crate root, but the host's `main` lives in a mounted module — so
+        // the crate root gets a one-line delegation to it. The generated
+        // entry point next to it is `salvo_main`, which the host calls with
+        // the implementations it constructed.
+        let mut footer = String::new();
+        if let Some(root) = root_module {
+            let needs_host = program
+                .units()
+                .find(|u| u.file.module == *root)
+                .and_then(|u| salvo_core::platform_entry(u.ast, &symbols))
+                .is_some();
+            if needs_host && salvo_core::host_file(&program.companions, root).is_some() {
+                footer = format!(
+                    "\nfn main() {{\n    crate::{}::main()\n}}\n",
+                    rs_ident(&host_mod_name(root))
+                );
+            }
+        }
         match files.iter_mut().find(|f| f.rel_path == root_rel) {
             Some(root_file) => {
-                root_file.content = format!("{header}{}", root_file.content);
+                root_file.content = format!("{header}{}{footer}", root_file.content);
             }
             None => {
                 // Library compile: a synthetic lib.rs mounts everything.
                 files.push(EmittedFile {
                     rel_path: root_rel,
-                    content: header,
+                    content: format!("{header}{footer}"),
                 });
             }
         }
@@ -244,6 +274,205 @@ pub fn emit_program_with_entry(
     } else {
         Err(errors)
     }
+}
+
+/// [platform-tree] The Rust type name a host implementation gets for effect
+/// `E`: `EHost`. A named unit struct, not an anonymous one, because the file
+/// is the customer's from the moment it is written — they need something to
+/// hang state on.
+fn host_struct(effect: &str) -> String {
+    format!("{}Host", rs_ident(effect))
+}
+
+/// [platform-tree] [rs-platform-host] Renders the host implementation
+/// skeleton for every module that declares platform effects, plus the module
+/// whose `main` needs one (which is where the program's real entry point
+/// goes). This is `salvo platform generate`'s whole output.
+///
+/// Every reference is written out in full (`crate::…`) rather than imported:
+/// the host is a module mounted from the crate root [rs-crate], and a
+/// qualified path is the one spelling that stays correct wherever the
+/// mounting puts it.
+pub fn platform_skeletons(
+    program: &Program,
+    entry: Option<&ModulePath>,
+) -> Result<Vec<EmittedFile>, Vec<String>> {
+    let symbols = Symbols::collect(program);
+    let resolution = salvo_core::resolve(program);
+    let checked = salvo_core::check_program(program, &resolution, &symbols);
+    if !checked.errors.is_empty() {
+        return Err(checked
+            .errors
+            .iter()
+            .map(|d| d.render(&program.files))
+            .collect());
+    }
+    let reachable = salvo_core::reachable_modules(program, &resolution);
+    let emitted_modules: HashSet<&ModulePath> = program
+        .units()
+        .filter(|u| {
+            u.file.kind == SourceKind::Language
+                && reachable.contains(&u.file.module)
+                && module_produces_code(u.ast)
+        })
+        .map(|u| &u.file.module)
+        .collect();
+    let (mod_names, _) = module_mod_names(&emitted_modules);
+    let declares_main = |u: &salvo_core::program::Unit| {
+        u.file.kind == SourceKind::Language
+            && emitted_modules.contains(&u.file.module)
+            && u.ast.items.iter().any(|item| {
+                matches!(item, Item::Fn(f) if f.name.name == "main" && f.body.is_some())
+            })
+    };
+    let root_module: Option<&ModulePath> = program
+        .units()
+        .find(|u| declares_main(u) && entry.is_some_and(|e| *e == u.file.module))
+        .or_else(|| program.units().find(declares_main))
+        .map(|u| &u.file.module);
+
+    // How the host addresses an item of `module`: the crate root's items are
+    // at `crate::`, everything else sits under its mount.
+    let path_to = |module: &ModulePath| -> Option<String> {
+        if Some(module) == root_module {
+            Some("crate".to_string())
+        } else {
+            mod_names
+                .get(module)
+                .map(|name| format!("crate::{}", rs_ident(name)))
+        }
+    };
+    let mut effect_module: HashMap<&str, &ModulePath> = HashMap::new();
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::Language {
+            continue;
+        }
+        for e in salvo_core::platform_effects(unit.ast) {
+            effect_module.insert(e.name.name.as_str(), &unit.file.module);
+        }
+    }
+
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    for (file_idx, unit) in program.units().enumerate() {
+        if unit.file.kind != SourceKind::Language || unit.file.is_std {
+            continue;
+        }
+        let effects = salvo_core::platform_effects(unit.ast);
+        let entry_fn = salvo_core::platform_entry(unit.ast, &symbols);
+        if effects.is_empty() && entry_fn.is_none() {
+            continue;
+        }
+        let module = &unit.file.module;
+        let Some(own_path) = path_to(module) else {
+            errors.push(format!(
+                "{}: module `{module}` declares platform effects but emits no Rust \
+                 module to attach them to",
+                unit.file.name
+            ));
+            continue;
+        };
+        let mut emitter =
+            Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+        let mut body = String::new();
+        for e in &effects {
+            body.push_str(&emitter.host_impl(e, &own_path));
+        }
+        if let Some(f) = entry_fn {
+            let mut args = Vec::new();
+            for effect in emitter.platform_entry_effects(f) {
+                let Some(other) = effect_module.get(effect.as_str()).copied() else {
+                    errors.push(format!(
+                        "{}: `main` needs the platform effect `{effect}`, whose \
+                         declaration could not be located",
+                        unit.file.name
+                    ));
+                    continue;
+                };
+                let owner = if other == module {
+                    String::new()
+                } else {
+                    match path_to(other) {
+                        // A host struct lives in the *other module's* host
+                        // file, which is mounted under its own name.
+                        Some(_) => format!("crate::{}::", rs_ident(&host_mod_name(other))),
+                        None => continue,
+                    }
+                };
+                args.push(format!("&mut {owner}{}", host_struct(&effect)));
+            }
+            body.push_str(&format!(
+                "\n// The program's entry point [rs-platform-host]: Salvo's `main` \
+                 needs a\n// platform effect, so it is emitted as `{SALVO_ENTRY}` and \
+                 the crate root\n// calls this.\npub fn main() {{\n    {own_path}::\
+                 {SALVO_ENTRY}({})\n}}\n",
+                args.join(", ")
+            ));
+        }
+        errors.extend(std::mem::take(&mut emitter.errors));
+
+        let content = format!(
+            "// Host implementation of the platform effects of Salvo module \
+             `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
+             compiler never writes\n// this file again — it is yours. Nothing here is \
+             checked by Salvo: rustc\n// checks it, against the traits the backend \
+             generates from the\n// `platform effect` declarations.\n{body}"
+        );
+        files.push(EmittedFile {
+            rel_path: salvo_core::host_rel_path(module, "rs"),
+            content,
+        });
+    }
+    if errors.is_empty() {
+        Ok(files)
+    } else {
+        Err(errors)
+    }
+}
+
+/// [rs-crate] The Rust module name of every emitted Salvo module: the path
+/// parts joined with `_` (`core.console` -> `core_console`), made unique by
+/// suffixing. Returns the names taken so far as well, so later mounts
+/// (companions, platform hosts) keep clear of them.
+///
+/// One function rather than two because `platform_skeletons` has to address
+/// exactly the modules `emit_program` mounts: a skeleton naming
+/// `crate::core_console::…` where the crate calls it something else would
+/// be generated code that does not compile.
+fn module_mod_names(
+    emitted_modules: &HashSet<&ModulePath>,
+) -> (BTreeMap<ModulePath, String>, HashSet<String>) {
+    let mut mod_names: BTreeMap<ModulePath, String> = BTreeMap::new();
+    let mut used: HashSet<String> = HashSet::new();
+    used.insert("unions".to_string());
+    for module in emitted_modules.iter().copied().collect::<BTreeSet<_>>() {
+        let mut name = module
+            .0
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>()
+            .join("_");
+        while !used.insert(name.clone()) {
+            name.push('_');
+        }
+        mod_names.insert(module.clone(), name);
+    }
+    (mod_names, used)
+}
+
+/// [platform-tree] The Rust module name a module's host file is mounted
+/// under: the module's own name with a `platform_` prefix, so a host and
+/// the module it implements for can never collide.
+fn host_mod_name(module: &ModulePath) -> String {
+    format!(
+        "platform_{}",
+        module
+            .0
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>()
+            .join("_")
+    )
 }
 
 /// The path of `target` relative to the directory `from` (both relative to
@@ -813,6 +1042,86 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         self.generics = saved;
+        out
+    }
+
+    /// [platform-tree] [rs-platform-host] One host implementation skeleton:
+    /// a unit struct implementing the generated trait, every member stubbed
+    /// with `todo!`. The signatures come from [`Emitter::emit_effect`]'s own
+    /// renderers, so a skeleton that drifts from the trait is impossible by
+    /// construction.
+    fn host_impl(&mut self, e: &EffectDecl, owner_path: &str) -> String {
+        let name = host_struct(&e.name.name);
+        let mut out = format!(
+            "\npub struct {name};\n\nimpl {owner_path}::{} for {name} {{\n",
+            rs_ident(&e.name.name)
+        );
+        for f in &e.fns {
+            if !f.generics.is_empty() {
+                continue;
+            }
+            let params = self.emit_member_param_list(&f.params);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&format!(
+                "    fn {}(&mut self{params}){ret} {{\n        \
+                 todo!(\"implement {}.{}\")\n    }}\n",
+                rs_ident(&f.name.name),
+                e.name.name,
+                f.name.name
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// [platform-tree] The platform effects `main` receives, as Salvo effect
+    /// names *in parameter order* — the arguments the host's `main` must
+    /// pass to the generated entry point. Read from the same checker table
+    /// the parameters themselves come from, so the two cannot disagree.
+    fn platform_entry_effects(&mut self, f: &FnDecl) -> Vec<String> {
+        let checked_effects: Option<Vec<Ty>> = self
+            .checked
+            .fn_refs
+            .get(&(self.file_idx, f.name.span))
+            .and_then(|key| self.checked.fn_effects.get(key))
+            .cloned();
+        let mut out: Vec<String> = Vec::new();
+        let push = |name: &str, out: &mut Vec<String>| {
+            if !out.iter().any(|n| n == name) {
+                out.push(name.to_string());
+            }
+        };
+        match checked_effects {
+            Some(tys) => {
+                for ty in tys {
+                    if let Ty::Named { name, .. } = ty.strip_quals() {
+                        if self
+                            .symbols
+                            .effects
+                            .get(name.as_str())
+                            .is_some_and(|e| e.platform)
+                        {
+                            push(name, &mut out);
+                        }
+                    }
+                }
+            }
+            None => {
+                for eff in f.effects.iter().flatten() {
+                    if let EffectRef::Effect(r) = eff {
+                        let name = r.name.name.as_str();
+                        if self
+                            .symbols
+                            .effects
+                            .get(name)
+                            .is_some_and(|e| e.platform)
+                        {
+                            push(name, &mut out);
+                        }
+                    }
+                }
+            }
+        }
         out
     }
 

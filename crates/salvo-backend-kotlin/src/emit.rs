@@ -130,6 +130,26 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
             content: comp.content.clone(),
         });
     }
+    // [platform-tree] A `main` that needs a platform effect is not the
+    // program's entry point any more, so the host file must exist — and
+    // the error has to name the command that creates it, or the failure
+    // only surfaces as `kotlinc` not finding a `main`.
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::Language
+            || unit.file.is_std
+            || !reachable.contains(&unit.file.module)
+            || salvo_core::platform_entry(unit.ast, &symbols).is_none()
+        {
+            continue;
+        }
+        if salvo_core::host_file(&program.companions, &unit.file.module).is_none() {
+            errors.push(salvo_core::missing_host_error(
+                &unit.file.module,
+                &salvo_core::host_rel_path(&unit.file.module, "kt"),
+            ));
+        }
+    }
+
     if errors.is_empty() {
         Ok(files)
     } else {
@@ -275,6 +295,139 @@ fn module_produces_code(module: &Module) -> bool {
         Item::Qualifier(q) => q.fns.iter().any(|f| f.body.is_some()),
         _ => false,
     })
+}
+
+/// [platform-tree] [kt-platform-host] The Kotlin package of a module's host
+/// file: `salvo.platform.` plus the module path. A package of its own is
+/// what keeps the host's facade class distinct from the generated module's
+/// — both files are named after the module, so sharing a package would put
+/// two `MainKt` classes on the classpath.
+pub fn host_package(module: &ModulePath) -> String {
+    let mut out = String::from("salvo.platform");
+    for part in &module.0 {
+        out.push('.');
+        out.push_str(&kt_ident(part));
+    }
+    out
+}
+
+/// [platform-tree] The Kotlin class name a host implementation gets for
+/// effect `E`: `EHost`. Named, not anonymous, because the file is the
+/// customer's from the moment it is written — they need something to hang
+/// state and constructor parameters on.
+fn host_class(effect: &str) -> String {
+    format!("{effect}Host")
+}
+
+/// [platform-tree] [kt-platform-host] Renders the host implementation
+/// skeleton for every module that declares platform effects, plus the
+/// module whose `main` needs one (which is where the program's real entry
+/// point goes).
+///
+/// This is `salvo platform generate`'s whole output. It runs the front end
+/// exactly as `emit_program` does — the skeleton has to match the
+/// interfaces the emitter generates, member for member, so the two must be
+/// rendered by the same code against the same checked program.
+pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    let symbols = Symbols::collect(program);
+    let resolution = salvo_core::resolve(program);
+    let checked = salvo_core::check_program(program, &resolution, &symbols);
+    if !checked.errors.is_empty() {
+        return Err(checked
+            .errors
+            .iter()
+            .map(|d| d.render(&program.files))
+            .collect());
+    }
+
+    // Which module declares each platform effect, so a host file can import
+    // an effect that lives elsewhere.
+    let mut effect_module: HashMap<&str, &ModulePath> = HashMap::new();
+    for unit in program.units() {
+        if unit.file.kind != SourceKind::Language {
+            continue;
+        }
+        for e in salvo_core::platform_effects(unit.ast) {
+            effect_module.insert(e.name.name.as_str(), &unit.file.module);
+        }
+    }
+
+    let mut files = Vec::new();
+    let mut errors = Vec::new();
+    for (file_idx, unit) in program.units().enumerate() {
+        if unit.file.kind != SourceKind::Language || unit.file.is_std {
+            continue;
+        }
+        let effects = salvo_core::platform_effects(unit.ast);
+        let entry = salvo_core::platform_entry(unit.ast, &symbols);
+        if effects.is_empty() && entry.is_none() {
+            continue;
+        }
+        let module = &unit.file.module;
+        let mut emitter =
+            Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
+
+        let mut body = String::new();
+        for e in &effects {
+            body.push_str(&emitter.host_impl(e));
+        }
+        // Imports: the module's own generated package always (the
+        // interfaces and the entry point live there), plus the packages of
+        // any platform effect declared elsewhere that the entry needs.
+        let mut imports: BTreeSet<String> = BTreeSet::new();
+        imports.insert(format!("import {}.*", kotlin_package(module)));
+        if let Some(f) = entry {
+            let args = emitter.platform_entry_effects(f);
+            let mut calls = Vec::new();
+            for effect in &args {
+                match effect_module.get(effect.as_str()) {
+                    Some(other) if *other != module => {
+                        imports.insert(format!("import {}.*", kotlin_package(other)));
+                        imports.insert(format!("import {}.*", host_package(other)));
+                    }
+                    Some(_) => {}
+                    None => errors.push(format!(
+                        "{}: `main` needs the platform effect `{effect}`, whose \
+                         declaration could not be located",
+                        unit.file.name
+                    )),
+                }
+                calls.push(format!("{}()", host_class(effect)));
+            }
+            body.push_str(&format!(
+                "\n// The program's entry point [kt-platform-host]: Salvo's `main` \
+                 needs a\n// platform effect, so it is emitted as `{SALVO_ENTRY}` \
+                 and this is the\n// `main` the toolchain runs.\nfun main() {{\n    \
+                 {SALVO_ENTRY}({})\n}}\n",
+                calls.join(", ")
+            ));
+        }
+        errors.extend(std::mem::take(&mut emitter.errors));
+
+        let mut content = format!(
+            "// Host implementation of the platform effects of Salvo module \
+             `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
+             compiler never writes\n// this file again — it is yours. Nothing here \
+             is checked by Salvo: the\n// Kotlin compiler checks it, against the \
+             interfaces the backend generates\n// from the `platform effect` \
+             declarations.\npackage {}\n\n",
+            host_package(module)
+        );
+        for import in &imports {
+            content.push_str(import);
+            content.push('\n');
+        }
+        content.push_str(&body);
+        files.push(EmittedFile {
+            rel_path: salvo_core::host_rel_path(module, "kt"),
+            content,
+        });
+    }
+    if errors.is_empty() {
+        Ok(files)
+    } else {
+        Err(errors)
+    }
 }
 
 /// Kotlin reserved words that need backtick-escaping as identifiers.
@@ -549,6 +702,76 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         self.generics = saved;
+        out
+    }
+
+    /// [platform-tree] [kt-platform-host] One host implementation skeleton:
+    /// a named class implementing the generated interface, every member
+    /// stubbed with `TODO`. The signatures come from
+    /// [`Emitter::emit_effect`]'s own renderers, so a skeleton that drifts
+    /// from the interface is impossible by construction.
+    fn host_impl(&mut self, e: &EffectDecl) -> String {
+        let mut out = format!(
+            "\nclass {} : {} {{\n",
+            host_class(&e.name.name),
+            e.name.name
+        );
+        for f in &e.fns {
+            let member_saved = self.enter_generics(&f.generics);
+            let params = self.emit_param_list(&f.params);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&format!(
+                "    override fun {}({params}){ret} {{\n        \
+                 TODO(\"implement {}.{}\")\n    }}\n",
+                kt_ident(&f.name.name),
+                e.name.name,
+                f.name.name
+            ));
+            self.generics = member_saved;
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// [platform-tree] The platform effects `main` receives, as rendered
+    /// Kotlin type names *in parameter order* — the arguments the host's
+    /// `main` must pass to the generated entry point. Read from the same
+    /// checker table the parameters themselves come from, so the two
+    /// cannot disagree.
+    fn platform_entry_effects(&mut self, f: &FnDecl) -> Vec<String> {
+        let checked_effects: Option<Vec<Ty>> = self
+            .checked
+            .fn_refs
+            .get(&(self.file_idx, f.name.span))
+            .and_then(|key| self.checked.fn_effects.get(key))
+            .cloned();
+        let mut out = Vec::new();
+        match checked_effects {
+            Some(tys) => {
+                for ty in tys {
+                    if is_abort_effect_ty(&ty) {
+                        continue;
+                    }
+                    let rendered = self.kotlin_ty(&ty);
+                    if self.is_platform_effect(Some(&ty), &rendered) && !out.contains(&rendered)
+                    {
+                        out.push(rendered);
+                    }
+                }
+            }
+            None => {
+                for eff in f.effects.iter().flatten() {
+                    if let EffectRef::Effect(r) = eff {
+                        let rendered = self.emit_type_ref(r);
+                        if self.is_platform_effect(None, &rendered)
+                            && !out.contains(&rendered)
+                        {
+                            out.push(rendered);
+                        }
+                    }
+                }
+            }
+        }
         out
     }
 

@@ -6,6 +6,7 @@
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
 //! salvo run --backend rust --src ./some_dir --target ./out --clean-target before
 //! salvo analyze --src ./some_dir [--backend kotlin] [--format json]
+//! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp [--backend kotlin]
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
 //! ```
@@ -127,6 +128,38 @@ enum Command {
         #[command(subcommand)]
         command: LangCommand,
     },
+    /// Work with the host side of `platform effect` declarations
+    /// [cli-platform].
+    Platform {
+        #[command(subcommand)]
+        command: PlatformCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum PlatformCommand {
+    /// Write the host implementation skeleton for every `platform effect`
+    /// into the source root's `platform/` tree [platform-tree]
+    /// [cli-platform].
+    ///
+    /// Existing files are never touched: the skeleton is generated once and
+    /// belongs to you afterwards, and every later divergence from the
+    /// generated interface is a target-language compile error rather than
+    /// something the compiler has to merge.
+    Generate {
+        /// Target backend, which decides the language of the skeleton.
+        #[arg(long)]
+        backend: String,
+        /// Directory containing `.sv` source files — also where the
+        /// `platform/` tree is written.
+        #[arg(long, required_unless_present = "main_file")]
+        src: Option<PathBuf>,
+        /// The `.sv` file declaring `main`, as for `salvo run`: it picks
+        /// between several entry points, and on its own implies its own
+        /// directory as the source directory.
+        #[arg(long = "main", required_unless_present = "src")]
+        main_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -170,6 +203,13 @@ fn main() -> ExitCode {
         },
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
+        },
+        Command::Platform { command } => match command {
+            PlatformCommand::Generate {
+                backend,
+                src,
+                main_file,
+            } => platform_generate(&backend, src, main_file),
         },
     }
 }
@@ -340,18 +380,28 @@ struct Layout {
     main_file: Option<String>,
 }
 
-/// Parses, checks and emits `layout`'s sources with `backend`.
+/// A parsed, entry-resolved program: what `compile`, `run` and
+/// `platform generate` all need before they diverge.
+struct Assembled {
+    program: Program,
+    main_module: Option<salvo_core::ModulePath>,
+    /// The names of every file declaring `main`, when the choice was left
+    /// open and there was more than one.
+    ambiguous: Vec<String>,
+}
+
+/// Loads, parses and entry-resolves `layout`'s sources for `backend`.
 ///
-/// The shared half of `compile` and `run` [cli-run]: `Err` carries the exit
-/// code to return (diagnostics already reported), `Ok(None)` means the build
-/// stopped early on purpose (`--emit-ast`).
-fn build(
+/// The front half shared by `compile`, `run` and `platform generate`
+/// [cli-run] [cli-platform]: `Err` carries the exit code to return
+/// (diagnostics already reported), `Ok(None)` means the caller asked to stop
+/// early (`--emit-ast`).
+fn assemble(
     backend: &dyn salvo_backend::Backend,
     layout: &Layout,
-    target: &PathBuf,
     emit_ast: Option<&str>,
     verbose: bool,
-) -> Result<Option<Built>, ExitCode> {
+) -> Result<Option<Assembled>, ExitCode> {
     // Assemble sources: embedded std first (implicitly imported), then the
     // user's source directory.
     let mut sources = SourceSet::default();
@@ -473,6 +523,33 @@ fn build(
         modules,
         companions: sources.companions,
     };
+    Ok(Some(Assembled {
+        program,
+        main_module,
+        ambiguous,
+    }))
+}
+
+/// Parses, checks and emits `layout`'s sources with `backend`.
+///
+/// The shared half of `compile` and `run` [cli-run]: `Err` carries the exit
+/// code to return (diagnostics already reported), `Ok(None)` means the build
+/// stopped early on purpose (`--emit-ast`).
+fn build(
+    backend: &dyn salvo_backend::Backend,
+    layout: &Layout,
+    target: &PathBuf,
+    emit_ast: Option<&str>,
+    verbose: bool,
+) -> Result<Option<Built>, ExitCode> {
+    let Some(Assembled {
+        program,
+        main_module,
+        ambiguous,
+    }) = assemble(backend, layout, emit_ast, verbose)?
+    else {
+        return Ok(None);
+    };
     let written = match backend.emit(&program, target, main_module.as_ref()) {
         Ok(written) => written,
         // Codegen messages are rendered diagnostics: they carry their own
@@ -503,7 +580,10 @@ fn build(
             target.display()
         );
         if let Some(module) = &main_module {
-            eprintln!("entry point: {}", backend.entry_hint(target, module));
+            eprintln!(
+                "entry point: {}",
+                backend.entry_hint(target, module, &written)
+            );
         }
     } else {
         clean_stale(target, backend.file_extension(), &written);
@@ -620,6 +700,96 @@ fn run(
             ExitCode::FAILURE
         }
     }
+}
+
+/// `salvo platform generate` [cli-platform]: writes the host implementation
+/// skeleton for every `platform effect` into `<src>/platform/`
+/// [platform-tree].
+///
+/// **Never overwrites.** With an interface between Salvo and the host, the
+/// file only has to be right once: afterwards every kind of drift — a member
+/// added, removed, or re-signed, a new platform effect — is an error from the
+/// *target* compiler, so there is nothing for this command to merge and no
+/// reason for it to touch code a human has edited.
+fn platform_generate(
+    backend_name: &str,
+    src: Option<PathBuf>,
+    main_file: Option<PathBuf>,
+) -> ExitCode {
+    let registry = registry();
+    let Some(backend) = registry.get(backend_name) else {
+        eprintln!("{}", unknown_backend(&registry, backend_name));
+        return ExitCode::FAILURE;
+    };
+    let layout = match layout_of(src, main_file) {
+        Ok(layout) => layout,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(assembled) = (match assemble(backend, &layout, None, false) {
+        Ok(assembled) => assembled,
+        Err(code) => return code,
+    }) else {
+        return ExitCode::SUCCESS;
+    };
+
+    let skeletons = match backend
+        .platform_skeletons(&assembled.program, assembled.main_module.as_ref())
+    {
+        Ok(files) => files,
+        Err(BackendError::Codegen(msgs)) => {
+            for msg in &msgs {
+                eprintln!("{msg}");
+            }
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if skeletons.is_empty() {
+        eprintln!(
+            "no `platform effect` declarations in `{}`: nothing to generate",
+            layout.src.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    let mut written = 0usize;
+    let mut kept = 0usize;
+    for (rel_path, content) in skeletons {
+        let path = layout.src.join(&rel_path);
+        if path.exists() {
+            eprintln!("kept {} (already exists)", path.display());
+            kept += 1;
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                eprintln!("error: failed to create `{}`: {err}", parent.display());
+                return ExitCode::FAILURE;
+            }
+        }
+        if let Err(err) = std::fs::write(&path, &content) {
+            eprintln!("error: failed to write `{}`: {err}", path.display());
+            return ExitCode::FAILURE;
+        }
+        eprintln!("wrote {}", path.display());
+        written += 1;
+    }
+    eprintln!(
+        "generated {written} host file(s){}; implement the stubbed members, then \
+         `salvo run --backend {backend_name}`",
+        if kept == 0 {
+            String::new()
+        } else {
+            format!(", left {kept} existing file(s) alone")
+        }
+    );
+    ExitCode::SUCCESS
 }
 
 fn unknown_backend(registry: &BackendRegistry, name: &str) -> String {

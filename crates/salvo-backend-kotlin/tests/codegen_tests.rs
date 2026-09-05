@@ -1105,11 +1105,13 @@ fn never_called() -> Int {
         rel_path: std::path::PathBuf::from("geometry_helpers.kt"),
         module: salvo_core::ModulePath(vec!["geometry".into()]),
         content: "package salvo.geometry\n\nfun helper(): Int = 1\n".to_string(),
+        platform: false,
     });
     program.companions.push(salvo_core::CompanionFile {
         rel_path: std::path::PathBuf::from("unused_helpers.kt"),
         module: salvo_core::ModulePath(vec!["unused".into()]),
         content: "package salvo.unused\n".to_string(),
+        platform: false,
     });
     program
 }
@@ -1408,6 +1410,7 @@ fn companion_collision_with_generated_file_is_an_error() {
         rel_path: std::path::PathBuf::from("main.kt"),
         module: salvo_core::ModulePath(vec!["main".into()]),
         content: "package salvo.main\n".to_string(),
+        platform: false,
     });
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
@@ -4279,11 +4282,39 @@ fn main() [use, Telemetry] {
 }
 "#;
 
-fn generate_platform_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    let program = build_program(&[("main.sv", PLATFORM_DEMO, false)]);
+fn platform_demo_program() -> Program {
+    build_program(&[("main.sv", PLATFORM_DEMO, false)])
+}
+
+/// [platform-tree] The host skeleton `salvo platform generate` writes for
+/// the demo, as the compiler renders it.
+fn platform_skeleton() -> salvo_backend_kotlin::EmittedFile {
+    let program = platform_demo_program();
+    let mut files = salvo_backend_kotlin::platform_skeletons(&program)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares platform effects");
+    files.remove(0)
+}
+
+/// Emits the demo with `host` mounted as its platform companion — which is
+/// what a source tree with a `platform/` directory produces
+/// [platform-tree]. The host is *required*, so every emission test goes
+/// through here.
+fn generate_platform_demo_with(host: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let mut program = platform_demo_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.kt"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
+}
+
+fn generate_platform_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_platform_demo_with(&platform_skeleton().content)
 }
 
 /// [platform-effect] [kt-platform-entry] A platform effect emits the same
@@ -4325,30 +4356,74 @@ fn platform_effect_emits_an_interface_and_a_host_entry() {
     );
 }
 
-/// [platform-effect] The end-to-end shape: a hand-written host
-/// implementation plus `main` wiring, compiled and run with kotlinc. The
-/// asserted stdout is byte-identical to the Rust backend's run of the same
-/// program, which is what parity means here.
+/// [platform-tree] [kt-platform-host] The generated skeleton: a named class
+/// per platform effect implementing the generated interface with every
+/// member stubbed, plus the `main` that constructs it and calls the
+/// generated entry point. The package is the host's own
+/// (`salvo.platform.…`) — sharing the module's would put two `MainKt`
+/// facade classes on the classpath.
+#[test]
+fn platform_generate_renders_a_host_skeleton() {
+    let file = platform_skeleton();
+    assert_eq!(
+        file.rel_path.to_string_lossy(),
+        "platform/main.kt",
+        "the host file mirrors its module under `platform/`"
+    );
+    let src = &file.content;
+    for expected in [
+        "package salvo.platform.main",
+        "import salvo.main.*",
+        "class TelemetryHost : Telemetry {",
+        "override fun record(name: String, value: Int) {",
+        "TODO(\"implement Telemetry.record\")",
+        "fun main() {\n    salvoMain(TelemetryHost())\n}",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+/// [platform-tree] The host file is not optional: without it the program has
+/// no entry point at all, and the error has to name the command that writes
+/// one — otherwise the only symptom is `kotlinc` failing to find `main` in
+/// generated code, which is what the "loud is not the same as an error"
+/// lesson is about.
+#[test]
+fn a_missing_host_file_names_the_command() {
+    let program = platform_demo_program();
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("a platform program without a host must not emit");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("platform/main.kt") && e.contains("salvo platform generate")),
+        "expected the missing-host error, got:\n{}",
+        errors.join("\n")
+    );
+}
+
+/// [platform-effect] [platform-tree] The end-to-end shape: the *generated*
+/// skeleton with its one stub filled in, compiled and run with kotlinc. Only
+/// the `TODO` body is replaced, so the test proves the skeleton is complete
+/// and correct everywhere else — package, imports, interface member
+/// signature, entry-point call. The asserted stdout is byte-identical to the
+/// Rust backend's run of the same program, which is what parity means here.
 #[test]
 fn kotlinc_compiles_and_runs_a_platform_effect() {
     if Command::new("kotlinc").arg("-version").output().is_err() {
         eprintln!("skipping: kotlinc not found on PATH");
         return;
     }
-    let mut files = generate_platform_demo();
-    // What `salvo platform generate` will write into the platform tree,
-    // and what the customer then owns.
-    files.push(salvo_backend_kotlin::EmittedFile {
-        rel_path: std::path::PathBuf::from("host.kt"),
-        content: "package salvo.main\n\n\
-                  class ConsoleTelemetry : Telemetry {\n    \
-                      override fun record(name: String, value: Int) {\n        \
-                          kotlin.io.println(\"[telemetry] $name=$value\")\n    }\n}\n\n\
-                  fun main() {\n    salvoMain(ConsoleTelemetry())\n}\n"
-            .to_string(),
-    });
+    let skeleton = platform_skeleton();
+    let host = skeleton.content.replace(
+        "TODO(\"implement Telemetry.record\")",
+        "kotlin.io.println(\"[telemetry] $name=$value\")",
+    );
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_platform_demo_with(&host);
     let expected = "[telemetry] work=41\nresult=42\n";
-    run_kotlin_entry(&files, "platform", "salvo.main.HostKt", expected);
+    run_kotlin_entry(&files, "platform", "salvo.platform.main.MainKt", expected);
 }
 
 /// Like [`run_kotlin_files`], but launches a named entry class — the host's,

@@ -3605,11 +3605,39 @@ fn main() [use, Telemetry] {
 }
 "#;
 
-fn generate_platform_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    let program = build_program(&[("main.sv", PLATFORM_DEMO, false)]);
+fn platform_demo_program() -> salvo_core::Program {
+    build_program(&[("main.sv", PLATFORM_DEMO, false)])
+}
+
+/// [platform-tree] The host skeleton `salvo platform generate` writes for
+/// the demo, as the compiler renders it.
+fn platform_skeleton() -> salvo_backend_rust::EmittedFile {
+    let program = platform_demo_program();
+    let mut files = salvo_backend_rust::platform_skeletons(&program, None)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares platform effects");
+    files.remove(0)
+}
+
+/// Emits the demo with `host` mounted as its platform companion — which is
+/// what a source tree with a `platform/` directory produces
+/// [platform-tree]. The host is *required*, so every emission test goes
+/// through here.
+fn generate_platform_demo_with(host: &str) -> Vec<salvo_backend_rust::EmittedFile> {
+    let mut program = platform_demo_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.rs"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
     salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     })
+}
+
+fn generate_platform_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate_platform_demo_with(&platform_skeleton().content)
 }
 
 /// [platform-effect] [rs-platform-entry] A platform effect emits the same
@@ -3639,45 +3667,82 @@ fn platform_effect_emits_a_trait_and_a_host_entry() {
         "expected the renamed entry point, got:\n{src}"
     );
     assert!(
-        !src.contains("pub fn main("),
-        "the host owns `main`, so the generated file must not declare one:\n{src}"
-    );
-    assert!(
         src.contains("pub fn work(telemetry: &mut dyn Telemetry, n: i32) -> i32"),
         "expected the effect threaded into `work`, got:\n{src}"
     );
+    // [platform-tree] [rs-platform-host] Rust wants `fn main` in the crate
+    // root, so the root mounts the host and delegates to it.
+    assert!(
+        src.contains("#[path = \"platform/main.rs\"]\npub mod platform_main;"),
+        "expected the host mount, got:\n{src}"
+    );
+    assert!(
+        src.contains("fn main() {\n    crate::platform_main::main()\n}"),
+        "expected the crate-root delegation, got:\n{src}"
+    );
 }
 
-/// [platform-effect] End to end under rustc with a hand-written host impl
-/// and entry — the stdout the Kotlin backend also asserts.
+/// [platform-tree] [rs-platform-host] The generated skeleton: a unit struct
+/// per platform effect implementing the generated trait with every member
+/// stubbed, plus the `main` the crate root delegates to. Paths are written
+/// out in full, because the host is a mounted module and a qualified path is
+/// the spelling that survives wherever the mounting puts it.
+#[test]
+fn platform_generate_renders_a_host_skeleton() {
+    let file = platform_skeleton();
+    assert_eq!(
+        file.rel_path.to_string_lossy(),
+        "platform/main.rs",
+        "the host file mirrors its module under `platform/`"
+    );
+    let src = &file.content;
+    for expected in [
+        "pub struct TelemetryHost;",
+        "impl crate::Telemetry for TelemetryHost {",
+        "fn record(&mut self, name: &String, value: i32) {",
+        "todo!(\"implement Telemetry.record\")",
+        "pub fn main() {\n    crate::salvo_main(&mut TelemetryHost)\n}",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+/// [platform-tree] The host file is not optional: without it the crate has
+/// no `main`, and the error has to name the command that writes one —
+/// otherwise the only symptom is rustc's `E0601` against generated code.
+#[test]
+fn a_missing_host_file_names_the_command() {
+    let program = platform_demo_program();
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("a platform program without a host must not emit");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("platform/main.rs") && e.contains("salvo platform generate")),
+        "expected the missing-host error, got:\n{}",
+        errors.join("\n")
+    );
+}
+
+/// [platform-effect] [platform-tree] End to end under rustc with the
+/// *generated* skeleton, one stub body filled in — so the test proves the
+/// skeleton is complete and correct everywhere else, including the trait
+/// path, the member signature and the entry-point call. This is the stdout
+/// the Kotlin backend also asserts.
 #[test]
 fn rustc_compiles_and_runs_a_platform_effect() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let mut files = generate_platform_demo();
-    // What `salvo platform generate` will write into the platform tree, and
-    // the crate-root delegation that mounts it.
-    files.push(salvo_backend_rust::EmittedFile {
-        rel_path: std::path::PathBuf::from("host.rs"),
-        content: "struct ConsoleTelemetry;\n\n\
-                  impl crate::Telemetry for ConsoleTelemetry {\n    \
-                      fn record(&mut self, name: &String, value: i32) {\n        \
-                          println!(\"[telemetry] {}={}\", name, value);\n    }\n}\n\n\
-                  pub fn main() {\n    crate::salvo_main(&mut ConsoleTelemetry);\n}\n"
-            .to_string(),
-    });
-    for f in files.iter_mut() {
-        if f.rel_path.to_string_lossy() == "main.rs" {
-            f.content = f.content.replacen(
-                "\n",
-                "\n#[path = \"host.rs\"]\npub mod host;\n",
-                1,
-            );
-            f.content.push_str("\nfn main() { crate::host::main() }\n");
-        }
-    }
+    let skeleton = platform_skeleton();
+    let host = skeleton.content.replace(
+        "todo!(\"implement Telemetry.record\")",
+        "println!(\"[telemetry] {}={}\", name, value);",
+    );
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_platform_demo_with(&host);
     let expected = "[telemetry] work=41\nresult=42\n";
     run_rust_files(&files, "platform", expected);
 }

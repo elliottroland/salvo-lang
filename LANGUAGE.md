@@ -1513,20 +1513,38 @@ Grouping the functions under an effect, rather than declaring them one at a time
 
 The compiler generates the interface next to the rest of the emitted code — `interface Telemetry` in Kotlin, `pub trait Telemetry` in Rust — and nothing else. There is no handler to write in Salvo, and writing one is an error: the host's implementation *is* the handler.
 
-Because the instance is constructed outside the Salvo program, it cannot be registered with `use`. It arrives as a parameter instead, and that changes who owns the entry point: a `main` that declares a platform effect is emitted as `salvoMain` (Kotlin) or `salvo_main` (Rust), taking one parameter per platform effect it declares, and the *host's* `main` constructs the implementations and calls it:
+Because the instance is constructed outside the Salvo program, it cannot be registered with `use`. It arrives as a parameter instead, and that changes who owns the entry point: a `main` that declares a platform effect is emitted as `salvoMain` (Kotlin) or `salvo_main` (Rust), taking one parameter per platform effect it declares, and the *host's* `main` constructs the implementations and calls it.
+
+You do not write that file from scratch. `salvo platform generate` writes it for you:
+
+```bash
+salvo platform generate --backend kotlin --src ./my_project
+```
+
+The host code lives in a `platform/` directory at the root of your sources, mirroring the source layout: `platform/main.kt` implements the platform effects declared in `main.sv`, `platform/app/entry.rs` those of `app/entry.sv`. Both languages can sit side by side in the same tree — a build only ever picks up the extension of the backend it is compiling for — so one source tree stays buildable for both targets.
+
+The generated file is a skeleton: one class per platform effect, implementing the generated interface, with every member stubbed, plus the `main` the toolchain will run:
 
 ```kotlin
-// the host's file
-class ConsoleTelemetry : Telemetry {
+// platform/main.kt, as generated
+package salvo.platform.main
+
+import salvo.main.*
+
+class TelemetryHost : Telemetry {
     override fun record(name: String, value: Int) {
-        println("[telemetry] $name=$value")
+        TODO("implement Telemetry.record")
     }
 }
 
-fun main() = salvoMain(ConsoleTelemetry())
+fun main() {
+    salvoMain(TelemetryHost())
+}
 ```
 
-This is the point of the design: because the interface is generated and the implementation is real target-language code, the target's own compiler checks the two against each other. Add a member and the implementation fails to compile until you write it; remove one and the leftover override fails; change a signature and the mismatch is a type error. Nothing needs to be validated by Salvo, and nothing can drift silently.
+Fill in the bodies and `salvo run` works. The file is generated **once**: run the command again and it reports that the file exists and leaves it alone, because from that point on it is yours. Forgetting to run it at all is an ordinary compile error that names the command — a program whose `main` needs a platform effect has no entry point without a host.
+
+This is the point of the design: because the interface is generated and the implementation is real target-language code, the target's own compiler checks the two against each other. Add a member and the implementation fails to compile until you write it; remove one and the leftover override fails; change a signature and the mismatch is a type error. Nothing needs to be validated by Salvo, and nothing can drift silently — which is also why the generator never has to touch the file twice.
 
 A Salvo handler may *depend* on a platform effect, which is how a handler written in Salvo reaches the host:
 

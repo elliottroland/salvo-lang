@@ -1582,6 +1582,30 @@ Conventions:
   * `platform` takes nothing but `effect`. A platform *type* and a platform
     *handler* are deferred (user decision 2026-09-05), and the parse error
     names the form rather than reporting a bare "expected item".
+* [platform-tree] The host implementations live in the source root's
+  **`platform/` tree**, mirroring the source layout: `platform/app/entry.kt`
+  implements the platform effects of module `app.entry` in Kotlin,
+  `platform/app/entry.rs` does it in Rust. `salvo platform generate` writes
+  them [cli-platform]. They are ordinary companion files
+  [backend-companion] — discovered by the active backend's native extension,
+  copied verbatim, gated on their module being reachable — with these
+  differences.
+  * The leading `platform/` is **stripped** when the file is attributed to a
+    module. Without that, the file's module would be `platform.app.entry`,
+    which no Salvo module is ever called, so it would never be reachable and
+    never be copied. Only the source root's `platform/` is special: a nested
+    one is an ordinary directory, and a module *named* `platform` keeps its
+    own companions.
+  * The host file is where the program's entry point lives, so the backends
+    single it out: Kotlin launches its facade class, Rust mounts it under
+    `platform_<module>` and delegates the crate root's `fn main` to it.
+  * A module whose `main` needs a platform effect **must** have a host file:
+    otherwise the program has no entry point at all, and the error names
+    `salvo platform generate` rather than leaving the target toolchain to
+    report a missing `main` against generated code [backend-never-wrong].
+  * Both backends' host files coexist in one tree, because discovery only
+    ever picks up the active backend's extension — the same sources build
+    for both targets.
 * [effect-member-unique] A member name identifies its effect program-wide,
   so no two effects may declare the same member name, and no effect may
   declare one twice (user decision 2026-09-05). Before this, a collision
@@ -1895,3 +1919,23 @@ Conventions:
   * The checked-in extension grammar must byte-equal the generated one
     (`vscode_extension_grammar_is_up_to_date`); regenerate with
     `cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json`.
+* [cli-platform] `salvo platform generate --backend NAME (--src DIR |
+  --main FILE)` writes the host implementation skeleton for every
+  `platform effect` into `<src>/platform/` [platform-tree]: a named class
+  (Kotlin) or unit struct (Rust) per effect, implementing the generated
+  interface with every member stubbed (`TODO` / `todo!`), plus — in the
+  module whose `main` needs a platform effect — the `main` that constructs
+  the implementations and calls the generated entry point. `--src` and
+  `--main` behave as in `salvo run` [cli-run].
+  * **Generated once, never overwritten.** An existing file is reported and
+    left alone. This is what the interface framing bought: because Salvo and
+    the host meet at a generated interface, every later divergence is a
+    *target-language* compile error — a member added is "does not implement
+    abstract member" / `E0046`, one removed is "overrides nothing" /
+    `E0407`, a changed signature is an ordinary type error, a new platform
+    effect breaks the entry-point call — so there is nothing to merge, no
+    marker regions, and no canonical name to key them by.
+  * The skeleton is rendered by the *same* code that emits the interface, on
+    the same checked program, so a skeleton that does not match the
+    interface it implements is impossible by construction.
+  * A program with no platform effect generates nothing, and says so.

@@ -43,6 +43,10 @@ cargo run -- run --backend rust --src ./my_project --main ./my_project/bin/tool.
 # Type-check a directory of .sv sources without generating code:
 cargo run -- analyze --src ./my_project              # or --format json
 
+# Generate the host implementation skeleton for every `platform effect`
+# into ./my_project/platform/ (written once, never overwritten):
+cargo run -- platform generate --backend kotlin --src ./my_project
+
 # Start a language server (LSP over stdio) for editor integration:
 cargo run -- lsp
 # A VS Code extension bundling syntax highlighting and the language server
@@ -137,8 +141,12 @@ fn main() [use] {
   `when` reads it like any result.
 - **Deductions**: `-> [list: Mut] T` annotations describing what a function
   does to its parameters — the ownership contract for the Rust backend.
-- **Interop**: `external`/`define` blocks map std functions onto native code
-  per backend.
+- **Interop**: a `platform effect` declares what the program needs from its
+  target language; the compiler generates the interface and
+  `salvo platform generate` writes the host implementation skeleton into
+  `platform/`, so the *target's* compiler checks the two against each other.
+  (`external`/`define` templates still map parts of std onto native code per
+  backend, and are on their way out.)
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are

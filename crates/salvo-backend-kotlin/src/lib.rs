@@ -3,7 +3,7 @@
 mod emit;
 mod intrinsics;
 
-pub use emit::{emit_program, EmittedFile};
+pub use emit::{emit_program, host_package, platform_skeletons, EmittedFile};
 
 use std::path::{Path, PathBuf};
 
@@ -67,14 +67,48 @@ impl Backend for KotlinBackend {
     /// `salvo.other.OtherKt`. (Before `salvo run` exercised it, this hint
     /// read `…MainKt` unconditionally — correct only because every entry
     /// file so far was `main.sv`.)
-    fn entry_hint(&self, _target_dir: &Path, main_module: &ModulePath) -> String {
-        format!("salvo.{main_module}.{}", facade_class(main_module))
+    ///
+    /// [platform-tree] When the host owns `main` — which the emitted
+    /// `platform/…` file is the evidence for — the entry class is the
+    /// *host's* facade instead: the generated one declares `salvoMain`,
+    /// whose signature the JVM launcher cannot satisfy.
+    fn entry_hint(
+        &self,
+        _target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+    ) -> String {
+        let host = salvo_core::host_rel_path(main_module, self.file_extension());
+        if emitted.iter().any(|p| *p == host) {
+            format!(
+                "{}.{}",
+                emit::host_package(main_module),
+                facade_class(main_module)
+            )
+        } else {
+            format!("salvo.{main_module}.{}", facade_class(main_module))
+        }
+    }
+
+    /// Kotlin needs no entry hint here: the host file for a module is the
+    /// same file wherever the entry happens to be.
+    fn platform_skeletons(
+        &self,
+        program: &Program,
+        _entry: Option<&ModulePath>,
+    ) -> Result<Vec<(PathBuf, String)>, BackendError> {
+        let files = emit::platform_skeletons(program).map_err(BackendError::Codegen)?;
+        Ok(files
+            .into_iter()
+            .map(|f| (f.rel_path, f.content))
+            .collect())
     }
 
     /// [kt-run] `kotlinc` every emitted `.kt` file into a classes directory
     /// inside the target, then `kotlin -cp` that directory with the entry
     /// class. Companion files [backend-companion] are `.kt` too, so they
-    /// are part of `emitted` and compile with the rest.
+    /// are part of `emitted` and compile with the rest — including the
+    /// platform host [platform-tree].
     fn run(
         &self,
         target_dir: &Path,
@@ -105,7 +139,7 @@ impl Backend for KotlinBackend {
             )));
         }
 
-        let entry = self.entry_hint(target_dir, main_module);
+        let entry = self.entry_hint(target_dir, main_module, emitted);
         run_tool(
             "kotlin",
             &[OsStr::new("-cp"), classes.as_os_str(), OsStr::new(&entry)],

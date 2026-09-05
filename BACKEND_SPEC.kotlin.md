@@ -401,6 +401,24 @@ same programs running ([rs-effect-fusion]).
     *effect* declaration and bodies from `intrinsics::handler_member`. A
     value-returning member keeps the `return run { … }` shape
     [kt-handler-template-return].
+* [kt-platform-host] [platform-tree] [cli-platform] The host file for module
+  `M` is `platform/<M>.kt`, and its Kotlin package is
+  **`salvo.platform.<M>`** — not `salvo.<M>`. Kotlin names a file's facade
+  class after the file, so a host sharing the module's package would put a
+  second `MainKt` on the classpath for module `main`; a package of its own
+  keeps them distinct and costs one `import salvo.<M>.*`.
+  * Consequently the launch class for a program whose host owns `main` is
+    `salvo.platform.<M>.<Facade>Kt`. `entry_hint` picks it when the emitted
+    set contains the host file, which is the only evidence needed — a
+    platform `main` cannot be emitted without one [platform-tree].
+  * The generated skeleton is `class <E>Host : <E>` with every member
+    `override`n and stubbed `TODO("implement <E>.<member>")`, followed (in
+    the entry module) by `fun main() { salvoMain(<E>Host(), …) }`. Member
+    signatures come from `emit_param_list`/`emit_return_type` — the same
+    renderers `emit_effect` uses — and the constructor arguments from the
+    same checker table the entry's parameters come from, so the order
+    cannot drift. `TODO()` returns `Nothing`, so a value-returning member
+    stubs without a cast.
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
