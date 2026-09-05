@@ -24,7 +24,7 @@ const CONTROL_KEYWORDS: &[&str] = &[
     "defer", "try",
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
-    "fn", "let", "struct", "qualifier", "effect", "handler", "type", "internal", "external",
+    "fn", "let", "struct", "qualifier", "effect", "handler", "type", "intrinsic", "external",
     "define", "import", "provenance",
 ];
 const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "canbe", "is", "use"];

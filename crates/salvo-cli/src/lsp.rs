@@ -1010,7 +1010,7 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
 fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     let mut sig = String::new();
     match decl.backing {
-        Some(BackingMod::Internal) => sig.push_str("internal "),
+        Some(BackingMod::Intrinsic) => sig.push_str("intrinsic "),
         Some(BackingMod::External) => sig.push_str("external "),
         None => {}
     }

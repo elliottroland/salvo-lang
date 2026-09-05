@@ -307,7 +307,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwEffect
                 | TokenKind::KwHandler
                 | TokenKind::KwType
-                | TokenKind::KwInternal
+                | TokenKind::KwIntrinsic
                 | TokenKind::KwExternal
                 | TokenKind::KwDefine
                 | TokenKind::KwProvenance
@@ -325,9 +325,9 @@ impl<'s> Parser<'s> {
     fn parse_item(&mut self) -> Option<Item> {
         match self.kind() {
             TokenKind::KwImport => self.parse_import().map(Item::Import),
-            TokenKind::KwInternal | TokenKind::KwExternal => {
-                let backing = if matches!(self.kind(), TokenKind::KwInternal) {
-                    BackingMod::Internal
+            TokenKind::KwIntrinsic | TokenKind::KwExternal => {
+                let backing = if matches!(self.kind(), TokenKind::KwIntrinsic) {
+                    BackingMod::Intrinsic
                 } else {
                     BackingMod::External
                 };
@@ -695,7 +695,7 @@ impl<'s> Parser<'s> {
     // --- Functions ---
 
     fn parse_fn(&mut self, backing: Option<BackingMod>) -> Option<FnDecl> {
-        // The docs sit above the whole declaration; `external`/`internal`
+        // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
         let docs = self.docs_here();

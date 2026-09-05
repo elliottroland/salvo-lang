@@ -794,7 +794,7 @@ impossible"). Narrowed nullable field reads now emit `!!`
 checker invalidates the fact on any mutation.
 
 **Bodyless declarations are explicit (user decision 2026-09-03).** No
-inference for anything the compiler cannot see: `external`/`internal` fns
+inference for anything the compiler cannot see: `external`/`intrinsic` fns
 must declare effects, deductions, *and* return type; effect members must
 declare return type and deductions; and every `define fn` must match an
 external one-to-one, taking its signature from that external
@@ -1263,8 +1263,8 @@ that still shape the code, and where to look for the mechanics.
 The first stage of the shared-fate roadmap (see the L1 section below for
 the decided model). What landed:
 
-- **`internal fn copy<T>(value: T) -> [value] T`** in `std/core/basic.sv`
-  [internal-fn] [copy-fn]: parser already accepted `internal fn`
+- **`intrinsic fn copy<T>(value: T) -> [value] T`** in `std/core/basic.sv`
+  [intrinsic-fn] [copy-fn]: parser already accepted `intrinsic fn`
   (body-less like `external`); the declaration flows through
   Symbols/resolve/checker unchanged — the `[value]` deduction is the
   whole checker contract. Both emitters intercept
@@ -1515,14 +1515,14 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   not all = error — the exact dual of maybe-moved. Reported variables
   are marked consumed (one error per obligation). Gated to round two+
   (`inferred.is_some()`), like the other contract-dependent checks.
-- **`internal fn discard<T>(value: T) -> [] None`** in std; the `[]`
+- **`intrinsic fn discard<T>(value: T) -> [] None`** in std; the `[]`
   deduction makes the discharge just another move. Rust lowers to
-  `drop(value)`, Kotlin to `(value).let {}` [internal-fn]. Both
+  `drop(value)`, Kotlin to `(value).let {}` [intrinsic-fn]. Both
   verified end to end with identical stdout on the open/use/close
   resource demo.
 - **Generic ban** in `resolve_named_call` on the resolved substitution:
   linear instantiation of an unconstrained `T` errors; `copy` refuses
-  with its own message; `discard` (internal, by name) is blessed.
+  with its own message; `discard` (intrinsic, by name) is blessed.
   Known leftover: effect members with their own generics are not
   covered by the ban.
 - **Lambda guard**: capture-and-mutate of a linear value errors in
@@ -1563,7 +1563,7 @@ deferred. (Both sites were spelled `with` until the 2026-09-03 rename
   Empty construction + `add` is the supported pattern.
 - **std audit**: `add`, `list`, `mutable_list`, `size` opted in;
   `discard` re-declared as
-  `internal fn discard<T canbe Linear>(value: T) -> [] None`; `get`
+  `intrinsic fn discard<T canbe Linear>(value: T) -> [] None`; `get`
   deliberately *not* opted (returns an alias of an element — a clone of
   a linear value would duplicate the obligation); `copy` refused.
 - Verified end to end: the `List<FileHandle>` workflow (construct
@@ -1834,9 +1834,9 @@ escape instead of a clone per iteration.
 
 The decided model:
 
-- **L1a — `internal fn copy` (decided).** New `internal` item keyword
+- **L1a — `intrinsic fn copy` (decided).** New `intrinsic` item keyword
   for compiler-intrinsic fns:
-  `internal fn copy<T>(value: T) -> [value] T` is declared in std (the
+  `intrinsic fn copy<T>(value: T) -> [value] T` is declared in std (the
   signature + `[value]` deduction are all the checker needs:
   non-consuming, result independent), has *no define files*, and each
   emitter lowers calls to it type-directedly — Kotlin: identity for
@@ -1883,7 +1883,7 @@ Stages (each independently shippable):
   members *read-only* (any move or `Mut` op on a derived member is an
   error at that site; remedy `copy`). Emission unchanged
   (clone-by-default), so nothing can physically break — the protocol
-  lands before the performance. Includes `internal fn copy`
+  lands before the performance. Includes `intrinsic fn copy`
   end-to-end and diagnostics naming the link and the event.
   - **S1a — the function boundary (decided 2026-09-01):** call
     results never link to arguments — returned values are always
@@ -2000,7 +2000,7 @@ five decisions approved by the user as recommended on 2026-09-02:
 - **L6b**: consumption = any move, as the deduction system defines it;
   moves transfer the obligation (compositional across calls, returns,
   stores, and move-mode bindings).
-- **L6c**: `internal fn discard<T>(value: T) -> [] None` is the
+- **L6c**: `intrinsic fn discard<T>(value: T) -> [] None` is the
   explicit escape hatch; early-exit paths are checked by the existing
   path machinery; panic/abort semantics out of scope until they exist.
 - **L6d**: composites containing linear components are linear
@@ -3068,7 +3068,7 @@ What landed (rule [qual-subject]):
 
 - **Syntax** (user decision 2026-09-03, confirmed after implementation):
   `provenance qualifier Q of T`, a prefix modifier matching the existing
-  `internal`/`external` shape. Plain `qualifier` stays state
+  `intrinsic`/`external` shape. Plain `qualifier` stays state
   (`QualSubject::State` is the AST default), so nothing existing changed;
   there is deliberately no `state` keyword — one keyword for the
   non-default is enough, and the default is documented. Revisitable if it
@@ -3685,7 +3685,7 @@ spec rule; consolidated here for findability):
   tests ([doc-comment] [doc-struct-fields]: the block directly above a
   declaration with a blank line ending it and a bare `//` kept, trailing
   comments documenting nothing, struct and field docs captured separately,
-  docs surviving `external`/`internal`/`provenance` modifiers, and
+  docs surviving `external`/`intrinsic`/`provenance` modifiers, and
   indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
@@ -3727,7 +3727,7 @@ spec rule; consolidated here for findability):
   missing defines for used external fns/types, uncovered core externals,
   companion/generated-file collision); `copy` intrinsic lowering
   assertions (identity / `.toMutableList()` / `.copy()` / `.copyOf()`
-  [kt-copy] [internal-fn]) and a negative test (`copy` of nested
+  [kt-copy] [intrinsic-fn]) and a negative test (`copy` of nested
   mutability is a codegen error);
   define/external pairing ([decl-explicit]: same-name defines dispatching
   by parameter base types, a define with no external rejected, two defines

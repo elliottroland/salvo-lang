@@ -939,7 +939,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let kind = match f.backing {
             Some(BackingMod::External) => "external fn",
-            Some(BackingMod::Internal) => "internal fn",
+            Some(BackingMod::Intrinsic) => "intrinsic fn",
             None => return,
         };
         self.require_explicit(f, kind, true);
@@ -3931,7 +3931,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= name resolution =================
 
     /// Whether `name` is usable as a written *type* name [name-resolve]:
-    /// a struct, an `internal`/`external type`, a type alias, an effect
+    /// a struct, an `intrinsic`/`external type`, a type alias, an effect
     /// (effect lists are written as types), or the language-level `None`
     /// (which has no declaration). Generic parameters are resolved by the
     /// caller, before this is consulted.
@@ -4173,8 +4173,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 // Internal qualifiers compose with everything.
-                if a.backing == Some(BackingMod::Internal)
-                    || b.backing == Some(BackingMod::Internal)
+                if a.backing == Some(BackingMod::Intrinsic)
+                    || b.backing == Some(BackingMod::Intrinsic)
                 {
                     continue;
                 }
@@ -8039,7 +8039,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let mut visited = HashSet::new();
                 if self.ty_transitively_linear(ty, &mut visited) {
-                    if decl.backing == Some(BackingMod::Internal)
+                    if decl.backing == Some(BackingMod::Intrinsic)
                         && decl.name.name == "copy"
                     {
                         self.error(

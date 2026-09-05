@@ -547,8 +547,8 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
-        if h.backing == Some(BackingMod::External) {
-            return self.emit_define_handler(h);
+        if h.backing == Some(BackingMod::Intrinsic) {
+            return self.emit_intrinsic_handler(h);
         }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
@@ -614,19 +614,26 @@ impl<'p> Emitter<'p> {
             .collect()
     }
 
-    /// An `external handler`, implemented by a `define handler` template:
-    /// emits a Kotlin class whose methods inline the templates. All
-    /// handlers are classes (external ones included) and are instantiated
-    /// at their `use` site.
-    fn emit_define_handler(&mut self, h: &HandlerDecl) -> String {
-        let Some(def) = self.symbols.define_handlers.get(h.name.name.as_str()) else {
+    /// An `intrinsic handler` [backend-intrinsic]: a std handler whose
+    /// members this backend implements directly. The signatures come from
+    /// the *effect* it implements (the handler declaration is bodyless),
+    /// and the bodies from [`crate::intrinsics::handler_member`].
+    ///
+    /// Like every handler it emits as a class instantiated at its `use`
+    /// site — `object` was an artifact of `StdOutConsole` being stateless.
+    fn emit_intrinsic_handler(&mut self, h: &HandlerDecl) -> String {
+        let of = self.emit_type(&h.of);
+        let Some(effect) = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()
+        else {
             self.error(format!(
-                "external handler `{}` has no kotlin `define handler`",
+                "intrinsic handler `{}` implements `{of}`, which is not a declared \
+                 effect",
                 h.name.name
             ));
             return String::new();
         };
-        let of = self.emit_type(&h.of);
         let ctor = if h.params.is_empty() {
             String::new()
         } else {
@@ -644,34 +651,32 @@ impl<'p> Emitter<'p> {
             format!("({})", params.join(", "))
         };
         let mut out = format!("\nclass {}{ctor} : {of} {{\n", h.name.name);
-        for dfn in &def.fns {
-            if let Some(imports) = &dfn.body.imports {
-                self.add_template_imports(imports);
-            }
-            let params = self.emit_param_list(&dfn.sig.params);
-            let ret = self.emit_return_type(dfn.sig.return_type.as_ref());
-            let Some(inline) = &dfn.body.inline else {
-                self.error(format!(
-                    "define fn `{}` in handler `{}` has no inline section",
-                    dfn.sig.name.name, h.name.name
-                ));
-                continue;
-            };
-            // Interpolations refer to the define fn's own parameter names.
-            let args: Vec<String> = dfn
-                .sig
+        for member in &effect.fns {
+            let params = self.emit_param_list(&member.params);
+            let ret = self.emit_return_type(member.return_type.as_ref());
+            let arg_names: Vec<String> = member
                 .params
                 .iter()
                 .map(|p| kt_ident(&p.name.name))
                 .collect();
-            let body = self.expand_template(inline, &dfn.sig.params, &args, &[], &[]);
+            let Some(body) = crate::intrinsics::handler_member(
+                &h.name.name,
+                &member.name.name,
+                &arg_names,
+            ) else {
+                self.error(format!(
+                    "intrinsic handler `{}` has no kotlin lowering for member `{}`",
+                    h.name.name, member.name.name
+                ));
+                continue;
+            };
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n",
-                kt_ident(&dfn.sig.name.name)
+                kt_ident(&member.name.name)
             ));
-            // A value-returning member returns its template's value; `run`
-            // makes multi-line templates (statements + final expression)
-            // work unchanged [kt-handler-template-return].
+            // A value-returning member returns its body's value; `run`
+            // makes multi-line bodies (statements + final expression) work
+            // unchanged [kt-handler-template-return].
             if ret.is_empty() {
                 for line in body.lines() {
                     out.push_str(&format!("        {line}\n"));
@@ -1102,16 +1107,18 @@ impl<'p> Emitter<'p> {
         self.emit_type_ref_named(&name, &base.args)
     }
 
-    /// Expands the `Mut inline:` template of a type's define, when the
-    /// define provides one [type-canbe-mut]. `None` falls back to the
-    /// plain mapping (`Mut` erases like other qualifiers).
+    /// The Kotlin type a `Mut`-qualified intrinsic type maps to, where
+    /// that differs from the plain mapping [type-canbe-mut] (`Mut List<T>`
+    /// -> `MutableList<T>`). `None` falls back to the plain mapping —
+    /// `Mut` erases like every other qualifier.
     fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
-        let def = self.symbols.define_types.get(name).copied()?;
-        let mut_inline = def.body.mut_inline.clone()?;
-        if let Some(imports) = &def.body.imports {
-            self.add_template_imports(imports);
-        }
-        Some(self.expand_type_template(&mut_inline, &def.generics, arg_strs))
+        let kt = crate::intrinsics::mut_type_name(name)?;
+        let args = if arg_strs.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", arg_strs.join(", "))
+        };
+        Some(format!("{kt}{args}"))
     }
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
@@ -1141,7 +1148,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// Maps a named type (with already-emitted generic arguments) to Kotlin:
-    /// internal types [backend-internal] [kt-none-unit], `define type`
+    /// intrinsic types [backend-intrinsic] [kt-none-unit], `define type`
     /// templates [backend-define-type], or a pass-through name
     /// [type-unknown-lenient].
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
@@ -1150,23 +1157,8 @@ impl<'p> Emitter<'p> {
         } else {
             format!("<{}>", arg_strs.join(", "))
         };
-        // Internal (compiler-mapped) types.
-        let internal = match name {
-            "Str" => Some("String"),
-            "Int" => Some("Int"),
-            "Long" => Some("Long"),
-            "Float" => Some("Float"),
-            "Double" => Some("Double"),
-            "Bool" => Some("Boolean"),
-            "Char" => Some("Char"),
-            "Byte" => Some("Byte"),
-            "None" => Some("Unit"),
-            "Any" => Some("Any"),
-            "Nothing" => Some("Nothing"),
-            "Iter" => Some("Iterable"),
-            _ => None,
-        };
-        if let Some(kt) = internal {
+        // Intrinsic (compiler-mapped) types [backend-intrinsic].
+        if let Some(kt) = crate::intrinsics::type_name(name) {
             return format!("{kt}{args}");
         }
         // External types via define templates.
@@ -3193,7 +3185,7 @@ impl<'p> Emitter<'p> {
         }
 
         // 2. Checker-resolved fn target (type-based overloads win).
-        // Internal fns lower intrinsically [internal-fn]; external
+        // Intrinsic fns lower in the emitter [intrinsic-fn]; external
         // signatures route to their backend define template.
         let checker_resolved = self
             .checked
@@ -3201,8 +3193,8 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key));
         if let Some(f) = checker_resolved {
-            if f.backing == Some(BackingMod::Internal) {
-                return self.emit_internal_call(f, args);
+            if f.backing == Some(BackingMod::Intrinsic) {
+                return self.emit_intrinsic_call(f, args, span);
             }
             if f.body.is_none() {
                 if let Some(def) = self.define_for_decl(name, f) {
@@ -3251,8 +3243,8 @@ impl<'p> Emitter<'p> {
                 ));
                 return "TODO()".to_string();
             };
-            if f.backing == Some(BackingMod::Internal) {
-                return self.emit_internal_call(f, args);
+            if f.backing == Some(BackingMod::Intrinsic) {
+                return self.emit_intrinsic_call(f, args, span);
             }
             // [backend-external] An external signature that reached this
             // point has no define (step 3 would have matched one).
@@ -3319,13 +3311,22 @@ impl<'p> Emitter<'p> {
             .copied()
     }
 
-    /// A call to an `internal fn`, lowered directly by the compiler
-    /// [internal-fn]. The only internal fn today is `copy` [copy-fn],
-    /// lowered type-directedly [kt-copy]: identity for transitively
-    /// immutable types (duplicating a reference to immutable data is a
-    /// copy), a real copy where mutation is possible, and a codegen
-    /// error where no correct copy exists yet [backend-never-wrong].
-    fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+    /// A call to an `intrinsic fn`, lowered directly by the compiler
+    /// [intrinsic-fn]. Two kinds live here:
+    ///
+    /// - `copy` and `discard` dispatch on the argument's *type*, which is
+    ///   the whole reason they are intrinsics — `copy` is identity for
+    ///   transitively immutable types (duplicating a reference to
+    ///   immutable data is a copy), a real copy where mutation is
+    ///   possible, and a codegen error where no correct copy exists yet
+    ///   [kt-copy] [linear-discard].
+    /// - everything else std declares is looked up in
+    ///   [`crate::intrinsics::fn_call`], keyed by the declaration the
+    ///   checker resolved.
+    ///
+    /// An intrinsic with no lowering is a codegen error naming it, never a
+    /// pass-through [backend-never-wrong].
+    fn emit_intrinsic_call(&mut self, f: &FnDecl, args: &[&Expr], span: Span) -> String {
         // [linear-discard] `discard(x)` evaluates the value and drops
         // it: `.let {}` yields `Unit` (Salvo `None`).
         if f.name.name == "discard" && args.len() == 1 {
@@ -3333,8 +3334,16 @@ impl<'p> Emitter<'p> {
             return format!("({code}).let {{}}");
         }
         if f.name.name != "copy" || args.len() != 1 {
+            let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
+            let arg_code = self.intrinsic_arg_code(f, args);
+            let type_args = self.intrinsic_type_args(f, span);
+            if let Some(code) =
+                crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &type_args)
+            {
+                return code;
+            }
             self.error(format!(
-                "internal fn `{}` is not supported by the kotlin backend",
+                "intrinsic fn `{}` is not supported by the kotlin backend",
                 f.name.name
             ));
             return "TODO()".to_string();
@@ -3392,6 +3401,58 @@ impl<'p> Emitter<'p> {
             "the kotlin backend cannot `copy` a value of type `{ty}` yet"
         ));
         "TODO()".to_string()
+    }
+
+    /// The rendered arguments of an `intrinsic fn` call, in declaration
+    /// order. Kotlin renders every argument the ordinary way — there is no
+    /// place/owned distinction to preserve, unlike the Rust backend
+    /// [rs-borrows] — so the only shaping is that a `...` spread splices
+    /// its operand.
+    fn intrinsic_arg_code(&mut self, f: &FnDecl, args: &[&Expr]) -> Vec<String> {
+        let _ = f;
+        args.iter()
+            .map(|arg| match arg {
+                Expr::Spread { operand, .. } => self.emit_expr(operand),
+                other => self.emit_expr(other),
+            })
+            .collect()
+    }
+
+    /// The call's resolved type arguments in the declaration's generic
+    /// order ([call-type-args]), rendered as Kotlin. This is what lets the
+    /// list constructors spell out their element type, which kotlinc
+    /// cannot infer from an empty argument list.
+    ///
+    /// An unresolved (`Unknown`) argument is only reachable through a
+    /// checker gap — [call-type-args] rejects a call whose type arguments
+    /// nothing determines — so it is an error rather than a guess
+    /// [backend-never-wrong].
+    fn intrinsic_type_args(&mut self, f: &FnDecl, span: Span) -> Vec<String> {
+        if f.generics.is_empty() {
+            return Vec::new();
+        }
+        let Some(tys) = self
+            .checked
+            .call_type_args
+            .get(&(self.file_idx, span))
+            .cloned()
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(tys.len());
+        for ty in &tys {
+            if ty.is_unknown() {
+                self.error(format!(
+                    "call to intrinsic fn `{}` has an unresolved type argument, \
+                     which its kotlin lowering needs",
+                    f.name.name
+                ));
+                out.push("Any".to_string());
+                continue;
+            }
+            out.push(self.kotlin_ty(ty));
+        }
+        out
     }
 
     /// Whether no Salvo operation can mutate any part of a value of this

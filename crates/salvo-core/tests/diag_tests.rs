@@ -39,7 +39,7 @@ fn checker_errors_carry_file_and_span() {
     // The declarations follow the fn so the asserted spans stay put; the
     // harness builds a std-less program, so even `Int` must be declared.
     let src = "fn broken() -> Int {\n    let x: Int = \"hello\"\n    return x\n}\n\
-               \ninternal type Int\n";
+               \nintrinsic type Int\n";
     let (program, checked) = check_files(&[("main.sv", src)]);
     assert_eq!(checked.errors.len(), 1, "errors: {:?}", checked.errors);
     let diag = &checked.errors[0];
@@ -63,7 +63,7 @@ fn checker_errors_carry_file_and_span() {
 // right file; resolution errors flow into `Checked::errors` structured.
 #[test]
 fn errors_index_the_declaring_file() {
-    let ok = "fn fine() -> Int {\n    return 1\n}\n\ninternal type Int\n";
+    let ok = "fn fine() -> Int {\n    return 1\n}\n\nintrinsic type Int\n";
     let bad = "import nope.thing\n";
     let (program, checked) = check_files(&[("a.sv", ok), ("b.sv", bad)]);
     assert_eq!(checked.errors.len(), 1, "errors: {:?}", checked.errors);

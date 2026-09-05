@@ -56,9 +56,9 @@ fn assert_has(errs: &[String], needle: &str) {
 }
 
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
-internal type Bool
+intrinsic type Int
+intrinsic type Str
+intrinsic type Bool
 
 qualifier Ok<T> of T
 qualifier Err<T> of T

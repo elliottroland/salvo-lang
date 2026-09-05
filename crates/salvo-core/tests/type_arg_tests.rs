@@ -40,11 +40,11 @@ fn messages(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
-internal type Bool
+intrinsic type Int
+intrinsic type Str
+intrinsic type Bool
 
-internal type List<T> canbe Mut
+intrinsic type List<T> canbe Mut
 
 external fn empty_list<T>() [] -> [] Mut List<T>
 external fn of_list<T>(...elems: T[]) [] -> [] Mut List<T>

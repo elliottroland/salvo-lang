@@ -1011,7 +1011,7 @@ Salvo has no references, but variables can still overlap: `let m = n` and `let n
 The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links.
 
 ```
-fn copy<T>(value: T) -> [value] T   // internal: each backend implements it
+fn copy<T>(value: T) -> [value] T   // intrinsic: each backend implements it
 ```
 
 Here is the discipline at work, together with the deduction contract. With a *written* deduction list that keeps `persons`, moving a derived value out is an error:
@@ -1097,7 +1097,7 @@ Some consequences worth knowing:
 
 ### Copy semantics per backend
 
-`copy` is an `internal fn` (see the Backends chapter): its declaration gives the checker everything it needs — the argument is kept with all its qualifiers, the result is independent — and each backend lowers calls to it against the argument's *actual type*. Where no Salvo operation could mutate the value anyway, a copy is free: Kotlin emits the argument unchanged (duplicating a reference to immutable data is a copy), and Rust clones. Where mutation is possible, the copy is real on every backend: `Mut List<Int>` becomes `xs.toMutableList()` in Kotlin and `xs.clone()` in Rust; a `Mut` struct with immutable fields becomes `p.copy()` / `p.clone()`. Where a backend cannot yet produce a correct copy (for example, nested mutability like `Mut List<Mut Person>` on the JVM, where a shallow copy would share the inner values), the compiler reports an error rather than emit code that behaves differently across backends.
+`copy` is an `intrinsic fn` (see the Backends chapter): its declaration gives the checker everything it needs — the argument is kept with all its qualifiers, the result is independent — and each backend lowers calls to it against the argument's *actual type*. Where no Salvo operation could mutate the value anyway, a copy is free: Kotlin emits the argument unchanged (duplicating a reference to immutable data is a copy), and Rust clones. Where mutation is possible, the copy is real on every backend: `Mut List<Int>` becomes `xs.toMutableList()` in Kotlin and `xs.clone()` in Rust; a `Mut` struct with immutable fields becomes `p.copy()` / `p.clone()`. Where a backend cannot yet produce a correct copy (for example, nested mutability like `Mut List<Mut Person>` on the JVM, where a shallow copy would share the inner values), the compiler reports an error rather than emit code that behaves differently across backends.
 
 ### Linear types: values that must be used
 
@@ -1161,7 +1161,7 @@ Rules that keep the obligation sound:
 
 - **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `canbe Linear` type is linear, always. (A qualifier you could forget to write would defeat the point.)
 - **Composites are contagious**: a struct with a linear field, a tuple/array/union with a linear component, is itself linear — storing a handle in a box moves the obligation into the box, and the box must now be passed on.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size` — so `List<FileHandle>` works), while `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `internal fn discard<T canbe Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked) — add elements to a collection individually.
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size` — so `List<FileHandle>` works), while `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked) — add elements to a collection individually.
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 
@@ -1332,7 +1332,7 @@ import core.Str // Not strictly necessary -- all of core is imported by default
 
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
 
-Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `internal`/`external type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.
+Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `intrinsic`/`external type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.
 
 This matters most for qualifiers, because a qualifier and a base type sit next to each other in the same syntax. `Ok Int` with no `Ok` in scope is not a type built from an unknown claim — it is a typo or a missing import, and it would otherwise fail much later and much less obviously, as a check that "can never succeed" against arms tagged with a qualifier the compiler never heard of. A name that *does* exist but in the other namespace says so, since no import can fix it:
 
@@ -1464,23 +1464,23 @@ One of the aims of Salvo is to make it easy to integrate Salvo code with the bac
 
 ### Internal 
 
-The `internal` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `internal` backend definitions are declared as part of the standard library (defined in `std`).
+The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
 
-For example, the basic types (`Int`, `Str`, `Iter<T>`, ...) are declared as `internal type`s, and each backend maps them natively:
-
-```
-internal type Str
-```
-
-When building the compiler, _all_ `internal` declarations must be handled by _every_ backend module.
-
-Functions can be internal too. An `internal fn` is a compiler intrinsic: the declaration carries the signature and deductions the checker uses, but there are no templates — each backend lowers calls to it directly, seeing the resolved argument type at every call site. This is what makes type-directed lowering possible where a single generic template could not express it; the standard library's `copy` is the canonical example:
+For example, the basic types (`Int`, `Str`, `Iter<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
 
 ```
-internal fn copy<T>(value: T) -> [value] T
+intrinsic type Str
 ```
 
-A backend that does not implement an internal fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
+When building the compiler, _all_ `intrinsic` declarations must be handled by _every_ backend module.
+
+Functions can be intrinsic too. An `intrinsic fn` is a compiler intrinsic: the declaration carries the signature and deductions the checker uses, but there are no templates — each backend lowers calls to it directly, seeing the resolved argument type at every call site. This is what makes type-directed lowering possible where a single generic template could not express it; the standard library's `copy` is the canonical example:
+
+```
+intrinsic fn copy<T>(value: T) -> [value] T
+```
+
+A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
 The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`external type List<T> canbe Mut`), and each backend decides what `Mut` means. For external types, the `define type` block may provide a `Mut inline` section giving the target type used when the type is `Mut`-qualified:
 
@@ -1501,7 +1501,7 @@ When no `Mut inline` section is given, `Mut` simply erases for that backend (Rus
 
 ### External
 
-The `external` layer sits outside the compiler, and uses a simple templating system to make it possible to write new backend-accessible modules as part of the codebase. Most of the standard library is defined using the external layer, and users can add their own external definitions to support interop with their target language. Unlike internal definitions, not every declaration needs to be handled by every backend: everything in the core library must (`core.*`) because these are all implicitly imported, but outside of this only those things which are explicitly imported need to be handled. This is checked at compile time.
+The `external` layer sits outside the compiler, and uses a simple templating system to make it possible to write new backend-accessible modules as part of the codebase. Most of the standard library is defined using the external layer, and users can add their own external definitions to support interop with their target language. Unlike intrinsic definitions, not every declaration needs to be handled by every backend: everything in the core library must (`core.*`) because these are all implicitly imported, but outside of this only those things which are explicitly imported need to be handled. This is checked at compile time.
 
 To start, you prefix a definition with `external` and leave out any implementation details besides the signature:
 

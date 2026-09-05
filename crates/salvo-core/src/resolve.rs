@@ -57,7 +57,7 @@ pub struct ModuleScope<'p> {
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
-    /// `internal type` / `external type` declarations visible here.
+    /// `intrinsic type` / `external type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
     /// Effect-member fn name -> (owning effect, member decl).
     pub effect_members: HashMap<&'p str, (&'p EffectDecl, &'p FnDecl)>,
@@ -247,7 +247,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
                 Item::Type(t) => match (t.backing, &t.alias) {
                     (None, Some(_)) => items.type_aliases.push((file_idx, t)),
-                    (Some(BackingMod::Internal) | Some(BackingMod::External), _)
+                    (Some(BackingMod::Intrinsic) | Some(BackingMod::External), _)
                     | (None, None) => items.opaque_types.push((file_idx, t)),
                 },
                 _ => {}

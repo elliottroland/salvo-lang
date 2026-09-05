@@ -79,8 +79,8 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 }
 
 const QUALIFIED_LISTS: &str = r#"
-internal type Int
-internal type List<T>
+intrinsic type Int
+intrinsic type List<T>
 
 qualifier A<T> of List<T>
 qualifier B<T> of List<T> with A<T>
@@ -165,7 +165,7 @@ fn caller<T>(list: A B C List<T>) -> None {{
 #[test]
 fn mutating_bodies_require_an_exhaustive_list() {
     let src = "
-internal type List<T> canbe Mut
+intrinsic type List<T> canbe Mut
 
 qualifier A<T> of List<T>
 
@@ -527,7 +527,7 @@ fn escapes<T>(list: List<T>) -> List<T> {{
     return copy(alias)
 }}
 
-internal fn copy<T>(value: T) [] -> [value] T
+intrinsic fn copy<T>(value: T) [] -> [value] T
 
 external fn list_size<T>(list: List<T>) [] -> [list] Int
 "
@@ -591,7 +591,7 @@ external fn list_size<T>(list: List<T>) [] -> [list] Int
 fn lambda_capture_mutation_claims_parameters() {
     let src = format!(
         "{QUALIFIED_LISTS}
-internal type Store<T> canbe Mut
+intrinsic type Store<T> canbe Mut
 
 fn runs(f: () -> None) -> None {{
     let unused = f

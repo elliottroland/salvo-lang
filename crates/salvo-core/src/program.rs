@@ -49,8 +49,8 @@ pub struct Symbols<'p> {
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
-    /// `internal type` declarations (mapped natively by each backend).
-    pub internal_types: HashMap<&'p str, &'p TypeDecl>,
+    /// `intrinsic type` declarations (mapped natively by each backend).
+    pub intrinsic_types: HashMap<&'p str, &'p TypeDecl>,
     /// `external type` declarations (mapped via `define type`).
     pub external_types: HashMap<&'p str, &'p TypeDecl>,
     /// Backend `define fn` templates, by function name.
@@ -90,8 +90,8 @@ impl<'p> Symbols<'p> {
                     Item::Type(t) => {
                         use salvo_syntax::ast::BackingMod;
                         match (t.backing, &t.alias) {
-                            (Some(BackingMod::Internal), _) => {
-                                symbols.internal_types.insert(&t.name.name, t);
+                            (Some(BackingMod::Intrinsic), _) => {
+                                symbols.intrinsic_types.insert(&t.name.name, t);
                             }
                             (Some(BackingMod::External), _) => {
                                 symbols.external_types.insert(&t.name.name, t);

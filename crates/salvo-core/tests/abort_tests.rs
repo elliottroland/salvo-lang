@@ -39,10 +39,10 @@ fn errors(src: &str) -> Vec<String> {
 /// The two names the intrinsic needs from core, plus a pair of aborting
 /// functions with *different* message types.
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
-internal type Bool
-internal type Nothing
+intrinsic type Int
+intrinsic type Str
+intrinsic type Bool
+intrinsic type Nothing
 
 effect Abort<M> {
     fn abort(message: M) -> [] Nothing

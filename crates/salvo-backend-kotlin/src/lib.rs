@@ -1,6 +1,7 @@
 //! Kotlin backend for the Salvo compiler.
 
 mod emit;
+mod intrinsics;
 
 pub use emit::{emit_program, EmittedFile};
 

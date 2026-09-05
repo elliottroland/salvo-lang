@@ -35,9 +35,9 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
-internal type Bool
+intrinsic type Int
+intrinsic type Str
+intrinsic type Bool
 
 struct Person canbe Mut {
     name: Str

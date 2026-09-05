@@ -1,6 +1,7 @@
 //! Rust backend for the Salvo compiler.
 
 mod emit;
+mod intrinsics;
 
 pub use emit::{emit_program, emit_program_with_entry, EmittedFile};
 

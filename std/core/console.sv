@@ -3,7 +3,7 @@ effect Console {
     fn print(message: Str) -> [message] None
 }
 
-external handler StdOutConsole of Console
+intrinsic handler StdOutConsole of Console
 
 fn println(message: Str) [Console] -> None {
     print(message)

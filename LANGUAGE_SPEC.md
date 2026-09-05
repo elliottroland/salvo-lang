@@ -28,7 +28,7 @@ Conventions:
 
 * [type-basic] Basic types: `Byte`, `Int`, `Long`, `Float`, `Double`,
   `Bool`, `Char`, `None` (unit/no-value singleton), `Str`.
-  * Declared as `internal type` in `std/core/basic.sv` /
+  * Declared as `intrinsic type` in `std/core/basic.sv` /
     `std/core/string.sv`; each backend maps them natively.
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed
@@ -577,7 +577,7 @@ Conventions:
     [decl-explicit].
 * [decl-explicit] Nothing the compiler cannot see is inferred (user
   decision 2026-09-03). A fn with **no body** — `external fn`,
-  `internal fn` — must declare its **effect list**, **deduction list**,
+  `intrinsic fn` — must declare its **effect list**, **deduction list**,
   and **return type**; an *effect member* must declare its deduction list
   and return type (it may not declare effects at all
   [effect-member-no-effects]). Inference from an absent body is a guess,
@@ -680,7 +680,7 @@ Conventions:
     (deliberate cut).
 * [fn-iterator] A function returning `Iter<T>` and using `yield` is an
   iterator function: `yield` produces elements; `return` only
-  short-circuits (no value). `Iter<T>` is an `internal type` each backend
+  short-circuits (no value). `Iter<T>` is an `intrinsic type` each backend
   maps to its native iterable.
 
 ## Effects
@@ -1306,11 +1306,11 @@ Conventions:
     annotated parameter and return — the first deliberate exception to
     the no-lifetimes invariant. Return values render as borrows; std's
     `first` is clone-free.
-* [copy-fn] `core.copy` — `internal fn copy<T>(value: T) -> [value] T` —
+* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: T) -> [value] T` —
   duplicates a value: the argument is kept untouched with all its
   qualifiers (`[value]`), and the result is a fresh value with no fate
   links. It is the one-word remedy in every fate diagnostic.
-  * Lowered type-directedly by each backend [internal-fn]; identity
+  * Lowered type-directedly by each backend [intrinsic-fn]; identity
     where no Salvo operation can mutate the value, a real copy where
     one can, and a codegen error where no correct copy exists yet
     [backend-never-wrong].
@@ -1318,7 +1318,7 @@ Conventions:
 ## Linear types
 
 * [linear-canbe] A type opts into linearity at its declaration with
-  `canbe Linear` (structs and `internal`/`external` types; decision L6a,
+  `canbe Linear` (structs and `intrinsic`/`external` types; decision L6a,
   2026-09-02). Every value of the type is linear — `Linear` cannot be
   written in a use-site type (error): a per-value qualifier that could
   be forgotten would defeat the protection. Tooling may present
@@ -1345,9 +1345,9 @@ Conventions:
     ownership needs contracts [deduce-fixpoint]); reported variables
     are marked consumed so each obligation errors once.
 * [linear-discard] `core.discard` —
-  `internal fn discard<T>(value: T) -> [] None` — deliberately drops a
+  `intrinsic fn discard<T>(value: T) -> [] None` — deliberately drops a
   value, consuming it: the escape hatch (decision L6c). Lowered per
-  backend [internal-fn]: Rust `drop(value)`; Kotlin evaluates and
+  backend [intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
   ignores (`(value).let {}`). Failure/panic paths are out of scope
   until Salvo has such semantics.
 * [linear-composite] A composite containing a linear component is
@@ -1368,7 +1368,7 @@ Conventions:
   * for bodiless externals the opt-in is a trusted audit claim; std's
     audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
     (whose declaration is now honestly
-    `internal fn discard<T canbe Linear>(value: T) -> [] None` — no
+    `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — no
     blessed-by-name special case), while `get` stays out (returns an
     alias of an element) and `copy` refuses with a dedicated message
     (duplicating an obligation is meaningless);
@@ -1426,7 +1426,7 @@ Conventions:
   error naming it, with import suggestions [diag-import-suggest]
   (2026-09-03).
   * Two namespaces, checked separately. Base types: structs, type
-    aliases, `internal`/`external type`s, effects (effect lists are
+    aliases, `intrinsic`/`external type`s, effects (effect lists are
     written as type refs), plus generic parameters in scope and the
     language-level `None`, which has no declaration. Qualifiers:
     declared qualifiers plus the compiler's intrinsic `Mut`, `Linear`,
@@ -1510,19 +1510,19 @@ Conventions:
 
 ## Backends
 
-* [backend-internal] `internal` declarations (types) are
+* [backend-intrinsic] `intrinsic` declarations (types) are
   mapped inside the compiler; every backend must handle all of them
   (`Str`, numeric types, `Iter<T>`, ...). The `Mut` auto-qualifier is
   mapped per backend via `Mut inline:` define sections [type-canbe-mut].
-* [internal-fn] `internal fn` declares a compiler-intrinsic function:
+* [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
   the declaration carries the signature and deduction list the checker
   uses (body-less, like `external fn`), but there are *no* define files
   — each backend lowers calls to it directly, seeing the checker's
   resolved argument type at every call site (type-directed lowering a
-  single generic define template cannot express). An internal fn a
+  single generic define template cannot express). An intrinsic fn a
   backend does not implement, or an argument type it cannot lower, is a
-  codegen error [backend-never-wrong]. The only internal fn today is
-  `core.copy` [copy-fn].
+  codegen error [backend-never-wrong]. The intrinsic fns today are
+  `core.copy` [copy-fn] and `core.discard` [linear-discard].
 * [backend-external] `external` declarations (fns, types, handlers) carry
   only signatures; each backend that needs them provides `define`
   templates in a sibling `<module>.<backend>.sv` file. Coverage is
@@ -1579,7 +1579,7 @@ Conventions:
   imports, hoisted (deduped) to the top of any file whose code used the
   template.
 * [backend-define-type] `define type` templates map external types
-  (`${T}` interpolates generic args); `internal type`s map natively in
+  (`${T}` interpolates generic args); `intrinsic type`s map natively in
   the compiler.
 * [backend-define-handler] `define handler H of E { define fn ... }`
   provides template bodies for an external handler's members; external
@@ -1611,7 +1611,7 @@ Conventions:
     Comments are not tokens: the lexer collects them separately
     (`LexResult::comments`) and the parser attaches the block above each
     declaration by line number.
-  * Backing modifiers do not interfere: `external`, `internal` and
+  * Backing modifiers do not interfere: `external`, `intrinsic` and
     `provenance` sit on the declaration's own line.
 
 ## Tooling

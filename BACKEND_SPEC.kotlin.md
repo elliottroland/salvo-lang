@@ -377,9 +377,9 @@ same programs running ([rs-effect-fusion]).
   constructor has none), so std's list defines render
   `mutableListOf<${T}>(${...elems})`. [call-type-args] is what guarantees
   the checker has an argument to interpolate.
-* [internal-fn] Internal fns bypass define templates: the emitter lowers
+* [intrinsic-fn] Intrinsic fns bypass define templates: the emitter lowers
   the call directly from the checker's resolved argument type. Kotlin
-  implements `copy` [copy-fn] as [kt-copy]; any other internal fn is a
+  implements `copy` [copy-fn] as [kt-copy]; any other intrinsic fn is a
   codegen error.
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
@@ -411,7 +411,7 @@ same programs running ([rs-effect-fusion]).
   function type, and the at-most-once protocol is enforced by the
   checker alone.
 * [linear-discard] `discard(x)` lowers to `(x).let {}` — evaluate and
-  ignore [internal-fn]; linearity is purely static [linear-static], with
+  ignore [intrinsic-fn]; linearity is purely static [linear-static], with
   no runtime component on the JVM.
 * [fate-lambda] Kotlin lambdas capture lexically (aliases), unchanged
   by L4: the checker's capture contract (mutated captures consumed at

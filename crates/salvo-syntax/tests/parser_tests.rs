@@ -72,28 +72,13 @@ fn snapshot_std_result() {
 }
 
 #[test]
-fn snapshot_std_string_kotlin() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("string.kotlin.sv")));
-}
-
-#[test]
 fn snapshot_std_list() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("list.sv")));
 }
 
 #[test]
-fn snapshot_std_list_kotlin() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("list.kotlin.sv")));
-}
-
-#[test]
 fn snapshot_std_console() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("console.sv")));
-}
-
-#[test]
-fn snapshot_std_console_kotlin() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("console.kotlin.sv")));
 }
 
 // --- LANGUAGE.md example corpus ---

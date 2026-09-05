@@ -36,9 +36,10 @@ pub enum Item {
 /// Visibility/backing modifier on declarations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackingMod {
-    /// `internal`: implemented inside the compiler, must be supported by
-    /// every backend.
-    Internal,
+    /// `intrinsic`: declared by the standard library and implemented inside
+    /// the compiler — every backend must lower every one of them
+    /// [backend-intrinsic] [intrinsic-fn].
+    Intrinsic,
     /// `external`: implemented via `define` templates in backend files.
     External,
 }
@@ -51,7 +52,7 @@ pub struct ImportDecl {
     pub span: Span,
 }
 
-/// `internal type Str`, `external type List<T> canbe Mut`, or a type alias
+/// `intrinsic type Str`, `external type List<T> canbe Mut`, or a type alias
 /// `type Result<S, T> = Ok S | Err T`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDecl {

@@ -8,144 +8,144 @@ Module {
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Byte",
-                    span: 14..18,
+                    span: 15..19,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 9..18,
+                span: 10..19,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Int",
-                    span: 33..36,
+                    span: 35..38,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 28..36,
+                span: 30..38,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Long",
-                    span: 51..55,
+                    span: 54..58,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 46..55,
+                span: 49..58,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Float",
-                    span: 70..75,
+                    span: 74..79,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 65..75,
+                span: 69..79,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Double",
-                    span: 90..96,
+                    span: 95..101,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 85..96,
+                span: 90..101,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Char",
-                    span: 111..115,
+                    span: 117..121,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 106..115,
+                span: 112..121,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Bool",
-                    span: 130..134,
+                    span: 137..141,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 125..134,
+                span: 132..141,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Any",
-                    span: 149..152,
+                    span: 157..160,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 144..152,
+                span: 152..160,
             },
         ),
         Type(
             TypeDecl {
                 docs: [],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Nothing",
-                    span: 167..174,
+                    span: 176..183,
                 },
                 generics: [],
                 auto_qualifiers: [],
                 alias: None,
-                span: 162..174,
+                span: 171..183,
             },
         ),
         Type(
@@ -154,21 +154,21 @@ Module {
                     "The iterator type driving `for`-loops and `yield` functions",
                 ],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "Iter",
-                    span: 253..257,
+                    span: 263..267,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 258..259,
+                        span: 268..269,
                     },
                 ],
                 auto_qualifiers: [],
                 alias: None,
-                span: 248..257,
+                span: 258..267,
             },
         ),
         Type(
@@ -177,7 +177,7 @@ Module {
                 backing: None,
                 name: Ident {
                     name: "Number",
-                    span: 267..273,
+                    span: 277..283,
                 },
                 generics: [],
                 auto_qualifiers: [],
@@ -189,10 +189,10 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Int",
-                                        span: 276..279,
+                                        span: 286..289,
                                     },
                                     args: [],
-                                    span: 276..279,
+                                    span: 286..289,
                                 },
                             },
                             Named {
@@ -200,10 +200,10 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Long",
-                                        span: 282..286,
+                                        span: 292..296,
                                     },
                                     args: [],
-                                    span: 282..286,
+                                    span: 292..296,
                                 },
                             },
                             Named {
@@ -211,10 +211,10 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Double",
-                                        span: 289..295,
+                                        span: 299..305,
                                     },
                                     args: [],
-                                    span: 289..295,
+                                    span: 299..305,
                                 },
                             },
                             Named {
@@ -222,17 +222,17 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Float",
-                                        span: 298..303,
+                                        span: 308..313,
                                     },
                                     args: [],
-                                    span: 298..303,
+                                    span: 308..313,
                                 },
                             },
                         ],
-                        span: 276..303,
+                        span: 286..313,
                     },
                 ),
-                span: 262..303,
+                span: 272..313,
             },
         ),
         Fn(
@@ -245,16 +245,16 @@ Module {
                     "types, a real copy for Mut-capable ones; Rust: `.clone()`).",
                 ],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "copy",
-                    span: 654..658,
+                    span: 665..669,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 659..660,
+                        span: 670..671,
                     },
                 ],
                 generic_canbe: [],
@@ -263,21 +263,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 662..667,
+                            span: 673..678,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 669..670,
+                                    span: 680..681,
                                 },
                                 args: [],
-                                span: 669..670,
+                                span: 680..681,
                             },
                         },
                         variadic: false,
-                        span: 662..670,
+                        span: 673..681,
                     },
                 ],
                 effects: Some(
@@ -288,10 +288,10 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "value",
-                                span: 679..684,
+                                span: 690..695,
                             },
                             kind: KeepAll,
-                            span: 679..684,
+                            span: 690..695,
                         },
                     ],
                 ),
@@ -301,16 +301,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 686..687,
+                                span: 697..698,
                             },
                             args: [],
-                            span: 686..687,
+                            span: 697..698,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 651..687,
+                span: 662..698,
             },
         ),
         Fn(
@@ -322,31 +322,31 @@ Module {
                     "and ignore; Rust: `drop`).",
                 ],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "discard",
-                    span: 949..956,
+                    span: 961..968,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 957..958,
+                        span: 969..970,
                     },
                 ],
                 generic_canbe: [
                     (
                         Ident {
                             name: "T",
-                            span: 957..958,
+                            span: 969..970,
                         },
                         TypeRef {
                             name: Ident {
                                 name: "Linear",
-                                span: 965..971,
+                                span: 977..983,
                             },
                             args: [],
-                            span: 965..971,
+                            span: 977..983,
                         },
                     ),
                 ],
@@ -355,21 +355,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 973..978,
+                            span: 985..990,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 980..981,
+                                    span: 992..993,
                                 },
                                 args: [],
-                                span: 980..981,
+                                span: 992..993,
                             },
                         },
                         variadic: false,
-                        span: 973..981,
+                        span: 985..993,
                     },
                 ],
                 effects: Some(
@@ -384,16 +384,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 992..996,
+                                span: 1004..1008,
                             },
                             args: [],
-                            span: 992..996,
+                            span: 1004..1008,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 946..996,
+                span: 958..1008,
             },
         ),
     ],

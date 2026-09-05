@@ -259,16 +259,16 @@ Module {
                     "deduction; each backend lowers calls to it directly (no define files).",
                 ],
                 backing: Some(
-                    Internal,
+                    Intrinsic,
                 ),
                 name: Ident {
                     name: "copy",
-                    span: 386..390,
+                    span: 387..391,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 391..392,
+                        span: 392..393,
                     },
                 ],
                 generic_canbe: [],
@@ -277,21 +277,21 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 394..399,
+                            span: 395..400,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 401..402,
+                                    span: 402..403,
                                 },
                                 args: [],
-                                span: 401..402,
+                                span: 402..403,
                             },
                         },
                         variadic: false,
-                        span: 394..402,
+                        span: 395..403,
                     },
                 ],
                 effects: Some(
@@ -302,10 +302,10 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "value",
-                                span: 411..416,
+                                span: 412..417,
                             },
                             kind: KeepAll,
-                            span: 411..416,
+                            span: 412..417,
                         },
                     ],
                 ),
@@ -315,16 +315,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 418..419,
+                                span: 419..420,
                             },
                             args: [],
-                            span: 418..419,
+                            span: 419..420,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 383..419,
+                span: 384..420,
             },
         ),
     ],

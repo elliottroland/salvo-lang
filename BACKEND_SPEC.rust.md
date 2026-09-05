@@ -649,9 +649,9 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   `let` annotation or parameter type. The capability is there for a define
   whose target construct needs the type spelled out
   (`Vec::<${T}>::new()`).
-* [internal-fn] Internal fns bypass define templates: the emitter lowers
+* [intrinsic-fn] Intrinsic fns bypass define templates: the emitter lowers
   the call directly. Rust implements `copy` [copy-fn] as [rs-copy]; any
-  other internal fn is a codegen error.
+  other intrinsic fn is a codegen error.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic
@@ -678,7 +678,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   emission is unchanged. Calling the parameter is a plain call (the
   by-value `call_once` is implicit).
 * [linear-discard] `discard(x)` lowers to `drop(x)` on the moved value
-  [internal-fn]; linearity itself is purely static [linear-static] — no
+  [intrinsic-fn]; linearity itself is purely static [linear-static] — no
   `#[must_use]`, no `Drop` impls are generated.
 * [struct-spread] `P {...p, f: v}` emits
   `P { f: v, ..(p-owned) }` (functional update; the base is rendered

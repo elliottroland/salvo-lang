@@ -828,8 +828,8 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
-        if h.backing == Some(BackingMod::External) {
-            return self.emit_define_handler(h);
+        if h.backing == Some(BackingMod::Intrinsic) {
+            return self.emit_intrinsic_handler(h);
         }
         // [effect-handler-deps] A dependency is a constructor parameter of
         // effect type. The compiler supplies it, so it is neither a field
@@ -1098,18 +1098,24 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// An `external handler` implemented by `define handler` templates
-    /// [backend-define-handler]: struct + `new()` + trait impl whose
-    /// method bodies inline the templates.
-    fn emit_define_handler(&mut self, h: &HandlerDecl) -> String {
-        let Some(def) = self.symbols.define_handlers.get(h.name.name.as_str()) else {
+    /// An `intrinsic handler` [backend-intrinsic]: a std handler whose
+    /// members this backend implements directly — struct + `new()` + trait
+    /// impl. The signatures come from the *effect* it implements (the
+    /// handler declaration is bodyless), and the bodies from
+    /// [`crate::intrinsics::handler_member`].
+    fn emit_intrinsic_handler(&mut self, h: &HandlerDecl) -> String {
+        let of = self.emit_type(&h.of);
+        let Some(effect) = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()
+        else {
             self.error(format!(
-                "external handler `{}` has no rust `define handler`",
+                "intrinsic handler `{}` implements `{of}`, which is not a declared \
+                 effect",
                 h.name.name
             ));
             return String::new();
         };
-        let of = self.emit_type(&h.of);
         let name = rs_ident(&h.name.name);
         let mut out = format!("\npub struct {name} {{\n");
         for p in &h.params {
@@ -1142,29 +1148,28 @@ impl<'p> Emitter<'p> {
             out.push_str("        }\n    }\n}\n");
         }
         out.push_str(&format!("\nimpl {of} for {name} {{\n"));
-        for dfn in &def.fns {
-            if let Some(imports) = &dfn.body.imports {
-                self.add_template_imports(imports);
-            }
-            let params = self.emit_member_param_list(&dfn.sig.params);
-            let ret = self.emit_return_type(dfn.sig.return_type.as_ref());
-            let Some(inline) = &dfn.body.inline else {
-                self.error(format!(
-                    "define fn `{}` in handler `{}` has no inline section",
-                    dfn.sig.name.name, h.name.name
-                ));
-                continue;
-            };
-            let args: Vec<String> = dfn
-                .sig
+        for member in &effect.fns {
+            let params = self.emit_member_param_list(&member.params);
+            let ret = self.emit_return_type(member.return_type.as_ref());
+            let arg_names: Vec<String> = member
                 .params
                 .iter()
                 .map(|p| rs_ident(&p.name.name))
                 .collect();
-            let body = self.expand_template(inline, &dfn.sig.params, &args, &[], &[]);
+            let Some(body) = crate::intrinsics::handler_member(
+                &h.name.name,
+                &member.name.name,
+                &arg_names,
+            ) else {
+                self.error(format!(
+                    "intrinsic handler `{}` has no rust lowering for member `{}`",
+                    h.name.name, member.name.name
+                ));
+                continue;
+            };
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n",
-                rs_ident(&dfn.sig.name.name)
+                rs_ident(&member.name.name)
             ));
             for line in body.lines() {
                 out.push_str(&format!("        {line}\n"));
@@ -1919,7 +1924,7 @@ impl<'p> Emitter<'p> {
         self.emit_named_parts(name, &arg_strs)
     }
 
-    /// Maps a named type to Rust: internal types [backend-internal],
+    /// Maps a named type to Rust: intrinsic types [backend-intrinsic],
     /// `define type` templates [backend-define-type], or pass-through.
     fn emit_named_parts(&mut self, name: &str, arg_strs: &[String]) -> String {
         // [rs-effect-fusion] Inside a forwarding impl for an instantiated
@@ -1935,21 +1940,7 @@ impl<'p> Emitter<'p> {
         } else {
             format!("<{}>", arg_strs.join(", "))
         };
-        let internal = match name {
-            "Str" => Some("String"),
-            "Int" => Some("i32"),
-            "Long" => Some("i64"),
-            "Float" => Some("f32"),
-            "Double" => Some("f64"),
-            "Bool" => Some("bool"),
-            "Char" => Some("char"),
-            "Byte" => Some("u8"),
-            "None" => Some("()"),
-            "Nothing" => Some("()"), // only reachable in dead positions
-            "Iter" => Some("Vec"),   // [rs-iter-vec]
-            _ => None,
-        };
-        if let Some(rs) = internal {
+        if let Some(rs) = crate::intrinsics::type_name(name) {
             return format!("{rs}{args}");
         }
         if name == "Any" {
@@ -5042,7 +5033,7 @@ impl<'p> Emitter<'p> {
         }
 
         // 2. Checker-resolved fn target (type-based overloads win)
-        // [fn-overload]. Internal fns lower intrinsically [internal-fn];
+        // [fn-overload]. Intrinsic fns lower in the emitter [intrinsic-fn];
         // external signatures route to their define.
         let checker_resolved = self
             .checked
@@ -5050,8 +5041,8 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .and_then(|key| self.fn_by_key(*key).map(|f| (*key, f)));
         if let Some((key, f)) = checker_resolved {
-            if f.backing == Some(BackingMod::Internal) {
-                return self.emit_internal_call(f, args);
+            if f.backing == Some(BackingMod::Intrinsic) {
+                return self.emit_intrinsic_call(f, args, span);
             }
             if f.body.is_none() {
                 if let Some(def) = self.define_for_decl(name, f) {
@@ -5098,8 +5089,8 @@ impl<'p> Emitter<'p> {
                 ));
                 return "todo!()".to_string();
             };
-            if f.backing == Some(BackingMod::Internal) {
-                return self.emit_internal_call(f, args);
+            if f.backing == Some(BackingMod::Intrinsic) {
+                return self.emit_intrinsic_call(f, args, span);
             }
             if f.body.is_none() {
                 self.error(format!("external fn `{name}` has no rust `define fn`"));
@@ -5250,25 +5241,41 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// A call to an `internal fn`, lowered directly by the compiler
-    /// [internal-fn]. The only internal fn today is `copy` [copy-fn],
-    /// lowered to `.clone()` on the argument's place [rs-copy]: reads
-    /// never consume, and every generated type derives `Clone`.
-    /// Non-place arguments are already fresh owned values and pass
-    /// through.
-    fn emit_internal_call(&mut self, f: &FnDecl, args: &[&Expr]) -> String {
+    /// A call to an `intrinsic fn`, lowered directly by the compiler
+    /// [intrinsic-fn]. Two kinds live here:
+    ///
+    /// - `copy` and `discard` dispatch on the argument's *shape*, which is
+    ///   the whole reason they are intrinsics — `copy` is `.clone()` on the
+    ///   argument's place (reads never consume, and every generated type
+    ///   derives `Clone`), while a non-place argument is already a fresh
+    ///   owned value and passes through [rs-copy] [linear-discard].
+    /// - everything else std declares is looked up in
+    ///   [`crate::intrinsics::fn_call`], keyed by the declaration the
+    ///   checker resolved.
+    ///
+    /// An intrinsic with no lowering is a codegen error naming it, never a
+    /// pass-through [backend-never-wrong].
+    fn emit_intrinsic_call(&mut self, f: &FnDecl, args: &[&Expr], span: Span) -> String {
         // [linear-discard] `discard(x)` moves the value into `drop`.
         if f.name.name == "discard" && args.len() == 1 {
             let code = self.emit_expr(args[0]);
             return format!("drop({code})");
         }
         if f.name.name != "copy" || args.len() != 1 {
+            let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
+            let arg_code = self.intrinsic_arg_code(f, args);
+            if let Some(code) =
+                crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &[])
+            {
+                return code;
+            }
             self.error(format!(
-                "internal fn `{}` is not supported by the rust backend",
+                "intrinsic fn `{}` is not supported by the rust backend",
                 f.name.name
             ));
             return "todo!()".to_string();
         }
+        let _ = span;
         let arg = args[0];
         match arg {
             Expr::Ident(id) => {
@@ -5284,6 +5291,35 @@ impl<'p> Emitter<'p> {
             }
             other => self.emit_expr(other),
         }
+    }
+
+    /// The rendered arguments of an `intrinsic fn` call, in declaration
+    /// order, preserving the distinction the define templates relied on
+    /// [rs-borrows]: a *place* splices raw so a method-style lowering
+    /// borrows it natively (`list.push(..)`), while a variadic tail
+    /// splices owned because it lands inside a constructor (`vec![..]`).
+    /// Getting this backwards either double-clones or moves out of a
+    /// borrow.
+    fn intrinsic_arg_code(&mut self, f: &FnDecl, args: &[&Expr]) -> Vec<String> {
+        let variadic_at = f.params.iter().position(|p| p.variadic);
+        args.iter()
+            .enumerate()
+            .map(|(i, arg)| {
+                let is_variadic_part = variadic_at.is_some_and(|v| i >= v);
+                match arg {
+                    Expr::Ident(_)
+                    | Expr::Field { .. }
+                    | Expr::TupleIndex { .. }
+                    | Expr::Index { .. }
+                        if !is_variadic_part =>
+                    {
+                        self.emit_place(arg)
+                    }
+                    Expr::Spread { operand, .. } => self.emit_owned(operand),
+                    other => self.emit_expr(other),
+                }
+            })
+            .collect()
     }
 
     /// Finds the define template matching an external fn signature

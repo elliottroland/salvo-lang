@@ -33,8 +33,8 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
+intrinsic type Int
+intrinsic type Str
 external type Store<T> canbe Mut
 
 qualifier NonEmpty<T> of Store<T>
@@ -90,7 +90,7 @@ fn provenance_survives_a_mutating_call() {
 // while two state claims still need one.
 #[test]
 fn provenance_composes_without_with() {
-    let ok = "internal type Str\n\
+    let ok = "intrinsic type Str\n\
                struct Request { body: Str }\n\
               qualifier Validated of Request\n\
               provenance qualifier Authenticated of Request\n\
@@ -99,7 +99,7 @@ fn provenance_composes_without_with() {
               fn b(r: Authenticated FromCache Request) -> Str { return r.body }\n";
     assert!(errors(ok).is_empty(), "got {:?}", errors(ok));
 
-    let bad = "internal type Str\n\
+    let bad = "intrinsic type Str\n\
                struct Request { body: Str }\n\
                qualifier Validated of Request\n\
                qualifier Checked of Request\n\
@@ -132,7 +132,7 @@ fn provenance_cannot_have_a_body() {
 // same message constructive qualifiers already give.
 #[test]
 fn provenance_cannot_be_tested_with_is() {
-    let src = "internal type Str\n\
+    let src = "intrinsic type Str\n\
                struct Request { body: Str }\n\
                provenance qualifier Authenticated of Request\n\
                fn f(r: Request) -> Bool {\n    return r is Authenticated\n}\n";
@@ -149,7 +149,7 @@ fn provenance_cannot_be_tested_with_is() {
 // and survives being stored into another value.
 #[test]
 fn provenance_is_droppable_and_survives_storage() {
-    let src = "internal type Str\n\
+    let src = "intrinsic type Str\n\
                struct Request { body: Str }\n\
                struct Wrapper { req: Authenticated Request }\n\
                provenance qualifier Authenticated of Request\n\

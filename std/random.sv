@@ -6,4 +6,4 @@ effect Random {
     fn random() -> [] Double
 }
 
-external handler DefaultRandom of Random
+intrinsic handler DefaultRandom of Random

@@ -40,10 +40,10 @@ fn messages(src: &str) -> Vec<String> {
 }
 
 const PRELUDE: &str = r#"
-internal type Int
-internal type Str
-internal type Bool
-internal type Opaque
+intrinsic type Int
+intrinsic type Str
+intrinsic type Bool
+intrinsic type Opaque
 
 struct Person {
     name: Str
@@ -256,8 +256,8 @@ fn iterating_an_array_is_fine() {
 // ===== [handler-not-value] =====
 
 const EFFECT_PRELUDE: &str = r#"
-internal type Int
-internal type Str
+intrinsic type Int
+intrinsic type Str
 
 effect Counter {
     fn bump() -> [] Int
@@ -285,7 +285,7 @@ fn effect_messages(src: &str) -> Vec<String> {
 #[test]
 fn handler_state_initializers_are_checked() {
     let errs = messages(
-        "internal type Int\ninternal type Str\n\n\
+        "intrinsic type Int\nintrinsic type Str\n\n\
          effect Sink {\n    fn kept() -> [] Int\n}\n\n\
          handler Bin of Sink {\n    held: Int = \"not an int\"\n\n    \
          fn kept() -> [] Int {\n        return held\n    }\n}\n",
@@ -400,7 +400,7 @@ fn handler_cannot_depend_on_its_own_effect() {
 /// and "it cannot be written" are different claims.
 #[test]
 fn dependency_cycles_cannot_be_registered() {
-    let cyclic = "internal type Str\n\n\
+    let cyclic = "intrinsic type Str\n\n\
         effect Alpha {\n    fn a(m: Str) -> [m] None\n}\n\n\
         effect Beta {\n    fn b(m: Str) -> [m] None\n}\n\n\
         handler AlphaViaBeta(beta: Beta) of Alpha {\n    \

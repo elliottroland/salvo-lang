@@ -60,7 +60,7 @@ fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
 }
 
 /// The checker's error messages for a single-file program (no std). Every
-/// source needs its own `internal type` declarations: without std even
+/// source needs its own `intrinsic type` declarations: without std even
 /// `Int` is undeclared [name-resolve].
 fn messages(src: &str) -> Vec<String> {
     check_errors(&[("main.sv", src)])
@@ -69,7 +69,7 @@ fn messages(src: &str) -> Vec<String> {
         .collect()
 }
 
-const TYPES: &str = "internal type Int\ninternal type Str\ninternal type Bool\n";
+const TYPES: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
 
 // [name-dot] A dot-name resolves as one dotted name, and the namespace
 // struct in the same file satisfies the rule.
@@ -322,7 +322,7 @@ fn unknown_type_names_suggest_imports() {
 #[test]
 fn intrinsic_qualifiers_are_known_names() {
     let src = format!(
-        "{TYPES}\ninternal type Store<T> canbe Mut\n\n\
+        "{TYPES}\nintrinsic type Store<T> canbe Mut\n\n\
          fn f(s: Mut Store<Int>) -> Int {{\n    return 1\n}}\n"
     );
     assert!(messages(&src).is_empty(), "got {:?}", messages(&src));
