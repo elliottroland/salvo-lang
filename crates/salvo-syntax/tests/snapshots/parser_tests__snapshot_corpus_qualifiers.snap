@@ -37,6 +37,7 @@ Module {
                 ],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 0..27,
             },
@@ -74,6 +75,7 @@ Module {
                 ],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 38..61,
             },
@@ -107,6 +109,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 76..96,
             },
@@ -140,6 +143,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 97..118,
             },
@@ -200,6 +204,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 120..159,
             },
@@ -256,6 +261,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 160..197,
             },
@@ -307,6 +313,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 198..230,
             },
@@ -483,6 +490,7 @@ Module {
                         span: 298..359,
                     },
                 ],
+                refns: [],
                 has_body: true,
                 span: 266..361,
             },
@@ -599,6 +607,7 @@ Module {
                         span: 412..474,
                     },
                 ],
+                refns: [],
                 has_body: true,
                 span: 363..476,
             },
@@ -739,6 +748,7 @@ Module {
                         span: 533..614,
                     },
                 ],
+                refns: [],
                 has_body: true,
                 span: 478..616,
             },
@@ -767,6 +777,7 @@ Module {
                 with: [],
                 field_overrides: [],
                 fns: [],
+                refns: [],
                 has_body: false,
                 span: 618..649,
             },
@@ -1883,6 +1894,346 @@ Module {
                     },
                 ),
                 span: 1915..2046,
+            },
+        ),
+        Qualifier(
+            QualifierDecl {
+                docs: [
+                    "[qual-refn] A qualifier states what functions it does not own do to *its*",
+                    "claim. `add` mutates its list, so [deduce-syntax] forbids it from",
+                    "promising `NonEmpty` back — but appending can never empty a list, and the",
+                    "qualifier that owns the claim may say so.",
+                ],
+                intrinsic: false,
+                subject: State,
+                name: Ident {
+                    name: "NonEmpty",
+                    span: 2328..2336,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 2337..2338,
+                    },
+                ],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "List",
+                            span: 2343..2347,
+                        },
+                        args: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 2348..2349,
+                                    },
+                                    args: [],
+                                    span: 2348..2349,
+                                },
+                            },
+                        ],
+                        span: 2343..2350,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        intrinsic: false,
+                        name: Ident {
+                            name: "qualifies",
+                            span: 2360..2369,
+                        },
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "list",
+                                    span: 2370..2374,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "List",
+                                            span: 2376..2380,
+                                        },
+                                        args: [
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "T",
+                                                        span: 2381..2382,
+                                                    },
+                                                    args: [],
+                                                    span: 2381..2382,
+                                                },
+                                            },
+                                        ],
+                                        span: 2376..2383,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 2370..2383,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Bool",
+                                        span: 2388..2392,
+                                    },
+                                    args: [],
+                                    span: 2388..2392,
+                                },
+                            },
+                        ),
+                        constructs: None,
+                        body: Some(
+                            Block {
+                                stmts: [
+                                    Return {
+                                        value: Some(
+                                            Binary {
+                                                op: Gt,
+                                                lhs: Call {
+                                                    callee: Ident(
+                                                        Ident {
+                                                            name: "size",
+                                                            span: 2410..2414,
+                                                        },
+                                                    ),
+                                                    type_args: [],
+                                                    args: [
+                                                        Ident(
+                                                            Ident {
+                                                                name: "list",
+                                                                span: 2415..2419,
+                                                            },
+                                                        ),
+                                                    ],
+                                                    named: [],
+                                                    span: 2410..2420,
+                                                },
+                                                rhs: Int {
+                                                    value: 0,
+                                                    long: false,
+                                                    span: 2423..2424,
+                                                },
+                                                span: 2410..2424,
+                                            },
+                                        ),
+                                        span: 2403..2424,
+                                    },
+                                ],
+                                span: 2393..2430,
+                            },
+                        ),
+                        span: 2357..2430,
+                    },
+                ],
+                refns: [
+                    RefnDecl {
+                        docs: [
+                            "Adding an element makes the list non-empty.",
+                        ],
+                        name: Ident {
+                            name: "add",
+                            span: 2492..2495,
+                        },
+                        generics: [],
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "list",
+                                    span: 2496..2500,
+                                },
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Mut",
+                                                span: 2502..2505,
+                                            },
+                                            args: [],
+                                            span: 2502..2505,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "List",
+                                            span: 2506..2510,
+                                        },
+                                        args: [
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "T",
+                                                        span: 2511..2512,
+                                                    },
+                                                    args: [],
+                                                    span: 2511..2512,
+                                                },
+                                            },
+                                        ],
+                                        span: 2506..2513,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 2496..2513,
+                            },
+                            Param {
+                                name: Ident {
+                                    name: "elem",
+                                    span: 2515..2519,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 2521..2522,
+                                        },
+                                        args: [],
+                                        span: 2521..2522,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 2515..2522,
+                            },
+                        ],
+                        deductions: [
+                            RefnDeduction {
+                                param: Ident {
+                                    name: "list",
+                                    span: 2528..2532,
+                                },
+                                add: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "NonEmpty",
+                                            span: 2535..2543,
+                                        },
+                                        args: [],
+                                        span: 2535..2543,
+                                    },
+                                ],
+                                remove: [],
+                                span: 2528..2543,
+                            },
+                        ],
+                        span: 2487..2543,
+                    },
+                ],
+                has_body: true,
+                span: 2318..2546,
+            },
+        ),
+        Refn(
+            RefnDecl {
+                docs: [
+                    "[qual-refn-reconcile] A top-level refinement is the consumer's own word on",
+                    "a function, and replaces the qualifiers' refinements for that parameter.",
+                ],
+                name: Ident {
+                    name: "remove_first",
+                    span: 2707..2719,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 2720..2721,
+                    },
+                ],
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "list",
+                            span: 2723..2727,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 2729..2732,
+                                    },
+                                    args: [],
+                                    span: 2729..2732,
+                                },
+                                TypeRef {
+                                    name: Ident {
+                                        name: "NonEmpty",
+                                        span: 2733..2741,
+                                    },
+                                    args: [],
+                                    span: 2733..2741,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 2742..2746,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 2747..2748,
+                                            },
+                                            args: [],
+                                            span: 2747..2748,
+                                        },
+                                    },
+                                ],
+                                span: 2742..2749,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2723..2749,
+                    },
+                ],
+                deductions: [
+                    RefnDeduction {
+                        param: Ident {
+                            name: "list",
+                            span: 2755..2759,
+                        },
+                        add: [],
+                        remove: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "NonEmpty",
+                                    span: 2762..2770,
+                                },
+                                args: [],
+                                span: 2762..2770,
+                            },
+                        ],
+                        span: 2755..2770,
+                    },
+                ],
+                span: 2702..2770,
             },
         ),
     ],

@@ -40,6 +40,20 @@ impl FileDiagnostic {
         }
     }
 
+    /// A diagnostic that reports something the author probably did not
+    /// intend without rejecting the program — used where a rule
+    /// deliberately degrades instead of failing (a suppressed refinement
+    /// conflict [qual-refn-conflict]).
+    pub fn warning(file: usize, span: Span, message: impl Into<String>) -> Self {
+        FileDiagnostic {
+            file,
+            severity: Severity::Warning,
+            message: message.into(),
+            span,
+            suggested_imports: Vec::new(),
+        }
+    }
+
     /// Attaches import suggestions [diag-import-suggest].
     pub fn with_imports(mut self, imports: Vec<String>) -> Self {
         self.suggested_imports = imports;

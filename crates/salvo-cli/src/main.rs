@@ -496,8 +496,8 @@ fn build(
     else {
         return Ok(None);
     };
-    let written = match backend.emit(&program, target, main_module.as_ref()) {
-        Ok(written) => written,
+    let emitted = match backend.emit(&program, target, main_module.as_ref()) {
+        Ok(emitted) => emitted,
         // Codegen messages are rendered diagnostics: they carry their own
         // `error:` prefix and one line each.
         Err(BackendError::Codegen(msgs)) => {
@@ -511,6 +511,14 @@ fn build(
             return Err(ExitCode::FAILURE);
         }
     };
+    // Non-fatal diagnostics reach the builder here [diag-structured]: the
+    // program compiled, so these are reported and nothing else happens.
+    // Printed unconditionally (not only under `--verbose`), since a warning
+    // nobody sees is the same as no warning [qual-refn-conflict].
+    for msg in &emitted.warnings {
+        eprintln!("{msg}");
+    }
+    let written = emitted.files;
     if verbose {
         for path in &written {
             eprintln!("wrote {}", target.join(path).display());

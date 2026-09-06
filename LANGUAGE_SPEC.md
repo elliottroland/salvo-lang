@@ -248,6 +248,10 @@ Conventions:
   `with` the other; the `Mut` auto-qualifier composes with everything
   [type-canbe-mut].
   * Pairwise `with` compatibility is validated at declaration sites.
+  * One implementation, two callers: the declaration-site check and the
+    refinement-conflict rule [qual-refn-conflict] share
+    `refine::quals_compatible`, since a conflict is *precisely* "these two
+    could not have been written together".
   * `with` is only ever this compatibility clause; opting a declaration
     into a qualifier is `canbe` [canbe-optin].
   * Provenance qualifiers need no `with` at all [qual-subject].
@@ -370,6 +374,120 @@ Conventions:
   union arm choice) survive.
   * Backends must resolve name collisions that erasure creates between
     overloads (see the backend specs).
+* [qual-refn] A **refinement** states what a function *someone else*
+  declared does to a qualifier's claim (user design 2026-09-06, roadmap
+  D3): `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`,
+  written in the qualifier that owns the claim or as a top-level item.
+  It exists because [deduce-syntax] is sound only by forbidding a
+  mutating function from promising a qualifier it never declared — and
+  the function is the wrong party to ask, since it has never heard of the
+  qualifier.
+  * **Narrower than a `fn` by construction**: no body, no effect list, no
+    return type (a refinement changes what is *known* after a call, never
+    what the call does), and its entries are only additions (`+Q`) and
+    removals (`-Q`). A plain (exhaustive) name and `Nothing` are parse
+    errors: whether a parameter is kept is the function's own deduction to
+    make. The AST carries additions and removals as separate lists rather
+    than reusing `Deduction`, so the restriction is structural.
+  * **`+Q` is legal only here.** In a *function's* own deduction list it
+    stays rejected (roadmap D2): there it would be a claim about the
+    body, which needs an establishment rule; in a refinement it is the
+    qualifier author's claim about someone else's call.
+  * **Applied after the callee's own list** at each call site
+    [deduce-consume]: `add`'s exhaustive `[list: Mut]` drops `NonEmpty`,
+    then the refinement puts it back. Only on the *kept* path — nothing is
+    known about a moved parameter, and refining one is an error.
+  * **Trusted**, like `-> T as Q` [qual-ctor-fn]: no `qualifies` call is
+    emitted where a refinement applies, even for a predicate qualifier.
+  * **State qualifiers only** [qual-subject]. Provenance cannot be
+    invalidated, so there is nothing to re-establish; the compiler's own
+    qualifiers carry representation choices and flow rules (`Mut` is not
+    even erased), so a refinement may not hand one out. This is also what
+    makes the whole feature invisible to the backends.
+  * **A qualifier may only refine its own claim.** `NonEmpty` cannot say
+    what a call does to `Sorted`. That is what makes [qual-refn-scope]'s
+    opt-in honest, and it is why conflicts reduce to "two qualifiers that
+    cannot co-apply" [qual-refn-conflict].
+  * A refinement's qualifier must apply to the parameter's type
+    [qual-of], and each entry must name a parameter of the resolved
+    overload, once.
+  * Effect members are **not** refinable (deferred, user decision
+    2026-09-06): a member has no `FnKey` and naming one needs an
+    effect-qualified form.
+* [qual-refn-match] A refinement's parameter list picks **one** overload:
+  it must repeat that overload's parameters exactly — same names, same
+  variadic/implicit flags, same types, with type parameters matched by
+  **position** (the refinement's own, preceded by the qualifier's). Zero
+  or several matches is an error at the refinement, so a typo cannot
+  become a refinement that silently never fires. A name in the parameter
+  list that is neither a type parameter nor a visible type is reported as
+  such, naming the type-parameter remedy — a top-level `refn` has no
+  qualifier to borrow `T` from.
+* [qual-refn-scope] A refinement declared **inside a qualifier** applies
+  wherever that qualifier is in scope, and nowhere else: the user opts
+  into the refinements by opting into the qualifier (user decision
+  2026-09-06). A **top-level** `refn` is *module*-scoped and **not
+  importable** — reconciling conflicting refinements is the consumer's
+  call, and a library shipping its own reconciliation would move the
+  conflict one level up.
+* [qual-refn-conflict] When the refinements applying to one (callee,
+  parameter) **disagree**, none of them apply (user decision
+  2026-09-06). Two additions disagree when the qualifiers could not have
+  been written together [qual-with]; an addition and a removal of the
+  same qualifier disagree outright.
+  * **Not an error**: the program compiles and the function is simply
+    less useful. But a **warning** is reported at the call site, once per
+    (callee, parameter) — silence would make an imported refinement's
+    doing nothing undiagnosable. The remedies it names are testing the
+    property with `is` (always available, since these are state claims)
+    and [qual-refn-reconcile].
+    * "Compiles" is enforced, not merely intended: each backend's
+      emission gate aborts on *errors only*, so a warning cannot stop
+      codegen.
+    * And it is *reported* on that path, not only by `salvo analyze` and
+      the language server: `Backend::emit` returns `Emitted { files,
+      warnings }`, the driver prints the warnings and carries on, and each
+      emitter has `emit_program_reporting` next to the warning-dropping
+      `emit_program` the golden tests use. Tested per backend, since both
+      the gate and the channel are duplicated in each.
+    * `salvo platform generate` deliberately does not report them: it
+      writes host stubs once, and the program's diagnostics belong to the
+      compile path.
+  * Granularity is per **parameter**: a disagreement about one parameter
+    does not cost the refinements of another.
+  * Judged in the *calling* file's scope, since that is where the
+    refinements are visible. A qualifier that file cannot see is assumed
+    compatible rather than suppressing on missing information.
+  * A single addition is also skipped when it could not co-apply with a
+    qualifier the call *preserved*: the value cannot carry both claims,
+    and knowing less is the safe direction.
+* [qual-refn-reconcile] A top-level `refn` **replaces** the qualifiers'
+  own refinements for the parameters it names, rather than joining them —
+  which is what makes reconciling a conflict possible at all. Same
+  precedence own-module declarations have over imported ones
+  [mod-collision].
+* [qual-refn-infer] Refinements reach **inferred** deductions
+  [deduce-infer], so the fact survives one frame outward: a fn whose
+  parameter declares the qualifier and whose body makes a refined call
+  may promise it back, and a *written* list promising it validates against
+  the same body facts. Two limits keep this sound and keep D2 deferred:
+  * An addition contributes only for a qualifier the parameter itself
+    **declares** — it can cancel a removal, never invent a claim. Adding
+    one a signature never made is `+Q` in a fn's own list, which is D2.
+  * An addition is honored only when the refined call is **unconditional**
+    in the body (not inside an `if`/`when` branch, a loop body, a lambda,
+    a deferred block or a `try`). The deduction walk is a meet over all
+    uses rather than a flow analysis, so a call that may not run cannot
+    establish a fact the signature then promises. Removals are unaffected:
+    applying one unconditionally is the conservative direction. The
+    *call site* remains flow-sensitive and does narrow inside the branch.
+* [qual-refn-docs] A refinement's doc comment [doc-comment] is merged into
+  the refined function's documentation, in a **Refinements** section
+  listing the effective entry, where it came from, and — for a suppressed
+  group — the conflict. A refinement is written somewhere else entirely,
+  so this is the only place a reader of the call can find it. Rendered
+  against the scope of the *file the cursor is in*, since that decides
+  which refinements apply.
 
 ## Control flow and expressions
 
@@ -1056,6 +1174,10 @@ Conventions:
       std's own mutators (`add`) drop a caller's predicates. Residual, and
       deliberate: an intrinsic that mutates through the *contents* of a
       non-`Mut` parameter is trusted, like `as Qual`.
+    * The resulting over-strictness (`add` cannot promise `NonEmpty` back
+      even though appending can never empty a list) is recovered by
+      **refinements** [qual-refn]: the function cannot state the fact, so
+      the qualifier that owns the claim states it instead.
   * Exhaustiveness is **contagious** through the call graph: a fn that
     hands a parameter to an exhaustive callee can no longer promise its
     own caller's extras either, so its inferred entry becomes exhaustive
@@ -1063,9 +1185,10 @@ Conventions:
   * Written lists are shape-checked: entries must name a parameter
     (once); an exhaustive entry may only keep qualifiers declared on that
     parameter (a deduction preserves or drops, it never *adds* — `+Qual`
-    is rejected, see D2); an entry is either exhaustive or a delta, never
-    both; and `Nothing` is the only type form (other type narrowings are
-    D1b).
+    is rejected in a *function's* list, see D2; it is how a **refinement**
+    states what a call establishes [qual-refn]); an entry is either
+    exhaustive or a delta, never both; and `Nothing` is the only type form
+    (other type narrowings are D1b).
   * A delta may name a qualifier the parameter does not declare (a fn that
     knows it invalidates a specific property). It is a convenience — the
     exhaustive form is the sound default, and inference never relies on a
@@ -1832,6 +1955,11 @@ Conventions:
   diagnostics stay per-file (`salvo_syntax::Diagnostic`); the CLI
   attributes them to files the same way. This is the contract a future
   language server builds on.
+  * The severity is load-bearing, not decorative: a *warning* reports
+    something the author probably did not intend without rejecting the
+    program, which is what a suppressed refinement conflict needs
+    [qual-refn-conflict]. `salvo analyze` counts warnings separately and
+    exits 0 when there are no errors.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
   fn-by-name uses — as `Checked::fn_refs: (file, name span) -> FnKey`.

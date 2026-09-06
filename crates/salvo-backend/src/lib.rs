@@ -31,6 +31,34 @@ impl fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
+/// What [`Backend::emit`] produced: the files written, and the *non-fatal*
+/// diagnostics the checker reported on the way [diag-structured].
+///
+/// Warnings need a channel of their own because they are not failures: a
+/// suppressed refinement conflict [qual-refn-conflict] leaves a legal
+/// program that must still compile, and reporting it through
+/// [`BackendError`] would have to abort. Rendered here rather than
+/// structured, for the same reason codegen errors are: rendering happens at
+/// the backend boundary, and the driver only prints them.
+#[derive(Debug, Default)]
+pub struct Emitted {
+    /// Files written, relative to the target directory.
+    pub files: Vec<PathBuf>,
+    /// Rendered warnings, one per line, each carrying its own `warning:`
+    /// prefix and location.
+    pub warnings: Vec<String>,
+}
+
+impl Emitted {
+    /// An emission that reported nothing.
+    pub fn new(files: Vec<PathBuf>) -> Self {
+        Emitted {
+            files,
+            warnings: Vec::new(),
+        }
+    }
+}
+
 impl From<std::io::Error> for BackendError {
     fn from(err: std::io::Error) -> Self {
         BackendError::Io(err)
@@ -48,7 +76,8 @@ pub trait Backend {
     fn file_extension(&self) -> &'static str;
 
     /// Emits target source code for the program into `target_dir`.
-    /// Returns the list of files written (relative to `target_dir`).
+    /// Returns the files written (relative to `target_dir`) together with
+    /// any non-fatal diagnostics [`Emitted`].
     ///
     /// `entry` is the module the driver selected as the program's entry
     /// point (`salvo run --main`), or `None` to let the backend discover
@@ -62,7 +91,7 @@ pub trait Backend {
         program: &Program,
         target_dir: &Path,
         entry: Option<&ModulePath>,
-    ) -> Result<Vec<std::path::PathBuf>, BackendError>;
+    ) -> Result<Emitted, BackendError>;
 
     /// How a human starts the emitted program — a JVM class name, a
     /// `rustc` invocation. `main_module` is the module declaring `main`,

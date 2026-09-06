@@ -974,3 +974,104 @@ fn a_positional_argument_after_a_named_one_is_rejected() {
         diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+// --- Qualifier refinements [qual-refn] ---
+
+/// [qual-refn] A refinement in a qualifier body parses into the qualifier's
+/// own `refns` list, carrying its parameters (which pick the overload
+/// [qual-refn-match]) and a deduction list of additions and removals.
+#[test]
+fn a_refinement_parses_in_a_qualifier_body() {
+    let source = "qualifier NonEmpty<T> of List<T> {\n    \
+                  fn qualifies(list: List<T>) -> Bool {\n        \
+                  return true\n    }\n\n    \
+                  // Adding an element makes the list non-empty.\n    \
+                  refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty -Sorted]\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Qualifier(q) = &module.items[0] else {
+        panic!("expected a qualifier item");
+    };
+    assert_eq!(q.fns.len(), 1, "the `qualifies` fn is still a fn");
+    assert_eq!(q.refns.len(), 1);
+    let refn = &q.refns[0];
+    assert_eq!(refn.name.name, "add");
+    assert_eq!(refn.params.len(), 2);
+    assert_eq!(refn.params[0].name.name, "list");
+    // [doc-comment] The block above it is its documentation, which hover
+    // merges into the refined fn's [qual-refn-docs].
+    assert_eq!(
+        refn.docs,
+        vec!["Adding an element makes the list non-empty.".to_string()]
+    );
+    assert_eq!(refn.deductions.len(), 1);
+    let entry = &refn.deductions[0];
+    assert_eq!(entry.param.name, "list");
+    assert_eq!(
+        entry.add.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>(),
+        vec!["NonEmpty"]
+    );
+    assert_eq!(
+        entry.remove.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>(),
+        vec!["Sorted"]
+    );
+}
+
+/// [qual-refn-scope] A top-level `refn` is an item of its own — the form
+/// that reconciles two qualifiers' conflicting refinements in one's own
+/// module [qual-refn-reconcile].
+#[test]
+fn a_top_level_refinement_parses_as_an_item() {
+    let source = "refn add<T>(list: Mut List<T>, elem: T) -> [list: +NonEmpty]\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Refn(r) = &module.items[0] else {
+        panic!("expected a refn item");
+    };
+    assert_eq!(r.name.name, "add");
+    assert_eq!(r.generics.len(), 1, "a top-level refn declares its own generics");
+    assert_eq!(r.deductions.len(), 1);
+}
+
+/// [qual-refn] The three things a refinement may not say are diagnostics
+/// naming the reason, not bare parse errors: it changes what is *known*
+/// after a call, never what the call does.
+#[test]
+fn a_refinement_may_not_declare_effects_a_return_type_or_an_unsigned_qualifier() {
+    let cases = [
+        (
+            "refn add<T>(list: Mut List<T>) [Console] -> [list: +NonEmpty]\n",
+            "cannot declare effects",
+        ),
+        (
+            "refn add<T>(list: Mut List<T>) -> [list: +NonEmpty] Int\n",
+            "cannot declare a return type",
+        ),
+        (
+            "refn add<T>(list: Mut List<T>) -> [list: NonEmpty]\n",
+            "need a sign",
+        ),
+        (
+            "refn add<T>(list: Mut List<T>) -> Int\n",
+            "expected a deduction list",
+        ),
+    ];
+    for (source, expected) in cases {
+        let (_module, diagnostics) = salvo_syntax::parse_module(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.is_error() && d.message.contains(expected)),
+            "expected {expected:?} for {source:?}, got {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+}

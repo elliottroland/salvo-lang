@@ -3,11 +3,14 @@
 mod emit;
 mod intrinsics;
 
-pub use emit::{emit_program, emit_program_with_entry, platform_skeletons, EmittedFile};
+pub use emit::{
+    emit_program, emit_program_reporting, emit_program_with_entry, platform_skeletons,
+    EmittedFile,
+};
 
 use std::path::{Path, PathBuf};
 
-use salvo_backend::{run_tool, Backend, BackendError};
+use salvo_backend::{run_tool, Backend, BackendError, Emitted};
 use salvo_core::{ModulePath, Program};
 
 /// Where the linked binary goes inside the target directory [rs-run].
@@ -35,8 +38,8 @@ impl Backend for RustBackend {
         program: &Program,
         target_dir: &Path,
         entry: Option<&ModulePath>,
-    ) -> Result<Vec<PathBuf>, BackendError> {
-        let files = emit::emit_program_with_entry(program, entry)
+    ) -> Result<Emitted, BackendError> {
+        let (files, warnings) = emit::emit_program_reporting(program, entry)
             .map_err(BackendError::Codegen)?;
         let mut written = Vec::with_capacity(files.len());
         for file in files {
@@ -47,7 +50,10 @@ impl Backend for RustBackend {
             std::fs::write(&path, &file.content)?;
             written.push(file.rel_path);
         }
-        Ok(written)
+        Ok(Emitted {
+            files: written,
+            warnings,
+        })
     }
 
     /// [platform-tree] The crate root is still the file to build: when the

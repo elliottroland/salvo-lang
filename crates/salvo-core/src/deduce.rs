@@ -177,6 +177,7 @@ pub(crate) fn infer(
                 &effects,
                 &effect_calls,
                 &no_state,
+                &checked.refinements,
             );
             exhaustive_for_mutated(
                 f.decl,
@@ -211,6 +212,7 @@ pub(crate) fn infer(
             &effects,
             &effect_calls,
             &no_state,
+            &checked.refinements,
         );
         let written = &states[&f.key];
         validate_written(f.key.file, f.decl, list, written, &inferred, &mut errors);
@@ -251,6 +253,7 @@ pub(crate) fn infer(
                     &effects,
                     &effect_calls,
                     &state_names,
+                    &checked.refinements,
                 );
                 validate_written(file_idx, m, list, &written, &inferred, &mut errors);
             }
@@ -455,6 +458,7 @@ fn infer_body<'a, 'p>(
     effects: &'a HashMap<String, &'p EffectDecl>,
     effect_calls: &'a HashMap<Key, Ty>,
     state_names: &'a HashSet<String>,
+    refinements: &'a crate::refine::Refinements,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.key.file,
@@ -467,6 +471,8 @@ fn infer_body<'a, 'p>(
         effects,
         effect_calls,
         state_names,
+        refinements,
+        cond_depth: 0,
     };
     walk.block(body);
     walk.params
@@ -540,6 +546,17 @@ struct Walk<'a, 'p> {
     /// [effect-state-store]: assigning into one is a store (the handler
     /// takes ownership), not a binding. Empty for ordinary fns.
     state_names: &'a HashSet<String>,
+    /// [qual-refn] Refinements visible where this body is written: a
+    /// refined call re-establishes what the callee's own list had to drop.
+    refinements: &'a crate::refine::Refinements,
+    /// How many conditional or repeated blocks enclose the statement being
+    /// walked (`if`/`when` branches, loop bodies, lambda and deferred
+    /// bodies). A refinement's *addition* is honored only at depth 0
+    /// [qual-refn-infer]: this walk is a meet over all uses rather than a
+    /// flow analysis, so a call that may not run cannot establish a fact
+    /// the signature then promises. Removals are unaffected — applying one
+    /// unconditionally is the conservative direction.
+    cond_depth: usize,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -661,6 +678,69 @@ impl<'p> Walk<'_, 'p> {
         }
     }
 
+    /// A block that may not run, or may run more than once: additions from
+    /// refinements inside it do not reach the inferred contract
+    /// [qual-refn-infer].
+    fn cond_block(&mut self, block: &Block) {
+        self.cond_depth += 1;
+        self.block(block);
+        self.cond_depth -= 1;
+    }
+
+    fn cond_expr(&mut self, e: &Expr) {
+        self.cond_depth += 1;
+        self.expr(e);
+        self.cond_depth -= 1;
+    }
+
+    /// A use that *establishes* qualifiers [qual-refn]: a refined call puts
+    /// back what the callee's own exhaustive list had to drop.
+    ///
+    /// Restricted to qualifiers the parameter itself declares. An inferred
+    /// list still only ever preserves or drops what the signature names —
+    /// promising a caller a qualifier the parameter never declared is
+    /// `+Q` in a *function's* own deduction list, which is D2 and
+    /// deliberately not in the language. So a refinement can cancel a
+    /// removal, never invent a claim.
+    fn add_quals(&mut self, name: &str, added: &[String]) {
+        if self.cond_depth > 0 {
+            return;
+        }
+        let declared = self
+            .decl
+            .params
+            .iter()
+            .find(|p| p.name.name == name)
+            .map(|p| declared_quals(&p.ty))
+            .unwrap_or_default();
+        let added: Vec<String> = added
+            .iter()
+            .filter(|q| declared.contains(q))
+            .cloned()
+            .collect();
+        if added.is_empty() {
+            return;
+        }
+        if let Some(p) = self.params.iter_mut().find(|p| p.param == name) {
+            p.effect = match &p.effect {
+                // Nothing was dropped, so there is nothing to put back.
+                QualEffect::KeepAll => QualEffect::KeepAll,
+                QualEffect::Remove(dropped) => QualEffect::Remove(
+                    dropped.iter().filter(|q| !added.contains(q)).cloned().collect(),
+                ),
+                QualEffect::Exhaustive(keep) => {
+                    let mut keep = keep.clone();
+                    for q in &added {
+                        if !keep.contains(q) {
+                            keep.push(q.clone());
+                        }
+                    }
+                    QualEffect::Exhaustive(keep)
+                }
+            };
+        }
+    }
+
     fn stmt(&mut self, stmt: &Stmt) {
         match stmt {
             // Binding a bare parameter (or a projection of one) to a
@@ -704,8 +784,10 @@ impl<'p> Walk<'_, 'p> {
             Stmt::Expr(e) => self.expr(e),
             // [defer] The body runs at the enclosing block's exits, so its
             // calls contribute to the enclosing fn's inferred contract
-            // exactly as if written there.
-            Stmt::Defer { body, .. } => self.block(body),
+            // exactly as if written there. Where they run relative to the
+            // rest is not modelled here, so a refinement's addition inside
+            // one does not reach the contract [qual-refn-infer].
+            Stmt::Defer { body, .. } => self.cond_block(body),
             _ => {}
         }
     }
@@ -773,10 +855,10 @@ impl<'p> Walk<'_, 'p> {
             } => {
                 for (c, b) in branches {
                     self.expr(c);
-                    self.block(b);
+                    self.cond_block(b);
                 }
                 if let Some(b) = else_block {
-                    self.block(b);
+                    self.cond_block(b);
                 }
             }
             Expr::When {
@@ -784,7 +866,7 @@ impl<'p> Walk<'_, 'p> {
             } => {
                 self.expr(subject);
                 for b in branches {
-                    self.block(&b.body);
+                    self.cond_block(&b.body);
                 }
             }
             // [when-condition]
@@ -795,9 +877,9 @@ impl<'p> Walk<'_, 'p> {
             } => {
                 for (c, b) in branches {
                     self.expr(c);
-                    self.block(b);
+                    self.cond_block(b);
                 }
-                self.block(else_block);
+                self.cond_block(else_block);
             }
             Expr::While {
                 cond,
@@ -806,9 +888,9 @@ impl<'p> Walk<'_, 'p> {
                 ..
             } => {
                 self.expr(cond);
-                self.block(body);
+                self.cond_block(body);
                 if let Some(b) = else_block {
-                    self.block(b);
+                    self.cond_block(b);
                 }
             }
             Expr::For {
@@ -818,22 +900,24 @@ impl<'p> Walk<'_, 'p> {
                 ..
             } => {
                 self.expr(iterable);
-                self.block(body);
+                self.cond_block(body);
                 if let Some(b) = else_block {
-                    self.block(b);
+                    self.cond_block(b);
                 }
             }
             // Uses inside a lambda body count like any other use (the
             // lambda may run any number of times).
             Expr::Lambda { body, .. } => match body {
-                LambdaBody::Expr(e) => self.expr(e),
-                LambdaBody::Block(b) => self.block(b),
+                LambdaBody::Expr(e) => self.cond_expr(e),
+                LambdaBody::Block(b) => self.cond_block(b),
             },
             // [qual-widen] The check reads its subject.
             Expr::Widen { subject, .. } => self.expr(subject),
             // [try] The delimiter's body is ordinary code: the calls in it
-            // contribute to the enclosing fn's inferred contract.
-            Expr::Try { body, .. } => self.block(body),
+            // contribute to the enclosing fn's inferred contract. A throw
+            // can leave it early, so an addition inside one does not reach
+            // the contract [qual-refn-infer].
+            Expr::Try { body, .. } => self.cond_block(body),
             // Leaves: nothing to walk into. Listed rather than defaulted so
             // a new expression form cannot hide a consuming call from the
             // inference [deduce-syntax].
@@ -866,13 +950,13 @@ impl<'p> Walk<'_, 'p> {
         let resolved = self
             .call_fn
             .get(&(self.file, span))
-            .and_then(|key| Some((self.fn_decls.get(key)?, self.states.get(key)?)));
-        let Some((callee_decl, callee_state)) = resolved else {
+            .and_then(|key| Some((*key, self.fn_decls.get(key)?, self.states.get(key)?)));
+        let Some((callee_key, callee_decl, callee_state)) = resolved else {
             // [call-resolve] An effect-member call: no `FnKey`, but the
             // member's declared list is the contract the call site already
             // enforces, so apply it here too.
             if let Some((member, facts)) = self.effect_member_contract(callee, span) {
-                self.apply_callee(&member.params, &facts, arg_exprs);
+                self.apply_callee(&member.params, &facts, arg_exprs, None);
                 return;
             }
             // [fn-contract] A call through a fn-typed *parameter* of the
@@ -915,17 +999,21 @@ impl<'p> Walk<'_, 'p> {
             }
             return;
         };
-        self.apply_callee(&callee_decl.params, callee_state, arg_exprs);
+        self.apply_callee(&callee_decl.params, callee_state, arg_exprs, Some(callee_key));
     }
 
     /// Applies a resolved callee's per-parameter facts to the arguments:
     /// a moved parameter moves a bare-identifier argument, a kept one
-    /// applies its qualifier effect [deduce-infer].
+    /// applies its qualifier effect [deduce-infer]. `callee` is the
+    /// resolved overload when there is one, which is what refinements key
+    /// on [qual-refn] — effect members and fn-value calls pass `None`
+    /// (a member has no `FnKey`, and refining one is deferred).
     fn apply_callee(
         &mut self,
         params: &[Param],
         state: &[ParamDeduction],
         arg_exprs: Vec<&Expr>,
+        callee: Option<FnKey>,
     ) {
         for (i, a) in arg_exprs.into_iter().enumerate() {
             let Some(name) = bare_ident(a) else {
@@ -945,6 +1033,22 @@ impl<'p> Walk<'_, 'p> {
                 QualEffect::KeepAll => {}
                 QualEffect::Remove(dropped) => self.remove_quals(&name, &dropped),
                 QualEffect::Exhaustive(keep) => self.restrict_to(&name, &keep),
+            }
+            // [qual-refn] The refinements in scope here have the last word,
+            // exactly as at the call site: `add`'s exhaustive list drops
+            // `NonEmpty`, and `NonEmpty`'s own refinement puts it back — so
+            // a fn whose parameter declares it can promise it onward.
+            let Some(callee) = callee else { continue };
+            let refined = self
+                .refinements
+                .for_param(self.file, callee, &params[pidx].name.name)
+                .map(|g| (g.add.clone(), g.remove.clone()));
+            let Some((add, remove)) = refined else { continue };
+            if !remove.is_empty() {
+                self.remove_quals(&name, &remove);
+            }
+            if !add.is_empty() {
+                self.add_quals(&name, &add);
             }
         }
     }

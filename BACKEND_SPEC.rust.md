@@ -123,6 +123,12 @@ Conventions:
 * [qual-erasure] Qualifiers erase from emitted types; what survives is
   arm choice, casts, predicate calls, mangled names — and the borrow
   modes that `Mut` implies [rs-borrows].
+  * **Refinements [qual-refn] reach output only through that list**, and
+    notably *not* through the borrow modes: a refinement may only name
+    *state* qualifiers, so it can never grant or revoke `Mut` and can never
+    change a parameter's mode. It adds no call and no check either — a
+    refined claim is trusted, so no `qualifies` call is emitted where one
+    applies. Nothing to lower.
 * [type-canbe-mut] Rust maps `Mut T` to the *same* type as `T` — there is
   no per-type `Mut` mapping at all. Unlike Kotlin's `intrinsics.rs`, the
   Rust one deliberately has no `mut_type_name`: mutability is expressed in

@@ -139,6 +139,13 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // imported name.
             Item::Import(_)
  => {}
+            // [qual-refn] A refinement contributes *no* reachability edge.
+            // It emits nothing, and everything it names is compile-time
+            // only: qualifiers are erased [qual-erasure] and a refinement
+            // never calls the function it refines. Counting its names would
+            // pull a module into the output for a statement no generated
+            // code mentions.
+            Item::Refn(_) => {}
         }
     }
     used

@@ -1852,3 +1852,97 @@ fn intrinsic_in_a_user_file_is_an_error() {
     );
     assert!(stderr.contains("`platform effect`"), "stderr: {stderr}");
 }
+
+// --- Qualifier refinements [qual-refn] ---
+
+/// The refined program end to end through the binary, over the *real* std:
+/// `add`'s exhaustive `[list: Mut]` drops `NonEmpty` [deduce-syntax], and
+/// `NonEmpty`'s own refinement puts it back, so the `NonEmpty` overload still
+/// resolves after the mutation.
+#[test]
+fn a_refinement_recovers_a_qualifier_stripped_by_a_mutating_call() {
+    let dir = src_dir("refn");
+    let source = "\
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 0
+    }
+
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+
+fn count<T canbe Linear>(list: NonEmpty List<T>) -> [list] Int {
+    return size(list)
+}
+
+fn main() [use] {
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    let n = count(xs)
+}
+";
+    fs::write(dir.join("main.sv"), source).unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert!(stderr.contains("no errors"), "stderr: {stderr}");
+
+    // The control: without the refinement, std's `add` strips the claim.
+    let dir = src_dir("refn_without");
+    fs::write(
+        dir.join("main.sv"),
+        source
+            .replace("    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]\n", "")
+            .replace("    // Adding an element makes the list non-empty.\n", ""),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("no matching overload for `count(Mut List<Int>)`"),
+        "stderr: {stderr}"
+    );
+}
+
+/// [qual-refn-conflict] Two qualifiers whose refinements cannot both hold
+/// leave the function unrefined — deliberately *not* an error, so the
+/// program still compiles (exit 0), but a warning, so the silence is
+/// discoverable. Reported once per callee and parameter, not per call.
+#[test]
+fn a_refinement_conflict_warns_without_failing() {
+    let dir = src_dir("refn_conflict");
+    let source = "\
+qualifier Q1<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q1]
+}
+
+qualifier Q2<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q2]
+}
+
+fn main() [use] {
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    add(xs, 2)
+}
+";
+    fs::write(dir.join("main.sv"), source).unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "a conflict is not an error: {stderr}");
+    assert!(
+        stderr.contains("warning: the refinements of `Q1` and `Q2` disagree about `list`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("0 errors, 1 warning"), "stderr: {stderr}");
+
+    // …and the warning is a warning in the JSON too [diag-structured].
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("\"severity\": \"warning\""), "stdout: {stdout}");
+}

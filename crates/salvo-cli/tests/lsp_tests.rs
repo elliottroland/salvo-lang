@@ -820,3 +820,74 @@ fn f(p: Person) [Log] {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [qual-refn-docs] Merged documentation: a refinement is written somewhere
+/// else entirely — in the qualifier that owns the claim — so hovering the
+/// refined function is the only place a reader can learn what it
+/// additionally establishes *here*. The section lists the effective
+/// deduction, where it came from, and the refinement's own doc comment; a
+/// suppressed conflict [qual-refn-conflict] is shown too, since the type
+/// system stays silent about it by design.
+#[test]
+fn hover_merges_refinement_docs() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_refn");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 0
+    }
+
+    // Adding an element leaves the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+
+fn main() [use] {
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // Hovering the call to std's `add` (line 12, the `add` token).
+    let value = hover(&mut lsp, 40, &uri, 11, 5);
+    assert!(
+        value.contains("**Refinements** — in scope here:"),
+        "unexpected hover: {value}"
+    );
+    assert!(
+        value.contains("- `[list: +NonEmpty]` — from `NonEmpty`"),
+        "unexpected hover: {value}"
+    );
+    assert!(
+        value.contains("Adding an element leaves the list non-empty."),
+        "the refinement's own docs should be merged in: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

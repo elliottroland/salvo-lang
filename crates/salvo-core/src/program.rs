@@ -96,6 +96,11 @@ impl<'p> Symbols<'p> {
                         symbols.type_aliases.insert(&t.name.name, t);
                     }
                     Item::Import(_) => {}
+                    // [qual-refn] A refinement declares no symbol of its
+                    // own: it names a function declared elsewhere. Its
+                    // index is built by `refine::collect`, which needs
+                    // per-file *visibility* rather than the flat table.
+                    Item::Refn(_) => {}
                 }
             }
         }

@@ -3,11 +3,13 @@
 mod emit;
 mod intrinsics;
 
-pub use emit::{emit_program, host_package, platform_skeletons, EmittedFile};
+pub use emit::{
+    emit_program, emit_program_reporting, host_package, platform_skeletons, EmittedFile,
+};
 
 use std::path::{Path, PathBuf};
 
-use salvo_backend::{run_tool, Backend, BackendError};
+use salvo_backend::{run_tool, Backend, BackendError, Emitted};
 use salvo_core::{ModulePath, Program};
 
 /// Where `kotlinc` puts the compiled classes inside the target directory
@@ -47,8 +49,9 @@ impl Backend for KotlinBackend {
         program: &Program,
         target_dir: &Path,
         _entry: Option<&ModulePath>,
-    ) -> Result<Vec<PathBuf>, BackendError> {
-        let files = emit::emit_program(program).map_err(BackendError::Codegen)?;
+    ) -> Result<Emitted, BackendError> {
+        let (files, warnings) =
+            emit::emit_program_reporting(program).map_err(BackendError::Codegen)?;
         let mut written = Vec::with_capacity(files.len());
         for file in files {
             let path = target_dir.join(&file.rel_path);
@@ -58,7 +61,10 @@ impl Backend for KotlinBackend {
             std::fs::write(&path, &file.content)?;
             written.push(file.rel_path);
         }
-        Ok(written)
+        Ok(Emitted {
+            files: written,
+            warnings,
+        })
     }
 
     /// The JVM entry class. Kotlin names a file's facade class after the

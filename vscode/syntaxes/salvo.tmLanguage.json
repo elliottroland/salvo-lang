@@ -82,7 +82,7 @@
         },
         {
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance)\\b"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|params|type|intrinsic|platform|import|provenance|refn)\\b"
         },
         {
           "name": "keyword.other.salvo",

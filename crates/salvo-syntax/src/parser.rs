@@ -310,6 +310,7 @@ impl<'s> Parser<'s> {
                 | TokenKind::KwIntrinsic
                 | TokenKind::KwPlatform
                 | TokenKind::KwProvenance
+                | TokenKind::KwRefn
                 | TokenKind::KwImport
                     if depth == 0 =>
                 {
@@ -417,6 +418,10 @@ impl<'s> Parser<'s> {
             }
             TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
             TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
+            // [qual-refn] A top-level refinement: the consumer's own
+            // statement about a function, which is how conflicting
+            // refinements from two qualifiers get reconciled.
+            TokenKind::KwRefn => self.parse_refn().map(Item::Refn),
             TokenKind::KwParams => self.parse_params_group().map(Item::Params),
             TokenKind::KwFn => {
                 let f = self.parse_fn(false)?;
@@ -662,6 +667,7 @@ impl<'s> Parser<'s> {
         }
         let mut field_overrides = Vec::new();
         let mut fns = Vec::new();
+        let mut refns = Vec::new();
         let mut has_body = false;
         let mut end = of.span();
         if self.at(&TokenKind::LBrace) && self.same_line() {
@@ -670,6 +676,10 @@ impl<'s> Parser<'s> {
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 if self.at(&TokenKind::KwFn) {
                     fns.push(self.parse_fn(false)?);
+                } else if self.at(&TokenKind::KwRefn) {
+                    // [qual-refn] A refinement of a function this
+                    // qualifier does not own.
+                    refns.push(self.parse_refn()?);
                 } else {
                     field_overrides.push(self.parse_field_decl()?);
                     self.eat(&TokenKind::Comma);
@@ -687,9 +697,163 @@ impl<'s> Parser<'s> {
             with,
             field_overrides,
             fns,
+            refns,
             has_body,
             span: start.to(end),
         })
+    }
+
+    /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`
+    /// [qual-refn].
+    ///
+    /// Narrower than a `fn` by construction: no body, no effect list, no
+    /// return type, and a deduction list that can only add and remove
+    /// qualifiers. Each of the three omissions is a diagnostic naming the
+    /// reason rather than a bare parse error, since each is a plausible
+    /// thing to try.
+    fn parse_refn(&mut self) -> Option<RefnDecl> {
+        let docs = self.docs_here();
+        let start = self.expect(&TokenKind::KwRefn)?.span;
+        let name = self.ident_value("refinement")?;
+        let generics = self.parse_generics();
+        let (params, _) = self.parse_params()?;
+        // An effect list here is the most likely mistake: a refinement
+        // states what is *known* after a call, and a function's effects
+        // belong to the function.
+        if self.at(&TokenKind::LBracket) {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "a refinement cannot declare effects: `refn {}` only states \
+                     what is known about the arguments afterwards, so write \
+                     `-> [param: +Qual]` here",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        }
+        self.expect(&TokenKind::Arrow)?;
+        if !self.at(&TokenKind::LBracket) {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "expected a deduction list after `->` in `refn {}`, e.g. \
+                     `-> [{}: +Qual]`: a refinement exists to state one",
+                    name.name,
+                    params
+                        .first()
+                        .map(|p| p.name.name.as_str())
+                        .unwrap_or("param")
+                ),
+                span,
+            );
+            return None;
+        }
+        let deductions = self.parse_refn_deduction_list()?;
+        // A return type would claim the refinement changes what the
+        // function produces, which is exactly what it may not do. Only a
+        // token that could *start* a type is reported, so a `}` closing the
+        // qualifier body on the same line is not mistaken for one.
+        if self.same_line() && (self.at_ident() || self.at(&TokenKind::LParen)) {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "a refinement cannot declare a return type: `refn {}` \
+                     refines an existing function's deductions, and the \
+                     function decides what it returns",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        }
+        let end = deductions.last().map(|d| d.span).unwrap_or(start);
+        Some(RefnDecl {
+            docs,
+            name,
+            generics,
+            params,
+            deductions,
+            span: start.to(end),
+        })
+    }
+
+    /// `[list: +NonEmpty]`, `[list: -Sorted]`, `[a: +P, b: -Q]`
+    /// [qual-refn]: every entry is a set of additions and removals, so a
+    /// plain (exhaustive) name or `Nothing` is rejected — a refinement
+    /// never decides whether a parameter is kept.
+    fn parse_refn_deduction_list(&mut self) -> Option<Vec<RefnDeduction>> {
+        self.expect(&TokenKind::LBracket)?;
+        self.group_depth += 1;
+        let mut entries: Vec<RefnDeduction> = Vec::new();
+        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+            let Some(param) = self.ident() else {
+                self.group_depth -= 1;
+                return None;
+            };
+            let mut end = param.span;
+            let mut add: Vec<TypeRef> = Vec::new();
+            let mut remove: Vec<TypeRef> = Vec::new();
+            if self.eat(&TokenKind::Colon).is_none() {
+                self.error(
+                    format!(
+                        "`{}` states nothing: a refinement entry adds or removes \
+                         qualifiers, e.g. `[{}: +Qual]`",
+                        param.name, param.name
+                    ),
+                    param.span,
+                );
+            }
+            loop {
+                let plus = self.at(&TokenKind::Plus);
+                let minus = self.at(&TokenKind::Minus);
+                if !plus && !minus {
+                    if self.at_ident() {
+                        // A plain name would be the exhaustive form, which
+                        // decides keptness — not a refinement's business.
+                        let r = self.parse_type_ref()?;
+                        self.error(
+                            format!(
+                                "a refinement's qualifiers need a sign: write \
+                                 `+{}` if the call establishes it or `-{}` if it \
+                                 invalidates it (a plain name would mean \"only \
+                                 this survives\", which is the function's own \
+                                 deduction to make)",
+                                r.name.name, r.name.name
+                            ),
+                            r.span,
+                        );
+                        end = r.span;
+                        continue;
+                    }
+                    break;
+                }
+                self.bump();
+                if !self.at_ident() {
+                    break;
+                }
+                let Some(r) = self.parse_type_ref() else { break };
+                end = r.span;
+                if plus {
+                    add.push(r);
+                } else {
+                    remove.push(r);
+                }
+            }
+            entries.push(RefnDeduction {
+                span: param.span.to(end),
+                param,
+                add,
+                remove,
+            });
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        self.expect(&TokenKind::RBracket)?;
+        Some(entries)
     }
 
     fn parse_effect(&mut self, platform: bool) -> Option<EffectDecl> {

@@ -1,5 +1,123 @@
 # Salvo Compiler — Progress & Plan
 
+**Qualifier refinements (`refn`) landed 2026-09-06 (user design), closing
+roadmap D3.** D1 made deductions sound by forbidding a mutating function
+from promising a qualifier it never declared, and accepted the
+over-strictness that follows: `add` cannot promise `NonEmpty` back even
+though appending to a list can never empty it. The insight that fixes it is
+that **the function was never the party to ask** — it has never heard of
+`NonEmpty`. The qualifier that owns the claim states it instead:
+
+```
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
+
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+```
+
+The user's decisions (all 2026-09-06):
+
+- **A qualifier may only refine its own claim**; a *top-level* `refn` may
+  name any state qualifier in scope. This was the load-bearing choice: it
+  collapses the conflict taxonomy to one case. The two failure modes the
+  design memo listed — refinements removing each other, and a refinement
+  declaring exhaustively — become unreachable, the second by grammar and
+  the first because only `Q` can speak about `Q`. What remains is
+  add/add: two qualifiers that cannot co-apply [qual-with].
+- **A top-level `refn` is module-scoped and not importable.** Reconciling
+  is the consumer's call; a library shipping its own reconciliation would
+  move the conflict one level up.
+- **Overload matching is by types *and* names** [qual-refn-match], with
+  type parameters positional. Requiring names means a std rename surfaces
+  as a diagnostic instead of a refinement that silently stops firing.
+- **Conflicts are per (callee, parameter)**, not per call: a disagreement
+  about one parameter must not cost the refinements of another.
+- **A suppressed conflict warns.** No error — the program compiles and the
+  function is simply less useful, exactly as designed — but silence would
+  make an imported refinement's doing nothing undiagnosable, so a
+  `Severity::Warning` lands at the call site, once per (callee, parameter).
+- **Effect members are not refinable** (deferred): a member has no `FnKey`,
+  and naming one needs an effect-qualified form.
+- **Inference is included.** A refinement reaches the inferred contract, so
+  the fact survives one frame outward.
+
+**Two things fell out of implementation that the memo did not predict.**
+
+First, *reconciliation only works if a top-level `refn` **replaces** the
+qualifiers' refinements* for the parameters it names [qual-refn-reconcile].
+Joining them would keep the disagreement — the user's stated remedy ("
+redeclare the reconciled qualifier in their scope") is only a remedy under
+replacement. It is the same precedence own-module declarations already have
+over imported ones [mod-collision].
+
+Second, *additions and the deduction fixpoint do not mix freely*. The walk
+in `deduce.rs` is a meet over all uses, not a flow analysis: removals only
+ever accumulate, which is what makes it order-insensitive and terminating.
+An addition is the opposite direction, so `if c { add(list, x) }` would
+have let a signature promise a fact that holds on one path. Two
+restrictions keep it sound [qual-refn-infer], and both were worth having
+for independent reasons:
+
+- **Only at `cond_depth == 0`** — the addition must be unconditional in the
+  body (a new depth counter bumped by `if`/`when`/loop/lambda/`defer`/`try`
+  bodies). The *call site* stays flow-sensitive and still narrows inside
+  the branch; it is only the exported *contract* that is conservative.
+- **Only for a qualifier the parameter declares.** A refinement can cancel
+  a removal, never invent a claim — inventing one is `+Q` in a function's
+  own deduction list, which is D2 and stays deferred. This also bounds the
+  lattice (the keep set stays a subset of the declared set), so the
+  fixpoint still only shrinks and still terminates.
+
+**`+Q` now has exactly one home, and D2 is untouched.** In a `refn` it is
+the qualifier author's claim about someone else's call — trusted, like
+`-> T as Q` [qual-ctor-fn]. In a `fn` it remains a parse error naming D2,
+because there it would be a claim about your *own* body, which needs an
+establishment rule.
+
+**No backend work at all**, and that is a consequence of the "state
+qualifiers only" rule rather than luck: `Mut` is the one qualifier that is
+*not* erased, so admitting `+Mut` would have made this an emission feature.
+Verified by compiling and running one refined program under both `kotlinc`
+and `rustc` — `after add: 1` / `after refill: 2`, byte-identical — with the
+emitted `main` asserted to contain no `qualifies` call, since a refinement
+is trusted rather than checked.
+
+**The warning had to be made non-fatal, and then given somewhere to go.**
+Both backends' emission gates aborted on *any* diagnostic, so the first
+conflicting program printed the warning and then refused to compile — the
+exact opposite of "no compiler error, just a less useful function". The gate
+is errors-only now; and since a warning nobody sees is the same as no
+warning, `Backend::emit` gained a channel for it (user request 2026-09-06):
+it returns `Emitted { files, warnings }`, and the CLI's one build path
+prints the warnings unconditionally — not under `--verbose` — before
+carrying on. Two things worth knowing about the shape:
+
+- **The warning-dropping entry point stayed.** `emit_program` is what 108
+  golden tests call, so it keeps its signature and delegates to the new
+  `emit_program_reporting`, where the drop is one visible `map`. Changing
+  the public shape would have churned every one of those call sites to say
+  nothing new.
+- **The failure path renders *every* diagnostic**, warnings included. Each
+  carries its own severity prefix, so they read correctly next to the
+  errors — and nothing is lost while the author fixes the errors, which is
+  what the old all-diagnostics behaviour got right before it also aborted.
+
+`salvo platform generate` deliberately reports nothing: it writes host stubs
+once, and the program's diagnostics belong to the compile path.
+
+**One rule, one implementation**: the refinement-conflict test and the
+declaration-site [qual-with] check now share `refine::quals_compatible`. A
+conflict *is* "these two could not have been written together", so letting
+the two drift would have been a bug in waiting.
+
+The feature is `crates/salvo-core/src/refine.rs` (~700 lines): resolve each
+refinement to its overload, validate it, compute per-file visibility, merge
+and detect conflicts. The checker applies groups after the removal set in
+the named-call contract loop; `deduce.rs` applies the same table through
+`apply_callee`; the LSP merges the docs [qual-refn-docs].
+
 **`use Handler<T>()` now binds the handler's generics (fixed 2026-09-06).**
 Found while recording it as a defect, which is the only reason it was found at
 all: the written type arguments were *parsed* and then read by nobody, so the
@@ -1433,7 +1551,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 574 tests, complete: the toolchain tests are
+cargo test                  # 602 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -3408,7 +3526,9 @@ The plain (exhaustive) form is what closes the hole: `clear`'s
   mutating function cannot promise to preserve a qualifier it does not
   declare, so `add(list: Mut List<T>, elem: T)` drops a caller's
   `NonEmpty` even though appending cannot empty a list. Remedy is a
-  re-test (`if list is NonEmpty`); the general answer is D3.
+  re-test (`if list is NonEmpty`); the general answer is D3, **built
+  2026-09-06** as `refn` [qual-refn] — the claim's owner states what the
+  call does to it, since the function cannot.
 - **Mixing polarities is an error.** An entry is either all-plain
   (exhaustive) or all-delta (`-`, and later `+`): `[list: Mut -NonEmpty]`
   is redundant under the exhaustive reading and contradictory otherwise.
@@ -3453,10 +3573,10 @@ is now `exhaustive_lists_drop_undeclared_qualifiers`, with
     machinery `check_linear_exit` already walks), trusted for externals.
     D1 lands with `Nothing` only; this follows as **D1b**.
 
-### D3 — Refinements (and why polymorphism is probably a dead end)
+### D3 — Refinements ✅ Done 2026-09-06
 
-D1's over-strictness has two candidate general answers. Analysis
-2026-09-02 says they are *not* both needed, and the more obvious one does
+D1's over-strictness had two candidate general answers. Analysis
+2026-09-02 said they are *not* both needed, and the more obvious one does
 not work:
 
 - **Polymorphism — "preserves whatever predicates it received" — is
@@ -3474,25 +3594,55 @@ not work:
   granularity soundness actually requires. It also inverts the dependency
   in the useful direction: a user's `NonEmpty` can declare that std's
   `add` preserves it, without std knowing the qualifier exists.
-  * Open questions: where a refinement may be declared (the qualifier's
-    own file, mirroring the constructor-fn rule?); whether it is trusted
-    or checked; how refinements from several qualifiers on one function
-    compose; and whether a refinement can *strengthen* a std function's
-    contract for callers who do not import the qualifier (it must not).
+
+**Built 2026-09-06 as `refn`** — see the decision-log entry at the top for
+the six user decisions and the two things implementation revised. Every
+open question this section recorded is answered:
+
+- *Where a refinement may be declared*: in the qualifier that owns the
+  claim (in scope wherever the qualifier is), or as a **top-level `refn`**,
+  module-scoped and not importable [qual-refn-scope].
+- *Trusted or checked*: **trusted**, like `-> T as Q` — no runtime check is
+  emitted where it applies [qual-refn].
+- *How refinements from several qualifiers on one function compose*: they
+  merge; when they **disagree none of them apply**, with a warning
+  [qual-refn-conflict], and a top-level `refn` **replaces** them for the
+  parameters it names [qual-refn-reconcile].
+- *Whether a refinement can strengthen a contract for callers who do not
+  import the qualifier*: **no.** Visibility is per file, and a fn can only
+  re-promise a qualifier its own signature names [qual-refn-infer].
+
+Rules: [qual-refn], [qual-refn-match], [qual-refn-scope],
+[qual-refn-conflict], [qual-refn-reconcile], [qual-refn-infer],
+[qual-refn-docs].
 
 ### D2 — Qualifier asserts (`+Q`)
 
-Deferred (user decision 2026-09-02: not even in the grammar for now).
-`+Q` asserts that the body *establishes* `Q`, which is what `-> T as Q`
-does for return values — the parameter-position analogue. A predicate
-qualifier cannot be proven statically (that means reasoning about the
-algorithm), so establishment is trust (like `as Q`) or a runtime
+Still deferred for a *function's own* deduction list (user decision
+2026-09-02: not even in the grammar there — the parser reports "adding
+qualifiers in a deduction (`+Qual`) is not supported yet" and names this
+item). `+Q` asserts that the body *establishes* `Q`, which is what
+`-> T as Q` does for return values — the parameter-position analogue. A
+predicate qualifier cannot be proven statically (that means reasoning
+about the algorithm), so establishment is trust (like `as Q`) or a runtime
 `qualifies` check.
+
+**D3 gave `+Q` exactly one home, and it is not this one** (2026-09-06):
+inside a `refn` [qual-refn], where it is the *qualifier author's* claim
+about someone else's call rather than a claim about your own body. That
+distinction is what kept D2 deferred through D3's implementation, and it
+is also why an inferred deduction may only re-establish a qualifier the
+parameter *declares* [qual-refn-infer] — letting inference add a new one
+would have implemented D2 by the back door, without ever deciding its
+establishment rule.
 
 - **DECISION D2a** — whether `+Q` and `as Q` unify into one notion of
   "this function establishes a qualifier", and whether establishment is
   trusted, runtime-checked, or restricted to fns declared in the
-  qualifier's own file (as `as Q` is today).
+  qualifier's own file (as `as Q` is today). D3's answer for refinements
+  was *trusted*, which is the precedent but not the decision: a
+  refinement is written by the party that owns the claim's meaning, and a
+  function asserting `+Q` about its own body is not.
 
 ### D4 — Predicate `is` on union subjects (and qualifiers over unions)
 
@@ -3954,7 +4104,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 574)
+## Test inventory (all green: 602)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -3962,7 +4112,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 196 - 15 unit tests (file classification, including the
+- `salvo-core`: 213 - 15 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -4162,7 +4312,30 @@ and `cargo nextest run` when you want to see which tests cost what.
   members of one effect sharing a name, the same name across two effects
   (reported *once*, at the second declaration), and distinct names across
   effects staying legal).
-- `salvo-cli`: 76 - 45 `analyze` integration tests running the built
+  + 17 refinement tests (`tests/refine_tests.rs` [qual-refn]
+  [qual-refn-match] [qual-refn-scope] [qual-refn-conflict]
+  [qual-refn-reconcile] [qual-refn-infer], with *overload resolution* as
+  the observable — a `NonEmpty` overload resolves only while the checker
+  still believes the claim): a refinement re-establishing what a mutating
+  call's exhaustive list dropped, with the no-refinement control proving
+  the acceptance is the refinement's doing; `-Q` invalidating a claim a
+  call would otherwise have kept; conflicting refinements all standing
+  down *with a warning* while compatible ones (`with`-declared) both
+  apply; a top-level `refn` reconciling the conflict by replacing them; a
+  refinement in scope only with its qualifier, and a top-level one not
+  leaving its module (same module, second file: applies; another module
+  importing everything it can: does not); and the declaration rules —
+  four ways to miss an overload (wrong parameter name, wrong type, no such
+  function, no such parameter), an unbound type parameter reported as
+  itself with the `refn add<T>` remedy, a qualifier refining someone
+  else's claim, provenance and intrinsic qualifiers refused, a *moved*
+  parameter having nothing to refine, and a qualifier that does not apply
+  to the parameter's type; plus the three inference facts — a refinement
+  reaching an inferred deduction, a written list allowed to promise the
+  refined qualifier (with the no-refinement control rejected by
+  [deduce-infer]), and a *conditional* refined call **not** reaching the
+  contract).
+- `salvo-cli`: 80 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -4252,7 +4425,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   keeping boundary, kept lambda parameters unconsumable, consuming
   contracts propagating to callers, keeping contracts clean),
   `--backend` opting
-  define files into the analysis, unknown backend rejected) + 2 UTF-16
+  define files into the analysis, unknown backend rejected;
+  and refinements over the *real* std [qual-refn]: a refinement recovering
+  the `NonEmpty` std's `add` necessarily strips, with the no-refinement
+  control failing overload resolution, and a conflict warning that leaves
+  the exit code 0 and renders as `"severity": "warning"` in the JSON
+  [qual-refn-conflict]) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
   supplementary-plane round-trips, clamping) + 3 LSP integration tests
   (`tests/lsp_tests.rs` [cli-lsp]: speaks framed JSON-RPC to the binary —
@@ -4277,6 +4455,9 @@ and `cargo nextest run` when you want to see which tests cost what.
   [doc-hover-narrowed]; and nested-declaration hover: a struct field at its
   declaration and at an access (identical contents, via
   `Checked::field_refs`) with its default as written and its owner named,
+  a refinement's docs merged into the refined fn's hover as a
+  **Refinements** section naming the effective entry and the qualifier it
+  came from [qual-refn-docs],
   an effect member at its declaration and at a call, handler state, and a
   handler member whose `[symbol]` references reach the handler's own state
   — plus go-to-definition on a field access [lsp-definition])
@@ -4284,7 +4465,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   (`src/lang.rs` [cli-lang]: highlighting categories exactly partition
   the lexer's keyword table, generated grammar is valid JSON containing
   every keyword, checked-in VS Code grammar matches the generated one)
-  + 16 `run` tests (`tests/run_tests.rs` [cli-run], each in its own
+  + 17 `run` tests (`tests/run_tests.rs` [cli-run], each in its own
   working directory so the default `--target` lands in the sandbox): the
   same program compiled and run on *both* backends with identical asserted
   stdout; `--main` alone implying its directory as the source root;
@@ -4304,7 +4485,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   required and validated `--backend`, a missing `main` from either
   direction, a define file rejected as an entry point, a check error
   stopping the run with a single un-double-prefixed diagnostic, and the
-  deletion guard refusing a target that holds a `.sv` file).
+  deletion guard refusing a target that holds a `.sv` file;
+  and — per backend — a *warning* reaching the builder without failing the
+  run [qual-refn-conflict] [diag-structured]: the program's stdout asserted
+  (so it really ran), the exit code 0, and the rendered warning with its
+  location asserted on stderr. Either half alone would be a bug — an abort
+  rejects a legal program, and silence leaves the diagnostic visible only in
+  `salvo analyze`).
   + 5 `platform generate` tests (`tests/platform_tests.rs` [cli-platform]
   [platform-tree]): the whole arc per backend — the run failing with an
   error that names the command and the path, the command writing
@@ -4316,7 +4503,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 62 (six implicit-parameter parser tests were added
+- `salvo-syntax`: 65 (three refinement parser tests were added [qual-refn]:
+  a refinement in a qualifier body with its docs and its `+`/`-` entries, a
+  top-level `refn` as an item of its own, and the four things a refinement
+  may not say — effects, a return type, an unsigned qualifier, a missing
+  deduction list — each a diagnostic naming the reason. Six
+  implicit-parameter parser tests were added
   [implicit-param] [implicit-group] [implicit-override]: `?cmp:` and
   `?Field<T>` parsing side by side — the group spread is *not* a parameter —
   a `params` group of bodiless members, a `name = value` argument recognised
@@ -4369,7 +4561,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 107 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 109 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -4486,6 +4678,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   and 2 `try`-body tests ([try]: a variable assigned *only* inside a `try`
   body declared `var` — the traversal gap that emitted `val` and had
   kotlinc reject the output — plus the kotlinc run of the same program).
+  and 2 refinement tests ([qual-refn] [qual-erasure]
+  [qual-refn-conflict]: `kotlinc_compiles_and_runs_a_refined_program` — the
+  refined program runs, and the emitted `main` contains no `qualifies` call,
+  since a refinement is trusted rather than checked; same source and same
+  asserted stdout as the Rust backend, which is the parity claim itself; and
+  a suppressed conflict still *emitting*, since a warning may not stop
+  codegen);
   and 4 platform tests ([platform-effect] [kt-platform-entry]
   [platform-tree] [kt-platform-host]:
   `platform_effect_emits_an_interface_and_a_host_entry` asserting the
@@ -4502,7 +4701,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   Rust run byte for byte. The `run_kotlin_entry` helper exists because
   `run_kotlin_files` hardcodes `salvo.main.MainKt`, and the entry here is
   the host's `salvo.platform.main.MainKt`).
-- `salvo-backend-rust`: 79 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 81 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -4626,7 +4825,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   `a_for_loop_borrows_an_iter_subject`, the pairing that makes a second pass
   possible; plus the rustc run of an *unbounded* producer that terminates
   because the consumer `break`s and a factory consumed twice — the same
-  source and stdout the Kotlin backend asserts); and 4 platform tests
+  source and stdout the Kotlin backend asserts); and 2 refinement tests
+  ([qual-refn] [qual-erasure] [qual-refn-conflict]:
+  `rustc_compiles_and_runs_a_refined_program`, the same source and stdout the
+  Kotlin backend asserts, with no `qualifies` call in the emitted `main`; and
+  a suppressed conflict still emitting and returning its rendered warning
+  through `emit_program_reporting`); and 4 platform tests
   ([platform-effect] [rs-platform-entry] [platform-tree]
   [rs-platform-host]:
   `platform_effect_emits_a_trait_and_a_host_entry` asserting the generated
@@ -4647,6 +4851,38 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A remedy the user names has to be *checked* against the mechanism.**
+  Refinements were designed with "reconcile it in a top-level `refn`" as
+  the escape from a conflict, and the first implementation *merged* every
+  refinement in scope — under which the reconciliation joins the
+  disagreement it was supposed to settle, and changes nothing. The remedy
+  only works because a top-level `refn` **replaces** the qualifiers'
+  refinements [qual-refn-reconcile]. When a design records an escape
+  hatch, write the program that uses it before believing the mechanism
+  provides it.
+- **A fact-*adding* rule cannot be dropped into a meet-shaped analysis.**
+  `deduce.rs` is order-insensitive and terminating *because* removals only
+  accumulate. A refinement's `+Q` is the opposite direction, so
+  `if c { add(list, x) }` would have let a signature promise a fact that
+  holds on one path — sound-looking, because the *call site* really does
+  narrow there, and the call site is flow-sensitive while the walk is not.
+  Two restrictions fixed it [qual-refn-infer], and the second (additions
+  only for qualifiers the parameter declares) also keeps the lattice
+  bounded, so the fixpoint still terminates. Before adding a monotone
+  fact, ask which direction the existing analysis is monotone *in*.
+- **A restriction can be what makes a feature backend-free.** "State
+  qualifiers only" reads like a scoping decision about which claims a
+  refinement may make. It is the reason the whole feature needed *no*
+  emitter work: `Mut` is the one qualifier that is not erased, so `+Mut`
+  would have turned a compile-time statement into an emission feature. The
+  test that pins it asserts the emitted `main` contains no `qualifies`
+  call — a refinement is trusted, so nothing may be emitted for it.
+- **"None of them apply" needs a granularity, and per-call is the wrong
+  one.** Suppressing every refinement of a *call* because two qualifiers
+  disagree about one parameter costs refinements that never disagreed. Per
+  (callee, parameter) is the unit, which is also the unit the warning
+  deduplicates on.
 
 - **A silent skip is a bug waiting for a deletion.** `SourceSet::classify`
   returned `None` for a file belonging to another backend, and `add_dir`

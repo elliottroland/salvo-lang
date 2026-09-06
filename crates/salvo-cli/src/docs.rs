@@ -4,6 +4,7 @@
 //! the parser. This module turns that block into markdown and resolves
 //! `[symbol]` references in it [doc-symbol-ref].
 
+use salvo_core::refine::RefnGroup;
 use salvo_syntax::ast::{FieldDecl, FnDecl, Item, Module, StructDecl};
 use salvo_syntax::Span;
 
@@ -190,6 +191,64 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
                 out.push('\n');
                 if !line.trim().is_empty() {
                     out.push_str(&format!("  {line}"));
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The **Refinements** section of a function's hover [qual-refn-docs]: what
+/// the qualifiers in scope *here* additionally know about this call, with
+/// each refinement's own documentation merged in.
+///
+/// This is the documentation half of the feature. A refinement is written
+/// somewhere else entirely — in the qualifier that owns the claim, possibly
+/// in another package — so a reader of `add` would otherwise have no way to
+/// learn that, in this file, it also establishes `NonEmpty`. Suppressed
+/// groups are shown too: a conflict is silent in the type system by design
+/// [qual-refn-conflict], and this is where it stops being invisible.
+pub fn refinement_section(groups: &[RefnGroup], scope: &DocScope) -> Option<String> {
+    if groups.is_empty() {
+        return None;
+    }
+    let mut out = String::from("**Refinements** — in scope here:\n");
+    for group in groups {
+        if !group.conflict.is_empty() {
+            let quals: Vec<String> =
+                group.conflict.iter().map(|q| format!("`{q}`")).collect();
+            out.push_str(&format!(
+                "\n- `{}`: none apply — the refinements of {} cannot be applied to \
+                 one value. Test the property with `is`, or reconcile them in a \
+                 top-level `refn`.",
+                group.param,
+                quals.join(" and ")
+            ));
+            continue;
+        }
+        let mut effects: Vec<String> = group.add.iter().map(|q| format!("+{q}")).collect();
+        effects.extend(group.remove.iter().map(|q| format!("-{q}")));
+        out.push_str(&format!(
+            "\n- `[{}: {}]`",
+            group.param,
+            effects.join(" ")
+        ));
+        let from: Vec<String> = group
+            .sources
+            .iter()
+            .map(|s| match &s.qualifier {
+                Some(q) => format!("`{q}`"),
+                None => "this module".to_string(),
+            })
+            .collect();
+        out.push_str(&format!(" — from {}", from.join(", ")));
+        for source in &group.sources {
+            if let Some(doc) = render(&source.docs, scope) {
+                for line in doc.lines() {
+                    out.push('\n');
+                    if !line.trim().is_empty() {
+                        out.push_str(&format!("  {line}"));
+                    }
                 }
             }
         }

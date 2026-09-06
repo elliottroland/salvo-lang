@@ -1065,7 +1065,7 @@ A deduction entry has a _polarity_. Plain qualifier names are **exhaustive**: `[
 
 Why "including qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
 
-The flip side is deliberate over-strictness: `add` cannot promise to preserve `NonEmpty` either, even though appending to a list can never empty it. Recovering that precision needs a way for a qualifier to state which operations preserve it, which the language does not have yet; for now, re-test with `is NonEmpty` after a mutating call.
+The flip side is deliberate over-strictness: `add` cannot promise to preserve `NonEmpty` either, even though appending to a list can never empty it. The function is the wrong party to ask — it has never heard of `NonEmpty` — so the claim's *owner* states it instead, in a **refinement** (see "Refinements" below). Without one, re-test with `is NonEmpty` after a mutating call.
 
 This tells us that after the function has returned, _we no longer know that the list is NonEmpty_. From the calling context, then, we have the following:
 
@@ -1432,6 +1432,66 @@ Three further rules follow from provenance being about the handle rather than th
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
 
 `Mut`, `Linear`, `Once` and `ReadOnly` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `Once` never drop).
+
+### Refinements
+
+A deduction list is written by the function's author, so it can only state what that author knows. `add` mutates its list, so it may not promise a caller's `NonEmpty` back (see "Deductions") — even though appending to a list can never empty it. The function is not the party that can fix this: it has never heard of `NonEmpty`.
+
+The party that can is the qualifier. A **refinement** is a statement about a function you do not own, written by the qualifier whose claim it is about:
+
+```
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 0
+    }
+
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+```
+
+`refn` is deliberately narrower than `fn`. It has no body, it cannot declare effects, and it cannot declare a return type — a refinement never changes what a function *does*, only what is *known* about the arguments afterwards. Its deduction entries can only add (`+Q`) and remove (`-Q`) state qualifiers; a plain name (which would mean "only this survives") is the function's own deduction to make. The parameter list is there to pick one overload, so it repeats the parameters exactly: same names, same types, with type parameters matched by position.
+
+At a call site the refinement has the last word. `add`'s own `[list: Mut]` drops everything it does not name, and then `+NonEmpty` puts the claim back:
+
+```
+let xs: Mut List<Int> = mutable_list()
+add(xs, 1)
+// `xs` is `Mut NonEmpty List<Int>` here, so this resolves:
+let n = count(xs)
+```
+
+A refinement is **trusted**, exactly as `-> T as Q` is: nothing proves that `add` establishes `NonEmpty`, and no runtime check is emitted. The qualifier's author owns the claim's meaning, which is why they are the right party to ask.
+
+**Refinements travel with their qualifier.** A refinement declared inside `NonEmpty` applies wherever `NonEmpty` is in scope, and nowhere else — you opt into the refinements by opting into the qualifier. A qualifier may only speak about its *own* claim: `NonEmpty` cannot state what a call does to `Sorted`.
+
+**When refinements disagree, none of them apply.** Two qualifiers can both claim a call establishes them, and their claims can be mutually exclusive:
+
+```
+qualifier Q1<T> of List<T> { ... refn something(list: List<T>) -> [list: +Q1] }
+qualifier Q2<T> of List<T> { ... refn something(list: List<T>) -> [list: +Q2] }
+```
+
+Merging these would ask for `+Q1 +Q2`, which is impossible when neither declares `with` the other. That is not an error — the program still compiles, and `something` is simply a less useful function — but the compiler warns, because a refinement you imported silently doing nothing would be impossible to diagnose otherwise. You then have two remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), or state the reconciled result in your own module with a top-level `refn`:
+
+```
+// In your own module: replaces the qualifiers' refinements for `list`.
+refn something<T>(list: List<T>) -> [list: +Q1]
+```
+
+A top-level refinement is module-scoped and not importable. Reconciling is the consumer's call — a library shipping its own reconciliation would just move the disagreement one level up.
+
+Finally, a refinement reaches **inferred** deductions, so the fact does not die at one frame:
+
+```
+// No written list: `NonEmpty` survives the call to `add` because of the
+// refinement, so `refill` promises it back to its own callers.
+fn refill<T>(list: Mut NonEmpty List<T>, value: T) -> None {
+    add(list, value)
+}
+```
+
+Two limits are worth knowing. A refinement contributes to an inferred deduction only for a qualifier the parameter itself declares — it can put back what a call dropped, never invent a claim the signature never made — and only when the refined call is unconditional in the body, since a call inside an `if` or a loop may not run at all. A refinement's documentation is merged into the refined function's, so the language server shows what `add` establishes *here* even though the statement lives elsewhere.
 
 ## Modules and files
 

@@ -43,6 +43,9 @@ pub enum TokenKind {
     KwWith,
     KwCanbe,
     KwProvenance,
+    /// `refn` — a qualifier *refinement* of an existing function
+    /// [qual-refn].
+    KwRefn,
     KwIs,
     KwIf,
     KwElif,
@@ -128,6 +131,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("with", TokenKind::KwWith),
     ("canbe", TokenKind::KwCanbe),
     ("provenance", TokenKind::KwProvenance),
+    ("refn", TokenKind::KwRefn),
     ("is", TokenKind::KwIs),
     ("if", TokenKind::KwIf),
     ("elif", TokenKind::KwElif),

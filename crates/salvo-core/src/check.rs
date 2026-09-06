@@ -115,6 +115,13 @@ pub struct Checked {
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
+    /// [qual-refn] Every qualifier refinement that applies, keyed by the
+    /// file a call is written in and the overload it resolves to.
+    /// Scope-dependent by design: opting into a qualifier opts into what
+    /// it knows, so the same callee refines differently in two files. Read
+    /// by the call-site contract loop, by deduction inference, and by the
+    /// language server's merged documentation [qual-refn-docs].
+    pub refinements: crate::refine::Refinements,
     /// Concrete effect instance registered by each `use` statement (keyed
     /// by the statement span), with handler generics inferred from the
     /// constructor arguments (e.g. `Random<Int>` for
@@ -345,12 +352,21 @@ pub fn check_program<'p>(
     // qualifiers the signature never mentions.
     let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
 
+    // [qual-refn] Refinements are resolved and validated once: they depend
+    // on declarations and per-file visibility only, not on anything a
+    // checking round produces. Every round replays their diagnostics and
+    // reads their table, so the two sides of a refinement — what it means
+    // at a call site and what it means for an inferred contract — cannot
+    // come from different data.
+    let refinements = crate::refine::collect(program, resolution);
+
     // Round one: no inferred facts yet (strict S1 behavior).
     let mut out = check_once(
         program,
         resolution,
         symbols,
         None,
+        &refinements,
         &mut candidates,
         &mut claims,
         &mut mutations,
@@ -379,6 +395,7 @@ pub fn check_program<'p>(
             resolution,
             symbols,
             Some(&inferred),
+            &refinements,
             &mut candidates,
             &mut claims,
             &mut mutations,
@@ -435,18 +452,25 @@ fn check_once<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     inferred: Option<&HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    refinements: &crate::refine::Refinements,
     move_candidates: &mut HashSet<Key>,
     param_claims: &mut HashMap<FnKey, HashSet<String>>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
+    // [qual-refn] Refinement validation is round-independent; its
+    // diagnostics are replayed here so they land with everything else.
+    out.errors.extend(refinements.errors.iter().cloned());
+    out.refinements = refinements.clone();
     for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let mut checker = Checker {
             scope: &resolution.scopes[file_idx],
             resolution,
             symbols,
             inferred,
+            refinements,
+            refn_warned: HashSet::new(),
             file_idx,
             out: &mut out,
             locals: Vec::new(),
@@ -723,6 +747,14 @@ struct Checker<'p, 'r> {
     /// Round one's inferred deduction facts, enforced at call sites for
     /// fns without a written list [deduce-consume]. `None` in round one.
     inferred: Option<&'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+    /// [qual-refn] Refinements applying per (file, callee), resolved once
+    /// for the whole program.
+    refinements: &'r crate::refine::Refinements,
+    /// Call sites already warned about a suppressed refinement conflict
+    /// [qual-refn-conflict], keyed by (callee, parameter): the conflict is
+    /// a property of the file and the callee, not of the call, so it is
+    /// reported once rather than at every call.
+    refn_warned: HashSet<(FnKey, String)>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
     out: &'r mut Checked,
@@ -903,6 +935,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg));
+    }
+
+    /// Reports without rejecting: the program still compiles, but
+    /// something the author wrote is not doing what it looks like
+    /// [qual-refn-conflict].
+    fn warn(&mut self, span: Span, msg: impl Into<String>) {
+        self.out
+            .errors
+            .push(FileDiagnostic::warning(self.file_idx, span, msg));
     }
 
     /// An unresolved-name error carrying import suggestions: modules
@@ -5114,21 +5155,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if a.name.name == b.name.name {
                     continue; // duplicate, already reported
                 }
-                // [qual-subject] Provenance qualifiers compose without a
-                // `with` declaration: a claim about where a handle came
-                // from is orthogonal to every claim about its contents,
-                // and to other origins.
-                if a.subject == QualSubject::Provenance || b.subject == QualSubject::Provenance {
-                    continue;
-                }
-                // Internal qualifiers compose with everything.
-                if a.intrinsic || b.intrinsic
-                {
-                    continue;
-                }
-                let compat = a.with.iter().any(|w| w.name.name == b.name.name)
-                    || b.with.iter().any(|w| w.name.name == a.name.name);
-                if !compat {
+                // One rule, one implementation: a refinement conflict
+                // [qual-refn-conflict] is *precisely* "these two could not
+                // have been written together", so the two sites must not
+                // drift. Provenance composes freely [qual-subject], and so
+                // do the compiler's own qualifiers.
+                if !crate::refine::quals_compatible(a, b) {
                     self.error(
                         qualifiers[j].span,
                         format!(
@@ -5164,6 +5196,79 @@ impl<'p, 'r> Checker<'p, 'r> {
             .qualifiers
             .get(name)
             .is_some_and(|d| d.subject == QualSubject::Provenance)
+    }
+
+    /// [qual-refn] Applies the refinements in scope to one kept argument of
+    /// a resolved call: removals first, then additions.
+    ///
+    /// The additions are what the feature exists for — `add`'s exhaustive
+    /// `[list: Mut]` must drop `NonEmpty` ([deduce-syntax] is sound only
+    /// that way), and `NonEmpty`'s own refinement puts it back. Trusted,
+    /// like `-> T as Q` [qual-ctor-fn]: no `qualifies` call is emitted.
+    ///
+    /// Two cases apply nothing. A group whose refinements *conflict*
+    /// [qual-refn-conflict] is suppressed, with one warning per (callee,
+    /// parameter) — no error, since the caller can still test by hand or
+    /// reconcile with a top-level `refn`, but not silence either, or an
+    /// imported refinement would appear to do nothing for no visible
+    /// reason. And a single addition is skipped when it could not co-apply
+    /// with a qualifier the call *preserved* [qual-with]: the value cannot
+    /// carry both claims, and knowing less is the safe direction.
+    fn apply_refinements(&mut self, callee: FnKey, param: &str, arg: &str, span: Span) {
+        let Some(group) = self.refinements.for_param(self.file_idx, callee, param) else {
+            return;
+        };
+        if !group.conflict.is_empty() {
+            let key = (callee, param.to_string());
+            if self.refn_warned.insert(key) {
+                let quals = group.conflict.join("` and `");
+                self.warn(
+                    span,
+                    format!(
+                        "the refinements of `{quals}` disagree about `{param}` \
+                         here, so none of them apply: `{quals}` cannot be applied \
+                         to one value (neither declares `with` the other). Test \
+                         the property with `is` after this call, or reconcile them \
+                         in a top-level `refn` in this module"
+                    ),
+                );
+            }
+            return;
+        }
+        let remove: HashSet<String> = group.remove.iter().cloned().collect();
+        let add = group.add.clone();
+        if !remove.is_empty() {
+            if let Some(var) = self.lookup_mut(arg) {
+                var.narrowed = var.narrowed.clone().remove_quals(&remove);
+            }
+        }
+        for q in add {
+            let have: Vec<String> = self
+                .lookup(arg)
+                .map(|v| v.narrowed.quals().iter().map(|x| x.name.clone()).collect())
+                .unwrap_or_default();
+            if have.contains(&q) {
+                continue;
+            }
+            let compatible = have.iter().all(|h| {
+                match (self.scope.qualifiers.get(h.as_str()), self.scope.qualifiers.get(q.as_str()))
+                {
+                    (Some(a), Some(b)) => crate::refine::quals_compatible(a, b),
+                    // `Mut` and the other intrinsics compose with
+                    // everything; an invisible qualifier cannot be judged.
+                    _ => true,
+                }
+            });
+            if !compatible {
+                continue;
+            }
+            if let Some(var) = self.lookup_mut(arg) {
+                var.narrowed = var.narrowed.clone().qualify(vec![Qual {
+                    name: q,
+                    args: Vec::new(),
+                }]);
+            }
+        }
     }
 
     fn has_auto_mut(&self, base: &Ty) -> bool {
@@ -9236,11 +9341,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     })
                     .unwrap_or_default();
                 let removed = d.effect.removal_set(&have, |q| self.is_provenance_qual(q));
-                if removed.is_empty() {
-                    continue;
+                let name = id.name.clone();
+                if !removed.is_empty() {
+                    if let Some(var) = self.lookup_mut(&name) {
+                        var.narrowed = var.narrowed.clone().remove_quals(&removed);
+                    }
                 }
-                if let Some(var) = self.lookup_mut(&id.name) {
-                    var.narrowed = var.narrowed.clone().remove_quals(&removed);
+                // [qual-refn] Refinements have the last word: the callee's
+                // own list said what *it* can promise, and a qualifier's
+                // refinement says what the call does to *that qualifier's*
+                // claim. Applied after the removal set, so `+NonEmpty`
+                // re-establishes what `add`'s exhaustive `[list: Mut]`
+                // necessarily dropped.
+                if let Some(key) = best.key {
+                    self.apply_refinements(key, &param.name.name, &name, span);
                 }
             }
         }

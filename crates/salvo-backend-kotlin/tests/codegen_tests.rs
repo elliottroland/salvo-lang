@@ -4616,3 +4616,108 @@ fn kotlinc_compiles_and_runs_a_generic_handler() {
     });
     run_kotlin_files(&files, "handler-generics", HANDLER_GENERICS_OUTPUT);
 }
+
+// ===== qualifier refinements [qual-refn] =====
+
+/// A refinement is *compile-time only*: `NonEmpty` is erased like every
+/// qualifier [qual-erasure], and a refinement adds no call, no check and no
+/// wrapper — it only decides which overload the checker picks. So the two
+/// backends run the same source to the same output with no refinement
+/// machinery anywhere in between.
+const REFN_DEMO: &str = r#"
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return size(list) > 0
+    }
+
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+
+// Only callable while the compiler still believes the list is non-empty.
+fn count<T canbe Linear>(list: NonEmpty List<T>) -> [list] Int {
+    return size(list)
+}
+
+fn refill(list: Mut NonEmpty List<Int>, value: Int) -> [list: Mut NonEmpty] None {
+    add(list, value)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    println("after add: ${count(xs)}")
+    refill(xs, 2)
+    println("after refill: ${count(xs)}")
+}
+"#;
+
+const REFN_EXPECTED: &str = "after add: 1\nafter refill: 2\n";
+
+/// [qual-refn] [qual-erasure] The refined program compiles and runs, and the
+/// emitted Kotlin carries no trace of the refinement.
+#[test]
+fn kotlinc_compiles_and_runs_a_refined_program() {
+    let program = build_program(&[("main.sv", REFN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted");
+    // The qualifier's `qualifies` fn is still emitted (it backs `is`
+    // checks), but a refinement is *trusted* like `-> T as Q`
+    // [qual-ctor-fn]: no runtime check is emitted where it applies.
+    let body = main
+        .content
+        .split("fun main(")
+        .nth(1)
+        .expect("main emitted");
+    assert!(
+        !body.contains("NonEmpty_qualifies"),
+        "a refinement must not emit a runtime check:\n{body}"
+    );
+    run_kotlin_files(&files, "refn", REFN_EXPECTED);
+}
+
+/// [qual-refn-conflict] [diag-structured] A suppressed refinement conflict is
+/// a *warning*: the program is legal, so it must still emit — *and* the
+/// warning must reach the driver, or the diagnostic exists only in `salvo
+/// analyze`. Tested per backend because both the gate and the channel are
+/// duplicated in each: the same condition has to fire on both sides.
+const REFN_CONFLICT_DEMO: &str = r#"
+qualifier Q1<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q1]
+}
+
+qualifier Q2<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q2]
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    if xs is Q1 {
+        println("checked by hand: ${size(xs)}")
+    }
+}
+"#;
+
+#[test]
+fn a_refinement_conflict_warns_without_stopping_emission() {
+    let program = build_program(&[("main.sv", REFN_CONFLICT_DEMO)]);
+    let (files, warnings) =
+        salvo_backend_kotlin::emit_program_reporting(&program).unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
+    assert!(!files.is_empty(), "the program should still emit");
+    assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
+    assert!(
+        warnings[0].starts_with("warning: the refinements of `Q1` and `Q2` disagree")
+            && warnings[0].contains("main.sv:"),
+        "a rendered warning with its location: {}",
+        warnings[0]
+    );
+}

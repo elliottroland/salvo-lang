@@ -111,7 +111,10 @@ fn main() [use] {
   reads the union inside an `Ok` claim). A qualifier is a claim about a
   value's *contents* (`NonEmpty`) or about where the *handle* came from
   (`provenance qualifier Authenticated of Request`) — only the former can
-  be invalidated by mutation. Structs and qualifiers can be namespaced
+  be invalidated by mutation. A qualifier can also state what functions it
+  does *not* own do to its claim (`refn add(list: Mut List<T>, elem: T)
+  -> [list: +NonEmpty]`), which is how a mutating call keeps a property it
+  has never heard of. Structs and qualifiers can be namespaced
   under a struct (`Environment.Id`), giving wrapper types without nesting.
 - **Everything is an expression**: `if`/`when` produce values; branch types
   union together. `when` is always exhaustive — over a union's arms with a

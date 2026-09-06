@@ -340,8 +340,25 @@ impl Server<'_> {
                     );
                     docs::render(&decl.docs, &scope)
                 });
+                // [qual-refn-docs] The refinements that apply *here* — in
+                // the file the cursor is in, since that is what decides
+                // which qualifiers are in scope — with their own docs
+                // merged in. A refinement is written somewhere else
+                // entirely, so this is the only place a reader can find it.
+                let refinements = decl.and_then(|decl| {
+                    let groups = checked.refinements.for_call(file_idx, key);
+                    let source = &analysis.program.files.get(key.file)?.content;
+                    let scope = docs::fn_scope(
+                        decl,
+                        key.file,
+                        source,
+                        &analysis.program.modules,
+                        &link,
+                    );
+                    docs::refinement_section(groups, &scope)
+                });
                 return Some(markdown_hover(
-                    docs::hover_markdown(&signature, &[docs]),
+                    docs::hover_markdown(&signature, &[docs, refinements]),
                     span_to_range(content, span),
                 ));
             }

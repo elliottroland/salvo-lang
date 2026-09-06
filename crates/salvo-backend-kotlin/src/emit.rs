@@ -28,20 +28,50 @@ pub struct EmittedFile {
 
 /// Emits Kotlin for every *reachable* module that produces code
 /// [mod-used-only]. Returns the files or the accumulated codegen/type
-/// errors.
+/// errors, **dropping** any warnings: this is the shape the golden tests
+/// want. The driver calls [`emit_program_reporting`], which hands them back
+/// [qual-refn-conflict].
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
+    emit_program_reporting(program).map(|(files, _warnings)| files)
+}
+
+/// [`emit_program`] with the non-fatal diagnostics: `(files, warnings)`,
+/// each warning rendered with its own `warning:` prefix and location
+/// [diag-structured].
+///
+/// Two returns rather than one, because they mean different things: a
+/// warning must not stop emission (a suppressed refinement conflict leaves
+/// a legal program [qual-refn-conflict]), so it cannot travel as an error —
+/// and it must not be silently swallowed either, or the diagnostic exists
+/// only in `salvo analyze`.
+pub fn emit_program_reporting(
+    program: &Program,
+) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
-    if !checked.errors.is_empty() {
-        // Checker diagnostics are structured [diag-structured]; render
-        // them here at the backend boundary.
+    // Only *errors* stop emission: a warning reports something the author
+    // probably did not intend without rejecting the program
+    // [diag-structured], which is what a suppressed refinement conflict
+    // needs [qual-refn-conflict]. Checker diagnostics are structured;
+    // render them here at the backend boundary.
+    if checked.errors.iter().any(|d| d.is_error()) {
+        // Every diagnostic is rendered on the failure path, warnings
+        // included: each carries its own severity prefix, so they read
+        // correctly next to the errors and nothing is lost while the author
+        // fixes the errors.
         return Err(checked
             .errors
             .iter()
             .map(|d| d.render(&program.files))
             .collect());
     }
+    let warnings: Vec<String> = checked
+        .errors
+        .iter()
+        .filter(|d| !d.is_error())
+        .map(|d| d.render(&program.files))
+        .collect();
     // [mod-used-only] Only modules the program uses are transpiled.
     let reachable = salvo_core::reachable_modules(program, &resolution);
     // The modules that will exist as Kotlin files: targets for generated
@@ -141,7 +171,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
     }
 
     if errors.is_empty() {
-        Ok(files)
+        Ok((files, warnings))
     } else {
         Err(errors)
     }
@@ -275,10 +305,16 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     let symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
     let checked = salvo_core::check_program(program, &resolution, &symbols);
-    if !checked.errors.is_empty() {
+    // Only errors stop the skeleton renderer, and warnings are *not*
+    // surfaced here: `salvo platform generate` writes host stubs once, and
+    // nagging about the program's diagnostics is the compile path's job
+    // (`emit_program_reporting`) and `salvo analyze`'s
+    // [qual-refn-conflict].
+    if checked.errors.iter().any(|d| d.is_error()) {
         return Err(checked
             .errors
             .iter()
+            .filter(|d| d.is_error())
             .map(|d| d.render(&program.files))
             .collect());
     }

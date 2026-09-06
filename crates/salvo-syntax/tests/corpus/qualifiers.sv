@@ -81,3 +81,20 @@ fn read_only(list: Mut List<Int>) [Console] -> [list: Mut] None {
         println("size ${size(list)}")
     }
 }
+
+// [qual-refn] A qualifier states what functions it does not own do to *its*
+// claim. `add` mutates its list, so [deduce-syntax] forbids it from
+// promising `NonEmpty` back — but appending can never empty a list, and the
+// qualifier that owns the claim may say so.
+qualifier NonEmpty<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return size(list) > 0
+    }
+
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+}
+
+// [qual-refn-reconcile] A top-level refinement is the consumer's own word on
+// a function, and replaces the qualifiers' refinements for that parameter.
+refn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: -NonEmpty]

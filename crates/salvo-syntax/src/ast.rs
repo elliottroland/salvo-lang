@@ -29,6 +29,54 @@ pub enum Item {
     Handler(HandlerDecl),
     Params(ParamsDecl),
     Fn(FnDecl),
+    /// A top-level `refn` [qual-refn]: a refinement written by the
+    /// *consumer* rather than by a qualifier, which is how two
+    /// conflicting refinements are reconciled in one's own module.
+    Refn(RefnDecl),
+}
+
+/// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`
+/// [qual-refn]: additional deductions for a function *someone else*
+/// declared, stated by the qualifier whose claim they are about.
+///
+/// The syntax is deliberately narrower than a `fn`'s: a refinement cannot
+/// declare effects or a return type (it does not change what the function
+/// *does*, only what is known afterwards), and its deduction entries can
+/// only add or remove state qualifiers — never decide whether a parameter
+/// is kept. The parameter list is there to pick one overload
+/// [qual-refn-match], so it carries types *and* names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefnDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment]. Merged
+    /// into the refined function's documentation wherever the refinement
+    /// applies [qual-refn-docs].
+    pub docs: Vec<String>,
+    /// The name of the function being refined.
+    pub name: Ident,
+    /// Type parameters written on the refinement itself. A refinement in a
+    /// qualifier body also sees the *qualifier's* parameters, which come
+    /// first when matching an overload [qual-refn-match].
+    pub generics: Vec<Ident>,
+    pub params: Vec<Param>,
+    pub deductions: Vec<RefnDeduction>,
+    pub span: Span,
+}
+
+/// One entry of a refinement's deduction list [qual-refn]:
+/// `[list: +NonEmpty]`, `[list: -Sorted]`, or both.
+///
+/// A separate type from [`Deduction`] on purpose: a refinement can *only*
+/// add and remove, so the restriction is structural rather than a check on
+/// a shape that could express more.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefnDeduction {
+    pub param: Ident,
+    /// `+Q`: the call establishes `Q`.
+    pub add: Vec<TypeRef>,
+    /// `-Q`: the call invalidates `Q`.
+    pub remove: Vec<TypeRef>,
+    pub span: Span,
 }
 
 /// `params Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
@@ -152,6 +200,10 @@ pub struct QualifierDecl {
     pub field_overrides: Vec<FieldDecl>,
     /// Functions defined in the qualifier body (e.g. `qualifies`).
     pub fns: Vec<FnDecl>,
+    /// Refinements of *other* functions [qual-refn]: extra deductions this
+    /// qualifier claims for functions it does not own, in scope wherever
+    /// the qualifier is.
+    pub refns: Vec<RefnDecl>,
     /// True when the declaration had a `{ ... }` body (predicate qualifier).
     pub has_body: bool,
     pub span: Span,

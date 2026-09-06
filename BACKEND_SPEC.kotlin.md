@@ -246,6 +246,13 @@ Conventions:
 
 * [qual-erasure] Qualifiers erase entirely from emitted Kotlin; wrapper
   arm choice, casts, predicate calls, and mangled names are what survive.
+  * **Refinements [qual-refn] reach output only through that list.** A
+    `refn` adds no call, no check and no wrapper: it decides which overload
+    the checker picks, and a refined claim is *trusted*, so no `qualifies`
+    call is emitted where one applies. There is nothing for this backend to
+    lower — which is a consequence of refinements being restricted to
+    *state* qualifiers, since `Mut` is the one qualifier that does not
+    erase.
 * [kt-fn-mangling] **Overload dispatch is the checker's, and Kotlin must not
   get a second opinion.** Whenever a name has more than one emitted
   overload, each gets a unique Kotlin name, by exactly the rule

@@ -543,3 +543,67 @@ fn a_target_holding_sources_is_never_deleted() {
     );
     assert!(target.join("keep.sv").is_file(), "the file must survive");
 }
+
+/// A program whose refinements disagree [qual-refn-conflict]: legal, so it
+/// runs, and the checker's *warning* has to reach the builder.
+const REFN_CONFLICT: &str = r#"
+qualifier Q1<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q1]
+}
+
+qualifier Q2<T> of List<T> {
+    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
+    refn add(list: Mut List<T>, elem: T) -> [list: +Q2]
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: Mut List<Int> = mutable_list()
+    add(xs, 1)
+    if xs is Q1 {
+        println("checked by hand: ${size(xs)}")
+    }
+}
+"#;
+
+/// [qual-refn-conflict] [diag-structured] Non-fatal diagnostics reach the
+/// builder: `Backend::emit` returns them alongside the files, and the driver
+/// prints them without failing. Both halves are asserted, because either one
+/// alone is a bug — an abort would reject a legal program, and silence would
+/// leave the warning visible only in `salvo analyze`.
+///
+/// Per backend: the gate and the channel are duplicated in each emitter.
+#[test]
+fn a_warning_reaches_the_builder_without_failing_the_run() {
+    let Some(__stamp) =
+        e2e_stamp("a_warning_reaches_the_builder", &["kotlinc", "rustc"])
+    else {
+        return;
+    };
+    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("warn_{backend}"));
+        fs::write(dir.join("main.sv"), REFN_CONFLICT).unwrap();
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "a warning must not fail the run ({backend}), stderr: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "checked by hand: 1\n",
+            "{backend} stdout (stderr: {stderr})"
+        );
+        assert!(
+            stderr.contains("warning: the refinements of `Q1` and `Q2` disagree")
+                && stderr.contains("main.sv:"),
+            "the warning should reach the builder ({backend}), stderr: {stderr}"
+        );
+    }
+    __stamp.verified();
+}

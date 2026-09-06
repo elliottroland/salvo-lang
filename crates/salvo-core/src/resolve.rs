@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use salvo_syntax::ast::{
     ParamsDecl,
-    EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, StructDecl,
+    EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, StructDecl,
     TypeDecl,
 };
 
@@ -58,6 +58,14 @@ pub struct ModuleScope<'p> {
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
+    /// Top-level refinements declared by this file's *own module*
+    /// [qual-refn-scope]. Module-scoped and deliberately not importable:
+    /// reconciling two qualifiers' conflicting refinements is the
+    /// consumer's call, and a library shipping its own reconciliation
+    /// would only move the conflict one level up. (A refinement declared
+    /// *inside* a qualifier needs no entry here — it travels with the
+    /// qualifier, so `qualifiers` already carries it.)
+    pub refns: Vec<&'p RefnDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
     /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
@@ -127,6 +135,10 @@ struct ModuleItems<'p> {
     param_groups: Vec<(usize, &'p ParamsDecl)>,
     handlers: Vec<(usize, &'p HandlerDecl)>,
     qualifiers: Vec<(usize, &'p QualifierDecl)>,
+    /// Top-level refinements [qual-refn-scope]: module-scoped, so they are
+    /// collected per module and added to the scope of every file of that
+    /// module — and to no other.
+    refns: Vec<&'p RefnDecl>,
     type_aliases: Vec<(usize, &'p TypeDecl)>,
     opaque_types: Vec<(usize, &'p TypeDecl)>,
 }
@@ -258,6 +270,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 Item::Params(g) => items.param_groups.push((file_idx, g)),
                 Item::Handler(h) => items.handlers.push((file_idx, h)),
                 Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
+                // [qual-refn-scope] A top-level refinement belongs to its
+                // module, not to a name: there is nothing to import.
+                Item::Refn(r) => items.refns.push(r),
                 // An `intrinsic type` is opaque (the backend maps it);
                 // anything else is an alias, since a bodiless
                 // non-intrinsic `type` is a parse error [decl-body].
@@ -383,6 +398,11 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // The file's own module (overrides core on collision).
         if let Some((own, items)) = by_module.get_key_value(&file.module) {
             add_items(&mut scope, items, own, None, Level::Own, None, &mut ctx);
+            // [qual-refn-scope] Top-level refinements are module-scoped and
+            // not importable, so they are added here and nowhere else — not
+            // from `core.*` (which is visible everywhere) and not through
+            // an import.
+            scope.refns.extend(items.refns.iter().copied());
         }
         // Explicit imports.
         for item in &ast.items {
