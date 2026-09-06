@@ -417,6 +417,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
             TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
+            TokenKind::KwParams => self.parse_params_group().map(Item::Params),
             TokenKind::KwFn => {
                 let f = self.parse_fn(false)?;
                 // [decl-body] A top-level `fn` without a body was
@@ -712,6 +713,30 @@ impl<'s> Parser<'s> {
         })
     }
 
+    /// `params Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
+    /// named bundle of implicit parameters. Shaped like an effect
+    /// declaration, because it is the same thing — a set of function
+    /// signatures — but supplied by *resolution* rather than by a handler.
+    fn parse_params_group(&mut self) -> Option<ParamsDecl> {
+        let docs = self.docs_here();
+        let start = self.expect(&TokenKind::KwParams)?.span;
+        let name = self.ident_type("params group")?;
+        let generics = self.parse_generics();
+        self.expect(&TokenKind::LBrace)?;
+        let mut fns = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            fns.push(self.parse_fn(false)?);
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Some(ParamsDecl {
+            docs,
+            name,
+            generics,
+            fns,
+            span: start.to(end),
+        })
+    }
+
     fn parse_handler(&mut self, intrinsic: bool) -> Option<HandlerDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwHandler)?.span;
@@ -719,7 +744,9 @@ impl<'s> Parser<'s> {
         let generics = self.parse_generics();
         let mut params = Vec::new();
         if self.at(&TokenKind::LParen) {
-            params = self.parse_params()?;
+            // A handler constructor takes no implicit parameters; the checker
+            // reports one written here [implicit-fn-only].
+            params = self.parse_params()?.0;
         }
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
@@ -761,7 +788,7 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident_value("fn")?;
         let (generics, generic_canbe) = self.parse_generics_canbe();
-        let params = self.parse_params()?;
+        let (params, implicit_groups) = self.parse_params()?;
 
         // Effects: `[Random<Int>, Console, use]`
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
@@ -809,6 +836,7 @@ impl<'s> Parser<'s> {
             generics,
             generic_canbe,
             params,
+            implicit_groups,
             derived_return,
             effects,
             deductions,
@@ -819,12 +847,55 @@ impl<'s> Parser<'s> {
         })
     }
 
-    fn parse_params(&mut self) -> Option<Vec<Param>> {
+    /// A parameter list, with the implicit parameters it declares
+    /// [implicit-param] [implicit-group]. Two spellings share the `?`:
+    ///
+    /// - `?cmp: (T, T) -> Int` — one implicit parameter, named and typed.
+    /// - `?Field<T>` — a *spread* of a `params` group, with no binder: its
+    ///   members become implicit parameters in their own right.
+    ///
+    /// [name-casing] decides which, from the first token after `?`: values
+    /// are lowercase and types uppercase, so no lookahead is needed.
+    /// Implicit parameters trail the ordinary ones — an implicit followed by
+    /// a normal parameter is a parse error, since a caller could not then
+    /// pass the normal one positionally.
+    fn parse_params(&mut self) -> Option<(Vec<Param>, Vec<TypeRef>)> {
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut params = Vec::new();
+        let mut implicit_groups = Vec::new();
+        let mut seen_implicit: Option<Span> = None;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
             let variadic = self.eat(&TokenKind::Ellipsis).is_some();
+            let implicit_at = self.eat(&TokenKind::Question).map(|t| t.span);
+            if let Some(span) = implicit_at {
+                if variadic {
+                    self.error("a variadic parameter cannot be implicit", span);
+                    self.group_depth -= 1;
+                    return None;
+                }
+                seen_implicit = Some(span);
+                // `?Field<T>`: a group spread, recognised by its casing.
+                if self.at_type_name() {
+                    let Some(group) = self.parse_type_ref() else {
+                        self.group_depth -= 1;
+                        return None;
+                    };
+                    implicit_groups.push(group);
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+            } else if let Some(prev) = seen_implicit {
+                self.error(
+                    "implicit parameters must come last: a parameter after one \
+                     could not be passed positionally",
+                    prev,
+                );
+                self.group_depth -= 1;
+                return None;
+            }
             let Some(name) = self.ident_value("parameter") else {
                 self.group_depth -= 1;
                 return None;
@@ -842,6 +913,7 @@ impl<'s> Parser<'s> {
                 name,
                 ty,
                 variadic,
+                implicit: implicit_at.is_some(),
                 span,
             });
             if self.eat(&TokenKind::Comma).is_none() {
@@ -850,7 +922,14 @@ impl<'s> Parser<'s> {
         }
         self.group_depth -= 1;
         self.expect(&TokenKind::RParen)?;
-        Some(params)
+        Some((params, implicit_groups))
+    }
+
+    /// Whether the next token is an identifier naming a *type*
+    /// [name-casing] — which is what tells `?Field<T>` from `?cmp: …`.
+    fn at_type_name(&self) -> bool {
+        matches!(&self.kind(), TokenKind::Ident(name)
+            if name.starts_with(|c: char| c.is_uppercase()))
     }
 
     fn parse_effect_list(&mut self) -> Option<Vec<EffectRef>> {
@@ -1783,12 +1862,13 @@ impl<'s> Parser<'s> {
                     };
                 }
                 TokenKind::LParen if self.same_line() => {
-                    let args = self.parse_call_args()?;
-                    let span = expr.span().to(args.1);
+                    let (args, named, end) = self.parse_call_args()?;
+                    let span = expr.span().to(end);
                     expr = Expr::Call {
                         callee: Box::new(expr),
                         type_args: Vec::new(),
-                        args: args.0,
+                        args,
+                        named,
                         span,
                     };
                 }
@@ -1869,23 +1949,61 @@ impl<'s> Parser<'s> {
     }
 
     /// Parses `(arg, arg, ...)`; returns the args and the closing-paren span.
-    fn parse_call_args(&mut self) -> Option<(Vec<Expr>, Span)> {
+    /// The arguments of a call: positional, then any `name = value`
+    /// overrides of implicit parameters [implicit-override].
+    ///
+    /// The name is recognised *after* parsing the expression, by the `=`
+    /// that follows it — unambiguous because assignment is a statement in
+    /// Salvo, never an expression, so `=` cannot otherwise appear here.
+    fn parse_call_args(&mut self) -> Option<(Vec<Expr>, Vec<NamedArg>, Span)> {
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut args = Vec::new();
+        let mut named: Vec<NamedArg> = Vec::new();
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
             let Some(arg) = self.parse_expr() else {
                 self.group_depth -= 1;
                 return None;
             };
-            args.push(arg);
+            if self.at(&TokenKind::Eq) {
+                self.bump();
+                let Expr::Ident(name) = arg else {
+                    let span = arg.span();
+                    self.error(
+                        "only an implicit parameter can be given by name here: \
+                         write `name = value`",
+                        span,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                };
+                let Some(value) = self.parse_expr() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                let span = name.span.to(value.span());
+                named.push(NamedArg { name, value, span });
+            } else {
+                if let Some(prev) = named.first() {
+                    let span = arg.span();
+                    let prev_span = prev.span;
+                    let _ = prev_span;
+                    self.error(
+                        "a positional argument cannot follow a named one",
+                        span,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                }
+                args.push(arg);
+            }
             if self.eat(&TokenKind::Comma).is_none() {
                 break;
             }
         }
         self.group_depth -= 1;
         let end = self.expect(&TokenKind::RParen)?.span;
-        Some((args, end))
+        Some((args, named, end))
     }
 
     /// Speculatively parses `<T, U>(args)` as a generic call.
@@ -1915,18 +2033,19 @@ impl<'s> Parser<'s> {
             self.rollback(snap);
             return None;
         }
-        let args = match self.parse_call_args() {
+        let (args, named, end) = match self.parse_call_args() {
             Some(a) => a,
             None => {
                 self.rollback(snap);
                 return None;
             }
         };
-        let span = callee.span().to(args.1);
+        let span = callee.span().to(end);
         Some(Expr::Call {
             callee: Box::new(callee.clone()),
             type_args,
-            args: args.0,
+            args,
+            named,
             span,
         })
     }

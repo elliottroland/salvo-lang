@@ -622,6 +622,83 @@ Salvo does not look *forward* to a later use to decide a type argument, even whe
 
 We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
 
+### Implicit parameters
+
+A parameter written with a `?` is one the caller does not have to pass:
+
+```
+fn sort<T>(list: List<T>, ?cmp: (T, T) -> Int) -> [list] List<T> { ... }
+```
+
+At the call site the compiler fills `cmp` by looking for a function *named*
+`cmp` whose type fits `(T, T) -> Int` with `T` as this call binds it. So
+declaring the default for a type is just declaring a function:
+
+```
+fn cmp(a: Str, b: Str) -> Int { ... }
+
+sort(names)                    // cmp resolved
+sort(names, cmp = descending)  // or supply your own, by name
+```
+
+Nothing ties `cmp` to `Str`. There is no declaration saying "`Str` has an
+ordering" — the overload whose parameters accept `Str` *is* the ordering, and
+a different one is a lambda or a function reference away. Overriding is by
+the parameter's own name, and the value can be either:
+
+```
+sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
+```
+
+A bundle of related functions is declared once with `params` and spread with
+`?`:
+
+```
+params Field<T> {
+    fn add(a: T, b: T) -> T
+    fn zero() -> T
+}
+
+fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+    let acc = zero()
+    for x in xs {
+        acc = add(acc, x)
+    }
+    return acc
+}
+
+total(list(1, 2, 3))                          // 6
+total(list(2, 3, 4), add = times, zero = one) // 24 — override one or both
+```
+
+The spread has **no name of its own**, deliberately: its members become
+implicit parameters in their own right, so they are called unqualified inside
+the body and overridden by their own names outside it. A `params` group is
+never a value — it exists only to keep a signature short.
+
+Details worth knowing:
+
+- **An implicit parameter's type must be a function type.** What fills it is
+  resolved as a function of that name.
+- **They come last.** A normal parameter written after one could not be
+  passed positionally.
+- **Generic code passes its own implicits on.** Inside `total`, `T` is
+  opaque, so a call to another function needing `?Field<T>` is filled from
+  *this* function's implicits — matched by name and type, whatever grouping
+  either side used. A generic function that declares none cannot call one
+  that needs one: there is nothing to resolve and nothing to forward, and the
+  error says which to add. This is the same colouring effects have, for the
+  same reason.
+- **Resolution is local.** Which default a call gets depends on what is
+  visible where the call is written, exactly as with `use` and handlers. Two
+  matching declarations make the call ambiguous, which is an error naming the
+  override as the remedy.
+- **An implicitly resolved function is effect-free.** A fn type without an
+  effect list means "performs nothing", and an effectful function does not
+  fit there — so resolution can never quietly add an effect to a caller.
+- **Only functions have them**: not effect members, handler constructors, or
+  lambdas — none of those has a call site that could resolve one.
+
 ### Variadic arguments
 
 Functions support variadic arguments. These get interpreted as an Array of the relevant type:

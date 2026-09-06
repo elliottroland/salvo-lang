@@ -700,6 +700,77 @@ Conventions:
 * [fn-variadic] `...xs: T[]` collects remaining arguments as an array;
   a spread argument `...xs` forwards an array whole; variadics bind after
   fixed params.
+* [implicit-param] `?cmp: (T, T) -> Int` declares an **implicit parameter**:
+  one the caller need not pass (user decisions 2026-09-05). Its type must be
+  a fn type — what fills it is a function — and implicit parameters trail the
+  ordinary ones, since a positional parameter written after one could not be
+  passed. They take no part in arity or overload scoring.
+  * Inside the body an implicit parameter is an ordinary local of fn type,
+    **kept**: it belongs to whoever supplied it. A call to its name goes
+    through the parameter, not through overload resolution — it *is* one of
+    those functions, chosen by the caller.
+  * A fn type carries no effects here, so an implicitly resolved default is
+    effect-free by construction: [fn-effects] variance already refuses an
+    effectful function where a pure one is expected.
+* [implicit-resolve] A call fills each implicit parameter, in this order:
+  1. a `name = value` argument written at the call site
+     [implicit-override];
+  2. an implicit parameter of the **enclosing** fn with the same name and a
+     matching type [implicit-forward];
+  3. the *unique* visible fn of that name whose signature matches the
+     parameter's type, after the call's type arguments are substituted in —
+     the overload query the language already runs [fn-overload], only
+     against a type instead of an argument list;
+  4. otherwise an error naming both remedies (declare one, or pass one).
+  * **So Salvo needs no qualified-name syntax for defaults.** Koka spells
+    them `Str/cmp` because it does not overload on argument types; here the
+    `cmp` whose parameters accept `Str` already *is* the default for `Str`,
+    and nothing ties it to the type's declaration.
+  * Parameters are contravariant and the result covariant, as for any fn
+    value [fn-contract]; a candidate that itself needs implicits is skipped.
+  * Which default a call gets depends on what is **visible where the call
+    is written** — no global coherence, and two call sites may legitimately
+    resolve differently. That is what `use` and handlers already do; the
+    locality is deliberate.
+  * Ambiguity is an error, never a guess: two matching declarations of the
+    name report both and name the override as the remedy.
+* [implicit-forward] Inside a generic fn, an implicit parameter of the same
+  name and type is passed on automatically. It is the only thing that *can*
+  fill an inner call there: nothing about an opaque `T` is knowable
+  [call-resolve], so there is no default to resolve. A generic fn that
+  declares no implicit therefore cannot call one that needs it — the error
+  says which to add. This is colouring, in the same shape effects have and
+  for the same reason.
+  * Matching is by name and type, **not** by how the parameters were
+    declared: a `?Field<T>` spread here fills an individually declared
+    `?add` there, and the other way round.
+* [implicit-group] `params Field<T> { fn add(a: T, b: T) -> T ... }` declares
+  a named bundle, spread into a signature as `?Field<T>`. It is a
+  *declaration-side* shorthand only: the members become implicit parameters
+  in their own right, and the group has **no binder** (user decision
+  2026-09-05 — the binder referenced nothing, prevented no collision, and
+  made the caller name it to override one member).
+  * A group is never a value, which is what keeps it free of any runtime
+    representation: neither backend knows groups exist. Declaring one as a
+    struct of fn-typed fields instead would need `Box<dyn Fn>` fields on
+    Rust (`impl Trait` is illegal in a field type — a codegen error
+    [backend-never-wrong]) and a way to call a fn-typed field, which
+    dot-notation [fn-dot] already spells otherwise.
+  * The expansion order — written implicits first, then each group's members
+    in declaration order — is published by the checker as the one ordered
+    list both the callee's parameters and the caller's arguments follow.
+  * Two implicits of the same name in one signature are an error: with no
+    binder nothing tells them apart, and [var-no-shadow] would refuse them
+    in the body. The remedy is to write the clashing ones out individually.
+* [implicit-override] `sort(xs, cmp = my_cmp)` supplies one implicit
+  parameter by name. Named arguments exist for exactly this — Salvo has no
+  general named-argument form — so a name matching no implicit parameter of
+  the callee is an error, and a positional argument cannot follow a named
+  one. The `=` is unambiguous because assignment is a statement in Salvo,
+  never an expression.
+* [implicit-fn-only] Implicit parameters are declared on **fns**: an effect
+  member, a handler constructor, or a lambda may not have them (deliberate
+  cut — each would need its own supply story).
 * [fn-lambda] Lambdas: `x -> expr`, `(a, b) -> expr`, and block bodies
   `{ x: T -> ... }` (blocks require `return`). Lambdas may declare
   effects/deductions.

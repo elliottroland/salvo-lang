@@ -95,6 +95,13 @@ Conventions:
   * The support code is generated once per program into `iter.rs` and
     mounted like `unions.rs`, only when the program touches `Iter<T>`.
 * [type-tuple] Tuples map to native Rust tuples (any size).
+* [backend-never-wrong] A **function in a struct field** is a codegen error,
+  not output: Rust allows `impl Trait` nowhere but argument and return
+  position (`E0562`), and a `Box<dyn Fn>` field would be a representation
+  choice with ownership consequences the checker knows nothing about. The
+  diagnostic names what does work — an implicit parameter, or a `params`
+  group [implicit-group]. Kotlin accepts the same source, so the restriction
+  has to be reported rather than left to rustc.
 * [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
   positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
   Reads clone like any other projection in owned position, and a narrowed
@@ -410,6 +417,23 @@ derives them mechanically:
   mangling gap. Kotlin applies the identical rule for a different reason
   — it *has* overloading, and would resolve by its own lattice
   [kt-fn-mangling].
+* [implicit-param] [implicit-resolve] An implicit parameter emits as an
+  ordinary trailing parameter, rendered like any fn-typed one:
+  `&mut impl FnMut(..) -> R` [fn-contract]. The call site passes what
+  resolution found — a resolved default as a mechanical adapter closure
+  (`&mut |__i0, __i1| add(__i0, __i1)`, since a fn item is not a closure),
+  a forwarded one as a reborrow (`&mut *add`), an override as the written
+  value (adapted the same way when it names a fn).
+  * A `params` group emits nothing [implicit-group]: it never was a value, so
+    there is no struct and nothing boxed.
+  * [effect-args-hoisted] An argument that reborrows an implicit the *same*
+    call passes is hoisted into a `let` first, or the two borrows overlap
+    (`E0499`) — the same rule, and the same fix, as for a threaded effect
+    value. A recursive call forwarding its own implicits is the usual way to
+    hit it.
+  * A bare call to an implicit parameter's name goes through the parameter,
+    borrowing it for the call, which is why an argument of *that* call gets
+    the same hoisting treatment.
 * [rs-fn-param-convention] A lambda passed into a fn-typed parameter binds
   its parameters the way the **callee's declared fn type** renders them,
   not the way the lambda's own annotation would: the callee fixes the

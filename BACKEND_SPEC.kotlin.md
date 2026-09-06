@@ -382,6 +382,19 @@ same programs running ([rs-effect-fusion]).
 
 * [fn-variadic] `...xs: T[]` emits `vararg xs: T`; a spread argument
   `...xs` emits `*xs`.
+* [implicit-param] [implicit-resolve] An implicit parameter emits as an
+  ordinary trailing parameter of function type, and the call site passes what
+  resolution found: a **function reference** (`::add`, through
+  [kt-fn-mangling] like any other reference) for a resolved default, the
+  enclosing fn's own parameter for a forwarded one, and the written
+  expression for an override [implicit-override]. Nothing about the feature
+  survives into Kotlin.
+  * A `params` group emits *nothing at all* [implicit-group]: it never was a
+    value, so there is no class, no interface and no dispatch — the members
+    are separate parameters by the time the emitter sees them.
+  * Inside the body a call to an implicit parameter's name invokes the
+    parameter, so it is emitted before overload resolution is consulted: the
+    parameter *is* the chosen overload.
 * [fn-iterator] Iterator fns emit
   `return Iterable<T> { iterator { ... } }`; `yield x` → `yield(x)`; bare
   `return` → `return@iterator`.

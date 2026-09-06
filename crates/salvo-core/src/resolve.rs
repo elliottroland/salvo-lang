@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
+    ParamsDecl,
     EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, StructDecl,
     TypeDecl,
 };
@@ -53,6 +54,8 @@ pub struct ModuleScope<'p> {
     pub fns: HashMap<&'p str, Vec<FnEntry<'p>>>,
     pub structs: HashMap<&'p str, &'p StructDecl>,
     pub effects: HashMap<&'p str, &'p EffectDecl>,
+    /// `params` groups visible here [implicit-group].
+    pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
@@ -121,6 +124,7 @@ struct ModuleItems<'p> {
     fns: Vec<(FnKey, &'p FnDecl)>,
     structs: Vec<(usize, &'p StructDecl)>,
     effects: Vec<(usize, &'p EffectDecl)>,
+    param_groups: Vec<(usize, &'p ParamsDecl)>,
     handlers: Vec<(usize, &'p HandlerDecl)>,
     qualifiers: Vec<(usize, &'p QualifierDecl)>,
     type_aliases: Vec<(usize, &'p TypeDecl)>,
@@ -143,6 +147,11 @@ impl<'p> ModuleItems<'p> {
             .find_map(|(_, f)| hit(f.name.name.as_str()))
             .or_else(|| self.structs.iter().find_map(|(_, s)| hit(s.name.name.as_str())))
             .or_else(|| self.effects.iter().find_map(|(_, e)| hit(e.name.name.as_str())))
+            .or_else(|| {
+                self.param_groups
+                    .iter()
+                    .find_map(|(_, g)| hit(g.name.name.as_str()))
+            })
             .or_else(|| self.handlers.iter().find_map(|(_, h)| hit(h.name.name.as_str())))
             .or_else(|| {
                 self.qualifiers
@@ -172,6 +181,9 @@ impl<'p> ModuleItems<'p> {
         for (f, e) in &self.effects {
             out.push((NameKind::Effect, e.name.name.as_str(), *f, e.name.span));
         }
+        for (f, g) in &self.param_groups {
+            out.push((NameKind::ParamGroup, g.name.name.as_str(), *f, g.name.span));
+        }
         for (f, h) in &self.handlers {
             out.push((NameKind::Handler, h.name.name.as_str(), *f, h.name.span));
         }
@@ -199,12 +211,14 @@ enum NameKind {
     Qualifier,
     TypeAlias,
     OpaqueType,
+    ParamGroup,
 }
 
 impl NameKind {
     fn describe(self) -> &'static str {
         match self {
             NameKind::Struct => "struct",
+            NameKind::ParamGroup => "params group",
             NameKind::Effect => "effect",
             NameKind::Handler => "handler",
             NameKind::Qualifier => "qualifier",
@@ -241,6 +255,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 )),
                 Item::Struct(s) => items.structs.push((file_idx, s)),
                 Item::Effect(e) => items.effects.push((file_idx, e)),
+                Item::Params(g) => items.param_groups.push((file_idx, g)),
                 Item::Handler(h) => items.handlers.push((file_idx, h)),
                 Item::Qualifier(q) => items.qualifiers.push((file_idx, q)),
                 // An `intrinsic type` is opaque (the backend maps it);
@@ -624,6 +639,20 @@ fn add_items<'p>(
             scope.effect_members.insert(&f.name.name, (e, f));
             origin(&f.name.name, scope);
             def_site(&f.name.name, *file, f.name.span, scope);
+        }
+    }
+    // [implicit-group] A group is a *type-level* name, visible like an
+    // effect. Its members are not brought into scope: they are resolved at
+    // the call site by name and type [implicit-resolve], not called through
+    // the group.
+    for (file, g) in &items.param_groups {
+        if want(&g.name.name) {
+            let name = visible_as(&g.name.name);
+            if ctx.admit(NameKind::ParamGroup, name, module, level, import_span) {
+                scope.param_groups.insert(name, g);
+                origin(name, scope);
+                def_site(name, *file, g.name.span, scope);
+            }
         }
     }
     for (file, h) in &items.handlers {

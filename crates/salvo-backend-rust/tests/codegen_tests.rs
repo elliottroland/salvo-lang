@@ -3762,3 +3762,115 @@ fn rustc_compiles_and_runs_a_lazy_iterator() {
     let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
     run_rust_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }
+
+// ===== [implicit-param] [implicit-group] implicit parameters =====
+
+/// Every path through the feature in one program: a `params` group spread
+/// with no binder, its members resolved from the visible `Int` overloads, a
+/// call overriding *one* member by name, forwarding through a generic fn
+/// whose `T` is opaque, and an individually declared `?add` reached by the
+/// same name. The Kotlin backend asserts the same stdout for the same
+/// source.
+pub const IMPLICIT_DEMO: &str = r#"
+params Field<T> {
+    fn add(a: T, b: T) -> T
+    fn zero() -> T
+}
+
+fn add(a: Int, b: Int) -> Int { return a + b }
+fn zero() -> Int { return 0 }
+fn times(a: Int, b: Int) -> Int { return a * b }
+fn one() -> Int { return 1 }
+
+fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+    let acc = zero()
+    for x in xs {
+        acc = add(acc, x)
+    }
+    return acc
+}
+
+fn total_all<T>(rows: List<List<T>>, ?Field<T>) -> [rows] T {
+    let acc = zero()
+    for row in rows {
+        acc = add(acc, total(row))
+    }
+    return acc
+}
+
+fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
+    return add(a, b)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("total=${total(list(1, 2, 3))}")
+    println("product=${total(list(2, 3, 4), add = times, zero = one)}")
+    println("nested=${total_all(list(list(1, 2), list(3)))}")
+    println("pair=${sum_pair(20, 22)}")
+    println("lambda=${sum_pair(2, 3, add = (a: Int, b: Int) -> a * b)}")
+}
+"#;
+
+pub const IMPLICIT_OUTPUT: &str = "total=6\nproduct=24\nnested=6\npair=42\nlambda=6\n";
+
+/// [implicit-param] An implicit parameter lowers to an ordinary trailing
+/// parameter of fn type, and the call site passes what resolution found —
+/// so nothing about the feature survives into Rust. A group leaves no trace
+/// at all: it was never a value [implicit-group].
+#[test]
+fn implicit_parameters_lower_to_trailing_fn_arguments() {
+    let files = generate(&[("main.sv", IMPLICIT_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The group's members, expanded in declaration order.
+        "pub fn total<T: Clone + 'static>(xs: &Vec<T>, add: &mut impl FnMut(T, T) -> T, \
+         zero: &mut impl FnMut() -> T)",
+        // A resolved default is passed as an adapter closure over the fn.
+        "&mut |__i0, __i1| add(__i0, __i1)",
+        // Forwarding reborrows the enclosing fn's own parameter.
+        "&mut *add",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("struct Field"),
+        "a `params` group must leave no runtime representation:\n{src}"
+    );
+}
+
+/// Under rustc, with the stdout the Kotlin backend asserts byte for byte.
+#[test]
+fn rustc_compiles_and_runs_implicit_parameters() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", IMPLICIT_DEMO)]);
+    run_rust_files(&files, "implicits", IMPLICIT_OUTPUT);
+}
+
+/// [backend-never-wrong] A function in a struct field is legal Salvo and
+/// legal Kotlin, but Rust spells `impl Trait` nowhere but argument and
+/// return position (`E0562`). So it is a codegen *error* naming what does
+/// work — an implicit parameter or a `params` group — not invalid output.
+#[test]
+fn a_function_in_a_struct_field_is_a_codegen_error() {
+    let errors = expect_errors(
+        "struct Ops {\n    add: (Int, Int) -> Int\n}\n\
+         fn plus(a: Int, b: Int) -> Int { return a + b }\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let ops = Ops { add: plus }\n    println(\"made\")\n}\n",
+    );
+    assert!(
+        errors.iter().any(|e| {
+            e.contains("cannot store a function in a struct field")
+                && e.contains("`params` group")
+        }),
+        "expected the struct-field rejection naming the remedy, got: {errors:?}"
+    );
+}

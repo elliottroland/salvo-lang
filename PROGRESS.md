@@ -1,5 +1,83 @@
 # Salvo Compiler — Progress & Plan
 
+**Implicit parameters landed 2026-09-05 (user decisions), and they are what
+Salvo got instead of traits.** `?cmp: (T, T) -> Int` is a parameter the caller
+need not pass: the call site fills it by resolving the parameter's *name* at
+the parameter's *type*. The whole feature rests on one observation — Salvo
+already overloads by parameter type, so **the default for a type is just a
+function**:
+
+```
+params Field<T> {
+    fn add(a: T, b: T) -> T
+    fn zero() -> T
+}
+
+fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T { ... add(acc, x) ... zero() ... }
+
+total(list(1, 2, 3))                          // 6, defaults resolved
+total(list(2, 3, 4), add = times, zero = one)  // 24, overridden by name
+```
+
+Koka spells the defaults `Str/cmp` because it does not overload on argument
+types; here the `cmp` whose parameters accept `Str` already *is* the ordering
+for `Str`, so no qualified-name syntax was needed and nothing is tied to a
+type's declaration. The decisions (all user, 2026-09-05):
+
+- **Resolution is name + type, at the call site**, with no global coherence:
+  which default a call gets depends on what is visible where the call is
+  written, exactly as `use` and handlers already work. Ambiguity is an error
+  naming the override as the remedy.
+- **Generic code forwards its own implicits automatically** — matched by name
+  and type. It is the only thing that *can* fill an inner call there, since
+  nothing about an opaque `T` is knowable [call-resolve]. A generic fn that
+  declares none cannot call one that needs one; the error says which to add.
+  Approved as colouring in the same shape effects have.
+- **A group has no binder** (the refinement that shaped the design):
+  `?Field<T>`, not `?ops: Field<T>`. The binder referenced nothing (members
+  are called unqualified), prevented no collision, and forced the caller to
+  know it just to override one member. Without it the *individual* implicit
+  parameter is the only unit in the system — resolution, forwarding and
+  override all key on a member's own name — so an inner fn may declare `?add`
+  directly, or reach the same parameter through a different grouping.
+- **A group is declaration-side sugar, never a value.** That is what keeps it
+  free of any runtime representation: neither backend knows groups exist.
+  Verified before choosing: a struct of fn-typed fields runs on Kotlin but
+  **does not compile on Rust** (`E0562: impl Trait is not allowed in field
+  types`), so a bundle-as-value would have needed `Box<dyn Fn>` fields and a
+  way to call a fn-typed field — which dot-notation already spells otherwise
+  (`ops.add(a, b)` *is* `add(ops, a, b)` in Salvo, and even `(ops.add)(x)`
+  routes there).
+- **Overrides are named arguments**, `cmp = f`, scoped to implicit
+  parameters — Salvo has no general named-argument form, and a general one
+  stays a separate decision. Unambiguous because assignment is a statement
+  here, never an expression.
+- **Implicits trail**, and are declared on **fns only** — not effect members,
+  handler constructors or lambdas, none of which has a call site that could
+  resolve one.
+
+`[name-casing]` pays off unexpectedly: `?cmp:` versus `?Field<T>` is decided
+by the case of the first token after `?`, so the grammar needs no lookahead.
+
+**No new backend machinery**, which is the sharpest contrast with the traits
+design this replaced (that needed generated interfaces on Kotlin and real
+traits plus impl blocks on Rust). An implicit is an ordinary trailing
+parameter of fn type; the call site passes a function reference (`::add`) on
+Kotlin, an adapter closure on Rust. Two Rust wrinkles were worth the trouble:
+a resolved fn is a fn *item*, not a closure, so it is wrapped mechanically;
+and an argument that reborrows an implicit the same call passes has to be
+hoisted into a `let` first, or the borrows overlap (`E0499`) — the same rule
+[effect-args-hoisted] already applies to threaded effect values.
+
+Verified end to end on both backends with one shared program and one shared
+expected stdout: group defaults resolved, one member overridden by name, a
+lambda override, forwarding through an opaque `T`, and an individually
+declared `?add` reached by the same name.
+
+**The struct-field-of-fn-type hole is closed as part of it**: that shape is
+now a Rust codegen *error* naming the implicit-parameter remedy, rather than
+invalid output rustc rejects [backend-never-wrong].
+
 **The suite got its iteration cost back, 2026-09-05.** The toolchain tests
 had grown to ~75 of the ~80 seconds a `cargo test` took, which was starting
 to shape how often it got run. Three findings, in order of how much they
@@ -1299,7 +1377,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 531 tests, complete: the toolchain tests are
+cargo test                  # 557 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -3811,7 +3889,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 531)
+## Test inventory (all green: 557)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -3935,6 +4013,17 @@ and `cargo nextest run` when you want to see which tests cost what.
   shared exclusion list, nothing-to-remove rejected, a *type* on the right
   rejected, more than one arm rejected, the no-binding parse error, and a
   `^` branch consuming its arms so exhaustiveness still reports the rest)
+  + 16 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
+  [implicit-group] [implicit-resolve] [implicit-forward] [implicit-override]
+  [implicit-fn-only]: a group's members and a written `?cmp` resolved from the
+  visible overloads; an unresolvable one reporting *both* remedies; one member
+  overridden by name and by lambda; a named argument matching nothing, and one
+  of the wrong type, rejected; forwarding through a generic fn, and forwarding
+  *across groupings* — a `?Field<T>` spread filling an individually declared
+  `?add`; a generic fn without the implicit unable to call one that needs it,
+  which is the colouring cost; and the declaration-site rules — non-fn type,
+  unknown group, wrong group arity, two implicits of one name, an effect
+  member with implicits, and a group member with a body)
   + 14 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its
@@ -4155,7 +4244,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 56 (the std *define-file* snapshot tests were deleted
+- `salvo-syntax`: 62 (six implicit-parameter parser tests were added
+  [implicit-param] [implicit-group] [implicit-override]: `?cmp:` and
+  `?Field<T>` parsing side by side — the group spread is *not* a parameter —
+  a `params` group of bodiless members, a `name = value` argument recognised
+  by the `=` that follows an identifier, and the two ordering rejections, an
+  ordinary parameter after an implicit and a positional argument after a
+  named one) (the std *define-file* snapshot tests were deleted
   with the define files themselves, as were the `defines.kotlin.sv` corpus
   file and its snapshot, and `imports_externals.sv` became `imports.sv`;
   six declaration-form tests were added — [decl-body]: a bodiless top-level
@@ -4296,6 +4391,11 @@ and `cargo nextest run` when you want to see which tests cost what.
   overload is renamed and the delegation reaches its sibling; plus the
   kotlinc run of a `List`→`Iter` delegation, which before the rule
   recursed until the stack ran out);
+  and 2 implicit-parameter tests ([implicit-param] [implicit-group]:
+  `implicit_parameters_lower_to_trailing_fn_parameters` asserting the trailing
+  fn-typed parameters, `::add`/`::times` references at the call sites and *no*
+  class for the group; plus the kotlinc run of the same source and stdout the
+  Rust backend asserts);
   and 2 lazy-iterator tests ([fn-iterator]:
   `an_iterator_fn_lowers_to_a_lazy_iterable` pinning the builder that was
   already lazy; plus the kotlinc run of the *same source* the Rust backend
@@ -4432,7 +4532,15 @@ and `cargo nextest run` when you want to see which tests cost what.
   `|s: &String|` annotations that now follow it; plus the rustc run of a
   generic `map` in every argument form — bare lambda, annotated lambda and
   named fn, over a `Copy` and a non-`Copy` element type — which before the
-  fix failed with `E0631` for the annotated forms only); and 3 lazy-iterator
+  fix failed with `E0631` for the annotated forms only); and 3
+  implicit-parameter tests ([implicit-param] [implicit-group]
+  [backend-never-wrong]: `implicit_parameters_lower_to_trailing_fn_arguments`
+  asserting the expanded trailing parameters, the adapter closure a resolved
+  default is wrapped in, the `&mut *add` reborrow forwarding uses and no
+  struct for the group; the rustc run of the same source and stdout Kotlin
+  asserts; and a function in a struct field reported as a codegen error naming
+  the implicit-parameter remedy rather than emitted as `impl Trait` in a field
+  position); and 3 lazy-iterator
   tests ([rs-iter-lazy] [fn-iterator] [iter-effect-free]:
   `an_iterator_fn_lowers_to_a_lazy_factory` asserting the factory, the
   `async` body, the slot-and-suspend `yield`, the absence of the old
@@ -4646,6 +4754,19 @@ snapshot diffs.
   base-name fallback, where "the same effect twice" (an inner scope
   shadowing an outer) had to stop counting as ambiguity while two genuinely
   different generic instances still do.
+- **Check what the *other* backend does before designing a representation.**
+  A bundle of functions as a struct value read perfectly and ran on Kotlin;
+  on Rust it does not compile at all (`impl Trait` is illegal in a field
+  type). Writing the five-line program first turned a plausible design into
+  a rejected one, and made the group declaration-side sugar — which is why
+  neither backend needs to know groups exist.
+- **A feature that adds no lowering is worth looking for.** Implicit
+  parameters gave `sort(?cmp)`, numeric abstractions and overridable defaults
+  with *no* new backend machinery, because they reduce to something both
+  emitters already do: pass a function. The traits design that preceded them
+  needed generated interfaces on Kotlin and generated traits plus impl blocks
+  on Rust. When a feature seems to need new runtime shapes, check whether an
+  existing one already carries it.
 - **A cache is only safe if its key is the whole input.** The e2e stamps hash
   the generated files, the expected output and the toolchain version — so
   changing the emitter invalidates exactly the tests whose output changed,

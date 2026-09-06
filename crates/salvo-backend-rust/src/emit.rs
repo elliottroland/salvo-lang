@@ -920,6 +920,10 @@ struct Emitter<'p> {
     /// is then `ControlFlow<M, T>`, `return v` becomes
     /// `ControlFlow::Continue(v)`, and a propagating call unwraps.
     throw_message: Option<Ty>,
+    /// [implicit-param] The implicit parameters of the fn being emitted, in
+    /// the checker's order: trailing parameters of the signature, and the
+    /// names a bare call inside the body reaches as *values*.
+    implicits: Vec<salvo_core::ImplicitParam>,
     /// [rs-iter-lazy] This file mentions `Iter<T>`, so the program needs
     /// the generated iterator support file.
     needs_iter: bool,
@@ -1003,6 +1007,7 @@ impl<'p> Emitter<'p> {
             loop_defer_floors: Vec::new(),
             defer_id: 0,
             throw_message: None,
+            implicits: Vec::new(),
             needs_iter: false,
             in_iterator_fn: false,
             pending_lambda_conv: None,
@@ -1119,6 +1124,23 @@ impl<'p> Emitter<'p> {
             rs_ident(&s.name.name)
         );
         for field in &s.fields {
+            // [backend-never-wrong] A field cannot hold a function: Rust
+            // spells `impl Trait` nowhere but argument and return position
+            // (`E0562`), and a `Box<dyn Fn>` field would be a representation
+            // choice with ownership consequences the checker knows nothing
+            // about. So this is an error naming the two things that *do*
+            // work, not invalid output — Kotlin accepts the same source, so
+            // the restriction has to be reported rather than discovered by
+            // rustc [implicit-group].
+            if matches!(field.ty, Type::Fn { .. }) || is_fn_group(&field.ty) {
+                self.error(format!(
+                    "the rust backend cannot store a function in a struct field \
+                     (`{}.{}`): pass it as a parameter instead — an implicit \
+                     parameter (`?{}: ...`) or a `params` group is how a bundle of \
+                     functions travels",
+                    s.name.name, field.name.name, field.name.name
+                ));
+            }
             let ty = self.emit_type(&field.ty);
             out.push_str(&format!("    pub {}: {ty},\n", rs_ident(&field.name.name)));
         }
@@ -1889,6 +1911,9 @@ impl<'p> Emitter<'p> {
         let mut ref_param_count = 0usize;
         let mut derived_param_idx: Option<usize> = None;
         for (i, p) in f.params.iter().enumerate() {
+            if p.implicit {
+                continue; // appended below, in the checker's order
+            }
             let mode = match style {
                 FnStyle::TopLevel => self.param_mode(fn_key, p),
                 _ => self.default_param_mode(&p.ty, p.variadic),
@@ -1919,6 +1944,20 @@ impl<'p> Emitter<'p> {
                 rs_ident(&p.name.name),
                 self.param_type(&p.ty, p.variadic, mode)
             ));
+        }
+        // [implicit-param] Implicit parameters are ordinary trailing
+        // parameters of fn type, rendered like any other fn value
+        // [fn-contract]: nothing about them survives into Rust.
+        let saved_implicits = std::mem::replace(
+            &mut self.implicits,
+            fn_key
+                .and_then(|k| self.checked.implicit_params.get(&k).cloned())
+                .unwrap_or_default(),
+        );
+        for imp in &self.implicits.clone() {
+            let rendered = self.implicit_param_type(&imp.ty);
+            self.bindings.insert(imp.name.clone(), BindKind::RefMut);
+            params.push(format!("{}: {rendered}", rs_ident(&imp.name)));
         }
 
         // [readonly-return] A derived-return fn returns a borrow of its
@@ -2020,6 +2059,7 @@ impl<'p> Emitter<'p> {
             self.effect_env = saved_env;
             self.bindings = saved_bindings;
             self.mutated = saved_mutated;
+            self.implicits = saved_implicits;
             self.in_iterator_fn = saved_in_iterator;
             self.derived_return_fn = saved_derived;
             self.taken_names = saved_taken;
@@ -2125,6 +2165,7 @@ impl<'p> Emitter<'p> {
         self.effect_env = saved_env;
         self.bindings = saved_bindings;
         self.mutated = saved_mutated;
+        self.implicits = saved_implicits;
         self.in_iterator_fn = saved_in_iterator;
         self.derived_return_fn = saved_derived;
         self.taken_names = saved_taken;
@@ -2596,6 +2637,23 @@ impl<'p> Emitter<'p> {
     }
 
     /// Whether an AST type is a Copy scalar (post alias expansion).
+    /// [implicit-param] The Rust type of an implicit parameter: a borrowed
+    /// `FnMut`, exactly as a written fn-typed parameter renders
+    /// [fn-contract]. Built from the checker's `Ty` rather than an AST type,
+    /// since a group's members were never written in this signature.
+    fn implicit_param_type(&mut self, ty: &Ty) -> String {
+        let Ty::Fn { params, ret, .. } = ty.strip_quals() else {
+            return self.rust_ty(ty);
+        };
+        let ps: Vec<String> = params.iter().map(|p| self.rust_ty(p)).collect();
+        let ret = if ret.is_none_ty() {
+            String::new()
+        } else {
+            format!(" -> {}", self.rust_ty(ret))
+        };
+        format!("&mut impl FnMut({}){ret}", ps.join(", "))
+    }
+
     /// [rs-fn-param-convention] How the *declaration* of a fn type renders
     /// each of its parameters, so a lambda passed into that position binds
     /// the same way. Kept in step with the `Type::Fn` arm of `emit_type`
@@ -4264,8 +4322,9 @@ impl<'p> Emitter<'p> {
                 callee,
                 type_args,
                 args,
+                named,
                 span,
-            } => self.emit_call(callee, type_args, args, *span),
+            } => self.emit_call(callee, type_args, args, named, *span),
             Expr::ArrayLit { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
                 format!("vec![{}]", items.join(", "))
@@ -5489,6 +5548,7 @@ impl<'p> Emitter<'p> {
         callee: &Expr,
         type_args: &[Type],
         args: &[Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         // [throw] [rs-throw-controlflow] A call that may throw is not an
@@ -5498,10 +5558,10 @@ impl<'p> Emitter<'p> {
             if site.performs {
                 return self.emit_throw_call(&site, args, self.expr_indent);
             }
-            let call = self.emit_call_inner(callee, type_args, args, span);
+            let call = self.emit_call_inner(callee, type_args, args, named, span);
             return self.wrap_may_throw_call(&site, call, self.expr_indent);
         }
-        self.emit_call_inner(callee, type_args, args, span)
+        self.emit_call_inner(callee, type_args, args, named, span)
     }
 
     fn emit_call_inner(
@@ -5509,6 +5569,7 @@ impl<'p> Emitter<'p> {
         callee: &Expr,
         type_args: &[Type],
         args: &[Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         // Normalize dot-notation [fn-dot].
@@ -5521,7 +5582,7 @@ impl<'p> Emitter<'p> {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
                 all_args.push(base);
                 all_args.extend(args.iter());
-                return self.emit_resolved_call(name, type_args, &all_args, span);
+                return self.emit_resolved_call(name, type_args, &all_args, named, span);
             }
             // [call-resolve] The checker rejects an undeclared dot-call, so
             // reaching here means a resolution table lost an entry without
@@ -5536,7 +5597,7 @@ impl<'p> Emitter<'p> {
             "todo!()".to_string()
         } else if let Expr::Ident(id) = callee {
             let arg_refs: Vec<&Expr> = args.iter().collect();
-            self.emit_resolved_call(&id.name, type_args, &arg_refs, span)
+            self.emit_resolved_call(&id.name, type_args, &arg_refs, named, span)
         } else {
             // Calling a computed value (lambda etc.): owned args [fn-lambda],
             // with its effects threaded first [fn-effects].
@@ -5552,6 +5613,7 @@ impl<'p> Emitter<'p> {
         name: &str,
         type_args: &[Type],
         args: &[&Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
@@ -5606,6 +5668,21 @@ impl<'p> Emitter<'p> {
             );
         }
 
+        // [implicit-param] An implicit parameter shadows the fns of the same
+        // name inside the body: it *is* one of them, chosen by the caller.
+        if self.implicits.iter().any(|i| i.name == name) {
+            let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+            // [effect-args-hoisted] Calling through the parameter borrows it,
+            // so an argument that *also* reaches it (a recursive call
+            // forwarding the same implicit) is hoisted out first.
+            let borrowed = vec![format!("&mut *{}", rs_ident(name))];
+            let (prelude, arg_code) = self.hoist_reborrows(&borrowed, arg_code);
+            return Self::wrap_hoisted(
+                &prelude,
+                format!("{}({})", rs_ident(name), arg_code.join(", ")),
+            );
+        }
+
         // 2. Checker-resolved fn target (type-based overloads win)
         // [fn-overload]. An `intrinsic fn` lowers in the emitter
         // [intrinsic-fn]; anything else has a body, since a bodiless
@@ -5619,7 +5696,7 @@ impl<'p> Emitter<'p> {
             if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
             }
-            return self.emit_fn_call(name, f, Some(key), args, span);
+            return self.emit_fn_call(name, f, Some(key), args, named, span);
         }
 
         // 3. Known function (unchecked contexts): arity narrowed by the
@@ -5640,7 +5717,7 @@ impl<'p> Emitter<'p> {
                 return self.emit_intrinsic_call(f, args, span);
             }
             let key = self.key_of_fn(f);
-            return self.emit_fn_call(name, f, key, args, span);
+            return self.emit_fn_call(name, f, key, args, named, span);
         }
 
         // 4. Local callable / interop. A call through a fn-typed value
@@ -5889,12 +5966,106 @@ impl<'p> Emitter<'p> {
     /// A call to a declared function: effect handlers thread as leading
     /// `&mut` arguments [rs-effects]; parameter modes come from the
     /// deductions [rs-borrows].
+    /// [implicit-override] A value written for an implicit parameter, adapted
+    /// to the borrowed-`FnMut` position: a *fn name* is a fn item, not a
+    /// closure, so it is wrapped like any named fn passed by value
+    /// [fn-contract]; anything else (a lambda, a fn-typed local) is borrowed
+    /// as it stands.
+    fn implicit_value(&mut self, value: &Expr, arity: usize) -> String {
+        if let Expr::Ident(id) = value {
+            let is_local = self.bindings.contains_key(id.name.as_str());
+            if !is_local {
+                if let Some(decl) = self
+                    .checked
+                    .fn_refs
+                    .get(&(self.file_idx, id.span))
+                    .and_then(|k| self.fn_by_key(*k))
+                {
+                    let target = self.rust_fn_name(decl);
+                    let ps: Vec<String> = (0..arity).map(|i| format!("__i{i}")).collect();
+                    return format!("&mut |{}| {target}({})", ps.join(", "), ps.join(", "));
+                }
+            }
+        }
+        let code = self.emit_owned(value);
+        format!("&mut ({code})")
+    }
+
+    /// [implicit-resolve] What a call passes for each implicit parameter:
+    /// the value written at the call site, the enclosing fn's own implicit
+    /// forwarded on, or the fn resolution found — wrapped in the adapter
+    /// closure a fn-typed position expects [fn-contract].
+    fn emit_implicit_args(&mut self, named: &[NamedArg], span: Span) -> Vec<String> {
+        let filled = match self.checked.implicit_args.get(&(self.file_idx, span)) {
+            Some(filled) => filled.clone(),
+            None => return Vec::new(),
+        };
+        let mut out = Vec::new();
+        for arg in &filled {
+            match arg {
+                salvo_core::ImplicitArg::Given { name } => {
+                    match named.iter().find(|a| a.name.name == *name) {
+                        Some(a) => {
+                            let arity = self
+                                .checked
+                                .implicit_params
+                                .values()
+                                .flatten()
+                                .find(|p| p.name == *name)
+                                .map(|p| match p.ty.strip_quals() {
+                                    Ty::Fn { params, .. } => params.len(),
+                                    _ => 0,
+                                })
+                                .unwrap_or(0);
+                            out.push(self.implicit_value(&a.value, arity));
+                        }
+                        None => {
+                            self.error(format!(
+                                "internal: no value for implicit parameter `{name}`"
+                            ));
+                            out.push("todo!()".to_string());
+                        }
+                    }
+                }
+                salvo_core::ImplicitArg::Forwarded { name } => {
+                    out.push(format!("&mut *{}", rs_ident(name)));
+                }
+                salvo_core::ImplicitArg::Resolved { name, key } => {
+                    match self.fn_by_key(*key) {
+                        Some(decl) => {
+                            let target = self.rust_fn_name(decl);
+                            let params: Vec<String> = (0..decl.params.len())
+                                .map(|i| format!("__i{i}"))
+                                .collect();
+                            // A fn item is not a closure: wrap it, so the
+                            // parameter's `impl FnMut` bound is satisfied
+                            // whatever the callee's convention is.
+                            out.push(format!(
+                                "&mut |{}| {target}({})",
+                                params.join(", "),
+                                params.join(", ")
+                            ));
+                        }
+                        None => {
+                            self.error(format!(
+                                "internal: implicit parameter `{name}` resolved to no fn"
+                            ));
+                            out.push("todo!()".to_string());
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn emit_fn_call(
         &mut self,
         name: &str,
         f: &FnDecl,
         key: Option<salvo_core::FnKey>,
         args: &[&Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         let mut all: Vec<String> = Vec::new();
@@ -5935,7 +6106,7 @@ impl<'p> Emitter<'p> {
             all.dedup();
             all.truncate(1);
         }
-        let (prelude, args) = {
+        let (mut prelude, args) = {
             let rendered = self.emit_args_for_params(&f.params, args, key);
             if all.is_empty() {
                 (Vec::new(), rendered)
@@ -5945,6 +6116,19 @@ impl<'p> Emitter<'p> {
             }
         };
         all.extend(args);
+        // [implicit-resolve] The implicit parameters, in the callee's order:
+        // ordinary trailing arguments of fn type.
+        let implicit_args = self.emit_implicit_args(named, span);
+        if !implicit_args.is_empty() {
+            // [effect-args-hoisted] An argument that reborrows an implicit
+            // *this* call also passes would borrow it twice (`E0499`), so it
+            // is hoisted into a `let` first — the same rule, and the same
+            // fix, as for a threaded effect value.
+            let (extra, hoisted) = self.hoist_reborrows(&implicit_args, all);
+            prelude.extend(extra);
+            all = hoisted;
+            all.extend(implicit_args);
+        }
         // A call through an import alias keeps the alias [rs-imports].
         let rs_name = if name != f.name.name {
             rs_ident(name)
@@ -6021,6 +6205,39 @@ impl<'p> Emitter<'p> {
         let mut out: Vec<String> = Vec::new();
         for code in args {
             if vars.iter().any(|var| mentions_ident(&code, var)) {
+                self.hoist_id += 1;
+                let name = format!("__a{}", self.hoist_id);
+                prelude.push(format!("let {name} = {code};"));
+                out.push(name);
+            } else {
+                out.push(code);
+            }
+        }
+        (prelude, out)
+    }
+
+    /// [effect-args-hoisted] Hoists any argument whose code mentions one of
+    /// `passed` — the implicit values this same call hands over — so the
+    /// argument's borrow ends before the call takes its own.
+    fn hoist_reborrows(
+        &mut self,
+        passed: &[String],
+        args: Vec<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let names: Vec<String> = passed
+            .iter()
+            .filter_map(|code| {
+                code.strip_prefix("&mut *")
+                    .map(|rest| rest.trim().to_string())
+            })
+            .collect();
+        if names.is_empty() {
+            return (Vec::new(), args);
+        }
+        let mut prelude = Vec::new();
+        let mut out = Vec::new();
+        for code in args {
+            if names.iter().any(|n| mentions_ident(&code, n)) {
                 self.hoist_id += 1;
                 let name = format!("__a{}", self.hoist_id);
                 prelude.push(format!("let {name} = {code};"));

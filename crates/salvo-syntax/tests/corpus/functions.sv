@@ -92,3 +92,32 @@ fn use_it() [Console] -> None {
     }, "hello")
     println(shouted)
 }
+
+// [implicit-group] A named bundle of implicit parameters, spread with `?`.
+params Field<T> {
+    fn add(a: T, b: T) -> T
+    fn zero() -> T
+}
+
+// [implicit-param] `?cmp` is resolved at the call site by name and type;
+// `?Field<T>` spreads the group's members as implicit parameters of their
+// own, with no binder — they are called unqualified here and overridden by
+// their own names at the call.
+fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+    let acc = zero()
+    for x in xs {
+        acc = add(acc, x)
+    }
+    return acc
+}
+
+fn ordered<T>(list: List<T>, ?cmp: (T, T) -> Int) -> [list] List<T> {
+    return list
+}
+
+// [implicit-override] The caller supplies one implicit by name; the rest
+// still resolve.
+fn totals() [Console] -> None {
+    println("${total(list(1, 2, 3))}")
+    println("${total(list(2, 3, 4), add = times)}")
+}

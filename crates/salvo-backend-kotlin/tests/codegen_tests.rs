@@ -4381,3 +4381,93 @@ fn kotlinc_compiles_and_runs_a_lazy_iterator() {
     });
     run_kotlin_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }
+
+// ===== [implicit-param] [implicit-group] implicit parameters =====
+
+/// The same source and expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_implicit_parameters`: a group spread with no
+/// binder, defaults resolved from the visible `Int` overloads, one member
+/// overridden by name, forwarding through an opaque `T`, and an
+/// individually declared `?add`.
+const IMPLICIT_DEMO: &str = r#"
+params Field<T> {
+    fn add(a: T, b: T) -> T
+    fn zero() -> T
+}
+
+fn add(a: Int, b: Int) -> Int { return a + b }
+fn zero() -> Int { return 0 }
+fn times(a: Int, b: Int) -> Int { return a * b }
+fn one() -> Int { return 1 }
+
+fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+    let acc = zero()
+    for x in xs {
+        acc = add(acc, x)
+    }
+    return acc
+}
+
+fn total_all<T>(rows: List<List<T>>, ?Field<T>) -> [rows] T {
+    let acc = zero()
+    for row in rows {
+        acc = add(acc, total(row))
+    }
+    return acc
+}
+
+fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
+    return add(a, b)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("total=${total(list(1, 2, 3))}")
+    println("product=${total(list(2, 3, 4), add = times, zero = one)}")
+    println("nested=${total_all(list(list(1, 2), list(3)))}")
+    println("pair=${sum_pair(20, 22)}")
+    println("lambda=${sum_pair(2, 3, add = (a: Int, b: Int) -> a * b)}")
+}
+"#;
+
+const IMPLICIT_OUTPUT: &str = "total=6\nproduct=24\nnested=6\npair=42\nlambda=6\n";
+
+/// [implicit-param] Implicit parameters are ordinary trailing parameters of
+/// fn type; a resolved default is passed as a Kotlin function reference, and
+/// a group leaves no runtime representation [implicit-group].
+#[test]
+fn implicit_parameters_lower_to_trailing_fn_parameters() {
+    let program = build_program(&[("main.sv", IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    for expected in [
+        "fun<T> total(xs: List<T>, add: (T, T) -> T, zero: () -> T): T {",
+        "total(listOf<Int>(1, 2, 3), ::add, ::zero)",
+        "total(listOf<Int>(2, 3, 4), ::times, ::one)",
+    ] {
+        assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
+    }
+    assert!(
+        !main.contains("class Field"),
+        "a `params` group must leave no runtime representation:\n{main}"
+    );
+}
+
+/// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
+#[test]
+fn kotlinc_compiles_and_runs_implicit_parameters() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "implicits", IMPLICIT_OUTPUT);
+}

@@ -401,6 +401,11 @@ struct Emitter<'p> {
     errors: Vec<String>,
     /// Wrapper union sizes this emitter has rendered.
     union_sizes: BTreeSet<usize>,
+    /// [implicit-param] The implicit parameters of the fn being emitted, in
+    /// the checker's order: trailing parameters of the signature, and the
+    /// names a bare call inside the body reaches as *values* rather than
+    /// resolving as overloads.
+    implicits: Vec<salvo_core::ImplicitParam>,
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
@@ -473,6 +478,7 @@ impl<'p> Emitter<'p> {
             errors: Vec::new(),
             union_sizes: BTreeSet::new(),
             needs_throw: false,
+            implicits: Vec::new(),
             expr_indent: 0,
             effect_env: Vec::new(),
             mutated: HashSet::new(),
@@ -989,6 +995,9 @@ impl<'p> Emitter<'p> {
             }
         }
         for p in &f.params {
+            if p.implicit {
+                continue; // appended below, in the checker's order
+            }
             let ty = self.emit_type(&p.ty);
             if p.variadic {
                 let elem = self.variadic_elem_type(&p.ty);
@@ -996,6 +1005,21 @@ impl<'p> Emitter<'p> {
             } else {
                 params.push(format!("{}: {ty}", kt_ident(&p.name.name)));
             }
+        }
+        // [implicit-param] Implicit parameters are ordinary trailing
+        // parameters of fn type: the caller passes what resolution found, so
+        // nothing about them survives into the target language.
+        let saved_implicits = std::mem::replace(
+            &mut self.implicits,
+            self.checked
+                .fn_refs
+                .get(&(self.file_idx, f.name.span))
+                .and_then(|key| self.checked.implicit_params.get(key).cloned())
+                .unwrap_or_default(),
+        );
+        for imp in &self.implicits.clone() {
+            let ty = self.kotlin_ty(&imp.ty);
+            params.push(format!("{}: {ty}", kt_ident(&imp.name)));
         }
 
         let ret = if is_main {
@@ -1064,6 +1088,7 @@ impl<'p> Emitter<'p> {
         self.effect_env = saved_env;
         self.mutated = saved_mutated;
         self.taken_names = saved_taken;
+        self.implicits = saved_implicits;
         out
     }
 
@@ -2570,8 +2595,9 @@ impl<'p> Emitter<'p> {
                 callee,
                 type_args,
                 args,
+                named,
                 span,
-            } => self.emit_call(callee, type_args, args, *span),
+            } => self.emit_call(callee, type_args, args, named, *span),
             Expr::Index { base, index, .. } => {
                 format!("{}[{}]", self.emit_expr(base), self.emit_expr(index))
             }
@@ -3312,7 +3338,14 @@ impl<'p> Emitter<'p> {
 
     // ================= calls =================
 
-    fn emit_call(&mut self, callee: &Expr, type_args: &[Type], args: &[Expr], span: Span) -> String {
+    fn emit_call(
+        &mut self,
+        callee: &Expr,
+        type_args: &[Type],
+        args: &[Expr],
+        named: &[NamedArg],
+        span: Span,
+    ) -> String {
         // [throw] [kt-throw-signal] `throw(message)` is the control
         // transfer itself: a throw the innermost `try` catches. A call that
         // merely *propagates* a throw needs nothing — the JVM unwinds.
@@ -3345,7 +3378,7 @@ impl<'p> Emitter<'p> {
                 let mut all_args: Vec<&Expr> = Vec::with_capacity(total);
                 all_args.push(base);
                 all_args.extend(args.iter());
-                return self.emit_resolved_call(name, type_args, &all_args, span);
+                return self.emit_resolved_call(name, type_args, &all_args, named, span);
             }
             // [call-resolve] The checker rejects an undeclared dot-call, so
             // reaching here means a resolution table lost an entry without
@@ -3362,7 +3395,7 @@ impl<'p> Emitter<'p> {
 
         if let Expr::Ident(id) = callee {
             let arg_refs: Vec<&Expr> = args.iter().collect();
-            return self.emit_resolved_call(&id.name, type_args, &arg_refs, span);
+            return self.emit_resolved_call(&id.name, type_args, &arg_refs, named, span);
         }
 
         // Calling a computed value (lambda etc.) — [fn-effects] threads its
@@ -3378,6 +3411,7 @@ impl<'p> Emitter<'p> {
         name: &str,
         type_args: &[Type],
         args: &[&Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         // 1. Effect member call: dispatch through the handler in scope
@@ -3397,6 +3431,14 @@ impl<'p> Emitter<'p> {
             return format!("{handler}.{}({})", kt_ident(name), arg_code.join(", "));
         }
 
+        // [implicit-param] An implicit parameter shadows the fns of the same
+        // name inside the body: it *is* one of them, chosen by the caller, so
+        // the call goes through the parameter rather than resolving again.
+        if self.implicits.iter().any(|i| i.name == name) {
+            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            return format!("{}({})", kt_ident(name), arg_code.join(", "));
+        }
+
         // 2. Checker-resolved fn target (type-based overloads win).
         // An `intrinsic fn` lowers in the emitter [intrinsic-fn]; anything
         // else has a body, since a bodiless top-level fn is a parse error
@@ -3410,7 +3452,7 @@ impl<'p> Emitter<'p> {
             if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
             }
-            return self.emit_fn_call(name, f, type_args, args, span);
+            return self.emit_fn_call(name, f, type_args, args, named, span);
         }
 
         // 3. Known function (unchecked contexts): arity narrowed by the
@@ -3430,7 +3472,7 @@ impl<'p> Emitter<'p> {
             if f.intrinsic {
                 return self.emit_intrinsic_call(f, args, span);
             }
-            return self.emit_fn_call(name, f, type_args, args, span);
+            return self.emit_fn_call(name, f, type_args, args, named, span);
         }
 
         // 4. Handler constructor / struct / local callable: pass through.
@@ -3748,12 +3790,59 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [implicit-resolve] What a call passes for each implicit parameter:
+    /// the value written at the call site, the enclosing fn's own implicit
+    /// forwarded on, or a reference to the fn resolution found.
+    fn emit_implicit_args(&mut self, named: &[NamedArg], span: Span) -> Vec<String> {
+        let filled = match self.checked.implicit_args.get(&(self.file_idx, span)) {
+            Some(filled) => filled.clone(),
+            None => return Vec::new(),
+        };
+        let mut out = Vec::new();
+        for arg in &filled {
+            match arg {
+                salvo_core::ImplicitArg::Given { name } => {
+                    match named.iter().find(|a| a.name.name == *name) {
+                        Some(a) => out.push(self.emit_expr(&a.value)),
+                        None => {
+                            // The checker recorded a value that is not in the
+                            // AST: a table lost an entry [backend-never-wrong].
+                            self.error(format!(
+                                "internal: no value for implicit parameter `{name}`"
+                            ));
+                            out.push("TODO()".to_string());
+                        }
+                    }
+                }
+                salvo_core::ImplicitArg::Forwarded { name } => {
+                    out.push(kt_ident(name));
+                }
+                salvo_core::ImplicitArg::Resolved { name, key } => {
+                    match self.fn_by_key(*key) {
+                        Some(decl) => {
+                            let target = self.kotlin_fn_name(decl);
+                            out.push(format!("::{target}"));
+                        }
+                        None => {
+                            self.error(format!(
+                                "internal: implicit parameter `{name}` resolved to no fn"
+                            ));
+                            out.push("TODO()".to_string());
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn emit_fn_call(
         &mut self,
         name: &str,
         f: &FnDecl,
         type_args: &[Type],
         args: &[&Expr],
+        named: &[NamedArg],
         span: Span,
     ) -> String {
         let mut all: Vec<String> = Vec::new();
@@ -3782,6 +3871,10 @@ impl<'p> Emitter<'p> {
         for a in args {
             all.push(self.emit_expr(a));
         }
+        // [implicit-resolve] The implicit parameters, in the callee's order:
+        // ordinary trailing arguments, so nothing about them is visible in
+        // the emitted Kotlin.
+        all.extend(self.emit_implicit_args(named, span));
         let generics = self.emit_type_args(type_args);
         // A call through an import alias keeps the alias: the generated
         // Kotlin alias import maps it to the declaration [kt-imports].

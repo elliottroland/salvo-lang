@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{
+    ParamsDecl,
     EffectDecl, FnDecl, HandlerDecl, Item, Module, QualifierDecl, StructDecl, TypeDecl,
 };
 
@@ -54,6 +55,9 @@ pub struct Symbols<'p> {
     pub intrinsic_types: HashMap<&'p str, &'p TypeDecl>,
     /// Effect-member function name -> owning effect name.
     pub effect_of_fn: HashMap<&'p str, &'p str>,
+    /// `params` groups by name [implicit-group]: bundles of implicit
+    /// parameters, spread into a signature as `?Name<T>`.
+    pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
 }
 
 impl<'p> Symbols<'p> {
@@ -75,6 +79,9 @@ impl<'p> Symbols<'p> {
                     }
                     Item::Handler(h) => {
                         symbols.handlers.insert(&h.name.name, h);
+                    }
+                    Item::Params(g) => {
+                        symbols.param_groups.insert(&g.name.name, g);
                     }
                     Item::Qualifier(q) => {
                         symbols.qualifiers.insert(&q.name.name, q);

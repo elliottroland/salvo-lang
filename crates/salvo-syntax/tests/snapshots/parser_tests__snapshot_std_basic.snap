@@ -255,9 +255,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 674..682,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [],
                 ),
@@ -345,9 +347,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 987..995,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [],
                 ),

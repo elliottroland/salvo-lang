@@ -13,8 +13,8 @@ pub mod source;
 pub mod types;
 
 pub use check::{
-    check_program, Checked, Coercion, ThrowSite, UnionTest, OK_QUALIFIER, THROWN_QUALIFIER,
-    THROW_EFFECT,
+    check_program, Checked, Coercion, ImplicitArg, ImplicitParam, ThrowSite, UnionTest,
+    OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;

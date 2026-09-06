@@ -44,9 +44,11 @@ Module {
                                     },
                                 },
                                 variadic: false,
+                                implicit: false,
                                 span: 86..98,
                             },
                         ],
+                        implicit_groups: [],
                         effects: None,
                         deductions: Some(
                             [
@@ -136,9 +138,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 176..188,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [
                         Effect(
@@ -188,6 +192,7 @@ Module {
                                             },
                                         ),
                                     ],
+                                    named: [],
                                     span: 214..228,
                                 },
                             ),
@@ -210,6 +215,7 @@ Module {
                                             span: 239..243,
                                         },
                                     ],
+                                    named: [],
                                     span: 233..244,
                                 },
                             ),

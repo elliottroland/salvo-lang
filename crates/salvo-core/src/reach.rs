@@ -96,6 +96,13 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                     fn_names(f, &mut used);
                 }
             }
+            // [implicit-group] A group's members are signatures, like an
+            // effect's: their types are what the group depends on.
+            Item::Params(g) => {
+                for f in &g.fns {
+                    fn_names(f, &mut used);
+                }
+            }
             Item::Handler(h) => {
                 type_names(&h.of, &mut used);
                 for p in &h.params {
@@ -140,6 +147,12 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
 fn fn_names<'p>(f: &'p FnDecl, used: &mut HashSet<&'p str>) {
     for p in &f.params {
         type_names(&p.ty, used);
+    }
+    // [implicit-group] A `?Field<T>` spread makes the group reachable, and
+    // its member *names* are what the call site resolves, so a module
+    // spreading a group depends on it.
+    for g in &f.implicit_groups {
+        type_ref_names(g, used);
     }
     for eff in f.effects.iter().flatten() {
         if let EffectRef::Effect(r) = eff {

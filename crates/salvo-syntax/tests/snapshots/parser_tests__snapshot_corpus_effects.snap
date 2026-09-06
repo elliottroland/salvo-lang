@@ -30,6 +30,7 @@ Module {
                         generic_canbe: [],
                         derived_return: None,
                         params: [],
+                        implicit_groups: [],
                         effects: None,
                         deductions: Some(
                             [],
@@ -93,9 +94,11 @@ Module {
                                     },
                                 },
                                 variadic: false,
+                                implicit: false,
                                 span: 83..95,
                             },
                         ],
+                        implicit_groups: [],
                         effects: None,
                         deductions: Some(
                             [
@@ -165,6 +168,7 @@ Module {
                             span: 150..153,
                         },
                         variadic: false,
+                        implicit: false,
                         span: 142..153,
                     },
                 ],
@@ -231,6 +235,7 @@ Module {
                         generic_canbe: [],
                         derived_return: None,
                         params: [],
+                        implicit_groups: [],
                         effects: None,
                         deductions: None,
                         return_type: Some(
@@ -290,6 +295,7 @@ Module {
                                                 },
                                                 type_args: [],
                                                 args: [],
+                                                named: [],
                                                 span: 236..249,
                                             },
                                             span: 227..249,
@@ -377,9 +383,11 @@ Module {
                                     },
                                 },
                                 variadic: false,
+                                implicit: false,
                                 span: 334..346,
                             },
                         ],
+                        implicit_groups: [],
                         effects: None,
                         deductions: None,
                         return_type: Some(
@@ -420,6 +428,7 @@ Module {
                 generic_canbe: [],
                 derived_return: None,
                 params: [],
+                implicit_groups: [],
                 effects: Some(
                     [
                         Use(
@@ -483,6 +492,7 @@ Module {
                                             span: 417..429,
                                         },
                                     ],
+                                    named: [],
                                     span: 404..430,
                                 },
                                 span: 400..430,
@@ -504,6 +514,7 @@ Module {
                                     ),
                                     type_args: [],
                                     args: [],
+                                    named: [],
                                     span: 445..458,
                                 },
                                 span: 435..458,
@@ -553,9 +564,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 480..502,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [
                         Effect(
@@ -650,6 +663,7 @@ Module {
                                     ),
                                     type_args: [],
                                     args: [],
+                                    named: [],
                                     span: 567..580,
                                 },
                                 span: 550..580,
@@ -697,6 +711,7 @@ Module {
                                                                 },
                                                             ),
                                                         ],
+                                                        named: [],
                                                         span: 615..632,
                                                     },
                                                 ),
@@ -732,6 +747,7 @@ Module {
                                             span: 593..664,
                                         },
                                     ],
+                                    named: [],
                                     span: 585..665,
                                 },
                             ),
@@ -774,9 +790,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 829..838,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [
                         Effect(
@@ -843,6 +861,7 @@ Module {
                                                             },
                                                         ),
                                                     ],
+                                                    named: [],
                                                     span: 869..879,
                                                 },
                                                 rhs: Int {
@@ -873,6 +892,7 @@ Module {
                                                                     span: 901..913,
                                                                 },
                                                             ],
+                                                            named: [],
                                                             span: 895..914,
                                                         },
                                                     ),
@@ -903,6 +923,7 @@ Module {
                                                 },
                                             ),
                                         ],
+                                        named: [],
                                         span: 932..942,
                                     },
                                 ),
@@ -947,9 +968,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 1075..1084,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [
                         Effect(
@@ -1010,6 +1033,7 @@ Module {
                                                             },
                                                         ),
                                                     ],
+                                                    named: [],
                                                     span: 1138..1156,
                                                 },
                                             ),
@@ -1071,6 +1095,7 @@ Module {
                                                                     span: 1218..1237,
                                                                 },
                                                             ],
+                                                            named: [],
                                                             span: 1210..1238,
                                                         },
                                                     ),
@@ -1121,6 +1146,7 @@ Module {
                                                                     span: 1289..1318,
                                                                 },
                                                             ],
+                                                            named: [],
                                                             span: 1281..1319,
                                                         },
                                                     ),

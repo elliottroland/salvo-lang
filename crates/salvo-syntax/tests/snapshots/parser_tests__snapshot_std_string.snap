@@ -49,9 +49,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 88..96,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [],
                 ),
@@ -117,6 +119,7 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 234..242,
                     },
                     Param {
@@ -136,9 +139,11 @@ Module {
                             },
                         },
                         variadic: false,
+                        implicit: false,
                         span: 244..254,
                     },
                 ],
+                implicit_groups: [],
                 effects: Some(
                     [],
                 ),

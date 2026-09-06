@@ -873,3 +873,104 @@ fn define_is_no_longer_a_keyword() {
         );
     }
 }
+
+// ===== [implicit-param] [implicit-group] [implicit-override] =====
+
+/// `?cmp: (T, T) -> Int` is one implicit parameter; `?Field<T>` spreads a
+/// group. [name-casing] decides which from the first token after `?`, so the
+/// grammar needs no lookahead: values are lowercase, types uppercase.
+#[test]
+fn implicit_parameters_and_group_spreads_parse() {
+    let source = "fn sort<T>(list: List<T>, ?cmp: (T, T) -> Int, ?Field<T>) -> List<T> {\n\
+                      return list\n\
+                  }\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    assert_eq!(f.params.len(), 2, "the group spread is not a parameter");
+    assert!(!f.params[0].implicit, "`list` is an ordinary parameter");
+    assert!(f.params[1].implicit, "`cmp` is implicit");
+    assert_eq!(f.implicit_groups.len(), 1);
+    assert_eq!(f.implicit_groups[0].name.name, "Field");
+}
+
+/// A `params` group is a named bundle of member signatures, shaped like an
+/// effect declaration because it is the same thing.
+#[test]
+fn a_params_group_parses() {
+    let source = "params Field<T> {\n    fn add(a: T, b: T) -> T\n    fn zero() -> T\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Params(g) = &module.items[0] else {
+        panic!("expected a params item");
+    };
+    assert_eq!(g.name.name, "Field");
+    assert_eq!(g.generics.len(), 1);
+    assert_eq!(g.fns.len(), 2);
+    assert!(g.fns.iter().all(|f| f.body.is_none()), "members are signatures");
+}
+
+/// `name = value` at a call site supplies one implicit parameter. It is
+/// recognised by the `=` after an identifier — unambiguous because
+/// assignment is a statement in Salvo, never an expression.
+#[test]
+fn a_named_argument_parses() {
+    let source = "fn f() {\n    let x = total(xs, add = times)\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    let salvo_syntax::ast::Stmt::Let { value, .. } = &f.body.as_ref().unwrap().stmts[0] else {
+        panic!("expected a let");
+    };
+    let salvo_syntax::ast::Expr::Call { args, named, .. } = value else {
+        panic!("expected a call");
+    };
+    assert_eq!(args.len(), 1, "`xs` is the only positional argument");
+    assert_eq!(named.len(), 1);
+    assert_eq!(named[0].name.name, "add");
+}
+
+/// Implicit parameters trail the ordinary ones: a caller could not pass a
+/// positional parameter written after one.
+#[test]
+fn an_ordinary_parameter_after_an_implicit_is_rejected() {
+    let source = "fn f(?cmp: (Int, Int) -> Int, n: Int) -> Int {\n    return n\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("implicit parameters must come last")),
+        "expected the ordering error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+/// A positional argument after a named one has no meaning.
+#[test]
+fn a_positional_argument_after_a_named_one_is_rejected() {
+    let source = "fn f() {\n    let x = total(add = times, xs)\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.is_error() && d.message.contains("cannot follow a named one")
+        }),
+        "expected the ordering error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

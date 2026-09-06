@@ -27,7 +27,31 @@ pub enum Item {
     Qualifier(QualifierDecl),
     Effect(EffectDecl),
     Handler(HandlerDecl),
+    Params(ParamsDecl),
     Fn(FnDecl),
+}
+
+/// `params Field<T> { fn add(a: T, b: T) -> T ... }` [implicit-group]: a
+/// named bundle of implicit parameters, written once and spread into a
+/// signature as `?Field<T>`.
+///
+/// Not a struct and never a value: the members are *parameters* after
+/// expansion, which is what keeps a group free of any runtime
+/// representation — nothing is boxed, and neither backend needs to know
+/// groups exist. Declaring it as a struct of fn-typed fields would need
+/// `Box<dyn Fn>` fields on Rust (`impl Trait` is illegal in a field type)
+/// and a way to call a fn-typed field, which dot-notation [fn-dot] already
+/// spells otherwise.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamsDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
+    pub name: Ident,
+    pub generics: Vec<Ident>,
+    /// Member signatures: bodiless, like an effect's [effect-decl].
+    pub fns: Vec<FnDecl>,
+    pub span: Span,
 }
 
 /// `import path.to.item (as alias)?`
@@ -203,6 +227,14 @@ pub struct FnDecl {
     /// (borrows) the named kept parameter [readonly-return].
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
+    /// `?Field<T>` spreads [implicit-group]: a *declaration-side* shorthand
+    /// for one implicit parameter per member of a `params` group. There is
+    /// no binder — the members become ordinary implicit parameters, so
+    /// resolution, forwarding and call-site override all key on a member's
+    /// own name and type. The checker publishes the expansion (written
+    /// implicits first, then each group's members in declaration order) as
+    /// the one ordered list both emitters render.
+    pub implicit_groups: Vec<TypeRef>,
     /// `None` means unspecified (pure); `Some(vec![])` means explicit `[]`.
     pub effects: Option<Vec<EffectRef>>,
     /// `None` means unspecified (inferred); `Some(vec![])` means explicit `[]`.
@@ -224,6 +256,12 @@ pub struct Param {
     pub ty: Type,
     /// True for `...args: T[]`.
     pub variadic: bool,
+    /// True for `?cmp: (T, T) -> Int` [implicit-param]: the caller need not
+    /// pass it. A call site fills it by resolving the parameter's *name* at
+    /// the parameter's *type* — an ordinary overload query, only against a
+    /// type instead of an argument list — or by forwarding an implicit of
+    /// the same name and type from the enclosing fn [implicit-forward].
+    pub implicit: bool,
     pub span: Span,
 }
 
@@ -501,6 +539,12 @@ pub enum Expr {
         /// Explicit generic args: `next_random<Int>()`.
         type_args: Vec<Type>,
         args: Vec<Arg>,
+        /// `sort(xs, cmp = my_cmp)` [implicit-override]: an implicit
+        /// parameter supplied by name instead of resolved. Named arguments
+        /// exist for exactly this — Salvo has no general named-argument
+        /// form — so a name that matches no implicit parameter of the
+        /// callee is an error.
+        named: Vec<NamedArg>,
         span: Span,
     },
     /// `expr[index]`
@@ -630,6 +674,15 @@ pub enum StrExprPart {
 
 /// A call argument (possibly spread).
 pub type Arg = Expr;
+
+/// One `name = value` argument [implicit-override]: an implicit parameter
+/// supplied at the call site rather than resolved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedArg {
+    pub name: Ident,
+    pub value: Expr,
+    pub span: Span,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructLitField {
