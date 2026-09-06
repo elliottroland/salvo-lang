@@ -229,6 +229,13 @@ pub struct Checked {
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
+    /// The type arguments a `use` gives its handler
+    /// [effect-handler-generics], in the handler's declaration order: from
+    /// the written list (`use Plain<Int>()`) and from what the constructor
+    /// arguments bind. The emitters need them because a generic handler has
+    /// to be constructed *at* a type, and neither target can infer one from
+    /// an empty argument list.
+    pub use_handler_args: HashMap<Key, Vec<Ty>>,
     /// The implicit parameters of each *effect member* [implicit-param]:
     /// members have no `FnKey`, so they are keyed by the span of the member's
     /// name. The emitters read this where they render the member — the
@@ -2183,10 +2190,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the current scope. Registering two handlers for the same effect
     /// instance is an error [use-no-dup].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
-        let (id, args): (&Ident, &'p [Expr]) = match handler {
-            Expr::Ident(id) => (id, &[]),
-            Expr::Call { callee, args, .. } => match callee.as_ref() {
-                Expr::Ident(id) => (id, args.as_slice()),
+        let (id, args, written_type_args): (&Ident, &'p [Expr], &'p [ast::Type]) = match handler {
+            Expr::Ident(id) => (id, &[], &[]),
+            Expr::Call {
+                callee,
+                args,
+                type_args,
+                ..
+            } => match callee.as_ref() {
+                Expr::Ident(id) => (id, args.as_slice(), type_args.as_slice()),
                 _ => {
                     self.error(span, "`use` expects a handler name or constructor call");
                     self.check_expr(handler, None);
@@ -2264,11 +2276,64 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fate_move(a, "store", "a `use` handler registration", a.span());
         }
         let mut subst: HashMap<String, Ty> = HashMap::new();
+        // [effect-handler-generics] A `use` may write the handler's type
+        // arguments (`use Plain<Int>()`), and for a handler with no
+        // constructor argument to infer from, that is the *only* thing that
+        // can bind them — so they are read first, and a constructor argument
+        // that disagrees is the error rather than the winner.
+        if !written_type_args.is_empty() {
+            if written_type_args.len() != decl.generics.len() {
+                self.error(
+                    id.span,
+                    format!(
+                        "handler `{}` takes {} type argument(s), found {}",
+                        id.name,
+                        decl.generics.len(),
+                        written_type_args.len()
+                    ),
+                );
+            }
+            for (g, ta) in decl.generics.iter().zip(written_type_args) {
+                let lowered = self.lower_type(ta);
+                subst.insert(g.name.clone(), lowered);
+            }
+        }
         for (p, a) in param_tys.iter().zip(&arg_tys) {
-            unify(p, a, &mut subst);
+            let mut from_args: HashMap<String, Ty> = HashMap::new();
+            unify(p, a, &mut from_args);
+            for (name, ty) in from_args {
+                match subst.get(&name) {
+                    Some(written) if !ty.is_unknown() && !is_subtype(&ty, written) => {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` was used at `{name} = {written}`, but an \
+                                 argument makes it `{ty}`",
+                                id.name
+                            ),
+                        );
+                    }
+                    Some(_) => {}
+                    None => {
+                        subst.insert(name, ty);
+                    }
+                }
+            }
         }
         let generic_set: HashSet<String> =
             decl.generics.iter().map(|g| g.name.clone()).collect();
+        // The handler's own type arguments, in declaration order, for the
+        // emitters: a generic handler has to be *constructed* at a type
+        // (`Plain<Int>()`, `Plain::<i32>::new()`), which neither target can
+        // infer from an empty argument list.
+        if !decl.generics.is_empty() {
+            let args: Vec<Ty> = decl
+                .generics
+                .iter()
+                .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
+                .collect();
+            self.out.use_handler_args.insert(self.key(span), args);
+        }
         // Record argument coercions against the substituted param types.
         for (i, p) in param_tys.iter().enumerate().take(arg_tys.len()) {
             let sp = substitute_vars(p, &subst, &generic_set);

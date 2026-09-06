@@ -523,7 +523,10 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     ));
     // `use` instantiates handlers into `let mut` locals.
     assert!(main.content.contains("let mut console = StdOutConsole::new();"));
-    assert!(main.content.contains("let mut random_i32 = CyclicRandom::new(vec![10, 20, 30]);"));
+    assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
+    // turbofish is written even where rustc could have inferred it, since a
+    // stateless generic handler gives it nothing to infer from.
+    main.content.contains("let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30]);"));
     // Threading and expected-type disambiguation.
     assert!(main.content.contains("draw(&mut random_i32, &mut random_string, &mut console);"));
     assert!(main.content.contains("let mut n: i32 = random_i32.next_random();"));
@@ -3941,4 +3944,79 @@ fn rustc_compiles_and_runs_effect_member_implicits() {
     }
     let files = generate(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
     run_rust_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
+}
+
+// ===== [effect-handler-generics] a `use` gives its handler type arguments =====
+
+/// A stateless generic handler: `use Plain<Int>()` is the *only* thing that
+/// can say what `T` is, since there is no constructor argument to infer it
+/// from. The written arguments used to be discarded by the checker and both
+/// emitters, so this program type-checked and then failed in rustc
+/// (`E0283`, plus `E0392` for the handler struct) — a [backend-never-wrong]
+/// violation, fixed 2026-09-06.
+const HANDLER_GENERICS_DEMO: &str = r#"
+effect Show<T> {
+    fn show(v: T) -> [v] Str
+}
+
+// Stateless *and* generic: nothing but the `use` site can say what `T` is.
+handler Plain<T> of Show<T> {
+    fn show(v: T) -> [v] Str {
+        return "plain"
+    }
+}
+
+effect Tag<T> {
+    fn tagged(v: T) -> [v] Str
+}
+
+// Generic with state: the constructor argument used to be the only thing
+// that could bind `T`, and still works.
+handler Prefixed<T>(prefix: Str) of Tag<T> {
+    fn tagged(v: T) -> [v] Str {
+        return "${prefix}!"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Plain<Int>()
+    use Prefixed<Int>("p")
+    println(show(7))
+    println(tagged(7))
+}
+"#;
+
+const HANDLER_GENERICS_OUTPUT: &str = "plain\np!\n";
+
+#[test]
+fn a_generic_handler_is_constructed_at_its_type() {
+    let files = generate(&[("main.sv", HANDLER_GENERICS_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The turbofish, from the written type argument alone...
+        "let mut show_i32 = Plain::<i32>::new();",
+        // ...and where a constructor argument could also have bound it.
+        "let mut tag_i32 = Prefixed::<i32>::new(\"p\".to_string());",
+        // A type parameter no field mentions needs `PhantomData`, or the
+        // struct itself does not compile (`E0392`).
+        "__phantom_T: std::marker::PhantomData<T>,",
+        "__phantom_T: std::marker::PhantomData,",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", HANDLER_GENERICS_DEMO)]);
+    run_rust_files(&files, "handler-generics", HANDLER_GENERICS_OUTPUT);
 }

@@ -880,6 +880,18 @@ Conventions:
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:
   the emitted `Name()` is not a constructor, `E0423`.)
+* [effect-handler-generics] A `use` may write its handler's type arguments
+  (`use Plain<Int>()`), and they bind the handler's generics — which for a
+  handler with no constructor argument is the only thing that can, since
+  there is nothing else to infer them from.
+  * The written list and what the constructor arguments imply must **agree**:
+    a disagreement is an error naming both, rather than one silently winning.
+    The wrong *number* of arguments is reported against the handler.
+  * What they decide is the **effect instance** the `use` registers, which is
+    what a member call resolves against [effect-disambiguation] — so this is
+    a language-level rule, not a rendering detail. Both backends then have to
+    construct the handler *at* that type, since neither target can infer a
+    class's parameter from an empty argument list.
 * [effect-handler-deps] A handler constructor parameter of **effect type**
   is a *dependency*: the one position where an effect names something a
   handler holds ([effect-not-data]). It is declared on the *handler*, not

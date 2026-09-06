@@ -936,6 +936,20 @@ use StdOutConsole()                // this is how you register it
 println("...")                     // and this is how you use it
 ```
 
+A generic handler can be registered at a type by writing it on the `use`:
+
+```
+handler Plain<T> of Show<T> { ... }
+
+use Plain<Int>()        // registers `Show<Int>`
+```
+
+For a handler with a constructor argument the type is usually implied by it
+(`use Prefixed("p")`), and writing it as well is fine as long as the two
+agree — a disagreement is an error rather than one quietly winning. A handler
+with *no* argument has nothing to imply it, so there the written form is the
+only way.
+
 Almost every action other than simple data transformation needs to be encoded in an effect. For example, printing to the console is managed by an effect:
 
 ```

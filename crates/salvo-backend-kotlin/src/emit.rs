@@ -1834,7 +1834,23 @@ impl<'p> Emitter<'p> {
             }
         }
         ctor_args.extend(written);
-        let handler_code = format!("{}({})", kt_ident(&handler_name), ctor_args.join(", "));
+        // [effect-handler-generics] A generic handler is constructed *at* a
+        // type: Kotlin cannot infer the class's parameter from an empty
+        // argument list, so the `use` site's type arguments are written out.
+        let type_args = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
+            Some(args) if args.iter().all(ty_is_concrete) => {
+                let args = args.clone();
+                let rendered: Vec<String> =
+                    args.iter().map(|a| self.kotlin_ty(a)).collect();
+                format!("<{}>", rendered.join(", "))
+            }
+            _ => String::new(),
+        };
+        let handler_code = format!(
+            "{}{type_args}({})",
+            kt_ident(&handler_name),
+            ctor_args.join(", ")
+        );
         let (effect_ty, rendered) = match self.checked.use_effects.get(&(self.file_idx, span)) {
             Some(ty) if ty_is_concrete(ty) => {
                 let ty = ty.clone();

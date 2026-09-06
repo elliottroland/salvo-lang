@@ -74,8 +74,8 @@ pub fn lucky_number(random_i32: &mut dyn Random<i32>) -> i32 {
 
 pub fn main() {
     let mut console = StdOutConsole::new();
-    let mut random_i32 = CyclicRandom::new(vec![10, 20, 30]);
-    let mut random_string = CyclicRandom::new(vec!["a".to_string(), "b".to_string()]);
+    let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30]);
+    let mut random_string = CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()]);
     draw(&mut random_i32, &mut random_string, &mut console);
     draw(&mut random_i32, &mut random_string, &mut console);
     println(&mut console, &(format!("lucky: {}", random_i32.next_random())));

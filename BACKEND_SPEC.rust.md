@@ -445,6 +445,15 @@ derives them mechanically:
   * A bare call to an implicit parameter's name goes through the parameter,
     borrowing it for the call, which is why an argument of *that* call gets
     the same hoisting treatment.
+* [effect-handler-generics] A generic handler is constructed **at** a type:
+  `Plain::<i32>::new()`, from the type arguments the checker resolved for the
+  `use` site. Written even where rustc could infer them — the emitter does
+  not reason about the target's inference, and the case that needs them most
+  (a handler with no constructor argument) leaves nothing to infer from.
+  * A type parameter **no field mentions** gets a
+    `__phantom_T: PhantomData<T>` field, initialized in `new`. A handler is a
+    behaviour, and a generic one need hold nothing; Rust insists every
+    parameter be used (`E0392`).
 * [rs-fn-param-convention] A lambda passed into a fn-typed parameter binds
   its parameters the way the **callee's declared fn type** renders them,
   not the way the lambda's own annotation would: the callee fixes the
@@ -688,20 +697,17 @@ effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
   parameter. Kotlin accepts *this* one (erasure), so it is a real
   divergence, and the way to lift it is to derive the handler's arguments at
   the `use` site by unifying its `of` clause against the checker's instance.
-* A `use` whose **effect instance is still generic** — a handler whose type
-  arguments the checker could not infer, or an effect list generic in the
-  enclosing fn (`fn f<T>() [Random<T>, use]`). The fusion names its effects
-  in impl headers, so an unresolved `T` would be an undeclared type. Lifting
-  this means threading the enclosing fn's generics into the generated items.
-  * **Two caveats found 2026-09-06, both recorded under PROGRESS.md's "Open
-    defects".** The report fires only on the *fusion* path, so a
-    single-effect program emits invalid Rust instead (`E0283`, plus `E0392`
-    for a stateless generic handler struct). And `use Relay<Int>()` is not
-    an example of an instance the checker "could not infer": the written
-    `<Int>` is discarded before anyone looks at it, so the instance is
-    generic for a reason that has nothing to do with the fusion — and Kotlin
-    does *not* accept that shape either, contrary to what the sibling cut
-    above claims about erasure.
+* A `use` whose **effect instance is still generic** — an effect list generic
+  in the enclosing fn (`fn f<T>() [Random<T>, use]`). The fusion names its
+  effects in impl headers, so an unresolved `T` would be an undeclared type.
+  Lifting this means threading the enclosing fn's generics into the generated
+  items.
+  * `use Relay<Int>()` **is no longer an example**: the written type
+    arguments now bind the handler's generics [effect-handler-generics], so
+    that instance is concrete and the cut does not apply. Until 2026-09-06
+    they were discarded, and because this report fires only on the *fusion*
+    path a single-effect program emitted invalid Rust instead (`E0283`, plus
+    `E0392`).
 * A generated **conjunction trait name claimed by two different effect
   sets**: sanitizing `<`/`,` to `_` is not injective, so an effect literally
   named `Random_i32` collides with `Random<i32>`. Vanishingly unlikely, but

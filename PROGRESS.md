@@ -1,5 +1,35 @@
 # Salvo Compiler — Progress & Plan
 
+**`use Handler<T>()` now binds the handler's generics (fixed 2026-09-06).**
+Found while recording it as a defect, which is the only reason it was found at
+all: the written type arguments were *parsed* and then read by nobody, so the
+checker left the effect instance generic and both emitters constructed the
+handler with no type argument. Both backends emitted code their own compiler
+rejected — Kotlin "cannot infer type for type parameter 'T'", Rust `E0283`
+plus `E0392` — with `salvo analyze` reporting nothing, which is a
+[backend-never-wrong] violation rather than a documented cut. A generic
+handler could therefore only be instantiated when a *constructor argument*
+happened to bind its parameter, which a stateless one never has.
+
+The fix follows the data: `check_use` binds the handler's generics from the
+written list first (a constructor argument that disagrees is now an error, and
+the wrong number of arguments is reported), records them as
+`use_handler_args`, and both emitters write them at the constructor —
+`Plain<Int>()`, `Plain::<i32>::new()`. Rust additionally emits a
+`PhantomData` field for a type parameter no field mentions, since a handler is
+a *behaviour* and a generic one need hold nothing, where Rust insists every
+parameter be used (`E0392`).
+
+Two things this corrected in the specs, both under [rs-effect-fusion]'s cut
+list. Its "Reported" promise held only on the *fusion* path, so a
+single-effect program emitted invalid Rust instead; and its claim that
+"Kotlin accepts these (erasure)" was false — erasure removes a type argument
+from the JVM, not from the source, so Kotlin needs it written exactly as Rust
+does. The type arguments are now written **even where the target could have
+inferred them**: the emitter does not reason about the target's inference, and
+the case that motivated the fix leaves nothing to infer from. That made two
+golden snapshots and three assertions more explicit.
+
 **Implicit parameters landed 2026-09-05 (user decisions), and they are what
 Salvo got instead of traits.** `?cmp: (T, T) -> Int` is a parameter the caller
 need not pass: the call site fills it by resolving the parameter's *name* at
@@ -1403,7 +1433,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 566 tests, complete: the toolchain tests are
+cargo test                  # 574 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -2263,64 +2293,11 @@ by faithful emission. Rule [fn-contract]:
 
 ## Open defects
 
-Bugs found and reproduced, not yet fixed. Each has a repro small enough to
-paste, and a root cause, so picking one up needs no re-investigation.
+Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
+paste and a root cause, so picking one up needs no re-investigation.
 
-### `use Handler<T>()`'s type arguments go nowhere (found 2026-09-06)
-
-**Both backends emit code their own compiler rejects, and the checker reports
-nothing** — a [backend-never-wrong] violation, not a documented cut. Repro:
-
-```
-effect Show<T> {
-    fn show(v: T) -> [v] Str
-}
-
-handler Plain<T> of Show<T> {
-    fn show(v: T) -> [v] Str {
-        return "shown"
-    }
-}
-
-fn main() [use] {
-    use Plain<Int>()          // the `<Int>` is silently discarded
-    let s: Str = show(7)
-}
-```
-
-`salvo analyze` reports no errors. Kotlin emits
-`val show_t: Show<T> = Plain()` → *cannot infer type for type parameter 'T'*.
-Rust emits `let mut show_t = Plain::new();` → `E0283` (type annotations
-needed), plus `E0392` (unused type parameter `T`) for the handler struct,
-which has no fields to mention `T`.
-
-**Root cause, one place:** `check_use` derives the handler's type arguments
-*only* by unifying the **constructor arguments** against the handler's
-parameter types. A stateless handler has no arguments, so nothing binds `T`;
-`concrete` stays `Show<T>`, and `use_effects` records a non-concrete
-instance. The explicitly written `<Int>` is parsed (`Expr::Call` carries
-`type_args`) and then read by nobody: both emitters match
-`Expr::Call { callee, args, .. }` and drop it, so the constructor is rendered
-as `Plain()` / `Plain::new()` with no type argument anywhere. Consequence: a
-generic handler can only be instantiated today when a constructor argument
-happens to bind its parameter.
-
-**Two spec claims this falsifies**, both in [rs-effect-fusion]'s cut list:
-
-- "a `use` whose effect instance is still generic … **Reported**": it is
-  reported only on the fusion path, which a single-effect program never
-  reaches — so this repro emits silently invalid Rust instead.
-- "Kotlin accepts these (erasure)": it does not. Erasure removes the type
-  *argument* from the JVM, but Kotlin still needs it written at the
-  constructor to infer the class's parameter.
-
-**Fix, in the order the data flows:** bind the handler's generics from the
-written `type_args` in `check_use` (unify its `of` clause against them, and
-report a mismatch between written arguments and inferred ones), then render
-them at both constructors (`Plain<Int>()`, `Plain::<i32>::new()`). Rust
-additionally needs a `PhantomData` field, or the type parameter dropped from
-the struct, for a generic handler with no state. With the instance concrete,
-the fusion's existing cut stops applying to this shape at the same time.
+*(None open. The last entry — `use Handler<T>()`'s type arguments going
+nowhere — was fixed 2026-09-06; see the decision-log entry at the top.)*
 
 ## Roadmap: toward full linear types
 
@@ -3977,7 +3954,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 566)
+## Test inventory (all green: 574)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -4101,7 +4078,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   shared exclusion list, nothing-to-remove rejected, a *type* on the right
   rejected, more than one arm rejected, the no-binding parse error, and a
   `^` branch consuming its arms so exhaustiveness still reports the rest)
-  + 21 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
+  + 25 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
   [implicit-group] [implicit-resolve] [implicit-forward] [implicit-override]
   [implicit-fn-only]: a group's members and a written `?cmp` resolved from the
   visible overloads; an unresolvable one reporting *both* remedies; one member
@@ -4115,7 +4092,10 @@ and `cargo nextest run` when you want to see which tests cost what.
   override one, while a handler constructor may not [implicit-fn-only]; and
   the three diagnostics a printed type cannot carry — a contract mismatch
   explained for a resolved default and for a call-site override, and an
-  ambiguity that says how many matched)
+  ambiguity that says how many matched); plus 4 handler-generics tests
+  [effect-handler-generics]: a `use` writing its handler's type arguments, a
+  constructor argument still binding them, the two disagreeing reported, and
+  the wrong number of them rejected)
   + 14 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its

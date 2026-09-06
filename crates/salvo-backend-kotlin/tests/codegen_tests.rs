@@ -726,14 +726,18 @@ fn effects_resolve_through_checker_tables() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
-    // `use` registers the *concrete* effect instance: the handler's
-    // generics are inferred from the constructor arguments.
+    // `use` registers the *concrete* effect instance: the handler's generics
+    // come from the written type arguments or from the constructor arguments,
+    // and are written out at the constructor either way
+    // [effect-handler-generics] — the emitter does not reason about what
+    // Kotlin could have inferred, and a stateless generic handler leaves it
+    // nothing to infer from.
     assert!(main
         .content
-        .contains("val random_int: Random<Int> = CyclicRandom(listOf<Int>(10, 20, 30))"));
+        .contains("val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(10, 20, 30))"));
     assert!(main
         .content
-        .contains("val random_string: Random<String> = CyclicRandom(listOf<String>(\"a\", \"b\"))"));
+        .contains("val random_string: Random<String> = CyclicRandom<String>(listOf<String>(\"a\", \"b\"))"));
     // Callee effect dependencies are threaded in declaration order.
     assert!(main.content.contains("draw(random_int, random_string, console)"));
     assert!(main.content.contains("lucky_number(random_int)"));
@@ -2971,7 +2975,8 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
     // parameter and its call site must agree with it.
     assert!(
-        main.content.contains("val random_int: Random<Int> = CyclicRandom(listOf<Int>(7, 8))"),
+        main.content
+            .contains("val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(7, 8))"),
         "unexpected use lowering in:\n{}",
         main.content
     );
@@ -4536,4 +4541,78 @@ fn kotlinc_compiles_and_runs_effect_member_implicits() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
+}
+
+// ===== [effect-handler-generics] a `use` gives its handler type arguments =====
+
+/// The same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_generic_handler`. Kotlin needed the fix too:
+/// erasure removes a type argument from the JVM but not from the *source*, so
+/// `val h: Show<Int> = Plain()` is a kotlinc error ("cannot infer type for
+/// type parameter 'T'") — which the spec used to claim erasure made
+/// impossible.
+const HANDLER_GENERICS_DEMO: &str = r#"
+effect Show<T> {
+    fn show(v: T) -> [v] Str
+}
+
+// Stateless *and* generic: nothing but the `use` site can say what `T` is.
+handler Plain<T> of Show<T> {
+    fn show(v: T) -> [v] Str {
+        return "plain"
+    }
+}
+
+effect Tag<T> {
+    fn tagged(v: T) -> [v] Str
+}
+
+// Generic with state: the constructor argument used to be the only thing
+// that could bind `T`, and still works.
+handler Prefixed<T>(prefix: Str) of Tag<T> {
+    fn tagged(v: T) -> [v] Str {
+        return "${prefix}!"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Plain<Int>()
+    use Prefixed<Int>("p")
+    println(show(7))
+    println(tagged(7))
+}
+"#;
+
+const HANDLER_GENERICS_OUTPUT: &str = "plain\np!\n";
+
+#[test]
+fn a_generic_handler_is_constructed_at_its_type() {
+    let program = build_program(&[("main.sv", HANDLER_GENERICS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    for expected in [
+        "val show_int: Show<Int> = Plain<Int>()",
+        "val tag_int: Tag<Int> = Prefixed<Int>(\"p\")",
+    ] {
+        assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_generic_handler() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", HANDLER_GENERICS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "handler-generics", HANDLER_GENERICS_OUTPUT);
 }

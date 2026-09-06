@@ -1351,13 +1351,32 @@ impl<'p> Emitter<'p> {
 
         // Struct: own ctor params + state fields.
         let mut out = format!("\npub struct {name}{generics} {{\n");
+        let mut field_types = String::new();
         for p in &own {
             let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+            field_types.push_str(&ty);
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
         }
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
+            field_types.push_str(&ty);
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&field.name.name)));
+        }
+        // [effect-handler-generics] A type parameter no field mentions is an
+        // error in Rust (`E0392`) though the handler is perfectly well formed
+        // in Salvo — a handler is a *behaviour*, and a generic one need hold
+        // nothing. `PhantomData` is what says "generic over this, storing
+        // none of it".
+        let phantom: Vec<&Ident> = h
+            .generics
+            .iter()
+            .filter(|g| !mentions_ident(&field_types, &g.name))
+            .collect();
+        for g in &phantom {
+            out.push_str(&format!(
+                "    __phantom_{}: std::marker::PhantomData<{}>,\n",
+                g.name, g.name
+            ));
         }
         out.push_str("}\n");
 
@@ -1395,6 +1414,12 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!(
                 "            {}: {init},\n",
                 rs_ident(&field.name.name)
+            ));
+        }
+        for g in &phantom {
+            out.push_str(&format!(
+                "            __phantom_{}: std::marker::PhantomData,\n",
+                g.name
             ));
         }
         out.push_str("        }\n    }\n}\n");
@@ -3369,10 +3394,22 @@ impl<'p> Emitter<'p> {
         };
         // Ctor args are owned (a `use` argument is a move [deduce-infer]).
         let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        // [effect-handler-generics] A generic handler is constructed *at* a
+        // type: with no argument to infer from, rustc needs the turbofish
+        // (`E0283` otherwise).
+        let turbofish = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
+            Some(args) if args.iter().all(ty_is_concrete) => {
+                let args = args.clone();
+                let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+                format!("::<{}>", rendered.join(", "))
+            }
+            _ => String::new(),
+        };
         if self.fusion {
             return self.emit_fusion_use(
                 decl,
                 &handler_name,
+                &turbofish,
                 arg_code,
                 checked_ty,
                 effect_ty,
@@ -3388,7 +3425,7 @@ impl<'p> Emitter<'p> {
         });
         self.bindings.insert(var.clone(), BindKind::Owned);
         format!(
-            "{pad}let mut {var} = {}::new({});\n",
+            "{pad}let mut {var} = {}{turbofish}::new({});\n",
             rs_ident(&handler_name),
             arg_code.join(", ")
         )
@@ -3409,6 +3446,10 @@ impl<'p> Emitter<'p> {
         &mut self,
         decl: &HandlerDecl,
         handler_name: &str,
+        // [effect-handler-generics] The `use` site's type arguments, if the
+        // handler is generic: rustc cannot infer them from an empty
+        // constructor call.
+        turbofish: &str,
         arg_code: Vec<String>,
         checked_ty: Option<Ty>,
         effect_ty: String,
@@ -3551,8 +3592,14 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("{pad}{line}\n"));
         }
         let fields = match provider {
-            Some(p) => format!("__outer: {p}, __h: {handler_ident}::new({})", arg_code.join(", ")),
-            None => format!("__h: {handler_ident}::new({})", arg_code.join(", ")),
+            Some(p) => format!(
+                "__outer: {p}, __h: {handler_ident}{turbofish}::new({})",
+                arg_code.join(", ")
+            ),
+            None => format!(
+                "__h: {handler_ident}{turbofish}::new({})",
+                arg_code.join(", ")
+            ),
         };
         out.push_str(&format!("{pad}let mut {var} = {struct_name} {{ {fields} }};\n"));
         // Every effect in scope now threads through the new fusion.

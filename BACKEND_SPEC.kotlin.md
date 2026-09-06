@@ -298,6 +298,15 @@ Conventions:
 
 * [effect-decl] Effects emit as Kotlin `interface`s. The throw effect is the
   exception: it emits nothing, since it has no handlers [kt-throw-signal].
+* [effect-handler-generics] A generic handler is constructed **at** a type:
+  `Plain<Int>(args)`, from the type arguments the checker resolved for the
+  `use` site — written even where Kotlin could infer them from the
+  constructor arguments, because the emitter does not reason about the
+  target's inference and a handler with no arguments leaves nothing to infer
+  from. Erasure removes a type argument from the JVM, not from the *source*:
+  `val h: Show<Int> = Plain()` is a kotlinc error, so Kotlin needs this as
+  much as Rust does (fixed 2026-09-06 — it was a shared defect, not a Rust
+  one).
 * [kt-handler-class] All handlers — intrinsic ones included — emit as
   Kotlin *classes* (never `object`s) and are instantiated at their `use`
   site; state fields become `private var`, constructor params
@@ -532,13 +541,6 @@ same programs running ([rs-effect-fusion]).
     [rs-crate]).
 
 ## Deliberate cuts ([backend-never-wrong])
-
-Known gap, *not* reported (PROGRESS.md, "Open defects"): a `use` of a generic
-handler whose type argument only the `use` site knows (`use Plain<Int>()`)
-emits `val h: Show<T> = Plain()`, which kotlinc rejects — the written
-argument is discarded by the checker, so neither the declared type nor the
-constructor carries it. Erasure removes the argument from the JVM but not
-from the *source*, so Kotlin needs it written like Rust does.
 
 Reported as codegen errors, never silent wrong code:
 

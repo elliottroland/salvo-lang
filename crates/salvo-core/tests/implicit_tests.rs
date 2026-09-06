@@ -478,3 +478,88 @@ fn an_ambiguous_implicit_says_so() {
         "expected the ambiguity error, got: {errs:?}"
     );
 }
+
+// ===== [effect-handler-generics] a `use` may write its handler's types =====
+//
+// A handler with no constructor argument has nothing to infer its generics
+// from, so the `use` site's written type arguments are the only source. They
+// used to be discarded silently, which both backends then turned into invalid
+// target code — see PROGRESS.md's "Open defects" entry, fixed 2026-09-06.
+
+const HANDLER_PRELUDE: &str = r#"
+effect Show<T> {
+    fn show(v: T) -> [v] Str
+}
+
+handler Plain<T> of Show<T> {
+    fn show(v: T) -> [v] Str { return "plain" }
+}
+
+handler Prefixed<T>(prefix: Str) of Show<T> {
+    fn show(v: T) -> [v] Str { return prefix }
+}
+"#;
+
+/// The written arguments make the instance concrete, which is what a member
+/// call resolves against.
+#[test]
+fn a_use_can_write_its_handlers_type_arguments() {
+    let errs = errors(&format!(
+        "{HANDLER_PRELUDE}\n\
+         fn probe() [use] -> [] Str {{\n\
+         use Plain<Int>()\n\
+         return show(1)\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// A constructor argument still binds them, as it always did.
+#[test]
+fn a_constructor_argument_still_binds_them() {
+    let errs = errors(&format!(
+        "{HANDLER_PRELUDE}\n\
+         fn probe() [use] -> [] Str {{\n\
+         use Prefixed<Int>(\"p\")\n\
+         return show(1)\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// Written arguments that disagree with what an argument implies are an
+/// error, not a silent winner either way.
+#[test]
+fn written_type_arguments_must_agree_with_the_constructor() {
+    let errs = errors(&format!(
+        "{HANDLER_PRELUDE}\n\
+         handler Echo<T>(seed: T) of Show<T> {{\n\
+         fn show(v: T) -> [v] Str {{ return \"e\" }}\n\
+         }}\n\
+         fn probe() [use] -> [] Str {{\n\
+         use Echo<Str>(1)\n\
+         return show(\"x\")\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("but an argument makes it")),
+        "expected the disagreement to be reported, got: {errs:?}"
+    );
+}
+
+/// And the wrong *number* of them is reported against the handler.
+#[test]
+fn the_wrong_number_of_type_arguments_is_rejected() {
+    let errs = errors(&format!(
+        "{HANDLER_PRELUDE}\n\
+         fn probe() [use] -> [] Str {{\n\
+         use Plain<Int, Str>()\n\
+         return show(1)\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("takes 1 type argument(s), found 2")),
+        "expected the arity error, got: {errs:?}"
+    );
+}
