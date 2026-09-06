@@ -395,6 +395,11 @@ same programs running ([rs-effect-fusion]).
   * Inside the body a call to an implicit parameter's name invokes the
     parameter, so it is emitted before overload resolution is consulted: the
     parameter *is* the chosen overload.
+  * An **effect member**'s implicits are part of its signature, so the
+    interface method, every handler's `override`, the intrinsic-handler
+    lowering and the generated host skeleton all take them — one helper
+    renders a member's parameter list, so they cannot drift — and a member
+    call passes them as trailing arguments after the receiver's own.
 * [fn-iterator] Iterator fns emit
   `return Iterable<T> { iterator { ... } }`; `yield x` → `yield(x)`; bare
   `return` → `return@iterator`.
@@ -527,6 +532,13 @@ same programs running ([rs-effect-fusion]).
     [rs-crate]).
 
 ## Deliberate cuts ([backend-never-wrong])
+
+Known gap, *not* reported (PROGRESS.md, "Open defects"): a `use` of a generic
+handler whose type argument only the `use` site knows (`use Plain<Int>()`)
+emits `val h: Show<T> = Plain()`, which kotlinc rejects — the written
+argument is discarded by the checker, so neither the declared type nor the
+constructor carries it. Erasure removes the argument from the JVM but not
+from the *source*, so Kotlin needs it written like Rust does.
 
 Reported as codegen errors, never silent wrong code:
 

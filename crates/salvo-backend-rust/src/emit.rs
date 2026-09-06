@@ -1163,7 +1163,11 @@ impl<'p> Emitter<'p> {
                 ));
                 continue;
             }
-            let params = self.emit_member_param_list(&f.params);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(&f.params),
+                self.emit_member_implicits(f)
+            );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret};\n",
@@ -1190,7 +1194,11 @@ impl<'p> Emitter<'p> {
             if !f.generics.is_empty() {
                 continue;
             }
-            let params = self.emit_member_param_list(&f.params);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(&f.params),
+                self.emit_member_implicits(f)
+            );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n        \
@@ -1260,6 +1268,9 @@ impl<'p> Emitter<'p> {
     fn emit_member_param_list(&mut self, params: &[Param]) -> String {
         let mut out = String::new();
         for p in params {
+            if p.implicit {
+                continue; // appended by `emit_member_implicits`, in order
+            }
             let mode = self.default_param_mode(&p.ty, p.variadic);
             out.push_str(", ");
             out.push_str(&format!(
@@ -1269,6 +1280,39 @@ impl<'p> Emitter<'p> {
             ));
         }
         out
+    }
+
+    /// [implicit-param] A member's implicit parameters, as its interface
+    /// renders them. **`dyn`, not `impl`**: an effect trait is used as
+    /// `&mut dyn E` [rs-effects], and `impl Trait` in argument position
+    /// would make the trait not object-safe, so the one place a member's
+    /// parameters are rendered has to dispatch dynamically. A plain fn keeps
+    /// `impl FnMut` and monomorphises.
+    fn emit_member_implicits(&mut self, f: &FnDecl) -> String {
+        let implicits = self.implicits_of(f);
+        let mut out = String::new();
+        for imp in &implicits {
+            let rendered = self.implicit_param_type(&imp.ty);
+            out.push_str(&format!(", {}: {rendered}", rs_ident(&imp.name)));
+        }
+        out
+    }
+
+    /// [implicit-param] The implicit parameters of a fn or member: a
+    /// top-level fn by its `FnKey`, a member (an effect member's signature,
+    /// or a handler's implementation of one) by its own name span.
+    fn implicits_of(&self, f: &FnDecl) -> Vec<salvo_core::ImplicitParam> {
+        self.checked
+            .fn_refs
+            .get(&(self.file_idx, f.name.span))
+            .and_then(|key| self.checked.implicit_params.get(key).cloned())
+            .or_else(|| {
+                self.checked
+                    .implicit_members
+                    .get(&(self.file_idx, f.name.span))
+                    .cloned()
+            })
+            .unwrap_or_default()
     }
 
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
@@ -1478,14 +1522,24 @@ impl<'p> Emitter<'p> {
             if !f.generics.is_empty() {
                 continue; // already reported by `emit_effect`
             }
-            let params = self.emit_member_param_list(&f.params);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(&f.params),
+                self.emit_member_implicits(f)
+            );
             let ret = self.emit_return_type(f.return_type.as_ref());
             let member = rs_ident(&f.name.name);
-            let arg_names: Vec<String> = f
+            // [implicit-param] A forwarding impl passes the member's implicit
+            // parameters straight through, like every other argument.
+            let mut arg_names: Vec<String> = f
                 .params
                 .iter()
+                .filter(|p| !p.implicit)
                 .map(|p| rs_ident(&p.name.name))
                 .collect();
+            for imp in &self.implicits_of(f) {
+                arg_names.push(format!("&mut *{}", rs_ident(&imp.name)));
+            }
             let mut body = String::new();
             let recv = match forward {
                 Forward::Outer => "&mut *self.__outer".to_string(),
@@ -1593,7 +1647,11 @@ impl<'p> Emitter<'p> {
         }
         out.push_str(&format!("\nimpl {of} for {name} {{\n"));
         for member in &effect.fns {
-            let params = self.emit_member_param_list(&member.params);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(&member.params),
+                self.emit_member_implicits(member)
+            );
             let ret = self.emit_return_type(member.return_type.as_ref());
             let arg_names: Vec<String> = member
                 .params
@@ -1948,12 +2006,8 @@ impl<'p> Emitter<'p> {
         // [implicit-param] Implicit parameters are ordinary trailing
         // parameters of fn type, rendered like any other fn value
         // [fn-contract]: nothing about them survives into Rust.
-        let saved_implicits = std::mem::replace(
-            &mut self.implicits,
-            fn_key
-                .and_then(|k| self.checked.implicit_params.get(&k).cloned())
-                .unwrap_or_default(),
-        );
+        let own_implicits = self.implicits_of(f);
+        let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
         for imp in &self.implicits.clone() {
             let rendered = self.implicit_param_type(&imp.ty);
             self.bindings.insert(imp.name.clone(), BindKind::RefMut);
@@ -2638,9 +2692,18 @@ impl<'p> Emitter<'p> {
 
     /// Whether an AST type is a Copy scalar (post alias expansion).
     /// [implicit-param] The Rust type of an implicit parameter: a borrowed
-    /// `FnMut`, exactly as a written fn-typed parameter renders
-    /// [fn-contract]. Built from the checker's `Ty` rather than an AST type,
-    /// since a group's members were never written in this signature.
+    /// **`dyn`** `FnMut`. Built from the checker's `Ty` rather than an AST
+    /// type, since a group's members were never written in this signature.
+    ///
+    /// `dyn` rather than `impl`, uniformly, for two reasons that pull the
+    /// same way. An effect member's implicits land in a trait used as
+    /// `&mut dyn E` [rs-effects], where `impl Trait` in argument position
+    /// would cost object safety. And *forwarding* has to compose in every
+    /// direction: a member forwarding to a plain fn would otherwise hand a
+    /// `dyn` value to an `impl` (`Sized`) parameter, which rustc refuses —
+    /// so one convention everywhere is both simpler and the only sound
+    /// choice. The cost is an indirect call, which is what every effect
+    /// member call already pays.
     fn implicit_param_type(&mut self, ty: &Ty) -> String {
         let Ty::Fn { params, ret, .. } = ty.strip_quals() else {
             return self.rust_ty(ty);
@@ -2651,7 +2714,7 @@ impl<'p> Emitter<'p> {
         } else {
             format!(" -> {}", self.rust_ty(ret))
         };
-        format!("&mut impl FnMut({}){ret}", ps.join(", "))
+        format!("&mut dyn FnMut({}){ret}", ps.join(", "))
     }
 
     /// [rs-fn-param-convention] How the *declaration* of a fn type renders
@@ -5637,13 +5700,17 @@ impl<'p> Emitter<'p> {
                 .effects
                 .get(effect)
                 .and_then(|e| e.fns.iter().find(|f| f.name.name == name));
-            let arg_code = match member {
+            let mut arg_code = match member {
                 Some(m) => {
                     let m = m.clone();
                     self.emit_args_for_params(&m.params, args, None)
                 }
                 None => args.iter().map(|a| self.emit_expr(a)).collect(),
             };
+            // [implicit-param] A member's implicit parameters are part of its
+            // signature, so they arrive as trailing arguments here exactly as
+            // for a plain fn call [implicit-resolve].
+            arg_code.extend(self.emit_implicit_args(named, span));
             if !self.fusion {
                 return format!("{handler}.{}({})", rs_ident(name), arg_code.join(", "));
             }
@@ -6003,22 +6070,9 @@ impl<'p> Emitter<'p> {
         let mut out = Vec::new();
         for arg in &filled {
             match arg {
-                salvo_core::ImplicitArg::Given { name } => {
+                salvo_core::ImplicitArg::Given { name, arity } => {
                     match named.iter().find(|a| a.name.name == *name) {
-                        Some(a) => {
-                            let arity = self
-                                .checked
-                                .implicit_params
-                                .values()
-                                .flatten()
-                                .find(|p| p.name == *name)
-                                .map(|p| match p.ty.strip_quals() {
-                                    Ty::Fn { params, .. } => params.len(),
-                                    _ => 0,
-                                })
-                                .unwrap_or(0);
-                            out.push(self.implicit_value(&a.value, arity));
-                        }
+                        Some(a) => out.push(self.implicit_value(&a.value, *arity)),
                         None => {
                             self.error(format!(
                                 "internal: no value for implicit parameter `{name}`"

@@ -638,7 +638,7 @@ impl<'p> Emitter<'p> {
             // [effect-member-generics].
             let member_saved = self.enter_generics(&f.generics);
             let member_generics = self.emit_generic_params(&f.generics);
-            let params = self.emit_param_list(&f.params);
+            let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fun{member_generics} {}({params}){ret}\n",
@@ -664,7 +664,7 @@ impl<'p> Emitter<'p> {
         );
         for f in &e.fns {
             let member_saved = self.enter_generics(&f.generics);
-            let params = self.emit_param_list(&f.params);
+            let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n        \
@@ -827,7 +827,7 @@ impl<'p> Emitter<'p> {
         };
         let mut out = format!("\nclass {}{ctor} : {of} {{\n", h.name.name);
         for member in &effect.fns {
-            let params = self.emit_param_list(&member.params);
+            let params = self.emit_member_param_list_with_implicits(member);
             let ret = self.emit_return_type(member.return_type.as_ref());
             let arg_names: Vec<String> = member
                 .params
@@ -1009,14 +1009,8 @@ impl<'p> Emitter<'p> {
         // [implicit-param] Implicit parameters are ordinary trailing
         // parameters of fn type: the caller passes what resolution found, so
         // nothing about them survives into the target language.
-        let saved_implicits = std::mem::replace(
-            &mut self.implicits,
-            self.checked
-                .fn_refs
-                .get(&(self.file_idx, f.name.span))
-                .and_then(|key| self.checked.implicit_params.get(key).cloned())
-                .unwrap_or_default(),
-        );
+        let own_implicits = self.implicits_of(f);
+        let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
         for imp in &self.implicits.clone() {
             let ty = self.kotlin_ty(&imp.ty);
             params.push(format!("{}: {ty}", kt_ident(&imp.name)));
@@ -1250,6 +1244,7 @@ impl<'p> Emitter<'p> {
     fn emit_param_list(&mut self, params: &[Param]) -> String {
         params
             .iter()
+            .filter(|p| !p.implicit)
             .map(|p| {
                 if p.variadic {
                     let elem = self.variadic_elem_type(&p.ty);
@@ -1477,9 +1472,21 @@ impl<'p> Emitter<'p> {
             Ty::Var(v) => v.clone(),
             Ty::Any => "Any".to_string(),
             Ty::Nothing => "Nothing".to_string(),
-            // Unions/fn types/unknowns do not occur as effect types; the
-            // Salvo-side rendering keeps the lookup falling back to
-            // base-name matching for anything unexpected.
+            // [implicit-param] A fn type reaches here as an implicit
+            // parameter's type, which is always one: `(A, B) -> R`, with a
+            // `None` result spelled `Unit` as Kotlin wants it.
+            Ty::Fn { params, ret, .. } => {
+                let ps: Vec<String> = params.iter().map(|p| self.kotlin_ty(p)).collect();
+                let r = if ret.is_none_ty() {
+                    "Unit".to_string()
+                } else {
+                    self.kotlin_ty(ret)
+                };
+                format!("({}) -> {r}", ps.join(", "))
+            }
+            // Unions/unknowns do not occur as effect types; the Salvo-side
+            // rendering keeps the lookup falling back to base-name matching
+            // for anything unexpected.
             other => other.to_string(),
         }
     }
@@ -3170,6 +3177,41 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [implicit-param] A member's parameter list *including* its implicit
+    /// parameters: an effect member's interface method, a handler's override
+    /// and a generated host skeleton all have to agree, so they all render
+    /// through here.
+    fn emit_member_param_list_with_implicits(&mut self, f: &FnDecl) -> String {
+        let mut params = self.emit_param_list(&f.params);
+        let implicits = self.implicits_of(f);
+        for imp in &implicits {
+            let ty = self.kotlin_ty(&imp.ty);
+            if !params.is_empty() {
+                params.push_str(", ");
+            }
+            params.push_str(&format!("{}: {ty}", kt_ident(&imp.name)));
+        }
+        params
+    }
+
+    /// [implicit-param] The implicit parameters of a fn or member: a
+    /// top-level fn is keyed by its `FnKey`, a member (an effect member's
+    /// signature, or a handler's implementation of one) by its own name span.
+    /// Both render the same way — trailing parameters of function type.
+    fn implicits_of(&self, f: &FnDecl) -> Vec<salvo_core::ImplicitParam> {
+        self.checked
+            .fn_refs
+            .get(&(self.file_idx, f.name.span))
+            .and_then(|key| self.checked.implicit_params.get(key).cloned())
+            .or_else(|| {
+                self.checked
+                    .implicit_members
+                    .get(&(self.file_idx, f.name.span))
+                    .cloned()
+            })
+            .unwrap_or_default()
+    }
+
     /// A named fn used as a value [fn-contract] [fn-effects]: a Kotlin
     /// function reference when the effect lists line up, an adapter lambda
     /// when they do not.
@@ -3427,7 +3469,11 @@ impl<'p> Emitter<'p> {
                 }
                 _ => self.lookup_effect_handler(effect, type_args),
             };
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            // [implicit-param] A member's implicit parameters are part of its
+            // signature, so they arrive as trailing arguments here exactly as
+            // for a plain fn call [implicit-resolve].
+            arg_code.extend(self.emit_implicit_args(named, span));
             return format!("{handler}.{}({})", kt_ident(name), arg_code.join(", "));
         }
 
@@ -3801,7 +3847,7 @@ impl<'p> Emitter<'p> {
         let mut out = Vec::new();
         for arg in &filled {
             match arg {
-                salvo_core::ImplicitArg::Given { name } => {
+                salvo_core::ImplicitArg::Given { name, .. } => {
                     match named.iter().find(|a| a.name.name == *name) {
                         Some(a) => out.push(self.emit_expr(&a.value)),
                         None => {

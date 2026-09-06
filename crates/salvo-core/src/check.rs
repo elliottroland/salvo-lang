@@ -229,8 +229,28 @@ pub struct Checked {
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
+    /// The implicit parameters of each *effect member* [implicit-param]:
+    /// members have no `FnKey`, so they are keyed by the span of the member's
+    /// name. The emitters read this where they render the member — the
+    /// interface or trait method, every handler's implementation of it, and
+    /// the host skeleton — since an implicit is part of the member's
+    /// signature like any other parameter.
+    pub implicit_members: HashMap<Key, Vec<ImplicitParam>>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
+}
+
+/// Why an implicit parameter could not be resolved [implicit-resolve]. The
+/// distinction *is* the diagnostic: "nothing of that name" and "declared,
+/// but its contract does not fit" need different words, and the second
+/// difference is invisible in a printed type.
+enum ImplicitMiss {
+    /// No fn of that name is visible.
+    Unknown,
+    /// One is, and here is why it does not fit.
+    NearMiss(String),
+    /// Several match, so choosing would be a guess.
+    Ambiguous(usize),
 }
 
 /// One implicit parameter of a fn [implicit-param], after group expansion.
@@ -253,8 +273,11 @@ pub struct ImplicitParam {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImplicitArg {
     /// The caller wrote `name = value`: the value is in the call's `named`
-    /// list, and the emitters render it like any argument.
-    Given { name: String },
+    /// list, and the emitters render it like any argument. The arity comes
+    /// along because a backend may have to adapt a bare fn name into a
+    /// closure, and only the parameter's type knows how many arguments it
+    /// takes.
+    Given { name: String, arity: usize },
     /// Forwarded from an implicit parameter of the enclosing fn, which has
     /// the same name and a matching type [implicit-forward]. Inside generic
     /// code this is the only possibility, since nothing about an opaque `T`
@@ -1059,7 +1082,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_platform_effect(e);
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
-                        self.reject_implicits(f, "an effect member");
                         self.reject_member_effects(f, "effect member functions");
                         self.require_explicit_member(f);
                         // Member signatures are declaration sites like any
@@ -1068,6 +1090,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let inner = self.enter_generics(&f.generics);
                         for p in &f.params {
                             self.validate_type(&p.ty);
+                        }
+                        // [implicit-param] An effect member is an ordinary
+                        // signature, so it may declare implicit parameters.
+                        // They belong to the member's signature — the
+                        // interface method takes them, every handler's
+                        // implementation takes them, and the call site fills
+                        // them — so the expansion is recorded here, keyed by
+                        // the member's name (a member has no `FnKey`).
+                        let implicits = self.collect_implicits(f);
+                        if !implicits.is_empty() {
+                            self.out
+                                .implicit_members
+                                .insert(self.key(f.name.span), implicits);
                         }
                         if let Some(rt) = &f.return_type {
                             self.validate_type(rt);
@@ -1233,6 +1268,79 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// constructor parameters and state fields as in-scope variables.
     // ================= implicit parameters [implicit-param] =================
 
+    /// Why a fn value does not fit a fn-typed position, in the words a
+    /// printed type cannot supply.
+    ///
+    /// `Ty`'s Display shows parameters, effects and the result, but **not the
+    /// contract** — what a call does to each argument — so two types that
+    /// differ only there render identically, and the bare mismatch reads
+    /// "expects `(Int, Int) -> Int`, found `(Int, Int) -> Int`". This names
+    /// the argument, the direction, and what to write instead. Returns
+    /// `None` when the printed types already differ, which is when they are
+    /// explanation enough.
+    fn fn_fit_reason(&self, want: &Ty, got: &Ty, got_name: &str) -> Option<String> {
+        let (Ty::Fn { params: wp, contract: wc, effects: we, .. }, Ty::Fn { params: gp, contract: gc, effects: ge, .. }) =
+            (want.strip_quals(), got.strip_quals())
+        else {
+            return None;
+        };
+        if wp.len() != gp.len() || want.to_string() != got.to_string() {
+            return None; // the printed types differ; they speak for themselves
+        }
+        // [fn-effects] A value may perform *fewer* effects than the position
+        // allows, never more.
+        let extra: Vec<String> = ge
+            .iter()
+            .filter(|e| !we.contains(e))
+            .map(|e| e.to_string())
+            .collect();
+        if !extra.is_empty() {
+            return Some(format!(
+                "`{got_name}` performs `[{}]`, which this position does not \
+                 declare — a fn type without an effect list performs nothing, \
+                 and a call site cannot supply what it was never told about",
+                extra.join(", ")
+            ));
+        }
+        // [fn-contract] Expected kept ⇒ supplied must keep. The reverse
+        // direction is fine, so only this way round is worth explaining.
+        let at = |c: &Option<Vec<FnParamContract>>, i: usize| -> (bool, bool, Option<String>) {
+            match c {
+                None => (true, false, None),
+                Some(list) => list
+                    .get(i)
+                    .map(|e| (e.kept, e.mutable, e.name.clone()))
+                    .unwrap_or((true, false, None)),
+            }
+        };
+        for i in 0..wp.len() {
+            let (w_kept, w_mut, w_name) = at(wc, i);
+            let (g_kept, g_mut, g_name) = at(gc, i);
+            let which = g_name
+                .or(w_name)
+                .map(|n| format!("`{n}`"))
+                .unwrap_or_else(|| format!("argument {}", i + 1));
+            if w_kept && !g_kept {
+                return Some(format!(
+                    "`{got_name}` *consumes* {which} while this position keeps it: \
+                     the types match, the contracts do not. Either give \
+                     `{got_name}` a deduction list that gives it back \
+                     (`-> [{}] ...`), or declare the position as consuming \
+                     (`-> []` on the parameter's own signature)",
+                    which.trim_matches('`')
+                ));
+            }
+            if g_mut && !w_mut && w_kept {
+                return Some(format!(
+                    "`{got_name}` mutates {which}, which this position does not \
+                     permit: a `Mut` argument has to be declared where the \
+                     function is *taken*, not only where it is written"
+                ));
+            }
+        }
+        None
+    }
+
     /// [implicit-fn-only] Implicit parameters are declared on fns. Anywhere
     /// else there is no call site that could resolve them: an effect member
     /// is reached through a handler, a group member is a signature for a
@@ -1267,6 +1375,31 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `?add` directly, or reach the same parameter through a different
     /// grouping, and a call site overrides one by its own name.
     fn expand_implicits(&mut self, f: &'p FnDecl) -> Vec<ImplicitParam> {
+        let out = self.collect_implicits(f);
+        match self.own_fn {
+            Some(key) => {
+                self.out.implicit_params.insert(key, out.clone());
+            }
+            // A *member* — a handler's implementation of an effect member —
+            // has no `FnKey`, so it is keyed by its own name span, exactly
+            // as the effect member it implements is [implicit-param].
+            None if !out.is_empty() => {
+                self.out
+                    .implicit_members
+                    .insert(self.key(f.name.span), out.clone());
+            }
+            None => {}
+        }
+        out
+    }
+
+    /// The expansion itself, without recording it: shared by fns and by
+    /// effect members, which have no `FnKey` to record under.
+    ///
+    /// Must be called with the declaration's generics in scope — for a member
+    /// that means the effect's generics as well as its own, or the types
+    /// would not lower to variables.
+    fn collect_implicits(&mut self, f: &'p FnDecl) -> Vec<ImplicitParam> {
         let mut out: Vec<ImplicitParam> = Vec::new();
         for p in f.params.iter().filter(|p| p.implicit) {
             let ty = self.lower_type(&p.ty);
@@ -1358,10 +1491,51 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        if let Some(key) = self.own_fn {
-            self.out.implicit_params.insert(key, out.clone());
-        }
         out
+    }
+
+    /// The fn type a *declared* fn has as a value: parameters, result,
+    /// effects, and the **contract** — what a call does to each argument
+    /// [fn-contract]. Resolution needs the contract, because a fn that
+    /// consumes an argument cannot fill a position that keeps it, and that
+    /// difference does not show in a printed type.
+    fn fn_value_ty(&mut self, key: FnKey, decl: &'p FnDecl) -> Ty {
+        let saved = self.enter_generics(&decl.generics);
+        let params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let ret = decl
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        self.generics = saved;
+        let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
+            Some(list) => Some(crate::deduce::from_written(decl, list, &HashSet::new(), |_, _| {})),
+            None => self.inferred.and_then(|table| table.get(&key).cloned()),
+        };
+        let contract = facts.map(|facts| {
+            decl.params
+                .iter()
+                .zip(&params)
+                .map(|(p, pty)| {
+                    let entry = facts.iter().find(|d| d.param == p.name.name);
+                    FnParamContract {
+                        name: Some(p.name.name.clone()),
+                        kept: entry.map(|d| d.kept).unwrap_or(true),
+                        effect: entry
+                            .map(|d| d.effect.clone())
+                            .unwrap_or(QualEffect::KeepAll),
+                        mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                    }
+                })
+                .collect()
+        });
+        let effects = self.out.fn_effects.get(&key).cloned().unwrap_or_default();
+        Ty::Fn {
+            params,
+            ret: Box::new(ret),
+            contract,
+            effects,
+        }
     }
 
     /// The fn type of a `params` group member (or any bodiless signature),
@@ -1403,20 +1577,40 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) {
         let Some(key) = key else { return };
         let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        self.fill_implicits(
+            &implicits,
+            &decl.name.name,
+            subst,
+            callee_generics,
+            named,
+            span,
+        );
+    }
+
+    /// Fills a known list of implicit parameters at one call site — the
+    /// shared half of [implicit-resolve], used for both a fn and an effect
+    /// member, which is an ordinary signature that happens to be dispatched
+    /// through a handler.
+    fn fill_implicits(
+        &mut self,
+        implicits: &[ImplicitParam],
+        callee: &str,
+        subst: &HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        named: &'p [ast::NamedArg],
+        span: Span,
+    ) {
         if implicits.is_empty() {
             for arg in named {
                 self.error(
                     arg.span,
-                    format!(
-                        "`{}` has no implicit parameter named `{}`",
-                        decl.name.name, arg.name.name
-                    ),
+                    format!("`{callee}` has no implicit parameter named `{}`", arg.name.name),
                 );
             }
             return;
         }
         let mut filled: Vec<ImplicitArg> = Vec::new();
-        for imp in &implicits {
+        for imp in implicits {
             // The type as this call needs it, with the callee's type
             // arguments substituted in.
             let want = substitute_vars(&imp.ty, subst, callee_generics);
@@ -1424,16 +1618,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
                 let got = self.check_expr(&arg.value, Some(&want));
                 if !got.is_unknown() && !is_subtype(&got, &want) {
+                    let shown = match &arg.value {
+                        Expr::Ident(id) => id.name.clone(),
+                        _ => "the value given".to_string(),
+                    };
+                    let detail = match self.fn_fit_reason(&want, &got, &shown) {
+                        Some(reason) => reason,
+                        None => format!("expects `{want}`, found `{got}`"),
+                    };
                     self.error(
                         arg.span,
-                        format!(
-                            "`{}` expects `{want}`, found `{got}`",
-                            imp.name
-                        ),
+                        format!("`{}` does not fit here: {detail}", imp.name),
                     );
                 }
                 filled.push(ImplicitArg::Given {
                     name: imp.name.clone(),
+                    arity: match want.strip_quals() {
+                        Ty::Fn { params, .. } => params.len(),
+                        _ => 0,
+                    },
                 });
                 continue;
             }
@@ -1453,15 +1656,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                     key: found,
                 }),
                 Err(why) => {
-                    self.error(
-                        span,
-                        format!(
-                            "no `{}` for this call: `{}` needs `?{}: {want}`{why} — \
-                             declare a matching `fn {}`, or pass one here with \
-                             `{} = ...`",
-                            imp.name, decl.name.name, imp.name, imp.name, imp.name
-                        ),
+                    let remedy = format!(
+                        "declare a matching `fn {}`, or pass one here with `{} = ...`",
+                        imp.name, imp.name
                     );
+                    let callee_name = callee;
+                    match why {
+                        // Nothing of that name at all: the remedy is the message.
+                        ImplicitMiss::Unknown => self.error(
+                            span,
+                            format!(
+                                "no `{}` for this call: `{}` needs `?{}: {want}` — {remedy}",
+                                imp.name, callee_name, imp.name
+                            ),
+                        ),
+                        // Declared, but it does not fit — say why, since the
+                        // printed types may look identical.
+                        ImplicitMiss::NearMiss(reason) => self.error(
+                            span,
+                            format!(
+                                "no `{}` fits `?{}: {want}` for `{}`: {reason}",
+                                imp.name, imp.name, callee_name
+                            ),
+                        ),
+                        ImplicitMiss::Ambiguous(n) => self.error(
+                            span,
+                            format!(
+                                "`{}` is ambiguous for `{}`: {n} declarations match \
+                                 `?{}: {want}`, so the choice would be a guess — {remedy}",
+                                imp.name, callee_name, imp.name
+                            ),
+                        ),
+                    }
                 }
             }
         }
@@ -1471,10 +1697,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !implicits.iter().any(|p| p.name == arg.name.name) {
                 self.error(
                     arg.span,
-                    format!(
-                        "`{}` has no implicit parameter named `{}`",
-                        decl.name.name, arg.name.name
-                    ),
+                    format!("`{callee}` has no implicit parameter named `{}`", arg.name.name),
                 );
             }
         }
@@ -1485,20 +1708,31 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// a *unique* visible overload whose signature matches. Ambiguity is an
     /// error rather than a guess, exactly as for an ordinary overloaded call
     /// [fn-overload].
-    fn resolve_implicit_fn(&mut self, name: &str, want: &Ty) -> Result<FnKey, String> {
+    fn resolve_implicit_fn(&mut self, name: &str, want: &Ty) -> Result<FnKey, ImplicitMiss> {
         let Ty::Fn {
             params: want_params,
             ret: want_ret,
             ..
         } = want.strip_quals()
         else {
-            return Err(String::new());
+            return Err(ImplicitMiss::Unknown);
         };
         let entries: Vec<crate::resolve::FnEntry<'p>> = match self.scope.fns.get(name) {
             Some(entries) => entries.clone(),
-            None => return Err(String::new()),
+            None => return Err(ImplicitMiss::Unknown),
         };
         let mut hits: Vec<FnKey> = Vec::new();
+        // The best explanation of a candidate that did not fit, for the
+        // diagnostic when nothing does. Ranked, because the *interesting*
+        // near-miss is the one a printed type cannot show: a candidate whose
+        // shape matches and whose contract does not (rank 0) explains far
+        // more than an unrelated overload of the same name (rank 2).
+        let mut near: Option<(u8, String)> = None;
+        let note = |rank: u8, reason: String, near: &mut Option<(u8, String)>| {
+            if near.as_ref().is_none_or(|(r, _)| rank < *r) {
+                *near = Some((rank, reason));
+            }
+        };
         for entry in entries {
             let decl = entry.decl;
             if decl.params.iter().any(|p| p.implicit) {
@@ -1508,6 +1742,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             if decl.params.len() != want_params.len() {
+                note(
+                    2,
+                    format!(
+                        "the `{name}` in scope takes {} argument(s), but the position \
+                         needs {}",
+                        decl.params.len(),
+                        want_params.len()
+                    ),
+                    &mut near,
+                );
                 continue;
             }
             let saved = self.enter_generics(&decl.generics);
@@ -1528,30 +1772,41 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .all(|(have, want)| unify(have, want, &mut binding))
                 && unify(&have_ret, want_ret, &mut binding);
             if !matched {
+                let shown = self.fn_value_ty(entry.key, decl);
+                note(
+                    1,
+                    format!(
+                        "the `{name}` in scope is `{shown}`, and the position needs `{want}`"
+                    ),
+                    &mut near,
+                );
                 continue;
             }
-            let bound_params: Vec<Ty> = have_params
-                .iter()
-                .map(|t| substitute_vars(t, &binding, &generics))
-                .collect();
-            let bound_ret = substitute_vars(&have_ret, &binding, &generics);
             // Parameters are contravariant and the result covariant, as for
-            // any fn value [fn-contract].
-            let fits = bound_params
-                .iter()
-                .zip(want_params)
-                .all(|(have, want)| is_subtype(want, have))
-                && is_subtype(&bound_ret, want_ret);
-            if fits {
+            // any fn value [fn-contract]; the *contract* has to fit too, and
+            // that part a printed type does not show.
+            // The candidate's own generics bind from the required type, so a
+            // universal `fn cmp<T>(a: T, b: T) -> Int` is compared *as
+            // instantiated* — without this it would never fit a concrete
+            // position, and a concrete sibling would win by default.
+            let candidate = self.fn_value_ty(entry.key, decl);
+            let candidate = substitute_vars(&candidate, &binding, &generics);
+            if is_subtype(&candidate, want) {
                 hits.push(entry.key);
+            } else {
+                let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
+                    format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`")
+                });
+                note(0, reason, &mut near);
             }
         }
         match hits.len() {
-            0 => Err(String::new()),
+            0 => Err(match near {
+                Some((_, reason)) => ImplicitMiss::NearMiss(reason),
+                None => ImplicitMiss::Unknown,
+            }),
             1 => Ok(hits[0]),
-            n => Err(format!(
-                " ({n} declarations of `{name}` match, so the choice is ambiguous)"
-            )),
+            n => Err(ImplicitMiss::Ambiguous(n)),
         }
     }
 
@@ -8416,7 +8671,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
-            return self.check_effect_call(effect, member, type_args, args, expected, span);
+            return self
+                .check_effect_call(effect, member, type_args, args, named, expected, span);
         }
 
         // 2. Function overloads [fn-overload] (fn declarations, else
@@ -9127,6 +9383,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         member: &'p FnDecl,
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
+        named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
@@ -9152,6 +9409,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
+        // [implicit-param] Collected here, with the effect's and the member's
+        // generics still in scope, so `?fmt: (T) -> Str` lowers to a variable
+        // rather than a nominal `T`.
+        let member_implicits = self.collect_implicits(member);
         self.generics = saved;
         let generic_set: HashSet<String> = effect
             .generics
@@ -9346,6 +9607,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             let instance = instance.clone();
             self.note_effect_use(&instance);
             self.out.effect_calls.insert(self.key(span), instance);
+        }
+        // [implicit-param] An effect member is an ordinary signature, so it
+        // may declare implicit parameters: they resolve at *this* call, with
+        // the effect instance's type arguments substituted in, and the
+        // handler receives them as trailing arguments like any caller would.
+        if !member_implicits.is_empty() {
+            self.fill_implicits(
+                &member_implicits,
+                &member.name.name,
+                &subst,
+                &generic_set,
+                named,
+                span,
+            );
         }
         substitute_vars(&member_ret, &subst, &generic_set)
     }

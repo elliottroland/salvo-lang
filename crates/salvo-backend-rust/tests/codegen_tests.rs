@@ -3828,8 +3828,11 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         .content;
     for expected in [
         // The group's members, expanded in declaration order.
-        "pub fn total<T: Clone + 'static>(xs: &Vec<T>, add: &mut impl FnMut(T, T) -> T, \
-         zero: &mut impl FnMut() -> T)",
+        // `dyn`, uniformly: an effect member's implicits land in an
+        // object-safe trait, and forwarding has to compose in every
+        // direction, so one convention serves both.
+        "pub fn total<T: Clone + 'static>(xs: &Vec<T>, add: &mut dyn FnMut(T, T) -> T, \
+         zero: &mut dyn FnMut() -> T)",
         // A resolved default is passed as an adapter closure over the fn.
         "&mut |__i0, __i1| add(__i0, __i1)",
         // Forwarding reborrows the enclosing fn's own parameter.
@@ -3873,4 +3876,69 @@ fn a_function_in_a_struct_field_is_a_codegen_error() {
         }),
         "expected the struct-field rejection naming the remedy, got: {errors:?}"
     );
+}
+
+/// [implicit-param] An effect member is an ordinary signature, so it may
+/// declare implicit parameters (user decision 2026-09-06): the trait method
+/// takes them, every handler's implementation takes them, and the call site
+/// fills them. They render as `dyn` here, not `impl` — an effect trait is
+/// used as `&mut dyn E` [rs-effects], and `impl Trait` in argument position
+/// would cost object safety.
+const MEMBER_IMPLICIT_DEMO: &str = r#"
+effect Show {
+    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str
+}
+
+handler Angle of Show {
+    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str {
+        return "<${fmt(v)}>"
+    }
+}
+
+fn fmt(n: Int) -> [n] Str {
+    return "n=${n}"
+}
+
+fn loud(n: Int) -> [n] Str {
+    return "N=${n}!"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Angle()
+    println(show(7))
+    println(show(7, fmt = loud))
+}
+"#;
+
+const MEMBER_IMPLICIT_OUTPUT: &str = "<n=7>\n<N=7!>\n";
+
+#[test]
+fn an_effect_member_carries_its_implicits_into_the_trait() {
+    let files = generate(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The trait method, object-safe.
+        "fn show(&mut self, v: i32, fmt: &mut dyn FnMut(i32) -> String) -> String;",
+        // The implementation has to match it exactly.
+        "fn show(&mut self, v: i32, fmt: &mut dyn FnMut(i32) -> String) -> String {",
+        // And the call site fills it.
+        "show.show(7, &mut |__i0| fmt(__i0))",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_effect_member_implicits() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
+    run_rust_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
 }

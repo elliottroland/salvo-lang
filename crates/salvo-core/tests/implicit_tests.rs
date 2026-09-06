@@ -121,11 +121,14 @@ fn an_unresolvable_implicit_names_both_remedies() {
     ));
     assert!(
         errs.iter().any(|e| {
-            e.contains("no `cmp` for this call")
-                && e.contains("declare a matching `fn cmp`")
-                && e.contains("cmp = ...")
+            // A `cmp` *is* declared — for `Int` — so the diagnostic says which
+            // one it looked at and what the position needed, rather than
+            // claiming nothing of that name exists.
+            e.contains("no `cmp` fits")
+                && e.contains("the `cmp` in scope is")
+                && e.contains("the position needs")
         }),
-        "expected the unresolved-implicit error with both remedies, got: {errs:?}"
+        "expected the near-miss explanation, got: {errs:?}"
     );
 }
 
@@ -246,7 +249,8 @@ fn a_generic_fn_without_the_implicit_cannot_call_one_that_needs_it() {
          }}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains("no `add` for this call")),
+        errs.iter()
+            .any(|e| e.contains("no `add`") && e.contains("for `total`")),
         "expected the missing-implicit error, got: {errs:?}"
     );
 }
@@ -321,20 +325,64 @@ fn a_group_spread_with_the_wrong_arity_is_rejected() {
     );
 }
 
-/// [implicit-fn-only] An effect member has no call site that could resolve
-/// an implicit — it is reached through a handler.
+/// [implicit-param] An effect member is an ordinary signature, so it may
+/// declare implicit parameters (user decision 2026-09-06). They resolve at
+/// the *call*, and the handler receives them like any other argument.
 #[test]
-fn an_effect_member_cannot_take_implicits() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         effect Sorter {{\n\
-         fn sorted(a: Int, ?cmp: (Int, Int) -> Int) -> [] Int\n\
-         }}\n"
-    ));
+fn an_effect_member_may_take_implicits() {
+    let errs = errors(
+        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
+         effect Show {\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str\n\
+         }\n\
+         handler Angle of Show {\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str { return fmt(v) }\n\
+         }\n\
+         fn probe() [use] -> [] Str {\n\
+         use Angle()\n\
+         return show(7)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// And the call site can override one, exactly as for a fn.
+#[test]
+fn an_effect_member_call_can_override_an_implicit() {
+    let errs = errors(
+        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
+         fn loud(n: Int) -> [n] Str { return \"\" }\n\
+         effect Show {\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str\n\
+         }\n\
+         handler Angle of Show {\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str { return fmt(v) }\n\
+         }\n\
+         fn probe() [use] -> [] Str {\n\
+         use Angle()\n\
+         return show(7, fmt = loud)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [implicit-fn-only] A handler *constructor* still may not: its instance is
+/// built by `use`, which resolves nothing.
+#[test]
+fn a_handler_constructor_cannot_take_implicits() {
+    let errs = errors(
+        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
+         effect Show {\n\
+         fn show(v: Int) -> [v] Str\n\
+         }\n\
+         handler Angle(?fmt: (Int) -> Str) of Show {\n\
+         fn show(v: Int) -> [v] Str { return \"\" }\n\
+         }\n",
+    );
     assert!(
         errs.iter()
-            .any(|e| e.contains("an effect member cannot take implicit parameters")),
-        "expected the fn-only rejection, got: {errs:?}"
+            .any(|e| e.contains("a handler constructor cannot take implicit parameters")),
+        "expected the handler-constructor rejection, got: {errs:?}"
     );
 }
 
@@ -352,5 +400,81 @@ fn a_group_member_with_a_body_is_rejected() {
         errs.iter()
             .any(|e| e.contains("is a signature, not an implementation")),
         "expected the body rejection, got: {errs:?}"
+    );
+}
+
+// ===== the contract is part of fitting, and does not print =====
+
+/// A fn whose *types* match but whose contract does not cannot fill the
+/// position — and `Ty`'s Display shows no contract, so the bare mismatch
+/// would read "expects `(Int, Int) -> Int`, found `(Int, Int) -> Int`". The
+/// diagnostic has to name the argument, the direction, and the fix.
+#[test]
+fn a_contract_mismatch_is_explained_rather_than_printed() {
+    let errs = errors(
+        "params Field<T> {\n\
+         fn add(a: T, b: T) -> T\n\
+         fn zero() -> T\n\
+         }\n\
+         fn add(a: Int, b: Int) -> [] Int { return a }\n\
+         fn zero() -> Int { return 0 }\n\
+         fn total<T>(a: T, ?Field<T>) -> [] T {\n\
+         return add(a, zero())\n\
+         }\n\
+         fn probe() -> [] Int {\n\
+         return total(1)\n\
+         }\n",
+    );
+    assert!(
+        errs.iter().any(|e| {
+            e.contains("*consumes* `a` while this position keeps it")
+                && e.contains("the types match, the contracts do not")
+                && e.contains("-> []")
+        }),
+        "expected the contract explanation with both fixes, got: {errs:?}"
+    );
+}
+
+/// The same explanation for a value written at the call site: there the
+/// mismatch is between the *given* fn and the parameter.
+#[test]
+fn an_override_with_the_wrong_contract_is_explained() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn eats(a: Int, b: Int) -> [] Int {{ return a }}\n\
+         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         return add(a, zero())\n\
+         }}\n\
+         fn probe() -> [] Int {{\n\
+         return total(1, add = eats)\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| {
+            e.contains("`add` does not fit here")
+                && e.contains("`eats` *consumes* `a`")
+        }),
+        "expected the override contract explanation, got: {errs:?}"
+    );
+}
+
+/// Ambiguity says how many matched and offers the override, rather than
+/// guessing.
+#[test]
+fn an_ambiguous_implicit_says_so() {
+    let errs = errors(
+        "fn cmp<T>(a: T, b: T) -> Int { return 0 }\n\
+         fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {\n\
+         return cmp(a, b)\n\
+         }\n\
+         fn probe() -> [] Int {\n\
+         return pick(1, 2)\n\
+         }\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("is ambiguous for") && e.contains("declarations match")),
+        "expected the ambiguity error, got: {errs:?}"
     );
 }

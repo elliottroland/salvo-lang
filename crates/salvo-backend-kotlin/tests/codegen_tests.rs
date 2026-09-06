@@ -4471,3 +4471,69 @@ fn kotlinc_compiles_and_runs_implicit_parameters() {
     });
     run_kotlin_files(&files, "implicits", IMPLICIT_OUTPUT);
 }
+
+/// [implicit-param] The same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_effect_member_implicits`: an effect member's
+/// implicit parameters reach the interface, every handler's override, and the
+/// call site.
+const MEMBER_IMPLICIT_DEMO: &str = r#"
+effect Show {
+    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str
+}
+
+handler Angle of Show {
+    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str {
+        return "<${fmt(v)}>"
+    }
+}
+
+fn fmt(n: Int) -> [n] Str {
+    return "n=${n}"
+}
+
+fn loud(n: Int) -> [n] Str {
+    return "N=${n}!"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Angle()
+    println(show(7))
+    println(show(7, fmt = loud))
+}
+"#;
+
+const MEMBER_IMPLICIT_OUTPUT: &str = "<n=7>\n<N=7!>\n";
+
+#[test]
+fn an_effect_member_carries_its_implicits_into_the_interface() {
+    let program = build_program(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    for expected in [
+        "fun show(v: Int, fmt: (Int) -> String): String",
+        "override fun show(v: Int, fmt: (Int) -> String): String {",
+        "show.show(7, ::fmt)",
+        "show.show(7, ::loud)",
+    ] {
+        assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
+    }
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_effect_member_implicits() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
+}

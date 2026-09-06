@@ -21,7 +21,9 @@ Guidance for AI agents (and humans) contributing to this repository.
    referenced from that backend's crate; core crates
    reference backend-neutral labels only.
 3. **`PROGRESS.md`** — the living handoff document: what is built, key design
-   decisions (condensed history), known limitations, the roadmap (currently:
+   decisions (condensed history), known limitations and **open defects**
+   (reproduced bugs with their root cause, under "Open defects"), the
+   roadmap (currently:
    toward full linear types, with marked language-design decision points),
    the test inventory, and hard-won gotchas. **Consult it before starting
    any task** to find the current roadmap phase and avoid re-solving
@@ -40,7 +42,7 @@ which rules are in play and where they live in the code*.
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
-| `PROGRESS.md` | Status, milestones, design decisions, test inventory, gotchas | Always |
+| `PROGRESS.md` | Status, milestones, design decisions, **open defects**, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |
 

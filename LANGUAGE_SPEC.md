@@ -727,7 +727,16 @@ Conventions:
     `cmp` whose parameters accept `Str` already *is* the default for `Str`,
     and nothing ties it to the type's declaration.
   * Parameters are contravariant and the result covariant, as for any fn
-    value [fn-contract]; a candidate that itself needs implicits is skipped.
+    value [fn-contract] — and the **contract** has to fit too: a fn that
+    consumes an argument cannot fill a position that keeps it. A candidate
+    that itself needs implicits is skipped.
+  * **A near-miss is reported as one.** The contract is not part of how a
+    type *prints*, so two types that differ only there render identically;
+    a diagnostic that showed them would read "expects `(Int, Int) -> Int`,
+    found `(Int, Int) -> Int`". So the checker explains the difference
+    instead — which argument, in which direction, and the two ways to fix it
+    — and prefers the most informative candidate: a same-shape,
+    wrong-contract one over an unrelated overload of the same name.
   * Which default a call gets depends on what is **visible where the call
     is written** — no global coherence, and two call sites may legitimately
     resolve differently. That is what `use` and handlers already do; the
@@ -768,9 +777,15 @@ Conventions:
   the callee is an error, and a positional argument cannot follow a named
   one. The `=` is unambiguous because assignment is a statement in Salvo,
   never an expression.
-* [implicit-fn-only] Implicit parameters are declared on **fns**: an effect
-  member, a handler constructor, or a lambda may not have them (deliberate
-  cut — each would need its own supply story).
+* [implicit-fn-only] Implicit parameters are declared on a **fn or an effect
+  member** — a member is an ordinary signature, so it may have them (user
+  decision 2026-09-06). They belong to the member's signature: the generated
+  interface takes them, every handler's implementation of the member takes
+  them, and the *call* fills them, resolving with the effect instance's type
+  arguments substituted in.
+  * A **handler constructor** may not have them: its instance is built by
+    `use`, which resolves nothing. Nor may a **lambda**: its type has no room
+    to declare one. Both are deliberate cuts.
 * [fn-lambda] Lambdas: `x -> expr`, `(a, b) -> expr`, and block bodies
   `{ x: T -> ... }` (blocks require `return`). Lambdas may declare
   effects/deductions.

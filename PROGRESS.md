@@ -52,9 +52,20 @@ type's declaration. The decisions (all user, 2026-09-05):
   parameters — Salvo has no general named-argument form, and a general one
   stays a separate decision. Unambiguous because assignment is a statement
   here, never an expression.
-- **Implicits trail**, and are declared on **fns only** — not effect members,
-  handler constructors or lambdas, none of which has a call site that could
-  resolve one.
+- **Implicits trail**, and are declared on a **fn or an effect member** (the
+  member half added 2026-09-06: "they're just normal functions"). A member's
+  implicits belong to its signature — the interface takes them, every handler
+  takes them, the call fills them. Handler *constructors* and lambdas still
+  may not have them: `use` resolves nothing, and a lambda's type has no room
+  to declare one.
+  * On Rust an implicit parameter is `&mut dyn FnMut(..)` — **`dyn`
+    everywhere**, decided by two failures in a row. First the trait and its
+    impl disagreed (`E0053`), because a member's implicits have to be `dyn`
+    for `&mut dyn E` to stay object-safe. Then a member *forwarding* to a
+    plain fn handed a `dyn` value to an `impl` (`Sized`) parameter, which
+    rustc refuses — so a per-position convention could not compose, and one
+    convention everywhere is both simpler and the only sound choice. The cost
+    is an indirect call, which every effect member call already pays.
 
 `[name-casing]` pays off unexpectedly: `?cmp:` versus `?Field<T>` is decided
 by the case of the first token after `?`, so the grammar needs no lookahead.
@@ -69,10 +80,25 @@ and an argument that reborrows an implicit the same call passes has to be
 hoisted into a `let` first, or the borrows overlap (`E0499`) — the same rule
 [effect-args-hoisted] already applies to threaded effect values.
 
+**The contract is part of fitting, and it does not print** (2026-09-06). What
+a call does to each argument decides whether a function fits a fn-typed
+position, but `Ty`'s Display shows parameters, effects and the result — not
+the contract. So a mismatch there used to read "expects `(Int, Int) -> Int`,
+found `(Int, Int) -> Int`". The checker now explains it instead: which
+argument, in which direction, and both fixes (give the candidate a deduction
+list that returns the argument, or declare the position as consuming). Two
+further touches came out of the same work: a *near-miss* is reported as one
+("no `cmp` fits … the `cmp` in scope is …") rather than as "nothing of that
+name", and candidates are **ranked**, so a same-shape wrong-contract
+declaration is what gets explained rather than whichever unrelated overload
+of the name came first — the first version dutifully reported std's
+`add(Mut List<T>, T)` when the user's own `add(Int, Int)` was the near-miss.
+
 Verified end to end on both backends with one shared program and one shared
 expected stdout: group defaults resolved, one member overridden by name, a
-lambda override, forwarding through an opaque `T`, and an individually
-declared `?add` reached by the same name.
+lambda override, forwarding through an opaque `T`, an individually declared
+`?add` reached by the same name, and (a second shared program) an effect
+member's implicit resolved at the call and received by its handler.
 
 **The struct-field-of-fn-type hole is closed as part of it**: that shape is
 now a Rust codegen *error* naming the implicit-parameter remedy, rather than
@@ -1377,7 +1403,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 557 tests, complete: the toolchain tests are
+cargo test                  # 566 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -2235,7 +2261,69 @@ by faithful emission. Rule [fn-contract]:
   and the checker, which must agree with them on the ident-unwrap
   predicates (`maybe_coerce`'s "effective repr").
 
+## Open defects
+
+Bugs found and reproduced, not yet fixed. Each has a repro small enough to
+paste, and a root cause, so picking one up needs no re-investigation.
+
+### `use Handler<T>()`'s type arguments go nowhere (found 2026-09-06)
+
+**Both backends emit code their own compiler rejects, and the checker reports
+nothing** — a [backend-never-wrong] violation, not a documented cut. Repro:
+
+```
+effect Show<T> {
+    fn show(v: T) -> [v] Str
+}
+
+handler Plain<T> of Show<T> {
+    fn show(v: T) -> [v] Str {
+        return "shown"
+    }
+}
+
+fn main() [use] {
+    use Plain<Int>()          // the `<Int>` is silently discarded
+    let s: Str = show(7)
+}
+```
+
+`salvo analyze` reports no errors. Kotlin emits
+`val show_t: Show<T> = Plain()` → *cannot infer type for type parameter 'T'*.
+Rust emits `let mut show_t = Plain::new();` → `E0283` (type annotations
+needed), plus `E0392` (unused type parameter `T`) for the handler struct,
+which has no fields to mention `T`.
+
+**Root cause, one place:** `check_use` derives the handler's type arguments
+*only* by unifying the **constructor arguments** against the handler's
+parameter types. A stateless handler has no arguments, so nothing binds `T`;
+`concrete` stays `Show<T>`, and `use_effects` records a non-concrete
+instance. The explicitly written `<Int>` is parsed (`Expr::Call` carries
+`type_args`) and then read by nobody: both emitters match
+`Expr::Call { callee, args, .. }` and drop it, so the constructor is rendered
+as `Plain()` / `Plain::new()` with no type argument anywhere. Consequence: a
+generic handler can only be instantiated today when a constructor argument
+happens to bind its parameter.
+
+**Two spec claims this falsifies**, both in [rs-effect-fusion]'s cut list:
+
+- "a `use` whose effect instance is still generic … **Reported**": it is
+  reported only on the fusion path, which a single-effect program never
+  reaches — so this repro emits silently invalid Rust instead.
+- "Kotlin accepts these (erasure)": it does not. Erasure removes the type
+  *argument* from the JVM, but Kotlin still needs it written at the
+  constructor to infer the class's parameter.
+
+**Fix, in the order the data flows:** bind the handler's generics from the
+written `type_args` in `check_use` (unify its `of` clause against them, and
+report a mismatch between written arguments and inferred ones), then render
+them at both constructors (`Plain<Int>()`, `Plain::<i32>::new()`). Rust
+additionally needs a `PhantomData` field, or the type parameter dropped from
+the struct, for a generic handler with no state. With the instance concrete,
+the fusion's existing cut stops applying to this shape at the same time.
+
 ## Roadmap: toward full linear types
+
 
 Where we are: an *affine* analysis ("use at most once") with solid
 underpinnings: interprocedural contracts (inferred + validated
@@ -3889,7 +3977,7 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 557)
+## Test inventory (all green: 566)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -4013,7 +4101,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   shared exclusion list, nothing-to-remove rejected, a *type* on the right
   rejected, more than one arm rejected, the no-binding parse error, and a
   `^` branch consuming its arms so exhaustiveness still reports the rest)
-  + 16 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
+  + 21 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
   [implicit-group] [implicit-resolve] [implicit-forward] [implicit-override]
   [implicit-fn-only]: a group's members and a written `?cmp` resolved from the
   visible overloads; an unresolvable one reporting *both* remedies; one member
@@ -4022,8 +4110,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   *across groupings* — a `?Field<T>` spread filling an individually declared
   `?add`; a generic fn without the implicit unable to call one that needs it,
   which is the colouring cost; and the declaration-site rules — non-fn type,
-  unknown group, wrong group arity, two implicits of one name, an effect
-  member with implicits, and a group member with a body)
+  unknown group, wrong group arity, two implicits of one name, and a group
+  member with a body; an effect member *may* declare them, and its call may
+  override one, while a handler constructor may not [implicit-fn-only]; and
+  the three diagnostics a printed type cannot carry — a contract mismatch
+  explained for a resolved default and for a call-site override, and an
+  ambiguity that says how many matched)
   + 14 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its
@@ -4396,6 +4488,9 @@ and `cargo nextest run` when you want to see which tests cost what.
   fn-typed parameters, `::add`/`::times` references at the call sites and *no*
   class for the group; plus the kotlinc run of the same source and stdout the
   Rust backend asserts);
+  and 2 effect-member-implicit tests ([implicit-param]: the interface method,
+  every handler's `override` and the member call all carrying the member's
+  implicits; plus the kotlinc run of the shared demo);
   and 2 lazy-iterator tests ([fn-iterator]:
   `an_iterator_fn_lowers_to_a_lazy_iterable` pinning the builder that was
   already lazy; plus the kotlinc run of the *same source* the Rust backend
@@ -4540,7 +4635,10 @@ and `cargo nextest run` when you want to see which tests cost what.
   struct for the group; the rustc run of the same source and stdout Kotlin
   asserts; and a function in a struct field reported as a codegen error naming
   the implicit-parameter remedy rather than emitted as `impl Trait` in a field
-  position); and 3 lazy-iterator
+  position); and 2 effect-member-implicit tests ([implicit-param]: the trait
+  method, its implementation and the call site rendered from one helper, with
+  `dyn` for object safety; plus the rustc run of the shared demo); and 3
+  lazy-iterator
   tests ([rs-iter-lazy] [fn-iterator] [iter-effect-free]:
   `an_iterator_fn_lowers_to_a_lazy_factory` asserting the factory, the
   `async` body, the slot-and-suspend `yield`, the absence of the old

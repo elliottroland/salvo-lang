@@ -426,6 +426,17 @@ derives them mechanically:
   value (adapted the same way when it names a fn).
   * A `params` group emits nothing [implicit-group]: it never was a value, so
     there is no struct and nothing boxed.
+  * An implicit parameter is `&mut dyn FnMut(..)` — **`dyn`, uniformly**, for
+    two reasons that pull the same way. An effect member's implicits land in a
+    trait used as `&mut dyn E` [rs-effects], where `impl Trait` in argument
+    position would cost object safety. And forwarding has to compose in every
+    direction: a member forwarding to a plain fn would otherwise hand a `dyn`
+    value to an `impl` (`Sized`) parameter, which rustc refuses. One
+    convention is both simpler and the only sound choice; the cost is an
+    indirect call, which every effect member call already pays.
+  * A member's trait method, every handler's implementation of it, the
+    fusion's forwarding impl and the generated host skeleton all render
+    through the same member-parameter helper, so they cannot disagree.
   * [effect-args-hoisted] An argument that reborrows an implicit the *same*
     call passes is hoisted into a `let` first, or the two borrows overlap
     (`E0499`) — the same rule, and the same fix, as for a threaded effect
@@ -674,15 +685,23 @@ effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
   signature: the generated `__Impl_H` trait is not generic (the fusion owns
   the handler behind an opaque `__H` and never derives its type arguments,
   so it could not supply one). Reported, naming the handler and the
-  parameter. Kotlin accepts these (erasure), so this is a real divergence,
-  and the way to lift it is to derive the handler's arguments at the `use`
-  site by unifying its `of` clause against the checker's instance.
+  parameter. Kotlin accepts *this* one (erasure), so it is a real
+  divergence, and the way to lift it is to derive the handler's arguments at
+  the `use` site by unifying its `of` clause against the checker's instance.
 * A `use` whose **effect instance is still generic** — a handler whose type
-  arguments the checker could not infer (`use Relay<Int>()`), or an effect
-  list generic in the enclosing fn (`fn f<T>() [Random<T>, use]`). The
-  fusion names its effects in impl headers, so an unresolved `T` would be
-  an undeclared type. Lifting this means threading the enclosing fn's
-  generics into the generated items.
+  arguments the checker could not infer, or an effect list generic in the
+  enclosing fn (`fn f<T>() [Random<T>, use]`). The fusion names its effects
+  in impl headers, so an unresolved `T` would be an undeclared type. Lifting
+  this means threading the enclosing fn's generics into the generated items.
+  * **Two caveats found 2026-09-06, both recorded under PROGRESS.md's "Open
+    defects".** The report fires only on the *fusion* path, so a
+    single-effect program emits invalid Rust instead (`E0283`, plus `E0392`
+    for a stateless generic handler struct). And `use Relay<Int>()` is not
+    an example of an instance the checker "could not infer": the written
+    `<Int>` is discarded before anyone looks at it, so the instance is
+    generic for a reason that has nothing to do with the fusion — and Kotlin
+    does *not* accept that shape either, contrary to what the sibling cut
+    above claims about erasure.
 * A generated **conjunction trait name claimed by two different effect
   sets**: sanitizing `<`/`,` to `_` is not injective, so an effect literally
   named `Random_i32` collides with `Random<i32>`. Vanishingly unlikely, but

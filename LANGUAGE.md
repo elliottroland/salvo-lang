@@ -696,8 +696,16 @@ Details worth knowing:
 - **An implicitly resolved function is effect-free.** A fn type without an
   effect list means "performs nothing", and an effectful function does not
   fit there — so resolution can never quietly add an effect to a caller.
-- **Only functions have them**: not effect members, handler constructors, or
-  lambdas — none of those has a call site that could resolve one.
+- **Effect members have them too.** A member is an ordinary signature, so
+  `fn show(v: T, ?fmt: (T) -> Str) -> Str` works: the call site resolves
+  `fmt`, and every handler implementing `show` receives it. Handler
+  *constructors* do not — their instance is built by `use`, which resolves
+  nothing — and neither do lambdas, whose types have no room to declare one.
+- **A mismatch that types cannot show is explained.** What a call does to
+  each argument is part of whether a function fits, but not part of how a
+  type prints, so a function that *consumes* an argument where the position
+  keeps it is reported in words: which argument, which direction, and the two
+  ways to fix it.
 
 ### Variadic arguments
 
