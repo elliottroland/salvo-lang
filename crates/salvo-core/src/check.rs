@@ -235,6 +235,28 @@ pub struct Checked {
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
     pub fn_effects: HashMap<FnKey, Vec<Ty>>,
+    /// [iter-effects] The effects a **producer** claims on its return type,
+    /// **sorted by rendered name** — the one source of truth for the *handler
+    /// parameter order* of a generated pass. Three sites have to agree on it
+    /// (the generated trait per effect set, the pass's own `advance`/`close`,
+    /// and every `for` that drives one), which is exactly the
+    /// checker/emitter agreement the invariants require: derived once here
+    /// rather than re-read from the AST by each backend.
+    ///
+    /// Sorted rather than *written*, because the trait is generated per effect
+    /// **set**: `Counter Logger Iter<Int>` and `Logger Counter Iter<Int>` are
+    /// the same type (`Ty::qualify` normalizes qualifier order), so two
+    /// producers written the two ways must agree on their parameter order or
+    /// the shared trait would fit neither.
+    ///
+    /// Keyed by the producer's `FnKey`. Present only for a `yield` fn whose
+    /// return type carries a claim — an effect-free producer has no entry.
+    pub producer_effects: HashMap<FnKey, Vec<Ty>>,
+    /// [iter-effects] Every distinct effect *set* the program's producers
+    /// claim, each in its canonical (written) order: one generated
+    /// trait/interface per entry, the way `union_sizes` drives one `UnionN`
+    /// per arity.
+    pub pass_effect_sets: BTreeSet<Vec<String>>,
     /// [call-type-args] The type arguments a generic call resolved to, in
     /// the callee's declaration order (keyed by the call span). Inferred
     /// from the arguments, an explicit type-argument list, or the expected
@@ -2767,35 +2789,60 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(key) = self.own_fn {
             self.out.fn_effects.insert(key, fn_effects.clone());
         }
+        // [iter-effects] A producer's claim, recorded for the emitters in the
+        // order it is written: the handler parameters of its machine, and the
+        // identity of the effect set whose trait it needs.
+        if f.body.as_ref().is_some_and(block_contains_yield) {
+            if let Some(ret) = &f.return_type {
+                let mut claimed = self.claimed_effects(ret);
+                // Canonical order: the *set* is what identifies the trait.
+                claimed.sort_by_key(|t| t.to_string());
+                if !claimed.is_empty() {
+                    if let Some(key) = self.own_fn {
+                        self.out.producer_effects.insert(key, claimed.clone());
+                    }
+                    self.out
+                        .pass_effect_sets
+                        .insert(claimed.iter().map(|t| t.to_string()).collect());
+                }
+            }
+        }
         let Some(body) = &f.body else {
             self.generics = saved_generics;
             return;
         };
-        // [iter-effect-free] An iterator fn is *lazy* [fn-iterator]: its
-        // body runs in pieces, driven by whoever consumes the elements,
-        // long after the call that created it returned. An effect it
-        // performed would therefore have to reach a handler that is no
-        // longer in scope — on Rust literally so, since a handler arrives
-        // as a borrow that cannot outlive the call. So an iterator fn
-        // declares no effects at all, `use` included (which would let it
-        // register its own handler and perform effects undeclared). The
-        // consumer is where effects belong: a `for` loop in an effectful
-        // fn can do anything it likes with the elements.
+        // [iter-effects] An iterator fn's body runs in pieces, driven by
+        // whoever consumes the elements — *none* of it at the call that
+        // created the pass. So its effects do not belong in its own list,
+        // where they would make every call site supply a handler for
+        // something calling it never does: they belong on the **return
+        // type**, in qualifier position (user decision 2026-09-07), where
+        // they are the claim whoever drives the pass inherits.
         if block_contains_yield(body) {
-            if let Some(span) = f.effects.as_ref().and_then(|list| list.first()).map(|e| match e {
-                EffectRef::Use(span) => *span,
-                EffectRef::Effect(r) => r.span,
-            }) {
-                self.error(
-                    span,
-                    format!(
-                        "an iterator function cannot declare effects: `{}` produces its \
-                         elements lazily, so its body would run after the call that \
-                         supplied the handlers returned — perform the effects where the \
-                         elements are consumed, in the `for` loop's own function",
-                        f.name.name
+            for eff in f.effects.iter().flatten() {
+                match eff {
+                    EffectRef::Effect(r) => self.error(
+                        r.span,
+                        format!(
+                            "an iterator function declares its effects on its return type, \
+                             not in its own list: none of `{}`'s body runs when it is \
+                             called, so write `-> {} Iter<…>` and whoever drives the pass \
+                             will supply the handler",
+                            f.name.name, r.name.name
+                        ),
                     ),
-                );
+                    // `use` would let the body register its own handler,
+                    // which the pass would have to carry across every
+                    // suspension: not part of the I4 decision.
+                    EffectRef::Use(span) => self.error(
+                        *span,
+                        format!(
+                            "an iterator function cannot `use` a handler of its own \
+                             (`{}`): register it where the pass is driven",
+                            f.name.name
+                        ),
+                    ),
+                }
             }
         }
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
@@ -2942,6 +2989,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             for ty in self.inherited_fn_effects(&p.ty) {
                 if !env.contains(&ty) {
                     env.push(ty);
+                }
+            }
+        }
+        // [iter-effects] A `yield` fn's effects live on its **return type**
+        // (user decision 2026-09-07), because none of its body runs when it
+        // is called: the effects are performed while the *consumer* drives
+        // the pass. Putting them in the fn's own list would make every call
+        // site supply a handler for something calling it never does.
+        if f.body.as_ref().is_some_and(block_contains_yield) {
+            if let Some(ret) = &f.return_type {
+                for ty in self.claimed_effects(ret) {
+                    if !env.contains(&ty) {
+                        env.push(ty);
+                    }
                 }
             }
         }
@@ -4517,7 +4578,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn inherited_fn_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         match ty {
             ast::Type::Fn { effects, .. } => self.lower_fn_effects(effects.as_deref()),
-            ast::Type::QualifiedGroup { base, .. } => self.inherited_fn_effects(base),
+            // [iter-effects] A producer parameter is inherited from for the
+            // same reason a fn-typed one is: the only reason to take it is to
+            // drive it, and driving it performs what its type claims. The
+            // claim is written in qualifier position, so it is read off the
+            // qualified type — and the *base* is still walked, since
+            // `Once FileSystem Iter<T>` nests them.
+            ast::Type::QualifiedGroup { base, .. } => {
+                let mut out = self.claimed_effects(ty);
+                for ty in self.inherited_fn_effects(base) {
+                    if !out.contains(&ty) {
+                        out.push(ty);
+                    }
+                }
+                out
+            }
+            ast::Type::Named { .. } => self.claimed_effects(ty),
             ast::Type::Nullable { inner, .. } => self.inherited_fn_effects(inner),
             ast::Type::Union { arms, .. } => arms
                 .iter()
@@ -4525,6 +4601,54 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .collect(),
             _ => Vec::new(),
         }
+    }
+
+    /// [iter-effects] The effects a type *claims*: the names in qualifier
+    /// position that resolve to effect declarations, lowered to instances.
+    /// Reaches through nullability and union arms like [fn-effects]'s
+    /// inheritance does, so `FileSystem Iter<Str>?` claims `FileSystem`.
+    fn claimed_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
+        let mut out: Vec<Ty> = Vec::new();
+        match ty {
+            ast::Type::Named { qualifiers, .. }
+            | ast::Type::QualifiedGroup { qualifiers, .. } => {
+                for q in qualifiers {
+                    if self.scope.qualifiers.contains_key(q.name.name.as_str()) {
+                        continue;
+                    }
+                    if self.scope.effects.contains_key(q.name.name.as_str()) {
+                        if let Some(ty) = self.lower_effect_ref(q) {
+                            if !out.contains(&ty) {
+                                out.push(ty);
+                            }
+                        }
+                    }
+                }
+            }
+            ast::Type::Nullable { inner, .. } => out.extend(self.claimed_effects(inner)),
+            ast::Type::Union { arms, .. } => {
+                for arm in arms {
+                    for ty in self.claimed_effects(arm) {
+                        if !out.contains(&ty) {
+                            out.push(ty);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+
+    /// Why a *written* qualifier name may not be removed with `^`, if it may
+    /// not [qual-widen]. Consults the effect namespace first: an effect claim
+    /// on a producer never drops [iter-effects], and the name-based list
+    /// cannot know an arbitrary effect's name.
+    fn removal_block(&self, name: &str) -> Option<&'static str> {
+        if !self.scope.qualifiers.contains_key(name) && self.scope.effects.contains_key(name) {
+            return Qual::effect(name, Vec::new()).drop_block();
+        }
+        crate::types::qual_drop_block(name)
     }
 
     /// Records that an effect instance was used, for the *inference* of an
@@ -4840,6 +4964,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // produces it, which is what makes the outcome type equal to a
             // hand-written `Ok T | Thrown M`.
             Some(_) => Some(Qual {
+                effect: false,
                 name: name.to_string(),
                 args: Vec::new(),
             }),
@@ -5635,6 +5760,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
                 Qual {
+                    // [iter-effects] A name in qualifier position that
+                    // resolves to an *effect* is an effect claim on a
+                    // producer, not a qualifier: same spelling, different
+                    // rules (inverted variance, never dropped, never
+                    // tested). Qualifier and effect names cannot collide
+                    // [mod-collision], so the lookup decides.
+                    effect: !self.scope.qualifiers.contains_key(q.name.name.as_str())
+                        && self.scope.effects.contains_key(q.name.name.as_str()),
                     name: q.name.name.clone(),
                     args: q
                         .args
@@ -5734,7 +5867,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// intrinsic ones (which have no declaration to find — their
     /// position-specific rules are enforced by `validate_quals`).
     fn qual_name_exists(&self, name: &str) -> bool {
-        matches!(name, "Mut" | "Linear" | "Once") || self.scope.is_qualifier(name)
+        matches!(name, "Mut" | "Linear" | "Once")
+            || self.scope.is_qualifier(name)
+            // [iter-effects] An effect claims what driving a producer
+            // performs, and it is written where a qualifier goes. Where it
+            // may be written is `validate_quals`' business; that it *is* a
+            // name in this position is settled here.
+            || self.scope.effects.contains_key(name)
     }
 
     /// Reports a written name in a type position that resolves to nothing
@@ -5926,6 +6065,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // "any type": a general affine qualifier is a vocabulary
                 // decision of its own, kept as roadmap D6 rather than
                 // shipped as a side effect of this one.
+                // [iter-effects] An effect name in qualifier position claims
+                // what *driving* this value performs (user decision
+                // 2026-09-07). Its position rule is `Once`'s — position rule
+                // 2 of the D8 options: the things whose invocation performs
+                // effects are exactly the things `Once` marks as used up by
+                // invoking them, and I2b's collision is the argument for one
+                // predicate rather than two that drift. A fn type is excluded
+                // because it has the `[…]` spelling already.
+                if decl.is_none() && self.scope.effects.contains_key(q.name.name.as_str()) {
+                    let fn_type = matches!(base, Ty::Fn { .. });
+                    if fn_type {
+                        self.error(
+                            q.span,
+                            format!(
+                                "a function type declares its effects in its own list \
+                                 (`(…) [{}] -> …`), not in qualifier position",
+                                q.name.name
+                            ),
+                        );
+                    } else if !crate::types::once_position(base) && !self.has_auto_once(base) {
+                        self.error(
+                            q.span,
+                            format!(
+                                "`{}` in qualifier position claims what *driving* a \
+                                 producer performs, so it applies to `Iter<T>` and to a \
+                                 type of your own that says `canbe Once` (found \
+                                 `{base}`)",
+                                q.name.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
                 if q.name.name == "Once" {
                     if !crate::types::once_position(base) && !self.has_auto_once(base) {
                         self.error(
@@ -6072,6 +6244,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.lookup_mut(arg) {
                 var.narrowed = var.narrowed.clone().qualify(vec![Qual {
+                    effect: false,
                     name: q,
                     args: Vec::new(),
                 }]);
@@ -6274,6 +6447,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(cref) => {
                 let empty = HashMap::new();
                 let qual = Qual {
+                    effect: false,
                     name: cref.name.name.clone(),
                     args: cref
                         .args
@@ -6668,7 +6842,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [qual-widen] The single exclusion list, shared with `Qual T <: T`.
         let mut blocked = false;
         for q in &pat.quals {
-            if let Some(reason) = crate::types::qual_drop_block(q) {
+            if let Some(reason) = self.removal_block(q) {
                 self.error(span, format!("`{q}` cannot be removed with `^`: {reason}"));
                 blocked = true;
             }
@@ -7822,6 +7996,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty, iterable.span());
+                // [iter-effects] Driving a producer performs what its type
+                // claims, so the handlers have to be here — the same check a
+                // fn *value*'s call makes, and recorded the same way so the
+                // emitters can thread them (roadmap I4's emission half).
+                let claimed: Vec<Ty> = iter_ty
+                    .quals()
+                    .iter()
+                    .filter(|q| q.effect)
+                    .map(|q| Ty::Named {
+                        name: q.name.clone(),
+                        args: q.args.clone(),
+                    })
+                    .collect();
+                if !claimed.is_empty() {
+                    self.check_fn_value_effects(&claimed, iterable.span());
+                }
                 // [once-fn] Driving a **pass** consumes it: `Once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
@@ -8316,6 +8506,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // positions and calling it consumes it.
         if consumes_captures {
             fn_ty.qualify(vec![Qual {
+                effect: false,
                 name: "Once".to_string(),
                 args: Vec::new(),
             }])
@@ -8811,6 +9002,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .quals
                         .iter()
                         .map(|n| Qual {
+                            effect: false,
                             name: n.clone(),
                             args: Vec::new(),
                         })
@@ -9113,7 +9305,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ok = false;
                 }
                 for q in &pat.quals {
-                    if let Some(reason) = crate::types::qual_drop_block(q) {
+                    if let Some(reason) = self.removal_block(q) {
                         self.error(
                             branch.span,
                             format!("`{q}` cannot be removed with `^`: {reason}"),
@@ -9543,9 +9735,18 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
             // [once-fn] A `Once` requirement is satisfied by any fn
             // (inverted subtyping: plain fns may be treated as
-            // once-callable).
+            // once-callable). [iter-effects] An effect claim is the same
+            // direction: a producer that performs *fewer* effects fits a
+            // position expecting more, so the claim need not be present on
+            // the argument — while an effect the argument *does* claim must
+            // be one the position expects, which `is_subtype` then checks.
             pq.iter()
-                .all(|q| q.name == "Once" || arg_quals.contains(&q.name.as_str()))
+                .all(|q| q.name == "Once" || q.effect || arg_quals.contains(&q.name.as_str()))
+                && arg
+                    .quals()
+                    .iter()
+                    .filter(|q| q.effect)
+                    .all(|q| pq.contains(q))
                 && unify(pb, arg.strip_quals(), subst)
         }
         // A union parameter tries each arm against the *intact* argument —
@@ -9561,7 +9762,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // `Qual T` can be passed where `T` is expected — except `Once`,
         // which may never be dropped [once-fn].
         (_, Ty::Qualified { quals, base }) => {
-            !quals.iter().any(|q| q.name == "Once") && unify(param, base, subst)
+            !quals.iter().any(|q| q.name == "Once" || q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
             pn == an
@@ -9674,6 +9875,7 @@ fn substitute_known(
                 quals
                     .iter()
                     .map(|q| Qual {
+                        effect: q.effect,
                         name: q.name.clone(),
                         args: q
                             .args
@@ -9734,6 +9936,7 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
                 quals
                     .iter()
                     .map(|q| Qual {
+                        effect: q.effect,
                         name: q.name.clone(),
                         args: q
                             .args

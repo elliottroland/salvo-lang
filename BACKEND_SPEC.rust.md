@@ -125,31 +125,44 @@ Conventions:
   the `i32` index (`v[(i) as usize]`).
 * [rs-iter-lazy] `Iter<T>` maps to the generated `SalvoIter<T>`, and
   iterator functions (`yield`) are **lazy and repeatable**, matching
-  Kotlin's `Iterable { iterator { … } }` element for element
-  [fn-iterator]. Stable Rust has no generators, so the state machine is
-  borrowed from `async`: rustc builds it, and the generated `SalvoGen`
-  drives it with a no-op waker. Nothing is `unsafe` and nothing needs a
-  crate.
+  Kotlin's `Iterable<T>` element for element [fn-iterator].
   * `SalvoIter<T>` is a **factory** — `Rc<dyn Fn() -> Box<dyn
     Iterator<Item = T>>>` — so a second `for` re-runs the producer as on
     Kotlin, `for` never consumes its subject, and nothing about linearity
     changes. Its manual `Clone` and `Debug` impls are what let an
     `Iter<T>` sit in a `#[derive(Clone, Debug)]` struct field.
-  * The body becomes `SalvoIter::from_factory(Rc::new(move || {
-    Box::new(SalvoGen::new(move |__slot| async move { … })) }))`, with
-    `yield v` as `__slot.replace(Some(v)); SalvoYield::once().await;` and
-    a bare `return` as `return;`.
+  * [rs-generator] **A pass is a struct the compiler writes**, from the
+    shared plan [iter-generator]: `struct __Pass_<fn> { <params>, <the
+    body's locals>, __state: u32, __d<i>: bool }` with `fn __advance(&mut
+    self) -> Option<T>` — one `loop { match self.__state { … } }` — an
+    `impl Iterator` that delegates to it, and a `__close` running the
+    pending deferred blocks. The body's names are `self.` fields
+    (`BindKind::SelfField`), so a `let` *assigns* one.
+    * The `async` borrowing is **gone** (2026-09-07), and with it
+      `SalvoGen`, `SalvoYield`, `Pin`, `Future` and `Waker`: rustc used to
+      build the state machine, and the price was that the machine captured
+      its environment `'static`, which is what forces [iter-effects].
+      A struct's `__advance` can take the handlers as parameters (roadmap
+      I4).
+    * A field whose type has **no zero value** — a generic element, a
+      struct, a union — is held in an `Option` instead
+      (`BindKind::SelfSlot`): reads clone out of it, `&`/`&mut` borrow
+      through it (`as_ref()`/`as_mut()`), and assignments re-wrap. The
+      zero-able types get plain fields, which is what keeps the common
+      machine readable.
+    * The body becomes `SalvoIter::from_factory(Rc::new(move ||
+      Box::new(__Pass_f::new(<captures>.clone(), …))))`.
   * Every parameter is captured once into the factory and cloned per
     pass, so each pass starts from the beginning and the captured state is
     `'static`. That is sound only because an iterator fn performs no
-    effects [iter-effect-free]: a handler arrives as `&mut dyn E`
+    effects [iter-effects]: a handler arrives as `&mut dyn E`
     borrowed for the call and could not live this long.
   * A fn-typed parameter of an iterator fn is the one convention
     exception to [rs-fn-param-convention]: it arrives **owned** as
     `impl Fn(…) + 'static` (wrapped in an `Rc` internally, so it is shared
     by every pass) rather than `&mut impl FnMut(…)`, and its own
     parameters keep the ordinary convention. `Fn` rather than `FnMut`
-    because a pass may run more than once [iter-effect-free].
+    because a pass may run more than once [iter-effects].
   * Generic parameters carry `'static` alongside the blanket `Clone`
     bound: every Salvo type is owned data with no lifetime of its own, and
     a captured element type has to outlive the call.

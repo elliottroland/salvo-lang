@@ -15,6 +15,53 @@ use std::fmt;
 pub struct Qual {
     pub name: String,
     pub args: Vec<Ty>,
+    /// [iter-effects] This "qualifier" names an **effect**, not a qualifier
+    /// declaration: `FileSystem Iter<Str>` is a producer whose *driving*
+    /// performs `FileSystem` (user decision 2026-09-07 — effects on a
+    /// producer are spelled in qualifier position, since a type with no
+    /// arrow has nowhere to put a `[…]` list and prefixing one would read as
+    /// a deduction list in return position).
+    ///
+    /// It rides in `Qual` because the spelling, the display and the erasure
+    /// are a qualifier's, and it carries a flag because the *rules* are not:
+    /// the variance is inverted (fewer effects fits where more are
+    /// expected), it never drops, and nothing tests it at run time. A name
+    /// alone could not tell the two apart here — a qualifier's name is
+    /// arbitrary and so is an effect's.
+    pub effect: bool,
+}
+
+impl Qual {
+    pub fn plain(name: impl Into<String>, args: Vec<Ty>) -> Self {
+        Qual {
+            name: name.into(),
+            args,
+            effect: false,
+        }
+    }
+
+    /// An effect claim in qualifier position [iter-effects].
+    pub fn effect(name: impl Into<String>, args: Vec<Ty>) -> Self {
+        Qual {
+            name: name.into(),
+            args,
+            effect: true,
+        }
+    }
+
+    /// Why this qualifier may not be dropped from a type, if it may not.
+    pub fn drop_block(&self) -> Option<&'static str> {
+        if self.effect {
+            // [iter-effects] Dropping the claim would let a producer that
+            // performs effects into a position that supplies none.
+            return Some(
+                "an effect on a producer restricts rather than refines: dropping it \
+                 would let a producer that performs effects be driven where none can \
+                 be supplied",
+            );
+        }
+        qual_drop_block(&self.name)
+    }
 }
 
 /// What a call does to an argument's known qualifiers [deduce-syntax].
@@ -306,7 +353,15 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             is_subtype(ba, bb)
                 && qb
                     .iter()
-                    .all(|q| q.name == "Once" || qa.contains(q))
+                    .all(|q| q.name == "Once" || q.effect || qa.contains(q))
+                // [iter-effects] An effect claim runs the *other* way, like
+                // [fn-effects] on a fn type: every effect the supplied
+                // producer performs must be one the position expects, and a
+                // producer performing fewer fits a position expecting more.
+                && qa
+                    .iter()
+                    .filter(|q| q.effect)
+                    .all(|q| qb.contains(q))
         }
         // [once-fn] INVERTED subtyping, flagged for future review
         // (user decision 2026-09-02): `Once` *restricts* (usable at
@@ -325,17 +380,19 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // and not here. An `Once` on a base that never opted in has
         // already been reported, so accepting it in this direction costs
         // nothing and keeps one mistake to one diagnostic.
-        (_, Ty::Qualified { quals, base }) if quals.iter().any(|q| q.name == "Once") => {
+        // [iter-effects] The same shape, for the same reason: a producer that
+        // performs *no* effects fits a position that expects some.
+        (_, Ty::Qualified { quals, base })
+            if quals.iter().all(|q| q.name == "Once" || q.effect)
+                && quals.iter().any(|q| q.name == "Once" || q.effect) =>
+        {
             is_subtype(a, base)
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
         // ([qual-widen]'s single exclusion list: `Once`, `Linear`,
         // `ReadOnly`).
         (Ty::Qualified { quals, base }, _) => {
-            quals
-                .iter()
-                .all(|q| qual_drop_block(&q.name).is_none())
-                && is_subtype(base, b)
+            quals.iter().all(|q| q.drop_block().is_none()) && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb
@@ -745,6 +802,7 @@ mod tests {
 
     fn ok(base: Ty) -> Ty {
         base.qualify(vec![Qual {
+            effect: false,
             name: "Ok".into(),
             args: vec![],
         }])
@@ -752,6 +810,7 @@ mod tests {
 
     fn err(base: Ty) -> Ty {
         base.qualify(vec![Qual {
+            effect: false,
             name: "Err".into(),
             args: vec![],
         }])
@@ -841,14 +900,17 @@ mod tests {
         assert_eq!(spec_cmp(&both, &other), None);
         // 4. Qualifier sets by inclusion, kind ignored.
         let mut_list = list(int.clone()).qualify(vec![Qual {
+            effect: false,
             name: "Mut".into(),
             args: vec![],
         }]);
         let mut_ne_list = mut_list.clone().qualify(vec![Qual {
+            effect: false,
             name: "NonEmpty".into(),
             args: vec![],
         }]);
         let ne_list = list(int.clone()).qualify(vec![Qual {
+            effect: false,
             name: "NonEmpty".into(),
             args: vec![],
         }]);
@@ -860,6 +922,7 @@ mod tests {
         // Criteria pulling opposite ways are unrankable: more qualifiers but
         // a vaguer base.
         let ne_generic = list(var.clone()).qualify(vec![Qual {
+            effect: false,
             name: "NonEmpty".into(),
             args: vec![],
         }]);
@@ -912,4 +975,21 @@ mod tests {
         assert!(!spec_dominates(&empty_variadic, &empty_fixed));
         assert_eq!(most_specific(&[empty_variadic, empty_fixed]), Some(1));
     }
+    /// [iter-effects] The two rules an effect claim does *not* share with an
+    /// ordinary qualifier: it is never dropped, and its variance is inverted —
+    /// a producer performing fewer effects fits where more are expected.
+    #[test]
+    fn an_effect_claim_never_drops_and_inverts() {
+        let iter = Ty::Named {
+            name: "Iter".to_string(),
+            args: vec![Ty::Named {
+                name: "Int".to_string(),
+                args: vec![],
+            }],
+        };
+        let claimed = iter.clone().qualify(vec![Qual::effect("Logger", vec![])]);
+        assert!(is_subtype(&iter, &claimed), "pure fits a claiming position");
+        assert!(!is_subtype(&claimed, &iter), "a claim does not drop");
+    }
 }
+

@@ -860,10 +860,11 @@ element type — comes from which `iter` fills the implicit. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 
 `map` and `filter` are **eager**: they return a `Mut List<U>`, not a lazy
-`Iter<U>`. A lazy one would have to store the callback, and a stored callback
-cannot perform effects (the same restriction iterator functions have), which
-would rule out a `println` inside a `map` — the thing people actually write.
-Chaining still works, because a list is iterable like anything else.
+`Iter<U>`. A lazy one calls its callback *inside* a producer, and until a
+producer can thread its handlers through (see the effect claim on a producer
+type, above) that would rule out a `println` inside a `map` — the thing people
+actually write. Chaining still works, because a list is iterable like anything
+else, and going lazy is a planned change rather than a rule.
 
 ### Variadic arguments
 
@@ -1028,11 +1029,27 @@ twice(drained(4))       // ERROR: `Once` never drops
 
 Which to write is a judgement about the producer, not a default: a one-shot type is what a producer *holding* something — a file, a connection — wants, because a replay would re-open it. A producer that merely computes has nothing to protect, and a factory is friendlier.
 
-The price is that **an iterator function declares no effects** — not even `use`. Its body runs after the call that created the iterator has returned, so there is no longer a scope to hold the handlers it would need. Effects belong to the consumer instead, which costs nothing: the `for`-loop that walks the elements sits in a function of its own and may do anything that function declares.
+A producer **may** perform effects, and it says so on its *type* rather than in its own effect list:
 
 ```
-// Rejected: `naturals` would perform Console after its caller returned.
-fn naturals() [Console] -> Iter<Int> { ... }
+fn lines_of(path: Str) -> FileSystem Iter<Str> {
+    let handle = open(path)
+    defer { close(handle) }
+    while has_more(handle) { yield read_line(handle) }
+}
+```
+
+`FileSystem Iter<Str>` is a producer whose *driving* performs `FileSystem`. The effect sits in qualifier position because a type with no arrow has nowhere to put a `[...]` list, and a prefixed one would read as a deduction list in return position.
+
+It is on the return type and not on the function because **none of the body runs when the function is called**: the effects happen while the consumer drives the pass. A list on the function would ask every call site for a handler that building the pass never needs. So a `yield` function declares no effect list of its own — writing one is an error naming the remedy — and its body is checked against what the return type claims.
+
+Everything else about the claim is what function values already do: a function that takes a producer **inherits** its effects (`fn take<T>(xs: FileSystem Iter<T>, n: Int)` needs no list of its own, and its callers supply the handler); a producer performing *fewer* effects fits where more are expected, never the reverse; the claim never drops, so `^ FileSystem` is an error; and **holding** a producer needs nothing at all — only driving it does, which is why a `for` over one requires the claimed effects in scope. The claim may be written on `Iter<T>` and on a type of your own that says `canbe Once`; a function type is excluded, since it has the bracket spelling already.
+
+`use` stays barred inside a producer: it would register a handler the pass then has to carry across every suspension.
+
+```
+// Rejected: the effects belong on the type, not in the list.
+fn naturals() [Console] -> Iter<Int> { ... }   // ERROR: write `-> Console Iter<Int>`
 
 // Fine: the effect is where the elements are used.
 fn show(limit: Int) [Console] -> None {
@@ -1104,10 +1121,12 @@ None | Finished` has two arms where `None | None` would have one.
 
 An iterator function's body still uses `yield`; the compiler lowers it to
 a state struct with a `next` of its own, rather than borrowing the target
-language's coroutines. Two consequences: effects thread into `next` like
-they do into any other function, so **an iterator function may perform
-effects** and the restriction described above goes away; and iteration is
-monomorphic — nothing is suspended, boxed, or dynamically dispatched.
+language's coroutines — *this part is built*. Two consequences: effects
+thread into `next` like they do into any other function, which is what lets
+a producer perform them at all (the claim on its type, above, is the
+language part; threading the handlers through is what remains); and
+iteration is monomorphic — nothing is suspended, boxed, or dynamically
+dispatched.
 
 The factory/pass distinction above is *already* the language — what is
 still planned is the representation behind it. Today both forms emit the
@@ -2050,5 +2069,5 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
 * Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
 * `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
-* The `Iter<T>` type maps to a generated factory type: iterator functions are lazy and repeatable, as on Kotlin. Stable Rust has no generators, so the body becomes an `async` block — a state machine rustc builds — driven one element at a time. This is why an iterator function may perform no effects: its captured state has to outlive the call.
+* The `Iter<T>` type maps to a generated factory type: iterator functions are lazy and repeatable, as on Kotlin. Stable Rust has no generators, so the compiler writes the state machine itself — a struct with the body's locals as fields and a flat dispatch on a state number — which is also what lets a producer take its effect handlers per resume rather than capturing them.
 * See BACKEND_SPEC.rust.md for the full rules.

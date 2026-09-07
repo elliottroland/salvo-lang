@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use salvo_core::generator::{FieldKind, Step};
 use salvo_core::check::{Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program, Symbols};
@@ -92,6 +93,9 @@ pub fn emit_program_reporting(
     // [kt-throw-signal] Generated once for the whole program, when
     // anything throws.
     let mut needs_throw = false;
+    // [iter-generator] The pass base class, generated once when any module
+    // has an iterator fn.
+    let mut needs_iter = false;
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -111,6 +115,7 @@ pub fn emit_program_reporting(
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
         needs_throw |= emitter.needs_throw;
+        needs_iter |= emitter.needs_iter;
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
             rel_path.push(part);
@@ -128,6 +133,12 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("throw.kt"),
             content: generate_throw_file(),
+        });
+    }
+    if needs_iter {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("iter.kt"),
+            content: include_str!("../runtime/iter.kt").to_string(),
         });
     }
     // [backend-companion] Backend-native companion files are copied
@@ -180,6 +191,28 @@ pub fn emit_program_reporting(
 /// The Kotlin package of a Salvo module [kt-package]: `salvo.` plus the
 /// module path (`core.console` -> `salvo.core.console`). The generated
 /// `unions.kt` lives in the root package `salvo`.
+/// [iter-generator] The value a property of this Kotlin type starts at.
+/// `None` where the type has none — a class, a union wrapper, a generic —
+/// which becomes a nullable property instead.
+fn zero_of_kotlin_type(rendered: &str) -> Option<String> {
+    let zero = match rendered {
+        "Int" => "0",
+        "Long" => "0L",
+        "Byte" => "0",
+        "Float" => "0.0f",
+        "Double" => "0.0",
+        "Boolean" => "false",
+        "Char" => "'\\u0000'",
+        "String" => "\"\"",
+        "Unit" => "Unit",
+        other if other.starts_with("MutableList<") => "mutableListOf()",
+        other if other.starts_with("List<") => "listOf()",
+        other if other.ends_with('?') => "null",
+        _ => return None,
+    };
+    Some(zero.to_string())
+}
+
 fn kotlin_package(module: &ModulePath) -> String {
     let mut out = String::from("salvo");
     for part in &module.0 {
@@ -441,6 +474,20 @@ struct Emitter<'p> {
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
+    /// [iter-generator] This file has an iterator fn, so the program needs
+    /// the generated pass base class (`iter.kt`).
+    needs_iter: bool,
+    /// [iter-generator] Inside an iterator fn's body: the names that are
+    /// properties of the generated pass rather than locals. A Kotlin property
+    /// is in scope in its own class's methods, so reads need no rewriting —
+    /// what this set decides is that a `let` *assigns* instead of declaring.
+    gen_fields: HashSet<String>,
+    /// [iter-generator] Of those, the ones held in a nullable property
+    /// because their type has no zero value: reads unwrap with `!!`.
+    gen_slots: HashSet<String>,
+    /// [iter-generator] The fields by plan index: the steps name a slot or an
+    /// element binding by number.
+    gen_field_names: Vec<String>,
     /// The indentation of the statement being emitted, so an
     /// expression-position `try` block reads like the rest of the output.
     expr_indent: usize,
@@ -510,6 +557,10 @@ impl<'p> Emitter<'p> {
             errors: Vec::new(),
             union_sizes: BTreeSet::new(),
             needs_throw: false,
+            needs_iter: false,
+            gen_fields: HashSet::new(),
+            gen_slots: HashSet::new(),
+            gen_field_names: Vec::new(),
             implicits: Vec::new(),
             expr_indent: 0,
             effect_env: Vec::new(),
@@ -704,7 +755,7 @@ impl<'p> Emitter<'p> {
         // lines, and the sealed union wrappers when this file uses any.
         let mut imports = self.generated_imports.clone();
         imports.extend(self.imports.iter().cloned());
-        if !self.union_sizes.is_empty() {
+        if !self.union_sizes.is_empty() || self.needs_iter {
             imports.insert("import salvo.*".to_string());
         }
         if !imports.is_empty() {
@@ -1208,9 +1259,12 @@ impl<'p> Emitter<'p> {
             params.join(", ")
         );
 
-        // Iterator functions (`yield` in the body) compile to an
-        // `Iterable { iterator { ... } }` builder [fn-iterator]
-        // [kt-iter-iterable].
+        // [iter-generator] An iterator fn returns an `Iterable<T>` that mints
+        // a **pass** per iteration: a class the compiler wrote, whose
+        // `__advance` is the body as a flat state machine. See
+        // `emit_generator`; the `iterator { … }` builder is gone, and with it
+        // the one lowering that could only ever have *captured* a handler.
+        let mut generated = String::new();
         if contains_yield(body) {
             let elem = match f.return_type.as_ref() {
                 Some(Type::Named { base, .. }) if base.name.name == "Iter" => base
@@ -1218,6 +1272,20 @@ impl<'p> Emitter<'p> {
                     .first()
                     .map(|t| self.emit_type(t))
                     .unwrap_or_else(|| "Any".to_string()),
+                Some(Type::QualifiedGroup { base, .. }) => match base.as_ref() {
+                    Type::Named { base, .. } if base.name.name == "Iter" => base
+                        .args
+                        .first()
+                        .map(|t| self.emit_type(t))
+                        .unwrap_or_else(|| "Any".to_string()),
+                    _ => {
+                        self.error(format!(
+                            "fn `{}` uses `yield` but does not return Iter<T>",
+                            f.name.name
+                        ));
+                        "Any".to_string()
+                    }
+                },
                 _ => {
                     self.error(format!(
                         "fn `{}` uses `yield` but does not return Iter<T>",
@@ -1226,14 +1294,9 @@ impl<'p> Emitter<'p> {
                     "Any".to_string()
                 }
             };
-            out.push_str(&format!(
-                "{pad}    return Iterable<{elem}> {{\n{pad}        iterator {{\n"
-            ));
-            let saved_ctx = self.stmt_ctx;
-            self.stmt_ctx = StmtCtx::IteratorBody;
-            out.push_str(&self.emit_block_stmts(body, indent + 3));
-            self.stmt_ctx = saved_ctx;
-            out.push_str(&format!("{pad}        }}\n{pad}    }}\n"));
+            let (body_code, item) = self.emit_generator(f, &elem, indent);
+            out.push_str(&body_code);
+            generated = item;
         } else {
             let saved_ctx = self.stmt_ctx;
             self.stmt_ctx = StmtCtx::Normal;
@@ -1241,6 +1304,7 @@ impl<'p> Emitter<'p> {
             self.stmt_ctx = saved_ctx;
         }
         out.push_str(&format!("{pad}}}\n"));
+        out.push_str(&generated);
 
         self.generics = saved_generics;
         self.effect_env = saved_env;
@@ -1248,6 +1312,305 @@ impl<'p> Emitter<'p> {
         self.taken_names = saved_taken;
         self.implicits = saved_implicits;
         out
+    }
+
+    // ================= iterator functions [iter-generator] =================
+
+    /// [kt-generator] [iter-generator] An iterator fn's body as a **pass**: the shared plan
+    /// (`salvo_core::generator`) rendered as a class whose properties are the
+    /// body's locals and whose `__advance` is one flat dispatch loop. Returns
+    /// the fn's own body — an `Iterable` that mints a pass per iteration —
+    /// and the class, which the caller emits beside the fn.
+    ///
+    /// The fn still returns Kotlin's `Iterable<T>`, the representation
+    /// `Iter<T>` has always had here: a *factory*, so a second `for` starts
+    /// from the beginning. What changed is the pass — a class the compiler
+    /// wrote instead of the `iterator { … }` coroutine builder, which is what
+    /// lets `__advance` take the effect handlers as parameters later (roadmap
+    /// I4). Kotlin *could* have kept the builder and captured the handlers at
+    /// creation; it must not, because when a handler is bound is observable —
+    /// the backend-parity principle.
+    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> (String, String) {
+        let pad = "    ".repeat(indent);
+        let plan = match salvo_core::plan_generator(f) {
+            Ok(plan) => plan,
+            Err(errors) => {
+                for e in errors {
+                    self.error(e.message);
+                }
+                return (
+                    format!("{pad}    throw IllegalStateException(\"unsupported\")\n"),
+                    String::new(),
+                );
+            }
+        };
+        // [iter-effects] Same refusal as the Rust backend, and from the same
+        // table: `Checked::producer_effects` fixes the handler order that the
+        // generated interface, this machine and every drive site must share
+        // [backend-never-wrong].
+        if let Some(claimed) = self
+            .checked
+            .fn_refs
+            .get(&(self.file_idx, f.name.span))
+            .and_then(|k| self.checked.producer_effects.get(k))
+        {
+            let names: Vec<String> = claimed.iter().map(|t| t.to_string()).collect();
+            self.error(format!(
+                "fn `{}` is a producer that performs effects ({}): threading handlers into \
+                 a generated pass is not implemented yet",
+                f.name.name,
+                names.join(", ")
+            ));
+        }
+        let pass = format!("__Pass_{}", self.kotlin_fn_name(f));
+        let generic_decl = if f.generics.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                f.generics
+                    .iter()
+                    .map(|g| g.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        // The properties, in plan order: the parameters become constructor
+        // properties; everything else starts at its type's zero, or is
+        // nullable when the type has none.
+        let mut ctor: Vec<String> = Vec::new();
+        let mut props = String::new();
+        let mut slots: HashSet<String> = HashSet::new();
+        for field in &plan.fields {
+            let name = kt_ident(&field.name);
+            match &field.kind {
+                FieldKind::Param(p) => {
+                    let ty = self.emit_type(&p.ty);
+                    ctor.push(format!("private var {name}: {ty}"));
+                }
+                FieldKind::Local { ty, value, .. } => {
+                    let rendered = match ty {
+                        Some(t) => self.emit_type(t),
+                        None => match self.ty_of(value.span()).cloned() {
+                            Some(t) => self.kotlin_ty(&t),
+                            None => {
+                                self.error(format!(
+                                    "the type of `{}` is not known, so it cannot become a \
+                                     property of the generated pass",
+                                    field.name
+                                ));
+                                "Any?".to_string()
+                            }
+                        },
+                    };
+                    props.push_str(&self.gen_property(&name, &rendered, &field.name, &mut slots));
+                }
+                FieldKind::Element { subject, span } => {
+                    let rendered = self.gen_elem_type(subject, *span);
+                    props.push_str(&self.gen_property(&name, &rendered, &field.name, &mut slots));
+                }
+                FieldKind::Pass { subject, span } => {
+                    let rendered = self.gen_elem_type(subject, *span);
+                    props.push_str(&format!(
+                        "    private var {name}: Iterator<{rendered}>? = null\n"
+                    ));
+                }
+            }
+        }
+        for i in 0..plan.defers.len() {
+            props.push_str(&format!("    private var __d{i}: Boolean = false\n"));
+        }
+        props.push_str("    private var __state: Int = 0\n");
+
+        let saved_fields = std::mem::take(&mut self.gen_fields);
+        let saved_slots = std::mem::replace(&mut self.gen_slots, slots);
+        let saved_names = std::mem::take(&mut self.gen_field_names);
+        for field in &plan.fields {
+            self.gen_fields.insert(field.name.clone());
+            self.gen_field_names.push(kt_ident(&field.name));
+        }
+
+        let fin = plan.finished_state;
+        let mut machine = String::new();
+        for (i, state) in plan.states.iter().enumerate() {
+            machine.push_str(&format!("                {i} -> {{\n"));
+            machine.push_str(&self.emit_gen_steps(&state.steps, 5, i, fin));
+            machine.push_str("                }\n");
+        }
+        let mut runners = String::new();
+        for (i, site) in plan.defers.iter().enumerate() {
+            let body = self.emit_block_stmts(site.body, 3);
+            runners.push_str(&format!(
+                "\n    private fun __run_d{i}() {{\n        if (__d{i}) {{\n            \
+                 __d{i} = false\n{body}        }}\n    }}\n"
+            ));
+        }
+        // The release path. Nothing calls it yet — see the Rust backend's
+        // note: a `for` reaches a pass through the `Iterable` and has no exit
+        // hook until the representation split (roadmap I2c/I4).
+        let close = self.emit_gen_steps(&plan.close, 2, usize::MAX, fin);
+
+        self.gen_fields = saved_fields;
+        self.gen_slots = saved_slots;
+        self.gen_field_names = saved_names;
+
+        let mut item = format!(
+            "\nprivate class {pass}{generic_decl}({}) : SalvoPass<{elem}>() {{\n",
+            ctor.join(", ")
+        );
+        item.push_str(&props);
+        item.push_str(&format!(
+            "\n    override fun __advance(): Boolean {{\n        while (true) {{\n            \
+             when (__state) {{\n{machine}                else -> return false\n            \
+             }}\n        }}\n    }}\n"
+        ));
+        item.push_str(&format!(
+            "\n    fun __close() {{\n{close}        __state = {fin}\n    }}\n"
+        ));
+        item.push_str(&runners);
+        item.push_str("}\n");
+
+        let args: Vec<String> = f
+            .params
+            .iter()
+            .map(|p| kt_ident(&p.name.name))
+            .collect();
+        self.needs_iter = true;
+        (
+            format!(
+                "{pad}    return Iterable<{elem}> {{ {pass}({}) }}\n",
+                args.join(", ")
+            ),
+            item,
+        )
+    }
+
+    /// One property of a generated pass: at its type's zero where there is
+    /// one, nullable where there is not (reads then unwrap [iter-generator]).
+    fn gen_property(
+        &mut self,
+        name: &str,
+        rendered: &str,
+        salvo_name: &str,
+        slots: &mut HashSet<String>,
+    ) -> String {
+        match zero_of_kotlin_type(rendered) {
+            Some(zero) => format!("    private var {name}: {rendered} = {zero}\n"),
+            None => {
+                slots.insert(salvo_name.to_string());
+                let ty = if rendered.ends_with('?') {
+                    rendered.to_string()
+                } else {
+                    format!("{rendered}?")
+                };
+                format!("    private var {name}: {ty} = null\n")
+            }
+        }
+    }
+
+    /// One state's (or the release path's) steps.
+    fn emit_gen_steps(
+        &mut self,
+        steps: &[Step<'_>],
+        indent: usize,
+        state: usize,
+        fin: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
+        let mut out = String::new();
+        for step in steps {
+            match step {
+                Step::Plain(stmt) => out.push_str(&self.emit_stmt(stmt, indent)),
+                Step::Register(i) => out.push_str(&format!("{pad}__d{i} = true\n")),
+                Step::Discharge(i) => out.push_str(&format!("{pad}__run_d{i}()\n")),
+                Step::OpenPass { slot, subject } => {
+                    let name = self.gen_field_name(*slot);
+                    let code = self.emit_expr(subject);
+                    out.push_str(&format!("{pad}{name} = ({code}).iterator()\n"));
+                }
+                Step::ClosePass(slot) => {
+                    let name = self.gen_field_name(*slot);
+                    out.push_str(&format!("{pad}{name} = null\n"));
+                }
+                Step::Drive {
+                    slot,
+                    binding,
+                    finished,
+                    ..
+                } => {
+                    let pass = self.gen_field_name(*slot);
+                    let elem = self.gen_field_name(*binding);
+                    out.push_str(&format!("{pad}if ({pass}?.hasNext() != true) {{\n"));
+                    out.push_str(&self.emit_gen_steps(finished, indent + 1, state, fin));
+                    out.push_str(&format!("{pad}}}\n"));
+                    out.push_str(&format!("{pad}{elem} = {pass}!!.next()\n"));
+                }
+                Step::Branch { cond, negate, then } => {
+                    let code = self.emit_expr(cond);
+                    let test = if *negate {
+                        format!("!({code})")
+                    } else {
+                        code
+                    };
+                    out.push_str(&format!("{pad}if ({test}) {{\n"));
+                    out.push_str(&self.emit_gen_steps(then, indent + 1, state, fin));
+                    out.push_str(&format!("{pad}}}\n"));
+                }
+                Step::Goto(t) => out.push_str(&format!("{pad}__state = {t}\n{pad}continue\n")),
+                Step::Emit { value, resume } => {
+                    let code = self.emit_expr(value);
+                    out.push_str(&format!(
+                        "{pad}__current = {code}\n{pad}__state = {resume}\n{pad}return true\n"
+                    ));
+                }
+                Step::Finish => {
+                    out.push_str(&format!("{pad}__state = {fin}\n{pad}return false\n"))
+                }
+            }
+        }
+        out
+    }
+
+    /// The Kotlin name of a plan field, by index.
+    fn gen_field_name(&mut self, index: usize) -> String {
+        match self.gen_field_names.get(index) {
+            Some(name) => name.clone(),
+            None => {
+                self.error("internal: a generator step names a field that is not in the plan");
+                "__missing".to_string()
+            }
+        }
+    }
+
+    /// The element type of a `for` subject inside a suspending body: the pass
+    /// it drives is a property, so its element type is written down rather
+    /// than inferred.
+    fn gen_elem_type(&mut self, subject: &Expr, span: Span) -> String {
+        let _ = span;
+        let Some(ty) = self.ty_of(subject.span()).cloned() else {
+            self.error(
+                "the type of a `for` subject inside an iterator function is not known, so the \
+                 pass it drives cannot be typed",
+            );
+            return "Any?".to_string();
+        };
+        let elem = match ty.strip_quals() {
+            Ty::Array(elem) => Some((**elem).clone()),
+            Ty::Named { name, args } if name == "Iter" || name == "List" => args.first().cloned(),
+            _ => None,
+        };
+        match elem {
+            Some(t) => self.kotlin_ty(&t),
+            None => {
+                self.error(
+                    "a `for` inside an iterator function iterates an array, a `List<T>` or an \
+                     `Iter<T>` for now — a hand-written pass as the subject of a *suspending* \
+                     loop is not supported yet",
+                );
+                "Any?".to_string()
+            }
+        }
     }
 
     /// The generated Kotlin imports of one file [kt-imports]: a wildcard
@@ -1810,11 +2173,6 @@ impl<'p> Emitter<'p> {
                 format!("{pad}{t} = {v}\n")
             }
             Stmt::Return { value, .. } => match (self.stmt_ctx, value) {
-                (StmtCtx::IteratorBody, None) => format!("{pad}return@iterator\n"),
-                (StmtCtx::IteratorBody, Some(_)) => {
-                    self.error("`return` with a value is not allowed in an iterator function");
-                    format!("{pad}return@iterator\n")
-                }
                 (_, Some(v)) => {
                     let v = self.emit_expr(v);
                     format!("{pad}return {v}\n")
@@ -1847,9 +2205,13 @@ impl<'p> Emitter<'p> {
                 }
             }
             Stmt::Continue { .. } => format!("{pad}continue\n"),
-            Stmt::Yield { value, .. } => {
-                let v = self.emit_expr(value);
-                format!("{pad}yield({v})\n")
+            Stmt::Yield { .. } => {
+                // [iter-generator] A `yield` is a step of the generated
+                // machine, never a statement: the plan turns every one into a
+                // `Step::Emit`, and only statements that neither suspend nor
+                // jump reach here.
+                self.error("internal: a `yield` reached the statement emitter");
+                String::new()
             }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
             // [kt-defer-finally] Handled by `emit_stmts`, which wraps the
@@ -1874,6 +2236,14 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
+        // [iter-generator] Inside an iterator fn the body's locals are
+        // properties of the pass, so a `let` *assigns* one.
+        if let Pattern::Ident(name) = pattern {
+            if self.gen_fields.contains(name.name.as_str()) {
+                let code = self.emit_expr(value);
+                return format!("{pad}{} = {code}\n", kt_ident(&name.name));
+            }
+        }
         // Bare struct literals pick up the annotated type.
         let value_code = match (value, ty) {
             (
@@ -2792,6 +3162,10 @@ impl<'p> Emitter<'p> {
                     // takes what the caller passes and forwards what the fn
                     // needs (a pure fn ignores the rest).
                     self.named_fn_value(&id.name, id.span)
+                } else if self.gen_slots.contains(id.name.as_str()) {
+                    // [iter-generator] A pass property with no zero value is
+                    // nullable; the machine assigns it before every read.
+                    format!("{}!!", kt_ident(&id.name))
                 } else {
                     kt_ident(&id.name)
                 }
@@ -4063,6 +4437,7 @@ impl<'p> Emitter<'p> {
                 let quals: Vec<salvo_core::Qual> = qualifiers
                     .iter()
                     .map(|q| salvo_core::Qual {
+                        effect: false,
                         name: q.name.name.clone(),
                         args: Vec::new(),
                     })
@@ -4074,6 +4449,7 @@ impl<'p> Emitter<'p> {
                 let quals: Vec<salvo_core::Qual> = qualifiers
                     .iter()
                     .map(|q| salvo_core::Qual {
+                        effect: false,
                         name: q.name.name.clone(),
                         args: Vec::new(),
                     })
@@ -4315,10 +4691,12 @@ impl<'p> Emitter<'p> {
 
 #[derive(Clone, Copy, PartialEq)]
 enum StmtCtx {
+    /// The only context left: the `IteratorBody` one died with the
+    /// `iterator { … }` builder — an iterator fn's `yield`s and `return`s are
+    /// steps of the generated machine now [iter-generator], so they never
+    /// reach `emit_stmt`. Kept because the next context to need one is
+    /// cheaper to add than to thread (removal is part of the I6 sweep).
     Normal,
-    /// Inside an `iterator {}` builder: bare `return` becomes
-    /// `return@iterator`.
-    IteratorBody,
 }
 
 /// How a narrowed place read reaches its value [flow-place].

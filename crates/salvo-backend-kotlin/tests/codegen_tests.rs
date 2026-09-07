@@ -2191,11 +2191,10 @@ const ITER_RETURN_DEMO: &str = r#"
 fn nums(limit: Int) -> Iter<Int> {
     let i = 0
     yield 0
-    let last = while i++ < limit {
+    while i++ < limit {
         if i == 3 {
             return
         }
-        i
     }
     yield 99
 }
@@ -2211,8 +2210,14 @@ fn main() [use] -> [] None {
 }
 "#;
 
+/// [iter-generator] A bare `return` ends the pass: the machine runs every
+/// pending deferred block and reports `Finished` from then on, which is a
+/// state transition rather than a target-language `return`. (The value-position
+/// form this test used to cover — `let last = while … { … return … }` — is now
+/// refused by the plan: the machine would have to produce the loop's value
+/// from a state it jumped out of. `generator_tests.rs` has the refusal.)
 #[test]
-fn iterator_bare_return_in_value_loop_retargets() {
+fn iterator_bare_return_finishes_the_pass() {
     let program = build_program(&[("main.sv", ITER_RETURN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -2221,21 +2226,22 @@ fn iterator_bare_return_in_value_loop_retargets() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .expect("main.kt emitted");
+    // The `return` became the terminal transition, not a Kotlin `return`.
     assert!(
-        main.content.contains("return@iterator"),
-        "expected retargeted return in:\n{}",
+        main.content.contains("return false"),
+        "expected the pass to finish in:\n{}",
         main.content
     );
-    // No bare `return` may remain inside the iterator builder.
-    let iter_body = main.content
-        .split("iterator {")
+    let machine = main
+        .content
+        .split("override fun __advance(): Boolean {")
         .nth(1)
-        .expect("iterator builder emitted");
-    let bare_returns = iter_body
-        .lines()
-        .filter(|l| l.trim() == "return")
-        .count();
-    assert_eq!(bare_returns, 0, "bare return left in iterator body:\n{iter_body}");
+        .expect("a generated machine");
+    let bare_returns = machine.lines().filter(|l| l.trim() == "return").count();
+    assert_eq!(
+        bare_returns, 0,
+        "bare return left in the machine:\n{machine}"
+    );
 }
 
 #[test]
@@ -4563,12 +4569,111 @@ fn an_iterator_fn_lowers_to_a_lazy_iterable() {
         .content;
     for expected in [
         "fun naturals(from: Int): Iterable<Int> {",
-        "return Iterable<Int> {",
-        "iterator {",
-        "yield(",
+        "return Iterable<Int> { __Pass_naturals(from) }",
+        // The machine: the body's local as a property, the dispatch loop, and
+        // the resume point written back before the element is handed over.
+        "private class __Pass_naturals(private var from: Int) : SalvoPass<Int>() {",
+        "    private var i: Int = 0",
+        "    private var __state: Int = 0",
+        "override fun __advance(): Boolean {",
+        "when (__state) {",
+        "__current = i",
+        "return true",
+        // The nested `for` in `evens` drives a pass held as a property.
+        "private var x__pass: Iterator<Int>? = null",
+        "x = x__pass!!.next()",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
+    for gone in ["iterator {", "yield("] {
+        assert!(
+            !main.contains(gone),
+            "`{gone}` should be gone from:\n{main}"
+        );
+    }
+}
+
+/// [iter-effects] The same refusal as the Rust backend: an effectful producer
+/// needs its handlers per resume, which is I4's emission half
+/// [backend-never-wrong].
+#[test]
+fn an_effectful_producer_is_refused() {
+    let src = r#"
+fn noisy(n: Int) -> Console Iter<Int> {
+    println("one")
+    yield n
+}
+"#;
+    let program = build_program(&[("bad.sv", src)]);
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("expected codegen errors");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("producer that performs effects")),
+        "expected the refusal, got: {errors:?}"
+    );
+}
+
+/// The same source and the same expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_generator_with_defers` [iter-generator]: a
+/// `defer` inside a suspending loop body, a bare `return` out of the middle
+/// of the nest, a nested producer, and a second pass that starts over.
+const GENERATOR_DEFER_DEMO: &str = r#"
+fn upto(n: Int) -> Iter<Int> {
+    let last = 0
+    let i = 0
+    while i < n {
+        defer { last = i }
+        if i == 4 {
+            return
+        }
+        yield copy(i)
+        i = i + 1
+    }
+    yield last * 100
+}
+
+fn tagged(xs: Iter<Int>) -> [xs] Iter<Str> {
+    for x in xs {
+        yield "<${x}>"
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for s in tagged(upto(3)) {
+        println(s)
+    }
+    for v in upto(2) {
+        println("again ${v}")
+    }
+}
+"#;
+
+#[test]
+fn kotlinc_compiles_and_runs_a_generator_with_defers() {
+    let program = build_program(&[("main.sv", GENERATOR_DEFER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .expect("main.kt emitted");
+    assert!(
+        main.content.contains("private var __d0: Boolean = false")
+            && main.content.contains("__d0 = true")
+            && main.content.contains("__run_d0()"),
+        "expected the flag and its register/discharge pair in:\n{}",
+        main.content
+    );
+    run_kotlin_files(
+        &files,
+        "generator-defers",
+        "<0>\n<1>\n<2>\n<300>\nagain 0\nagain 1\nagain 200\n",
+    );
 }
 
 /// Under kotlinc, with the stdout the Rust backend asserts byte for byte.

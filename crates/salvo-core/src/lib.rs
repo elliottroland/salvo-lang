@@ -4,6 +4,7 @@
 pub mod check;
 pub mod deduce;
 pub mod diag;
+pub mod generator;
 pub mod place;
 pub mod platform;
 pub mod program;
@@ -19,6 +20,7 @@ pub use check::{
 };
 pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;
+pub use generator::{plan_generator, GenError, GenField, GeneratorPlan, Step};
 pub use place::{Place, Proj};
 pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_host_error, platform_effects,

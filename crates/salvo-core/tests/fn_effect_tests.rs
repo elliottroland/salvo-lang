@@ -320,19 +320,18 @@ fn use_in_a_fn_type_is_rejected() {
     );
 }
 
-// ===== [iter-effect-free] an iterator fn performs no effects =====
+// ===== [iter-effects] a producer declares its effects on its return type =====
 //
-// `Iter<T>` is lazy on both backends (user decision 2026-09-05): the body
-// runs in pieces, driven by whoever consumes the elements, after the call
-// that created the iterator returned. Handlers cannot live that long — on
-// Rust literally so, since one arrives as a borrow — and Kotlin's captured
-// handler would make the two backends disagree about *when* effects happen.
-// So the producer is effect-free and the consumer does as it likes.
+// None of a `yield` fn's body runs when it is called: the effects happen
+// while the *consumer* drives the pass. So the list does not belong on the
+// function, where [fn-effects] would make every call site supply a handler
+// for something calling it never does — it belongs on the return type, in
+// qualifier position (user decision 2026-09-07, D8).
 
-/// [iter-effect-free] A declared effect on an iterator fn is rejected, and
-/// the diagnostic names the remedy: perform it where the elements are used.
+/// [iter-effects] An effect in the fn's *own* list is rejected, and the
+/// diagnostic names the remedy: write it on the return type.
 #[test]
-fn an_iterator_fn_cannot_declare_an_effect() {
+fn an_iterator_fn_declares_its_effects_on_its_return_type() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn counted(n: Int) [Logger] -> Iter<Int> {{\n\
@@ -342,15 +341,45 @@ fn an_iterator_fn_cannot_declare_an_effect() {
     ));
     assert!(
         errs.iter().any(|e| {
-            e.contains("an iterator function cannot declare effects")
-                && e.contains("where the elements are consumed")
+            e.contains("declares its effects on its return type")
+                && e.contains("-> Logger Iter<…>")
         }),
-        "expected the iterator-effect rejection with its remedy, got: {errs:?}"
+        "expected the relocation diagnostic with its remedy, got: {errs:?}"
     );
 }
 
-/// `use` is the same hole by another route — it would let the body register
-/// its own handler and perform effects without declaring any.
+/// And with the claim in the right place, the body may perform it.
+#[test]
+fn a_producer_may_perform_what_its_return_type_claims() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn counted(n: Int) -> Logger Iter<Int> {{\n\
+         log(\"start\")\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// A claim it does not make is still an error — the relocation moves the
+/// declaration, it does not remove it.
+#[test]
+fn a_producer_may_not_perform_what_it_does_not_claim() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn counted(n: Int) -> Iter<Int> {{\n\
+         log(\"start\")\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("Logger")),
+        "expected the undeclared-effect error, got: {errs:?}"
+    );
+}
+
+/// `use` is a hole of its own: it would let the body register a handler the
+/// pass then has to carry across every suspension.
 #[test]
 fn an_iterator_fn_cannot_declare_use() {
     let errs = errors(&format!(
@@ -362,8 +391,8 @@ fn an_iterator_fn_cannot_declare_use() {
     ));
     assert!(
         errs.iter()
-            .any(|e| e.contains("an iterator function cannot declare effects")),
-        "expected the iterator-effect rejection for `use`, got: {errs:?}"
+            .any(|e| e.contains("cannot `use` a handler of its own")),
+        "expected the `use` rejection, got: {errs:?}"
     );
 }
 

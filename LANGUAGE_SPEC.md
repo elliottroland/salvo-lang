@@ -1033,7 +1033,7 @@ Conventions:
   nothing implements it [implicit-group].
   * **Eager**: `map`/`filter` return `Mut List<U>`, not a lazy `Iter<U>`. A
     lazy one would have to store the callback, and a stored callback cannot
-    perform effects [iter-effect-free] — which would rule out a `println`
+    perform effects [iter-effects] — which would rule out a `println`
     inside a `map`. Chaining still works: a list is iterable.
   * Each also has an `intrinsic` **`List` fast path**, which
     [fn-overload-rank] selects when the subject really is a list; the
@@ -1187,31 +1187,91 @@ Conventions:
     the beginning, each re-running the producer — which is what Kotlin's
     `Iterable` already did, and what keeps `for` from consuming its
     subject.
-* [iter-effect-free] An iterator function declares **no effects** — not
-  even `use` (user decision 2026-09-05).
-  * **Planned reversal** (roadmap I4): once a `yield` fn lowers to a state
-    struct whose `next` takes the handlers as parameters, effects thread in
-    per resume and this restriction goes away — with one exception that
-    stays: **`[Throw<M>]` is never allowed on a `yield` fn** (user decision
+* [iter-effects] A producer's effects are written on the **producer type**,
+  in qualifier position: `FileSystem Iter<Str>` is a producer whose *driving*
+  performs `FileSystem` (user decision 2026-09-07, roadmap D8 — replacing
+  [iter-effect-free], which forbade them outright).
+  * **Why the type and not the function.** None of a `yield` fn's body runs
+    when it is called; the effects happen while the consumer drives the pass.
+    A list on the function would make [fn-effects] demand a handler at every
+    call site for something calling it never does — so a `yield` fn declares
+    **no effect list of its own**, and writing one is an error naming the
+    remedy (`-> Logger Iter<Int>`). Its body is checked against the return
+    type's claim.
+  * **Why qualifier position.** A type with no arrow has nowhere to put a
+    `[…]` list, and a prefixed one would read as a deduction list in return
+    position (`-> [list: Mut] T`). The spelling is a qualifier's; the rules
+    are the ones [fn-effects] already gave function values.
+  * **The rules, all inherited:** a fn **inherits** a producer parameter's
+    claim, so `fn take<T>(xs: Logger Iter<T>, n: Int)` needs no list of its
+    own and its callers supply `Logger`; **variance is inverted** — a
+    producer performing *fewer* effects fits where more are expected, never
+    the reverse; the claim **never drops** (`^ Logger` is an error, the
+    [qual-widen] exclusion); and **holding** a producer needs nothing —
+    only *driving* it does, which is why a `for` over one requires the
+    claimed effects in scope exactly as a fn value's call does.
+  * **Where it may be written** (D8 position rule 2): the `Once` position
+    list — `Iter<T>`, and a type of your own that says `canbe Once`. A fn
+    type is excluded: it has the bracket spelling already. One predicate for
+    both qualifiers, since the things whose *invocation* performs effects are
+    the things `Once` marks as used up by invoking them.
+  * **`use` stays barred**: it would let the body register a handler the pass
+    then has to carry across every suspension.
+  * **`[Throw<M>]` is never allowed on a `yield` fn** (user decision
     2026-09-07). `Throw` exists so *intermediate* frames stay silent, and a
     suspended generator is not an intermediate frame — it is a value the
     consumer drives, so its failure belongs in the value it hands over. A
     fallible producer yields a result (`Emitted (Ok T | Err E) | Finished`)
     and the consumer throws; verified end to end on both backends before the
-    rule was taken. Laziness is the reason: the body
-  runs after the call that created the iterator returned, so a handler it
-  performed against would have to outlive the scope that supplied it. The
-  consumer is where effects belong; a `for` loop in an effectful function
-  may do whatever that function declares.
-  * The rule is on the *declaration*, which is enough: performing an
-    effect requires declaring it [fn-effects], and `use` is excluded
-    because it would let the body register its own handler and perform
-    effects undeclared.
-  * The same reasoning bars a callback with mutable state of its own: an
-    iterator function's fn-typed parameter is called once per element in
-    *every* pass, so accumulating state would depend on how many times the
-    iterator was consumed. Rust enforces it (`impl Fn`, not `FnMut`
-    [rs-iter-lazy]); the checker does not reject it up front — known gap.
+    rule was taken.
+  * **Emission is I4's second half**: threading the handlers into a generated
+    pass needs the pass to stop being a target-language iterator, so both
+    backends currently *refuse* an effectful producer
+    [backend-never-wrong]. A callback with mutable state of its own is the
+    same story from the other side: an iterator fn's fn-typed parameter is
+    called once per element in *every* pass, so accumulating state would
+    depend on how many times the iterator was consumed. Rust enforces it
+    (`impl Fn`, not `FnMut` [rs-iter-lazy]); the checker does not reject it
+    up front — known gap.
+* [iter-generator] A `yield` fn's body is planned as a **state machine
+  once**, in `salvo-core`'s `generator.rs`, and *rendered* by each backend:
+  neither emitter re-derives control flow (roadmap I2c/I3). The plan is a
+  list of numbered states, each a list of steps ending in a jump — the shape
+  the I3 prototype fixed and verified against an oracle
+  (`experiments/pull-iterators/`).
+  * **The body's locals become fields** of the generated pass, together with
+    the parameters, each flattened `for`'s element binding, and a slot per
+    nested pass (which must survive the outer body's suspensions). Nothing
+    is captured, which is what lets `next` take the effect handlers as
+    parameters, which is what [iter-effects] now declares (its emission is
+    roadmap I4's second half).
+  * **Only control flow that crosses a suspension is flattened.** A
+    statement that neither yields nor jumps out of itself stays one
+    statement to the emitter, brace to brace — a `while` with no `yield` in
+    it keeps its own `break`.
+  * **A `defer` at flattened level becomes a flag** plus register/discharge
+    steps, and the plan carries a **release path**: pending blocks
+    latest-first, open passes closed. Flags and empty slots make it
+    idempotent, so one `close` after the consumer's loop covers `break`,
+    `return` and exhaustion alike.
+  * **States are numbered in the order their code is written**, and states
+    that only forward are collapsed: the resume point of a `yield` at the
+    end of a loop body *is* the loop head.
+  * Refused rather than guessed at [backend-never-wrong], each naming the
+    remedy: a `when` or `try` containing a `yield` or a loop exit (use
+    `if`); a `yield` in a value position; a `return` or loop exit inside a
+    *value-position* expression (`let x = while … { … return … }` — write
+    the loop as a statement); a loop with an `else` block (the `else` runs
+    only if the loop never ran, which the pass has nowhere to record); a
+    destructuring `let` or `for` binding in a suspending block; a `for` in a
+    suspending loop over anything but an array, a `List<T>` or an `Iter<T>`;
+    and a local **shadowing** another local or a parameter — the body's
+    locals become fields of one struct, so two of a name would collide.
+  * Each backend *renders* the plan: `[rs-generator]`, `[kt-generator]`.
+    Both keep `Iter<T>`'s existing representation — a factory that mints a
+    pass per `for` — so the semantics [fn-iterator] fixed do not move; the
+    representation split (`Once Iter<T>` **being** the pass) is roadmap
+    I2c's second half.
 
 ## Effects
 

@@ -3697,13 +3697,15 @@ fn main() [use] {
 pub const LAZY_ITER_OUTPUT: &str = "created\neven 0\neven 2\neven 4\neven 6\n\
                                     first 0\nfirst 2\nsecond 0\nsecond 2\n";
 
-/// [rs-iter-lazy] [fn-iterator] An iterator fn lowers to a *factory* of
-/// passes: the parameters are captured once, cloned per pass, and the body
-/// becomes an `async` block that `SalvoGen` drives one element at a time.
-/// The `Vec` it used to build is gone, and with it the divergence from
-/// Kotlin over when a producer's work happens.
+/// [iter-generator] [fn-iterator] An iterator fn lowers to a *factory* of
+/// passes, and a pass is a **struct the compiler wrote**: the shared plan
+/// (`salvo_core::generator`) rendered as fields plus a flat `match` on a
+/// state number. The parameters are captured once and cloned per pass, so a
+/// second `for` starts from the beginning; what is gone is the `async` block
+/// rustc used to transform for us — and with it `SalvoGen`, `SalvoYield`,
+/// `Pin`, `Future` and `Waker`.
 #[test]
-fn an_iterator_fn_lowers_to_a_lazy_factory() {
+fn an_iterator_fn_lowers_to_a_state_machine() {
     let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
     let src = &files
         .iter()
@@ -3713,16 +3715,29 @@ fn an_iterator_fn_lowers_to_a_lazy_factory() {
     for expected in [
         "-> SalvoIter<i32>",
         "SalvoIter::from_factory(std::rc::Rc::new(move || {",
-        "Box::new(SalvoGen::<i32>::new(move |__slot| async move {",
-        "__slot.replace(Some(",
-        "SalvoYield::once().await;",
+        "Box::new(__Pass_naturals::new(__c_from.clone()))",
+        // The machine: the body's local as a field, the dispatch loop, and
+        // the resume point written back before the element is handed over.
+        "struct __Pass_naturals {",
+        "    i: i32,",
+        "    __state: u32,",
+        "fn __advance(&mut self) -> Option<i32> {",
+        "match self.__state {",
+        "self.__state = 1;",
+        "return Some(__v);",
+        "impl Iterator for __Pass_naturals {",
+        // The nested `for` in `evens` drives a pass held as a field.
+        "x__pass: Option<Box<dyn Iterator<Item = i32>>>,",
+        "self.x__pass.as_mut().and_then(|__it| __it.next())",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-    assert!(
-        !src.contains("__yielded"),
-        "the eager collection should be gone from:\n{src}"
-    );
+    for gone in ["SalvoGen", "SalvoYield", "async move", ".await"] {
+        assert!(
+            !src.contains(gone),
+            "`{gone}` should be gone from:\n{src}"
+        );
+    }
     // The support module is generated and mounted only when needed.
     assert!(
         files
@@ -3751,6 +3766,88 @@ fn a_for_loop_borrows_an_iter_subject() {
         src.contains("for mut v in &twice {"),
         "expected the second pass to borrow the factory in:\n{src}"
     );
+}
+
+/// [iter-effects] A producer that performs effects is *refused*, not emitted
+/// without its handlers: threading them into a generated pass is I4's second
+/// half, and the pass has to stop being a `dyn Iterator` first
+/// [backend-never-wrong].
+#[test]
+fn an_effectful_producer_is_refused() {
+    let errors = expect_errors(
+        "fn noisy(n: Int) -> Console Iter<Int> {\n\
+         println(\"one\")\n\
+         yield n\n\
+         }\n",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("producer that performs effects")),
+        "expected the refusal, got: {errors:?}"
+    );
+}
+
+/// [iter-generator] [defer] The parts of a producer only the state machine
+/// can carry: a `defer` inside a suspending loop body — registered anew each
+/// iteration, discharged at the end of it, and *writing a local the body
+/// reads after the loop* — a bare `return` out of the middle of the nest, a
+/// nested producer consuming another one, and a second pass that starts over.
+///
+/// Both backends run this source and assert this stdout byte for byte, which
+/// is what makes the flag-and-discharge lowering a parity claim rather than
+/// two implementations that happen to agree.
+pub const GENERATOR_DEFER_DEMO: &str = r#"
+fn upto(n: Int) -> Iter<Int> {
+    let last = 0
+    let i = 0
+    while i < n {
+        defer { last = i }
+        if i == 4 {
+            return
+        }
+        yield copy(i)
+        i = i + 1
+    }
+    yield last * 100
+}
+
+fn tagged(xs: Iter<Int>) -> [xs] Iter<Str> {
+    for x in xs {
+        yield "<${x}>"
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for s in tagged(upto(3)) {
+        println(s)
+    }
+    for v in upto(2) {
+        println("again ${v}")
+    }
+}
+"#;
+
+pub const GENERATOR_DEFER_OUTPUT: &str =
+    "<0>\n<1>\n<2>\n<300>\nagain 0\nagain 1\nagain 200\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_generator_with_defers() {
+    let files = generate(&[("main.sv", GENERATOR_DEFER_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    // One flag per `defer` site, and the discharge is guarded by it — which
+    // is what makes the release path idempotent.
+    assert!(src.contains("__d0: bool,"), "expected a defer flag in:\n{src}");
+    assert!(
+        src.contains("self.__d0 = true;") && src.contains("self.__run_d0();"),
+        "expected the register/discharge pair in:\n{src}"
+    );
+    run_rust_files(&files, "generator-defers", GENERATOR_DEFER_OUTPUT);
 }
 
 /// Under rustc: an unbounded producer that terminates, and a second pass

@@ -95,7 +95,8 @@ Conventions:
   boxing cost is accepted until profiling says otherwise (revisit with
   the Rust backend, where `T[]` maps to native arrays anyway).
 * [kt-iter-iterable] `Iter<T>` maps to `Iterable<T>` (what Kotlin
-  `for`-loops accept).
+  `for`-loops accept), and a `yield` fn's own pass is a generated
+  `SalvoPass<T>` subclass behind it [kt-generator].
 * [fn-overload-at] [fn-rename] Both ways a caller can override overload
   resolution are **erased**: the checker records which declaration a call
   means, and mangling already keeps Kotlin from re-resolving it
@@ -471,16 +472,32 @@ same programs running ([rs-effect-fusion]).
     lowering and the generated host skeleton all take them — one helper
     renders a member's parameter list, so they cannot drift — and a member
     call passes them as trailing arguments after the receiver's own.
-* [fn-iterator] Iterator fns emit
-  `return Iterable<T> { iterator { ... } }`; `yield x` → `yield(x)`; bare
-  `return` → `return@iterator`.
-  * That builder is already exactly what [fn-iterator] now requires of both
-    backends — lazy per element, repeatable per pass — so Kotlin needed no
-    change when `Iter<T>` was made lazy on Rust (2026-09-05). What it
-    gained is a guarantee: the Rust output agrees element for element, and
-    the two backends' end-to-end tests share their source and their
-    expected stdout.
-  * [iter-effect-free] The captured handler that made the JVM side *work*
+* [fn-iterator] Iterator fns emit `return Iterable<T> { __Pass_f(args) }`:
+  the `Iterable` is the **factory** (its lambda runs per `iterator()` call,
+  so a second `for` starts from the beginning) and the pass is a class the
+  compiler writes.
+  * [kt-generator] The class renders the shared plan [iter-generator]:
+    `private class __Pass_f(private var <params>) : SalvoPass<T>()` with the
+    body's locals as properties, `override fun __advance(): Boolean` as one
+    `while (true) { when (__state) { … } }`, and a `__close` running the
+    pending deferred blocks. An element is handed over by writing
+    `__current` and returning `true`.
+    * `SalvoPass<T>` is a hand-written runtime class (`runtime/iter.kt`,
+      generated into `iter.kt` when a program has an iterator fn): it turns
+      "advance and report" into Kotlin's `hasNext`/`next` by holding one
+      element of lookahead. `__current` is `Any?` so a **null element** is
+      an element like any other.
+    * Reads need no rewriting — a Kotlin property is in scope in its own
+      class's methods — so only a `let` changes: it assigns the property.
+      A property whose type has no zero value is nullable, and reads of it
+      unwrap with `!!`.
+    * The `iterator { … }` coroutine builder is **gone** (2026-09-07), and
+      with it `return@iterator`. It was lazy and repeatable, so it was
+      never wrong; what it could not do is take an effect handler *per
+      resume* — it could only capture one at creation, and when a handler
+      is bound is observable (the backend-parity principle). One lowering on both
+      backends is the point [iter-generator].
+  * [iter-effects] The captured handler that made the JVM side *work*
     here is what the restriction protects against: Kotlin could happily
     perform an effect from inside the builder long after the call returned,
     and Rust could not, so the program would mean two different things.

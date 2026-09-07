@@ -1,4 +1,54 @@
+**D8 decided and I4's language half built (2026-09-07): a producer's effects
+live on its type.** `FileSystem Iter<Str>` is a producer whose *driving*
+performs `FileSystem` [iter-effects] — the effect written in **qualifier
+position** (user decision: a type with no arrow has nowhere to put a `[…]`
+list, and a prefixed one reads as a deduction list in return position), on the
+**return type** rather than in the `yield` fn's own list (none of its body runs
+when it is called, so a list there would demand a handler at every call site
+for something calling it never does), and legal exactly where `Once` is legal
+(`Iter<T>` and a `canbe Once` type of one's own). Every other rule came free
+from [fn-effects]: a fn **inherits** a producer parameter's claim, *fewer*
+effects fit where more are expected, the claim never drops, and **holding** a
+producer needs nothing — only driving it does. [iter-effect-free] is gone as a
+rule. Emission is the remaining half, and its **shape is now fixed by a
+prototype** (`experiments/pull-iterators/effectful.{sv,rs,kt}`, byte-identical
+output on both toolchains, no warnings): a trait/interface per effect set, the
+factory still a factory, and — the finding worth having early — a *variance
+adapter*, because a pure producer used where a claiming one is expected has a
+different representation. Both backends refuse an effectful producer until that
+lands [backend-never-wrong]. Details under "D8 decided" and "I4 emission
+prototyped".
+
 # Salvo Compiler — Progress & Plan
+
+**The `yield` lowering is built (2026-09-07): one state machine, planned in
+`salvo-core`, rendered by both backends.** `generator.rs` turns a `yield` fn
+body into a `GeneratorPlan` [iter-generator] — numbered states of steps, the
+body's locals as fields, a flag per `defer` site, a release path — and its
+acceptance test is the I3 prototype itself: the plan for the checked-in
+`experiments/pull-iterators/gnarly.sv` must be the eight states of the
+hand-written `gnarly.rs`, in its order. It is, on the first run.
+
+**Both emitters now render it, and the borrowed coroutine machinery is gone**:
+`SalvoGen`/`SalvoYield`/`async`/`Pin`/`Waker` on Rust [rs-generator], the
+`iterator { … }` builder and `return@iterator` on Kotlin [kt-generator]. A
+pass is a struct (a class) the compiler writes, with the body's locals as
+fields and `__advance` as one flat `match`/`when` on a state number. `Iter<T>`
+keeps its representation — a factory that mints a pass per `for` — so nothing
+about the *semantics* moved; what moved is who builds the state machine, which
+is what lets `next` take effect handlers per resume later (I4). Verified end to
+end on both backends with one shared program and one shared expected stdout: a
+`defer` inside a suspending loop body writing a local read after the loop, a
+bare `return` out of the middle of the nest, a nested producer, and a second
+pass that starts over.
+
+Details and the four places the prototype's shape overruled the sketched plan
+are under "I3 step 1 as built"; the emission half, including the two things the
+real emitters forced (an `Option` slot for a field whose type has no zero, and
+a **defect** the migration exposed: a `return` inside a value-position loop was
+leaking into the machine as a target-language `return`), is under "I3 steps 2–3
+as built". What remains of the `yield` half is the representation split (I2c's
+second half) and threading effects (I4).
 
 **Overload resolution finalized 2026-09-07 (user decisions), and it is now
 one rule with two escape hatches.** The agenda was drawn up from probing the
@@ -1717,7 +1767,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 602 tests, complete: the toolchain tests are
+cargo test                  # 733 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -3734,6 +3784,184 @@ Consequences recorded with it:
 - **D6** — `Once` on any type (and see the I2b collision below, which forces
   the question in a narrower form).
 - **D7** — qualifier-conditional linearity.
+- ~~**D8**~~ — **decided 2026-09-07** (option B, the qualifier spelling): see
+  "D8 decided" below.
+
+### D8 decided (user, 2026-09-07): a producer's effects live on its type
+
+**The decision: option B, spelled as a qualifier.** `FileSystem Iter<Str>` is a
+producer whose *driving* performs `FileSystem` [iter-effects]. Three calls, all
+the user's:
+
+1. **The spelling is qualifier position**, not a bracket list. Prefix
+   (`[FileSystem] Iter<T>`) was ruled out because it reads as a deduction list
+   in return position; postfix was viable but disliked; the qualifier form
+   costs no new grammar (a type is already a sequence of qualifier names
+   before a base) and lands on `Once`'s precedents for every rule it needs.
+2. **A `yield` fn declares them on its return type**, not in its own effect
+   list — because none of its body runs when it is called, so a list on the
+   function would make [fn-effects] demand a handler at every call site for
+   something calling it never does. Its body is checked against the claim.
+3. **Position rule 2**: the claim may be written where `Once` may — `Iter<T>`
+   and a `canbe Once` type of one's own — with fn types excluded, since they
+   have the bracket spelling. One predicate for both qualifiers, which is what
+   I2b's collision argued for.
+
+What made B the recommendation, after D was proposed first and withdrawn: D
+answers the *representation* question (which struct an indirect call dispatches
+to) and leaves the *declaration* question open, and effects are not inferred
+per call site in this language. The rule that settles it already exists for the
+value kind that had the problem first — **"a fn inherits its fn-typed
+parameters' effects"** (2026-09-04), with inverted variance, a walk through
+qualifiers/optionals/unions in `check.rs::inherited_fn_effects`, and the
+sentence beside it: *a fn value carries no capability, so it may be stored and
+passed freely — only calling it needs its effects in scope.* A producer is the
+same kind of thing, and D8 is what makes driving one the call that needs them.
+
+**Asked and answered along the way**: is any of this a consequence of having
+both `iter()` (factory) and `next()` (pass)? No. The problem is *abstracting
+over producers at all* — a position that can hold either of two producers is
+an indirect call with one signature — and a pass-only design still needs the
+abstraction for the *return* type (a generated state struct has no name) while
+making the parameter case worse: the effects of the `next` it was handed vary
+per instantiation, which needs an effect variable (row polymorphism) where the
+nominal claim needs one more arm in an existing walk. Dropping the factory is
+still a fair question on its own merits — one representation instead of two —
+but it is not a way out of D8. The only two things that would remove D8 are
+giving up polymorphic combinators, or inferring effects through driving
+positions, which is the silent colouring the effect system exists to prevent.
+
+### The costing that led there (kept for the reasoning)
+
+
+I4 removes [iter-effect-free] by giving the generated machine's `advance` the
+effect handlers as *parameters* (decision 3): nothing is captured, so a
+producer may perform effects while the consumer drives it. The direct cases
+need nothing new — a `for` over a producer *call* is a direct call, and a
+producer nested inside another producer is a **field** of the outer pass, so
+its concrete type (and therefore its handler list) is known at both.
+
+What is not decided is the **indirect** case. A position whose *declared* type
+is `Iter<T>` or `Once Iter<T>` can hold either of two producers, so the value
+there is behind a trait object (Rust) or an interface (Kotlin) — and an
+indirect call has **one fixed signature**. Which handlers does it take? The
+positions that force the question: an `Iter<T>` **parameter**
+(`fn tagged(xs: Iter<Int>) -> Iter<Str>` — every std combinator), a **struct
+field**, a **union arm**, and a local that can hold either of two producers.
+This is decision 5's "boxing at the meeting point" meeting decision 3.
+
+Salvo has already answered the same question once, for function *values*: the
+type carries the effects (`(s: Str) [Logger] -> Str`) and whoever calls the
+value supplies them [fn-effects]. That is the precedent option B rests on.
+
+**A — effect-free at the boundary.** `Iter<T>` means an effect-free producer;
+an effectful one may be created, consumed, and nested inside another producer,
+but may not flow into an `Iter<T>`-typed position (an error naming the
+remedy). No new syntax, smallest change. Cost: `map`/`filter`/`zip` — anything
+taking a producer as a *parameter* — would only accept effect-free producers,
+which is most of the composition story.
+
+**B — `Iter<T>` carries its effects, like a fn type** (spelling TBD, e.g.
+`Iter<Int> [Console]`). A position states what its producer may perform; the
+emitters generate one interface per effect set, exactly as they generate one
+`UnionN` per arity; fewer effects is usable where more are expected, which is
+the variance fn types already have. Cost: new type syntax, effect lists in
+more signatures (including std's), and the subtyping rule to go with them.
+
+**C — one erased handler bundle** (`advance(&mut self, env: &mut SalvoEnv)`).
+Fixed signature, no syntax. Rejected on inspection: the consumer would have to
+supply handlers for effects it may not declare, and at an indirect drive site
+the checker cannot tell which those are — a verifiability hole, so this is
+recorded as considered rather than offered.
+
+**D — specialize the parameter case.** An `Iter<T>` *parameter* becomes
+generic in the emitted code (Rust `impl SalvoPass<T>`, Kotlin a type parameter
+plus one generated interface per effect set, inferred per call site), so
+composition keeps working with effectful producers and no syntax is added.
+Storage positions (struct field, union arm) have no call site to infer from,
+so they still need A's restriction or B's annotation.
+
+**Recommendation as it stood: B** — revised 2026-09-07 after writing the examples out (see
+below), which showed D cannot carry it. D fixes the *representation* (which
+struct the indirect call dispatches to) and leaves the *declaration* open: a
+combinator that drives its subject performs whatever the subject performs, so
+`fn take<T>(xs: Iter<T>, n: Int)` has to end up declaring `FileSystem` when it
+is handed `lines_of(...)` and nothing when it is handed `naturals(0)`. Effects
+are not inferred per call site in this language; they are read off the type.
+
+And that rule already exists, for the value kind that had the same problem
+first: **"a fn inherits its fn-typed parameters' effects"** (user decision
+2026-09-04, [fn-effects]) — `fn run(f: (s: Str) [Logger] -> Str)` needs no list
+of its own, its callers must supply `Logger`, inheritance reaches through
+qualifiers, optionals and unions, and *fewer* effects fits where more are
+expected. It is implemented in `check.rs::inherited_fn_effects`, which walks a
+parameter's type for exactly this. Teaching that walk about `Iter<T> [E]` is a
+one-arm extension rather than a new mechanism.
+
+The clincher is the sentence next to it: **"a fn value carries no capability,
+so it may be stored and passed freely — only *calling* it needs its effects in
+scope."** A producer is the same kind of thing: storing one is harmless, and
+*driving* it is the call that needs the handlers. Under B the storage case —
+the one A would have forbidden and D could not describe — reads correctly
+instead: `struct Feed { name: Str, items: Iter<Str> [FileSystem] }` says what
+driving the field will perform, so the loop that drives it must sit somewhere a
+`FileSystem` handler exists.
+
+What is left to decide under B is the **spelling** (a type with no arrow has
+nowhere obvious to put the list — `Iter<Str> [FileSystem]`,
+`[FileSystem] Iter<Str>`, …) and whether the annotation is valid on any type or
+only where a *driving* operation exists, which is the same question `Once`'s
+position rule answers (`types::once_position`), and is best answered the same
+way.
+
+D is still worth having *inside* B, as an optimization rather than a
+substitute: where the concrete pass type is known at a parameter's call site,
+the emitted code can specialize instead of boxing (decision 5's "boxing at the
+meeting point, and nowhere else").
+
+**The examples that decided it** (the three positions, smallest first):
+
+```
+fn naturals(from: Int) -> Iter<Int> { … }                    // no effects
+fn lines_of(path: Str) [FileSystem] -> Iter<Str> {           // effects, per I4
+    let handle = open(path)
+    defer { close(handle) }
+    while has_more(handle) { yield read_line(handle) }
+}
+
+// 1. a parameter — every combinator
+fn take<T>(xs: Iter<T>, n: Int) -> Iter<T> { … for x in xs { … yield x … } }
+take(naturals(0), 3)         // xs is a __Pass_naturals
+take(lines_of("a.txt"), 3)   // xs is a __Pass_lines_of, and driving it needs
+                             // a FileSystem handler `take` never mentions
+
+// 2. one local, two sources
+let src = if from_file { lines_of("data.txt") } else { canned() }
+for line in src { println(line) }
+
+// 3. storage, where the drive site is nowhere near the creation site
+struct Feed { name: Str, items: Iter<Str> }
+for f in feeds { for item in f.items { println("${f.name}: ${item}") } }
+```
+
+Case 1 is what killed D: the representation question ("which struct does the
+indirect call dispatch to") is answerable by specializing, and it leaves the
+declaration question untouched. Case 3 is what killed A: with the effects in
+the type the field is fine, and A would have had to forbid it.
+
+Consequences of the decision, whichever way it goes:
+
+- **The injected `close` lands with I4, not before.** It is built into the
+  plan (`__close` is emitted) but nothing calls it, and while producers are
+  effect-free nothing it does is *observable*: a producer's deferred blocks can
+  only touch its own state, which dies with the pass. A test for it could not
+  fail today, so it waits for the release path to have something to release.
+- **I2c's representation split follows from the same choice**: what
+  `Once Iter<T>` renders as (a concrete pass, a boxed one, or a generic
+  parameter) is exactly what D8 decides.
+- **I5 (lazy `map`/`filter` in std) follows too**: a lazy combinator calls its
+  callback *inside* a producer, so a callback that performs effects is legal
+  only once producers are.
 
 ### I2b as built (2026-09-07): the protocol, and the collision it found
 
@@ -3885,6 +4113,66 @@ What it established:
 - **The release path is unchanged from I1b**: flags, latest-first, idempotent,
   one `close` after the loop covering `break` and exhaustion alike.
 
+### I4 emission prototyped (2026-09-07): the shape, and the adapter nobody asked for
+
+Before teaching the emitters to thread handlers, the target shape was
+hand-written on both backends and run —
+`experiments/pull-iterators/effectful.{sv,rs,kt}`, one source, one expected
+stdout, verified byte-identical with `diff` and warning-free from both
+toolchains. The same discipline as I1b/I3, and it paid the same way: it turned
+up a piece of machinery the type rules do not hint at.
+
+The program is the awkward one on purpose: a producer that performs `Console`
+while the consumer drives it, holding a `defer` that *itself* performs an
+effect; a consumer that `break`s after two elements; a second consumer that
+drains; a fn inheriting the claim from a producer parameter; and a pure
+producer passed into a claiming position.
+
+**What it fixes:**
+
+- **A trait (interface) per effect set**, generated like `UnionN` per arity: a
+  claiming pass cannot be a `std::iter::Iterator` or a Kotlin `Iterator<T>`,
+  because its `advance` takes a handler. `Console Iter<T>` becomes
+  `Rc<dyn Fn() -> Box<dyn SalvoPassConsole<T>>>` on Rust and a
+  `fun interface { fun mint(): SalvoPassConsole<T> }` on Kotlin. The pure path
+  is untouched, and the boxing costs nothing new — it already boxed.
+- **The factory stays a factory**, so replayability is unaffected by the claim.
+- **Variance needs an adapter.** [iter-effects] says a producer performing
+  *fewer* effects fits where more are expected; on both backends that is a
+  **representation** change, so the compiler has to wrap a pure producer at
+  that boundary with an `advance` that ignores the handler. Nothing in the type
+  rules says so, and discovering it mid-emitter would have been expensive.
+- **The injected `close` is observable at last**, which is why it waited: the
+  breaking consumer's `close` prints, the draining one's runs exactly once from
+  the body's own exit, and one call after the loop covers both because the
+  flags make it idempotent.
+- **Kotlin's `advance` returns a Boolean and leaves the element in
+  `current()`** rather than returning `T?` — the same reason the protocol tags
+  its end: a `T?` return cannot tell "no more" from "the element is null".
+
+**The table between the halves landed with it.** The handler *order* has to be
+the same in three places — the generated trait per effect set, the pass's own
+`advance`/`close`, and every `for` that drives one — so it is derived once, by
+the checker: `Checked::producer_effects` (per producer `FnKey`) and
+`Checked::pass_effect_sets` (the distinct sets, one generated trait each, the
+way `union_sizes` drives one `UnionN` per arity). Both backends' refusal now
+reads that table instead of re-reading the written type, which is what proves it
+is wired.
+
+Writing it turned up the ordering trap: `Ty::qualify` **normalizes** qualifier
+order, so `Counter Logger Iter<Int>` and `Logger Counter Iter<Int>` are the same
+type — two producers written the two ways would have disagreed on their
+machine's parameter order, and a trait generated per *set* would have fitted
+neither. The recorded order is therefore sorted, not written, with a test that
+pins exactly that.
+
+What remains for the emitters, in order: generate a trait (interface) per entry
+of `pass_effect_sets`; render a claiming producer's `advance`/`close` with the
+handlers as leading parameters in the recorded order (the emitters already
+thread handlers this way for declared effects); lower a `for` over a claiming
+subject to mint/advance/close; insert the variance adapter at a pure→claiming
+boundary; and drop the two refusals.
+
 ### The `Throw` question, answered without new machinery (2026-09-07)
 
 The last unknown was a **`Throw` transfer out of a suspended body**. Rather
@@ -3924,8 +4212,10 @@ The prototypes have fixed the target shape exactly (see
 exploratory. The plan, in the order it should be built:
 
 **1. A shared pass in `salvo-core` (`generator.rs`), not two lowerings.**
-Given a `yield` fn body it produces a plan the emitters *render*; neither
-backend re-derives control flow. Shape, straight off the prototypes:
+✅ **Done 2026-09-07** — see "I3 step 1 as built" below for the shape that
+shipped and where it deviates from the sketch. Given a `yield` fn body it
+produces a plan the emitters *render*; neither backend re-derives control
+flow. Shape, as sketched off the prototypes:
 
 ```
 struct GeneratorPlan<'p> {
@@ -3949,12 +4239,14 @@ enum Step<'p> {
 The prototype's numbering is the acceptance test: building the plan for
 `gnarly.sv` must produce the eight states of `gnarly.rs`, in that order.
 
-**2. Locals become fields, which needs a name-resolution mode.** Every body
+**2. Locals become fields, which needs a name-resolution mode.** ✅ Done
+2026-09-07 (Rust reuses `BindKind::SelfField`; Kotlin needs it only for `let`). Every body
 local reads and writes through `self`. Both emitters already have the concept
 for handler state ("a handler constructor param or state field: accessed as
 `self.x`"), so this is a binding kind, not new machinery.
 
-**3. Emission per backend**, rendering the same plan: a struct with the
+**3. Emission per backend** — ✅ Done 2026-09-07, see "I3 steps 2–3 as built" —
+rendering the same plan: a struct with the
 fields plus `state`, a `next` whose body is `loop { match state { … } }`, and
 a `close` running pending defers latest-first. Rust and Kotlin differ only
 where they already differ (`while let` vs a guard, `Option<Box<…>>` for a
@@ -3968,8 +4260,9 @@ the producer. Boxing appears only at a meeting point (decision 5).
 `[Throw<M>]`, which stays rejected on a `yield` fn (user decision
 2026-09-07).
 
-**6. Delete** `SalvoGen`/`SalvoYield`/`SalvoIter` from `runtime/iter.rs`, the
-Kotlin `iterator { … }` builder, the `'static`+`Clone` bounds and the
+**6. Delete** — *partly done 2026-09-07*: `SalvoGen`/`SalvoYield` are gone from
+`runtime/iter.rs` and the Kotlin `iterator { … }` builder with them. Still to
+go with the representation split: `SalvoIter` itself, the `'static`+`Clone` bounds and the
 `Fn`-not-`FnMut` convention exception, then sweep std (`seq.sv` can go lazy)
 and the ~48 tests and 10 snapshots that mention `Iter`/`yield`.
 
@@ -3978,7 +4271,129 @@ containing a `yield` (the prototypes used `if`, and guessing the arm/binding
 interaction is what the invariants forbid), and a `yield` inside a `defer`
 body (already an error [defer-no-escape]).
 
-### Recommendation: drop the simple-generator fast path (decision 7)
+### I3 step 1 as built (2026-09-07): the plan, and what the prototype forced
+
+`crates/salvo-core/src/generator.rs` turns a `yield` fn body into a
+`GeneratorPlan` [iter-generator], and the acceptance test is the one the plan
+named: `tests/generator_tests.rs` reads the checked-in
+`experiments/pull-iterators/gnarly.sv`, renders the plan as text, and compares
+it with the **eight states of the hand-written `gnarly.rs`, in its order** —
+the machine an oracle had already vouched for. It passed on the first run,
+which is the whole return on having prototyped: the numbering was predictable
+enough to write down before the code ran. Negative-tested by disabling the
+simplification pass (three tests fail, including the acceptance test).
+
+Four things the prototype forced that the sketch did not have:
+
+- **A branch's arm nests inside the state it is written in**, rather than
+  `Branch { then_state, else_state }`. That is what reproduces the
+  prototype's state count: `if col == 1 { continue }` is
+  `if cond { state = 2; continue; }` *inside* state 2 with the rest of the
+  body falling through after it, and no join state exists. The same step
+  shape renders a loop head's exit test (`negate: true`). Where an arm
+  suspends — or does not end in a jump — a join state is unavoidable and the
+  plan allocates one; the predicate that decides is `stmt_inlinable`.
+- **States are numbered at commit time, through labels.** Steps refer to
+  labels while the body is walked and a label is bound to a number when its
+  steps are complete, so states come out in the order their code is
+  *written* rather than the order the walker needed to reserve them (a loop's
+  exit is reserved before its body but written after it). Reading the
+  emitted machine against the source is the reason to care.
+- **A simplification pass earns two of the prototype's economies.** States
+  whose only step is a `Goto` are collapsed and the unreachable are dropped,
+  which is what makes the resume point of a `yield` at the *end* of a loop
+  body be the loop head itself — the naive walk allocates a state there
+  every time, and 3 of the 8 gnarly states would have been forwarding stubs.
+  State 0 is exempt: it is the entry, and the machine starts there.
+- **A `for`'s element binding is a field**, where `gnarly.rs` kept it a
+  per-turn local. It can be live across a suspension
+  (`for x in p { yield x; println(x) }`), and the emitted machine is the same
+  either way; the plan takes the safe one uniformly rather than analysing
+  liveness.
+
+Beyond that: `ClosePass` joined the step set (the release path closes a nested
+pass as well as running deferred blocks, in one reverse-declaration order), and
+the plan carries its `close` sequence rather than leaving each emitter to
+derive it.
+
+The refusals are the v1 list plus three the implementation found, all naming
+their remedy: a `yield` in a **value position** (`let x = if c { yield 1 }`),
+a **destructuring** `let`/`for` binding in a suspending block, and a local
+**shadowing** another local or a parameter — the body's locals become fields
+of one struct, so two of a name would collide, and the emitters decide "field
+or local" by name. Renaming behind the author's back is what
+[backend-never-wrong] rules out; a loop with an `else` block is refused for a
+different reason (the `else` runs only if the loop never ran, and the pass has
+nowhere to record that).
+
+### I3 steps 2–3 as built (2026-09-07): both emitters render the plan
+
+The machine is emitted, the borrowed coroutine transforms are deleted, and the
+two backends print the same bytes for a producer with `defer`s, an early
+`return` and a nested producer (`{rustc,kotlinc}_compiles_and_runs_a_generator_with_defers`,
+one source and one expected stdout).
+
+What each backend does, in one line: Rust emits
+`struct __Pass_f { <params>, <locals>, __state: u32, __d0: bool }` with
+`__advance(&mut self) -> Option<T>` plus `impl Iterator`, and the fn body
+becomes `SalvoIter::from_factory(Rc::new(move || Box::new(__Pass_f::new(…))))`
+[rs-generator]; Kotlin emits
+`private class __Pass_f(…) : SalvoPass<T>()` with
+`override fun __advance(): Boolean`, and the fn body becomes
+`return Iterable<T> { __Pass_f(args) }` [kt-generator]. `Iter<T>`'s
+representation is untouched: it is still the factory, so a second `for` starts
+from the beginning, and the *semantics* the laziness decision fixed do not move
+at all. That ordering was deliberate — the plan's step 3 before its step 4 —
+because it makes the representation split a change to types alone.
+
+**Three things the emitters forced, none of them visible in the prototype:**
+
+- **A field whose type has no zero value has to be a slot.** A pass field is
+  initialized when the pass is *created*, while the body's own initializer
+  belongs where it was written, so a hoisted local starts at its type's zero —
+  and `map`'s `for x in it { yield f(x) }` has an element of type `T`, which
+  has no zero. Both backends now split: a zero-able type gets a plain field
+  (`i: i32 = 0`, `var i: Int = 0`), anything else an `Option`/nullable one
+  where reads unwrap (`BindKind::SelfSlot` on Rust — reads clone out,
+  `&`/`&mut` borrow through `as_ref`/`as_mut`, assignments re-wrap; `!!` on
+  Kotlin). Uniform `Option` everywhere would have been simpler to explain and
+  worse to read, and demanding a zero everywhere would have refused a generic
+  producer.
+- **Kotlin needed a runtime base class, and the reason is null.** `SalvoPass<T>`
+  (`runtime/iter.kt`) turns "advance and report" into `hasNext`/`next` with one
+  element of lookahead, holding the element as `Any?` — because `T` may itself
+  be nullable, so absence cannot mean "the end". That is the same argument the
+  protocol's `Emitted T | Finished` tagging rests on [iter-protocol], arriving
+  from the other direction. Rust needs no such thing: `Option<Option<T>>` is
+  unambiguous, so `__advance` *is* the `Iterator::next`.
+- **Kotlin needed no name rewriting for reads**, only for `let`: a property is
+  in scope in its own class's methods. Rust needs `self.` everywhere, which
+  `BindKind::SelfField` — the handler-state binding kind — already did.
+
+**One defect, found by migrating rather than by report**: a `return` inside a
+**value-position** loop (`let last = while … { … return … }`) leaked into the
+generated machine as a *target-language* `return`, because the plan's
+"does this statement jump out of itself?" predicate did not look inside a
+`let`'s value. On Kotlin that produced code kotlinc rejected (`return type
+mismatch`); on Rust it would have returned from `__advance` with the wrong
+type — [backend-never-wrong] either way. The predicate now descends into
+`let`/assignment/`use` values, and the shape is *refused* with a message naming
+the remedy (write the loop as a statement): flattening it properly would mean
+the machine producing a loop's value from a state it jumped out of. The test
+that covered it (`iterator_bare_return_in_value_loop_retargets`, which asserted
+`return@iterator`) is now `iterator_bare_return_finishes_the_pass` over the
+statement form, which is the feature it was really about.
+
+Smaller notes: `StmtCtx::IteratorBody` is gone from both emitters (a `yield`
+never reaches the statement emitter now — reaching it is an internal error);
+`simplify` gained one more peephole (a state whose only step is `Finish`
+forwards to the terminal state, so a fn-block end and a loop exit with nothing
+after it are the same state); and `runtime/iter.rs` lost two thirds of its
+lines. The Kotlin `defer`-as-`deferScope` idea from decision 6 is still
+unbuilt — the machine's defers are flags, and a `defer` inside a *plain*
+statement still uses the try/finally splice.
+
+
 
 Decision 7 planned two lowerings — a readable direct form for bodies whose
 yields sit in the tail of a single loop nest, with the flat machine as a
@@ -4042,16 +4457,33 @@ site plus a diagnostic, with the LSP surfacing the same message.
     is not part of it: both backends reject a `for` over a pass for now.
     See "I2b as built" below.
   - **I2c** — ✅ *first half* done 2026-09-07: the driving-loop emission, so
-    hand-written passes (`zip`, `merge`) run on both backends. Remaining: the
-    representation split — a pass becomes the generated state struct, a
-    factory keeps the arguments it re-mints from, and the async machinery is
-    deleted.
-- **I3** — ✅ *prototyped* 2026-09-07 (see "I3 prototyped" below): the
-  general state machine, hand-written on both backends and verified against
-  an oracle. Remaining: teaching it to the emitters, and prototyping a
-  `Throw` transfer out of a suspended body.
-- **I4** — Effects threaded into `next`; [iter-effect-free] removed;
-  injected `close`.
+    hand-written passes (`zip`, `merge`) run on both backends. The async
+    machinery is gone too (with I3). Remaining: the representation split — a
+    pass *being* the generated state struct and a factory keeping the
+    arguments it re-mints from, so a `for` drives the machine directly instead
+    of reaching it through the `Iter<T>` factory's boxed iterator. That is
+    also what gives the injected `close` somewhere to be called from: the
+    plan's release path is emitted (`__close`) but nothing calls it yet, so an
+    abandoned producer still skips its deferred blocks exactly as it did
+    before.
+- **I3** — ✅ **Done 2026-09-07**: prototyped against an oracle (see "I3
+  prototyped"), then the shared plan (`salvo-core/src/generator.rs`
+  [iter-generator], accepted against the prototype's eight states — "I3 step 1
+  as built"), then both emitters rendering it with the `async`/`iterator { … }`
+  machinery deleted ("I3 steps 2–3 as built"). What is left of the `yield`
+  half belongs to I2c (the representation split) and I4 (effects).
+- **I4** — ✅ *first half* done 2026-09-07: the **language surface**
+  [iter-effects] — the claim on a producer type, the relocation to the return
+  type, position rule 2, inverted variance, never-drop, inheritance, and
+  "driving is what needs the handler". [iter-effect-free] is gone as a rule.
+  Both backends *refuse* an effectful producer for now
+  [backend-never-wrong], which is the same sequencing I2a/I2b used. Remaining:
+  emission — the handlers threaded into `__advance` per resume, which needs a
+  pass to stop being a target-language iterator (one generated interface per
+  effect set, like `UnionN` per arity), and with it the injected `close` (a
+  producer's deferred blocks only become *observable* once it can perform
+  effects, which is why the release path waited). I2c's representation split
+  and I5 follow.
 - **I5** — Lazy `map`/`filter` in `seq.sv` (the eager-because-of-callbacks
   justification disappears); std surface sweep.
 - **I6** — Sweep: ~48 test fns and 10 of 23 insta snapshots mention
@@ -5274,7 +5706,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 672)
+## Test inventory (all green: 733)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -5282,7 +5714,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 266 - 18 unit tests (file classification, including the
+- `salvo-core`: 295 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -5540,6 +5972,25 @@ and `cargo nextest run` when you want to see which tests cost what.
   implicit; and the *selection* facts — a `List` subject resolving to the
   intrinsic fast path, every other subject to the generic body, and the lead
   candidate narrowing before the lambda is typed).
+- **14 generator-plan tests** (`tests/generator_tests.rs` [iter-generator]:
+  the I3 acceptance test — the plan for the checked-in
+  `experiments/pull-iterators/gnarly.sv`, rendered as text and compared with
+  the eight states of the hand-written `gnarly.rs`, in its order — plus one
+  shape at a time: a bare loop resuming at its own head, a `yield` in the
+  middle of a body, a `break` and a `return` discharging what they leave, a
+  nested `for` becoming a pass field, a suspending `if` arm getting states of
+  its own, and a yield-free loop staying one `Plain` step; and the
+  refusals — a `when` containing a `yield`, a `yield` in a value position, a
+  shadowing local and a shadowed parameter, a suspending loop with an `else`,
+  and a destructuring `let`).
+- **12 producer-effect tests** (`tests/iter_effect_tests.rs` [iter-effects]:
+  the claim recorded per producer in *canonical* order with one entry per
+  distinct effect set (the table both emitters read);
+  the claim accepted on `Iter<T>` and on a `canbe Once` type, refused on an
+  ordinary type and redirected to the bracket form on a fn type; fewer effects
+  fitting where more are expected and the reverse rejected; `^` refused; a fn
+  inheriting a producer parameter's claim and its caller having to supply it;
+  and driving needing the handler where *holding* needs nothing).
 - `salvo-cli`: 80 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -5771,7 +6222,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 128 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 137 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -5931,7 +6382,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
   `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 102 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 110 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

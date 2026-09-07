@@ -168,3 +168,77 @@ A **`Throw` transfer out of a suspended body**. The shape is probably
 defers running on the `Break` path, but that changes the protocol's result
 type and how a `for` drives it, so it wants its own prototype before it is
 designed.
+
+# The effectful prototype (I4)
+
+`effectful.sv` is the program I4's emission half has to produce: a producer that
+**performs effects while the consumer drives it**. The language part landed
+2026-09-07 ([iter-effects]: the claim is written on the producer's type); this is
+the shape the emitters need in order to stop refusing it.
+
+| file | what it is |
+|---|---|
+| `effectful.sv` | the Salvo source, in the planned language (the checker accepts it today; both backends refuse it) |
+| `effectful.rs` | the state machine plus the per-effect-set runtime, Rust |
+| `effectful.kt` | the same, Kotlin |
+
+```bash
+rustc --edition 2021 effectful.rs -o ../../tmp/eff/eff_rs && ../../tmp/eff/eff_rs
+kotlinc effectful.kt -d ../../tmp/eff/classes && kotlin -cp ../../tmp/eff/classes salvo.EffectfulKt
+```
+
+Both print, byte for byte (verified with `diff`), and neither compiler says
+anything at all:
+
+```
+open
+make 0
+got 0
+make 1
+got 1
+close
+open
+make 0
+make 1
+close
+sum 1
+plain 6
+```
+
+## What the program is chosen to prove
+
+* the producer's work **interleaves** with the consumer's, so `open`/`make n`
+  land between the `got n` lines rather than before them;
+* a `defer` inside the producer that **itself performs an effect**, which is
+  what makes the injected `close` observable for the first time: the first loop
+  `break`s after two elements and `close` still prints;
+* `close` is **idempotent**, so one call after the loop covers the abandoned
+  path and the drained one — the drained `total(chatty(2))` prints `close`
+  exactly once, from the body's own exit;
+* a fn that **inherits** the claim from a producer parameter (`total` declares
+  no effects of its own, and takes the handler as a leading parameter);
+* the claim is on the **return type**, so `chatty(3)` itself needs no handler —
+  only driving the pass does;
+* and a **factory** stays replayable: two calls, two passes, each from the
+  beginning.
+
+## The three shapes it fixes
+
+1. **A trait/interface per effect set.** A claiming pass cannot be a
+   `std::iter::Iterator` or a Kotlin `Iterator<T>` — its `advance` takes a
+   handler — so the emitter generates one per effect set a program's producer
+   types mention, the way it already generates one `UnionN` per arity. The pure
+   path is untouched.
+2. **The factory stays a factory**: `Console Iter<T>` is
+   `Rc<dyn Fn() -> Box<dyn SalvoPassConsole<T>>>` on Rust and a
+   `fun interface … { fun mint(): … }` on Kotlin. The boxing costs nothing new —
+   the pure path already boxes.
+3. **Variance needs an adapter.** A *pure* producer used where a claiming one is
+   expected has a different representation, so the compiler wraps it at that
+   boundary (an `advance` that ignores the handler). This is the finding worth
+   having early: it is invisible in the type rules, which say only that fewer
+   effects fit where more are expected.
+
+Kotlin's `advance` returns a Boolean and leaves the element in `current()`
+rather than returning `T?`, for the reason the whole protocol is tagged: a `T?`
+return could not tell "no more" from "the element is null".
