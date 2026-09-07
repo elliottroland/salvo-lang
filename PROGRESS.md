@@ -3737,22 +3737,55 @@ and D7 should be designed together rather than piecemeal.
   drift" arrangement, which stopped being possible once the answer depended
   on a declaration.
 
-**Emission is deliberately not part of I2b.** Both backends *reject* a `for`
-over a pass — "driving a hand-written pass (a value with a `next`) is not
-supported yet" — rather than falling back to a native loop, which would not
-be valid target code in either language [backend-never-wrong]. Verified by a
-codegen-error test on each side.
-
 Tests: `once_tests.rs` grew to 15 — the opt-in as a valid position, the
 `canbe` allowlist rejection, a hand-written pass driving a `for`, driving it
-twice, and the not-a-pass error; plus
-`driving_a_hand_written_pass_is_a_codegen_error` in both backends.
+twice, and the not-a-pass error.
 
-**What is left before `zip`/`merge` actually run**: the driving-loop
-emission, which is independent of the state-machine work. The checker
-already hands over everything it needs (`for_drivers` names the overload;
-the union arms are positional over the declared type), so this could land
-well before I3 and is the highest-value next step.
+### I2c first half as built (2026-09-07): hand-written passes run
+
+**`zip` works.** The driving-loop emission landed on both backends, which is
+the point at which the manual half of the iterator story stops being a
+declaration and becomes a feature: a struct, a `next`, and `for` drives it —
+no state machine, no compiler support beyond the loop.
+
+- **What the checker hands over** grew from a `FnKey` to a `PassDriver`: the
+  overload *and* the arm identity (`emitted_arm`, `arms`). Deriving the arm
+  index in each emitter instead would be precisely the checker/emitter
+  disagreement the invariants forbid, and the checker already has the
+  lowered return type in `pass_elem_ty`.
+- **Rust**: `let mut __loop1_pass = countdown(3);` then
+  `while let Union2::U1(mut n) = next(&mut __loop1_pass) {`. A `while let`
+  re-evaluates its condition per turn, so `Finished` needs no arm.
+- **Kotlin**: `while (true)` plus `if (step !is U2_1<Int, Finished>) { break }`,
+  since Kotlin has no pattern-matching loop condition. The arm is spelled
+  with its **real type arguments** when `next` is non-generic, which is what
+  keeps the element read cast-free: a star-projected arm leaves `value` at
+  `Any?`, and casting back warns ("unchecked cast") in code the user cannot
+  edit. A generic `next` has type arguments the loop cannot see — there is no
+  call node — and falls back to stars plus a cast.
+- **`next` must take its state as `Mut`**, checked: the right result shape
+  with a non-`Mut` state gets a diagnostic saying so, rather than falling
+  through to a puzzling "not iterable".
+- **An effectful `next` is a codegen error** on both backends: threading
+  handlers into every turn is phase I4 [backend-never-wrong].
+
+**Defect found and fixed: an empty struct emitted invalid Kotlin.**
+`struct Finished {}` became `data class Finished()`, which kotlinc rejects
+("data class must have at least one primary constructor parameter"). A
+fieldless struct now emits a plain `class` [kt-struct-empty] — nothing is
+lost, since with no fields there is no state for `equals`/`copy` to compare
+or clone. Latent since structs were implemented; nothing had ever declared
+an empty one until std's iterator protocol did.
+
+Verified end to end with one shared program and one shared expected stdout on
+both backends: a `Countdown` pass, and a `Zip` reading two lists at once
+(`n 3 / n 2 / n 1 / ada is 36 / grace is 45 / done`), plus emission-shape
+tests on each side and the `kt-struct-empty` regression test.
+
+**What is left of I2c**: the representation split — a pass becoming the
+generated state struct, a factory keeping the arguments it re-mints from, and
+the async machinery going away. That is the `yield` half; the manual half is
+done.
 
 ### Hand-written iterators must say `Once` (user decision 2026-09-07)
 
@@ -3796,11 +3829,11 @@ site plus a diagnostic, with the LSP surfacing the same message.
     the "has a `next` but is not `Once`" error, and `canbe Once`. Emission
     is not part of it: both backends reject a `for` over a pass for now.
     See "I2b as built" below.
-  - **I2c** — the driving-loop emission (`for` over a pass lowers to a
-    `while let` calling the resolved `next`), then the representation split:
-    a pass becomes the generated state struct, a factory keeps the arguments
-    it re-mints from, and the async machinery is deleted. The first half is
-    independent of the second and unlocks `zip`/`merge`.
+  - **I2c** — ✅ *first half* done 2026-09-07: the driving-loop emission, so
+    hand-written passes (`zip`, `merge`) run on both backends. Remaining: the
+    representation split — a pass becomes the generated state struct, a
+    factory keeps the arguments it re-mints from, and the async machinery is
+    deleted.
 - **I3** — The general flat state machine (CFG-ified body) as the
   backstop for bodies the fast path rejects.
 - **I4** — Effects threaded into `next`; [iter-effect-free] removed;

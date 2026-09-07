@@ -1057,25 +1057,72 @@ impl<'p> Emitter<'p> {
         self.checked.is_tests.get(&(self.file_idx, span))
     }
 
-    /// [iter-protocol] [backend-never-wrong] A `for` over a **pass** — a
-    /// value with a `next` rather than an array, an `Iter<T>`, or something
-    /// with an `iter` — is not lowered yet: the driving loop has to call the
-    /// resolved `next` and match its `Emitted`/`Finished` arms, which is
-    /// phase I2c. Reported rather than emitted, because the syntactic
-    /// fallback (`for x in subject`) is not valid Rust for such a value and
-    /// leaning on rustc to notice is exactly what the invariant forbids.
-    fn reject_pass_subject(&mut self, iterable: &Expr) {
+    /// [iter-protocol] How a `for` drives a **pass**, if its subject is one.
+    fn pass_driver_of(&self, iterable: &Expr) -> Option<salvo_core::PassDriver> {
+        self.checked
+            .for_drivers
+            .get(&(self.file_idx, iterable.span()))
+            .copied()
+    }
+
+    /// [iter-protocol] The loop header for a `for` over a **pass**: the
+    /// subject is bound to a mutable local, and each turn calls the `next`
+    /// the checker resolved and matches its `Emitted` arm.
+    ///
+    /// ```text
+    /// let mut __pass0 = countdown(3);
+    /// while let Union2::U1(mut n) = next(&mut __pass0) {
+    /// ```
+    ///
+    /// A `while let` rather than `loop`/`match`, because the condition is
+    /// re-evaluated per turn and the `Finished` arm needs no arm of its own.
+    /// The subject is *moved* into the local: driving consumes a pass
+    /// [once-fn], so nothing else can be looking at it.
+    fn emit_pass_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
+        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+            self.error("the `next` this `for` resolved to is not available");
+            return String::new();
+        };
+        // [fn-effects] An effectful `next` would need its handlers threaded
+        // into every turn of the loop — phase I4. Loud until then
+        // [backend-never-wrong].
         if self
             .checked
-            .for_drivers
-            .contains_key(&(self.file_idx, iterable.span()))
+            .fn_effects
+            .get(&driver.next_fn)
+            .is_some_and(|e| !e.is_empty())
         {
             self.error(
-                "driving a hand-written pass (a value with a `next`) is not \
-                 supported yet: iterate an array, an `Iter<T>`, or a value with \
-                 an `iter` for now",
+                "a `next` that performs effects is not supported yet: the \
+                 handlers would have to be threaded into every turn of the loop",
             );
         }
+        if driver.arms < 2 {
+            // The checker only records a driver for the exact
+            // `Emitted T | Finished` shape, so this cannot happen — and if it
+            // ever does, saying so beats emitting a loop that never ends.
+            self.error("a `next` result must have both an `Emitted` and a `Finished` arm");
+            return String::new();
+        }
+        let callee = self.rust_fn_name(decl);
+        let place = format!("{}_pass", self.fresh_loop_var());
+        let subject = self.emit_bound_value(iterable, iterable.span());
+        let var = self.for_pattern_var(pattern, false);
+        // The `Emitted` arm of the result, by the identity the *checker*
+        // computed [union-arm-identity].
+        self.union_sizes.insert(driver.arms);
+        let arm = format!("Union{}::U{}", driver.arms, driver.emitted_arm + 1);
+        format!(
+            "{pad}let mut {place} = {subject};\n\
+             {pad}while let {arm}({var}) = {callee}(&mut {place}) {{\n"
+        )
     }
 
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
@@ -3821,11 +3868,17 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
-                self.reject_pass_subject(iterable);
                 let ran = else_block
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
+                // [iter-protocol] A **pass** is *driven*, not iterated: the
+                // header calls the `next` the checker resolved. Everything
+                // after it — the `else` bookkeeping, the body, the deferred
+                // floors — is the same as for any other loop.
+                let pass = self.pass_driver_of(iterable).map(|driver| {
+                    self.emit_pass_loop_header(driver, pattern, iterable, indent)
+                });
                 // [rs-borrow-locals] S3: a borrow-mode loop (not made
                 // by-value by a move-mode event [fate-move-mode])
                 // over a pure-place iterable with a plain ident binding
@@ -3879,7 +3932,10 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
                 }
-                out.push_str(&format!("{pad}for {var} in {iter} {{\n"));
+                match &pass {
+                    Some(header) => out.push_str(header),
+                    None => out.push_str(&format!("{pad}for {var} in {iter} {{\n")),
+                }
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true;\n"));
                 }
@@ -5396,12 +5452,18 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("let mut {ran} = false;\n"));
         }
         if is_for {
-            self.reject_pass_subject(cond_or_iter);
-            // Value-position loops keep owned iteration (no borrow
-            // refinement yet [rs-borrow-locals]).
-            let var = self.for_pattern_var(pattern.unwrap(), false);
-            let iter = self.emit_expr(cond_or_iter);
-            out.push_str(&format!("for {var} in {iter} {{\n"));
+            // [iter-protocol] A pass is driven; see the statement-position
+            // arm. Value-position loops otherwise keep owned iteration (no
+            // borrow refinement yet [rs-borrow-locals]).
+            if let Some(driver) = self.pass_driver_of(cond_or_iter) {
+                let header =
+                    self.emit_pass_loop_header(driver, pattern.unwrap(), cond_or_iter, 0);
+                out.push_str(&header);
+            } else {
+                let var = self.for_pattern_var(pattern.unwrap(), false);
+                let iter = self.emit_expr(cond_or_iter);
+                out.push_str(&format!("for {var} in {iter} {{\n"));
+            }
         } else {
             let c = self.emit_expr(cond_or_iter);
             out.push_str(&format!("while {} {{\n", cond_code(c)));

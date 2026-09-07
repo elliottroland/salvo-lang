@@ -1000,12 +1000,31 @@ Conventions:
     on the type, `Once T` on the builder's return). `next` says the value
     can be advanced; `Once` says advancing uses it up, and only the author
     knows the second.
-  * The overload a `for` drives is recorded in `Checked::for_drivers`,
-    keyed by the subject's span: the driving loop is synthesized, so there
-    is no call node for the emitters to resolve.
-  * **Not lowered yet** (phase I2c): both backends *reject* a `for` over a
-    pass rather than falling back to a native loop, which would not be
-    valid target code [backend-never-wrong].
+  * `next` takes its state as `Mut St`: advancing a pass mutates its
+    position, and the backends pass a mutable place. A `next` with the right
+    *result* shape and a non-`Mut` state is an error saying so, rather than
+    a puzzling "not iterable".
+  * **What the checker hands over**: `Checked::for_drivers`, keyed by the
+    subject's span — the overload *and* the arm identity (`PassDriver`).
+    The driving loop is synthesized, so there is no call node for the
+    emitters to resolve, and having each of them re-derive the arm index
+    from the declaration is exactly the checker/emitter disagreement the
+    invariants forbid.
+  * **Lowering** (both backends, phase I2c): the subject is moved into a
+    local — driving consumes a pass [once-fn], so nothing else is looking at
+    it — and each turn calls `next` on a mutable place.
+    * Rust: `while let Union2::U1(mut n) = next(&mut __loop1_pass) {`. A
+      `while let` re-evaluates its condition per turn, so `Finished` needs
+      no arm of its own.
+    * Kotlin: `while (true)` plus `if (step !is U2_1<…>) { break }`, since
+      Kotlin has no pattern-matching loop condition. The arm is spelled with
+      its *real* type arguments when `next` is non-generic, which keeps the
+      element read free of an unchecked cast (star projection leaves `value`
+      at `Any?`); a generic `next` has type arguments the loop cannot see —
+      no call node — and falls back to stars plus a cast.
+  * An **effectful** `next` is a codegen error for now: its handlers would
+    have to be threaded into every turn of the loop, which is phase I4
+    [backend-never-wrong].
 * [seq-iterable] std's sequence functions (`map`, `filter`, `reduce`) take
   their subject through `?Iterable<It, T>` — the one `params` group std
   declares — so anything with a visible `iter` is a subject: a `List<T>`, an

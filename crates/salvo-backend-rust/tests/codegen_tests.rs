@@ -3948,29 +3948,97 @@ fn a_function_in_a_struct_field_is_a_codegen_error() {
     );
 }
 
-/// [iter-protocol] [backend-never-wrong] The checker resolves a `for` over a
-/// hand-written **pass** (a value with a `next`) and records the overload in
-/// `for_drivers`, but the driving loop is not lowered yet — phase I2c. The
-/// syntactic fallback would be `for n in countdown(3)`, which is not valid
-/// target code for such a value, so this has to be a Salvo error rather than
-/// something the target compiler discovers.
+/// [iter-protocol] A hand-written **pass**: `zip`, which `yield` cannot
+/// express because it reads two sources at once. A struct, a `next`, and
+/// nothing else — no state machine, no compiler support beyond driving it.
+pub const PASS_DEMO: &str = r#"
+struct Zip canbe Mut, Once {
+    left: List<Str>,
+    right: List<Int>,
+    at: Int
+}
+
+fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
+    let l = get(z.left, z.at)
+    let r = get(z.right, z.at)
+    if l is Str && r is Int {
+        z.at = z.at + 1
+        return emitted((l, r))
+    }
+    return finished()
+}
+
+fn zip(left: List<Str>, right: List<Int>) -> [] Once Zip {
+    return Zip { left: left, right: right, at: 0 }
+}
+
+struct Countdown canbe Mut, Once {
+    at: Int
+}
+
+fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+fn countdown(from: Int) -> Once Countdown {
+    return Countdown { at: from }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    for n in countdown(3) {
+        println("n ${n}")
+    }
+    let names = list("ada", "grace", "alan")
+    let ages = list(36, 45)
+    for pair in zip(names, ages) {
+        println("${pair.0} is ${pair.1}")
+    }
+    println("done")
+}
+"#;
+
+pub const PASS_OUTPUT: &str = "n 3\nn 2\nn 1\nada is 36\ngrace is 45\ndone\n";
+
+/// The driving loop: the subject is moved into a mutable local and each turn
+/// calls the resolved `next`, matching the `Emitted` arm the *checker* chose
+/// [union-arm-identity]. A `while let`, so the condition is re-evaluated per
+/// turn and `Finished` needs no arm of its own.
 #[test]
-fn driving_a_hand_written_pass_is_a_codegen_error() {
-    let errors = expect_errors(
-        "struct Countdown canbe Mut, Once {\n    at: Int\n}\n\
-         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
-         if c.at <= 0 { return finished() }\n\
-         let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}\n\
-         fn countdown(from: Int) -> Once Countdown { return Countdown { at: from } }\n\
-         fn main() [use] {\n    use StdOutConsole()\n\
-         for n in countdown(3) { println(\"n ${n}\") }\n}\n",
+fn a_pass_lowers_to_a_while_let_driving_loop() {
+    let files = generate(&[("main.sv", PASS_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("_pass = countdown(3);"),
+        "expected the subject bound to a local in:\n{src}"
     );
     assert!(
-        errors.iter().any(|e| {
-            e.contains("driving a hand-written pass") && e.contains("not supported yet")
-        }),
-        "expected the pass-driving rejection, got: {errors:?}"
+        src.contains("while let Union2::U1(mut n) = next"),
+        "expected a while-let driving loop in:\n{src}"
     );
+    assert!(
+        !src.contains("for mut n in countdown"),
+        "the native for-loop fallback should be gone from:\n{src}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_hand_written_pass() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PASS_DEMO)]);
+    run_rust_files(&files, "hand-written-pass", PASS_OUTPUT);
 }
 
 /// [implicit-param] An effect member is an ordinary signature, so it may

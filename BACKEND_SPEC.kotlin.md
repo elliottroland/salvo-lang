@@ -127,6 +127,14 @@ Conventions:
 
 * [struct-decl] Structs emit as `data class` with `val` fields (`var`
   under `Mut`, defaults as `= expr`, optional nullable defaults `= null`).
+* [kt-struct-empty] A **fieldless** struct emits a plain `class`, not a
+  `data class`: Kotlin requires a data class to have at least one
+  primary-constructor parameter. Nothing is lost — with no fields there is
+  no state for `equals`/`copy` to compare or clone, so nothing the modifier
+  would have added is observable, and such a struct is a tag anyway (`is
+  Finished` is a type test either way). Fixed 2026-09-07, when std's
+  iterator protocol [iter-protocol] introduced the first one; before that,
+  an empty struct emitted Kotlin that kotlinc rejected.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base

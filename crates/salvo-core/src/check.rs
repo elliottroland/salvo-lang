@@ -92,6 +92,20 @@ pub struct UnionTest {
     pub match_none: bool,
 }
 
+/// [iter-protocol] What a `for` over a **pass** needs from the checker: which
+/// `next` to call, and which arm of its result carries an element.
+#[derive(Clone, Copy, Debug)]
+pub struct PassDriver {
+    /// The `next` overload resolved for this subject.
+    pub next_fn: FnKey,
+    /// Index of the `Emitted` arm among the result's non-`None` arms
+    /// [union-arm-identity] — positional over the *declared* type, so
+    /// `Finished | Emitted T` is as valid as the usual order.
+    pub emitted_arm: usize,
+    /// Number of non-`None` arms, i.e. the union wrapper size.
+    pub arms: usize,
+}
+
 /// A representation change the emitter must apply to an expression.
 #[derive(Clone, Debug)]
 pub enum Coercion {
@@ -177,13 +191,15 @@ pub struct Checked {
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
-    /// [iter-protocol] The `next` overload a `for` loop drives, keyed by the
-    /// span of its *subject*. Present only when the subject is a **pass** —
-    /// something with a `next` — rather than an array, an `Iter<T>`, or a
-    /// value with an `iter`. There is no call node in the AST for the
-    /// emitters to look at (the driving loop is synthesized), so the choice
-    /// of overload has to be handed over here.
-    pub for_drivers: HashMap<Key, FnKey>,
+    /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
+    /// of its *subject*. Present only when the subject has a `next`, rather
+    /// than being an array, an `Iter<T>`, or a value with an `iter`. There is
+    /// no call node in the AST for the emitters to look at (the driving loop
+    /// is synthesized), so the overload *and* the arm identity have to be
+    /// handed over here — the alternative, each emitter re-deriving the arm
+    /// index from the declaration, is exactly the checker/emitter
+    /// disagreement the invariants forbid.
+    pub for_drivers: HashMap<Key, PassDriver>,
     /// [fn-rename] Call sites (and fn-value uses) written with a **renamed**
     /// name, keyed the same way as `call_fn`. A rename is erased, so the
     /// emitters must spell the declaration's own name rather than the one in
@@ -8066,11 +8082,26 @@ impl<'p, 'r> Checker<'p, 'r> {
             let callee_generics: HashSet<String> =
                 decl.generics.iter().map(|g| g.name.clone()).collect();
             let ret = substitute_vars(&ret, &subst, &callee_generics);
-            let Some(elem) = emitted_arm_ty(&ret) else {
+            let Some((elem, emitted_arm, arms)) = emitted_arm_ty(&ret) else {
                 // A `next` of some other shape is not the protocol; keep
                 // looking, and let `iter` have its turn.
                 continue;
             };
+            // [iter-protocol] The state is taken as `Mut`: advancing a pass
+            // mutates its position, and the backends pass a mutable place.
+            // A `next` of the right *result* shape whose state is not `Mut`
+            // clearly means to be the protocol, so say what is wrong rather
+            // than falling through to a puzzling "not iterable".
+            if !pt.quals().iter().any(|q| q.name == "Mut") {
+                self.error(
+                    span,
+                    format!(
+                        "`next` has to take its state as `Mut {}` — advancing a \
+                         pass mutates its position",
+                        pt.strip_quals()
+                    ),
+                );
+            }
             // [once-fn] A pass must say it is one. `next` says the value can
             // be advanced; `Once` says advancing uses it up, and only the
             // author knows whether that is true — inferring it from a method
@@ -8086,7 +8117,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            self.out.for_drivers.insert(self.key(span), entry.key);
+            self.out.for_drivers.insert(
+                self.key(span),
+                PassDriver {
+                    next_fn: entry.key,
+                    emitted_arm,
+                    arms,
+                },
+            );
             return Some(elem);
         }
         None
@@ -11034,17 +11072,18 @@ fn op_symbol(op: BinaryOp) -> &'static str {
 /// Exactly two arms, one tagged `Emitted` and one the fieldless `Finished`:
 /// the shape is the protocol, so anything else is deliberately not accepted
 /// rather than half-understood.
-fn emitted_arm_ty(ret: &Ty) -> Option<Ty> {
+fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     let Ty::Union(arms) = ret else { return None };
     if arms.len() != 2 {
         return None;
     }
-    let mut elem = None;
+    let value_arms = ret.value_arms();
+    let mut found = None;
     let mut finished = false;
-    for arm in arms {
+    for (i, arm) in value_arms.iter().enumerate() {
         match arm {
             Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == "Emitted") => {
-                elem = Some((**base).clone());
+                found = Some(((**base).clone(), i));
             }
             Ty::Named { name, args } if name == "Finished" && args.is_empty() => {
                 finished = true;
@@ -11052,8 +11091,9 @@ fn emitted_arm_ty(ret: &Ty) -> Option<Ty> {
             _ => return None,
         }
     }
+    let (elem, arm) = found?;
     if finished {
-        elem
+        Some((elem, arm, value_arms.len()))
     } else {
         None
     }

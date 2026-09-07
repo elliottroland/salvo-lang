@@ -432,28 +432,124 @@ fn expect_errors(src: &str) -> Vec<String> {
         .expect("expected type errors")
 }
 
-/// [iter-protocol] [backend-never-wrong] Same as the Rust backend: the
-/// checker resolves a `for` over a hand-written **pass** and records the
-/// `next` it would drive, but the driving loop is not lowered yet (phase
-/// I2c). Kotlin's own `for` would reject such a subject too, and letting
-/// kotlinc be the one to notice is what the invariant forbids.
+/// [iter-protocol] A hand-written **pass** driven by `for`: the same source
+/// and the same expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_hand_written_pass`. `zip` is the point — it
+/// reads two sources at once, which `yield` cannot express.
+const PASS_DEMO: &str = r#"
+struct Zip canbe Mut, Once {
+    left: List<Str>,
+    right: List<Int>,
+    at: Int
+}
+
+fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
+    let l = get(z.left, z.at)
+    let r = get(z.right, z.at)
+    if l is Str && r is Int {
+        z.at = z.at + 1
+        return emitted((l, r))
+    }
+    return finished()
+}
+
+fn zip(left: List<Str>, right: List<Int>) -> [] Once Zip {
+    return Zip { left: left, right: right, at: 0 }
+}
+
+struct Countdown canbe Mut, Once {
+    at: Int
+}
+
+fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+fn countdown(from: Int) -> Once Countdown {
+    return Countdown { at: from }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    for n in countdown(3) {
+        println("n ${n}")
+    }
+    let names = list("ada", "grace", "alan")
+    let ages = list(36, 45)
+    for pair in zip(names, ages) {
+        println("${pair.0} is ${pair.1}")
+    }
+    println("done")
+}
+"#;
+
+const PASS_OUTPUT: &str = "n 3\nn 2\nn 1\nada is 36\ngrace is 45\ndone\n";
+
+/// Kotlin has no pattern-matching loop condition, so the driving loop is
+/// `while (true)` plus a guard. The arm is spelled with its *real* type
+/// arguments where it can be (a non-generic `next`), which is what keeps the
+/// element read free of an unchecked cast — a warning in code the user cannot
+/// edit.
 #[test]
-fn driving_a_hand_written_pass_is_a_codegen_error() {
-    let errors = expect_errors(
-        "struct Countdown canbe Mut, Once {\n    at: Int\n}\n\
-         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
-         if c.at <= 0 { return finished() }\n\
-         let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}\n\
-         fn countdown(from: Int) -> Once Countdown { return Countdown { at: from } }\n\
-         fn main() [use] {\n    use StdOutConsole()\n\
-         for n in countdown(3) { println(\"n ${n}\") }\n}\n",
+fn a_pass_lowers_to_a_guarded_while_loop() {
+    let program = build_program(&[("main.sv", PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("_pass = countdown(3)") && src.contains("_step = next("),
+        "expected the driving loop in:\n{src}"
     );
     assert!(
-        errors.iter().any(|e| {
-            e.contains("driving a hand-written pass") && e.contains("not supported yet")
-        }),
-        "expected the pass-driving rejection, got: {errors:?}"
+        src.contains("!is U2_1<Int, Finished>"),
+        "expected the arm spelled with real type arguments in:\n{src}"
     );
+    assert!(
+        !src.contains(" as Int"),
+        "a concrete arm needs no cast; got:\n{src}"
+    );
+}
+
+/// [kt-struct-empty] A fieldless struct is a plain class, not a data class:
+/// Kotlin requires a data class to have at least one primary-constructor
+/// parameter. `Finished` is the first such struct (std's iterator protocol).
+#[test]
+fn a_fieldless_struct_is_a_plain_class() {
+    let program = build_program(&[("main.sv", PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("core/iterator.kt"))
+        .expect("core/iterator.kt")
+        .content;
+    assert!(
+        src.contains("class Finished") && !src.contains("data class Finished"),
+        "expected a plain class for the fieldless struct in:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_hand_written_pass() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "hand-written-pass", PASS_OUTPUT);
 }
 
 // [qual-no-dup]

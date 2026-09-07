@@ -545,25 +545,123 @@ impl<'p> Emitter<'p> {
         self.checked.is_tests.get(&(self.file_idx, span))
     }
 
-    /// [iter-protocol] [backend-never-wrong] A `for` over a **pass** — a
-    /// value with a `next` rather than an array, an `Iter<T>`, or something
-    /// with an `iter` — is not lowered yet: the driving loop has to call the
-    /// resolved `next` and match its `Emitted`/`Finished` arms, which is
-    /// phase I2c. Reported rather than emitted: Kotlin's `for` would reject
-    /// such a subject too, and letting the target compiler be the one to
-    /// notice is what the invariant forbids.
-    fn reject_pass_subject(&mut self, iterable: &Expr) {
+    /// [iter-protocol] How a `for` drives a **pass**, if its subject is one.
+    fn pass_driver_of(&self, iterable: &Expr) -> Option<salvo_core::PassDriver> {
+        self.checked
+            .for_drivers
+            .get(&(self.file_idx, iterable.span()))
+            .copied()
+    }
+
+    /// [iter-protocol] The loop header for a `for` over a **pass**: the
+    /// subject is bound to a local and each turn calls the `next` the checker
+    /// resolved, stopping when the result is not the `Emitted` arm.
+    ///
+    /// ```text
+    /// var __loop1_pass = countdown(3)
+    /// while (true) {
+    ///     val __loop1_step = next(__loop1_pass)
+    ///     if (__loop1_step !is U2_1<*, *>) { break }
+    ///     val n = __loop1_step.value as Int
+    /// ```
+    ///
+    /// `while (true)` plus a guard rather than Rust's `while let`, since
+    /// Kotlin has no pattern-matching loop condition. The cast is needed
+    /// because the arm is star-projected: an `is U2_1<*, *>` smart-cast
+    /// leaves `value` at `Any?`.
+    fn emit_pass_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
+        let inner_pad = "    ".repeat(indent + 1);
+        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+            self.error("the `next` this `for` resolved to is not available");
+            return String::new();
+        };
+        // [fn-effects] An effectful `next` would need its handlers threaded
+        // into every turn of the loop — phase I4. Loud until then
+        // [backend-never-wrong].
         if self
             .checked
-            .for_drivers
-            .contains_key(&(self.file_idx, iterable.span()))
+            .fn_effects
+            .get(&driver.next_fn)
+            .is_some_and(|e| !e.is_empty())
         {
             self.error(
-                "driving a hand-written pass (a value with a `next`) is not \
-                 supported yet: iterate an array, an `Iter<T>`, or a value with \
-                 an `iter` for now",
+                "a `next` that performs effects is not supported yet: the \
+                 handlers would have to be threaded into every turn of the loop",
             );
         }
+        if driver.arms < 2 {
+            self.error("a `next` result must have both an `Emitted` and a `Finished` arm");
+            return String::new();
+        }
+        let callee = self.kotlin_fn_name(decl);
+        // A *non-generic* `next` lets the arm be spelled with its real type
+        // arguments, which is what keeps the element read cast-free: an
+        // `is U2_1<*, *>` smart-cast leaves `value` at `Any?`, and casting
+        // back would warn ("unchecked cast") in code the user cannot edit.
+        // A generic `next` has type arguments this loop does not know — there
+        // is no call node to read them from — so it falls back to stars.
+        let arm_args: Option<Vec<String>> = if decl.generics.is_empty() {
+            match &decl.return_type {
+                Some(Type::Union { arms, .. }) if arms.len() == driver.arms => {
+                    Some(arms.iter().map(|a| self.emit_type(a)).collect())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let loop_id = self.fresh_loop_var();
+        let (place, step) = (format!("{loop_id}_pass"), format!("{loop_id}_step"));
+        let subject = self.emit_expr(iterable);
+        let var = self.for_pattern_var(pattern);
+        self.union_sizes.insert(driver.arms);
+        let (arm, read) = match arm_args {
+            Some(args) => (
+                format!(
+                    "U{}_{}<{}>",
+                    driver.arms,
+                    driver.emitted_arm + 1,
+                    args.join(", ")
+                ),
+                format!("{step}.value"),
+            ),
+            None => {
+                let elem = self
+                    .binding_ty_text(pattern)
+                    .unwrap_or_else(|| "Any?".to_string());
+                let stars = vec!["*"; driver.arms].join(", ");
+                (
+                    format!("U{}_{}<{stars}>", driver.arms, driver.emitted_arm + 1),
+                    format!("{step}.value as {elem}"),
+                )
+            }
+        };
+        format!(
+            "{pad}var {place} = {subject}\n\
+             {pad}while (true) {{\n\
+             {inner_pad}val {step} = {callee}({place})\n\
+             {inner_pad}if ({step} !is {arm}) {{ break }}\n\
+             {inner_pad}val {var} = {read}\n"
+        )
+    }
+
+    /// The Kotlin rendering of a `for` binding's type, from the checker's
+    /// record for the pattern's own span.
+    fn binding_ty_text(&mut self, pattern: &Pattern) -> Option<String> {
+        let span = match pattern {
+            Pattern::Ident(id) => id.span,
+            Pattern::Tuple { span, .. } => *span,
+            Pattern::Struct { span, .. } => *span,
+        };
+        let ty = self.ty_of(span).cloned()?;
+        Some(self.kotlin_ty(&ty))
     }
 
     /// Looks up a checker-resolved fn declaration by its stable key.
@@ -664,6 +762,19 @@ impl<'p> Emitter<'p> {
         // A dot-named struct is declared with its *member* segment: it is
         // nested inside its namespace class [name-dot].
         let declared_name = s.name.name.rsplit('.').next().unwrap_or(&s.name.name);
+        // [kt-struct-empty] A *fieldless* struct cannot be a data class:
+        // Kotlin requires at least one primary-constructor parameter
+        // ("data class must have at least one primary constructor
+        // parameter"). A plain class is the faithful rendering — with no
+        // fields there is no state for `equals`/`copy` to compare or clone,
+        // so nothing the data modifier would have provided is observable.
+        // Such a struct is a tag: `struct Finished {}` in std's iterator
+        // protocol [iter-protocol] is the first one, and `is Finished` is a
+        // type test either way.
+        if s.fields.is_empty() {
+            self.generics = saved;
+            return format!("\nclass {declared_name}{generics}\n");
+        }
         let mut out = format!("\ndata class {declared_name}{generics}(\n");
         for field in &s.fields {
             let kw = if is_mut { "var" } else { "val" };
@@ -1976,18 +2087,30 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
-                self.reject_pass_subject(iterable);
                 let ran = else_block
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
+                // [iter-protocol] A **pass** is *driven*, not iterated: the
+                // header calls the `next` the checker resolved. Everything
+                // after it is the same as for any other loop.
+                let pass = self.pass_driver_of(iterable).map(|driver| {
+                    self.emit_pass_loop_header(driver, pattern, iterable, indent)
+                });
                 let var = self.for_pattern_var(pattern);
-                let iter = self.emit_expr(iterable);
+                let iter = if pass.is_none() {
+                    self.emit_expr(iterable)
+                } else {
+                    String::new()
+                };
                 let mut out = String::new();
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}var {ran} = false\n"));
                 }
-                out.push_str(&format!("{pad}for ({var} in {iter}) {{\n"));
+                match &pass {
+                    Some(header) => out.push_str(header),
+                    None => out.push_str(&format!("{pad}for ({var} in {iter}) {{\n")),
+                }
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true\n"));
                 }
@@ -3202,13 +3325,21 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
-                self.reject_pass_subject(iterable);
+                // [iter-protocol] A pass is driven; see the statement arm.
+                let pass = self.pass_driver_of(iterable).map(|driver| {
+                    self.emit_pass_loop_header(driver, pattern, iterable, 0)
+                });
                 if else_block.is_some() {
                     out.push_str(&format!("var {ran} = false\n"));
                 }
-                let var = self.for_pattern_var(pattern);
-                let iter = self.emit_expr(iterable);
-                out.push_str(&format!("for ({var} in {iter}) {{\n"));
+                match &pass {
+                    Some(header) => out.push_str(header),
+                    None => {
+                        let var = self.for_pattern_var(pattern);
+                        let iter = self.emit_expr(iterable);
+                        out.push_str(&format!("for ({var} in {iter}) {{\n"));
+                    }
+                }
                 if else_block.is_some() {
                     out.push_str(&format!("{ran} = true\n"));
                 }

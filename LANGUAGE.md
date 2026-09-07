@@ -1072,11 +1072,13 @@ for str in iter(list) {
 
 #### Planned change: Salvo-level pull iterators
 
-> **In progress, and not yet true of the compiler.** Everything above
-> describes the language as it is today — including the factory/pass
-> distinction, which shipped with the first phase of this work. What
-> follows is decided but unbuilt: it is here to be thought about, not to
-> be built against. The costing, the phases and the still-open questions
+> **In progress.** Everything above describes the language as it is today —
+> including the factory/pass distinction, which shipped with the first phase
+> of this work. Below, the `next` protocol and hand-written passes *also*
+> work already; what is not yet built is the `yield` half — a state struct
+> instead of the target languages' coroutines, and with it effectful
+> iterator functions and the released-on-every-path guarantee. Those parts
+> are decided but unbuilt: here to be thought about, not built against. The costing, the phases and the still-open questions
 > live in PROGRESS.md under "Roadmap: iterators — Salvo-level pull
 > iterators (decided 2026-09-07)".
 
@@ -1119,12 +1121,13 @@ even when the consumer stops early. Nothing in the source says so, and
 nothing has to.
 
 A hand-written iterator says `Once` for itself. Declaring a `next` for a
-struct of your own is what makes `zip` and `merge` writable, but it does
-not by itself make the struct a pass: `next` says the value can be
-advanced, `Once` says advancing it uses it up, and only you know whether
-that is true. So the struct opts in with `canbe Once`, its builder applies
-the qualifier, and driving a value that has a `next` and neither is an
-error naming the remedy:
+struct of your own is what makes `zip` and `merge` writable — this part
+*works today*, ahead of the rest of this subsection — but it does not by
+itself make the struct a pass: `next` says the value can be advanced,
+`Once` says advancing it uses it up, and only you know whether that is
+true. So the struct opts in with `canbe Once`, its builder applies the
+qualifier, and driving a value that has a `next` and neither is an error
+naming the remedy:
 
 ```
 struct Zip<A, B> canbe Mut, Once {
