@@ -5865,14 +5865,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
-                // [once-fn] `Once` is the language-level call-multiplicity
-                // qualifier: valid only on function types.
+                // [once-fn] `Once` is the language-level *use*-multiplicity
+                // qualifier. It began as call-multiplicity, on function
+                // types only, and was generalized 2026-09-07 (user
+                // decision): using a function value means calling it, and
+                // using an `Iter<T>` means driving it, so the same
+                // "at most once" claim marks a **pass** — a position in a
+                // sequence — as against a replayable factory.
+                //
+                // The position list is deliberately explicit rather than
+                // "any type": a general affine qualifier is a vocabulary
+                // decision of its own, kept as roadmap D6 rather than
+                // shipped as a side effect of this one.
                 if q.name.name == "Once" {
-                    if !matches!(base, Ty::Fn { .. }) {
+                    if !crate::types::once_position(base) {
                         self.error(
                             q.span,
                             format!(
-                                "`Once` applies only to function types, not `{base}`"
+                                "`Once` applies to function types and `Iter<T>`, \
+                                 not `{base}`"
                             ),
                         );
                     }
@@ -7761,12 +7772,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty, iterable.span());
-                // The loop binding is a projection of the iterated
-                // collection: it shares the collection's fate [fate-link].
-                // It goes through the per-pass bindings channel so every
-                // checking pass re-declares it fresh — each iteration
-                // binds a new element [deduce-consume].
-                let links = self.links_for_value(iterable, iterable.span());
+                // [once-fn] Driving a **pass** consumes it: `Once Iter<T>`
+                // is a position in a sequence, not a recipe, so a second
+                // `for` over the same value is the ordinary consumed-use
+                // error and the elements are owned by the loop rather than
+                // derived from a value that is still alive. A plain
+                // `Iter<T>` is a factory: `for` mints a pass from it and
+                // leaves it usable, exactly as before.
+                let drives_pass = iter_ty.quals().iter().any(|q| q.name == "Once");
+                let links = if drives_pass {
+                    self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
+                    Vec::new()
+                } else {
+                    // The loop binding is a projection of the iterated
+                    // collection: it shares the collection's fate
+                    // [fate-link]. It goes through the per-pass bindings
+                    // channel so every checking pass re-declares it fresh —
+                    // each iteration binds a new element [deduce-consume].
+                    self.links_for_value(iterable, iterable.span())
+                };
                 let bindings =
                     self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
                 self.loop_stack.push(LoopCtx {

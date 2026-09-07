@@ -1449,9 +1449,10 @@ fn l7b_once_fns() {
         ),
         "stderr: {stderr}"
     );
-    // `Once` applies only to fn types.
+    // `Once` applies to fn types and `Iter<T>` — nothing else (roadmap D6
+    // is where widening it to any type is weighed).
     assert!(
-        stderr.contains("`Once` applies only to function types, not `Int`"),
+        stderr.contains("`Once` applies to function types and `Iter<T>`, not `Int`"),
         "stderr: {stderr}"
     );
     // run_maybe, once_where_once_ok, plain_where_once_ok are clean.

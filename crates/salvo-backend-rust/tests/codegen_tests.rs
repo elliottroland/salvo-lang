@@ -3766,6 +3766,73 @@ fn rustc_compiles_and_runs_a_lazy_iterator() {
     run_rust_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }
 
+/// [once-fn] A **pass** — `Once Iter<T>` — driven once, a **factory** driven
+/// twice, and a factory handed to a pass parameter (the inverted `Once`
+/// variance). The qualifier erases [qual-erasure], so this is the *same*
+/// emission as the unqualified form: what `Once` buys is the checker
+/// rejecting a second drive, which `once_tests.rs` covers. The e2e test is
+/// here to prove the erasure — that a pass-returning producer is not a
+/// codegen error and behaves identically.
+pub const ONCE_ITER_DEMO: &str = r#"
+fn pass_of(limit: Int) -> Once Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn factory_of(limit: Int) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn total(xs: Once Iter<Int>) -> Int {
+    let sum = 0
+    for n in xs {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = pass_of(4)
+    let seen = 0
+    for n in p {
+        seen = seen + n
+    }
+    println("pass ${seen}")
+    let f = factory_of(4)
+    let first = 0
+    for n in f {
+        first = first + n
+    }
+    let second = 0
+    for n in f {
+        second = second + n
+    }
+    println("factory ${first} ${second}")
+    println("total ${total(factory_of(4))}")
+    println("total ${total(pass_of(4))}")
+}
+"#;
+
+pub const ONCE_ITER_OUTPUT: &str = "pass 6\nfactory 6 6\ntotal 6\ntotal 6\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_once_iterator() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ONCE_ITER_DEMO)]);
+    run_rust_files(&files, "once-iter", ONCE_ITER_OUTPUT);
+}
+
 // ===== [implicit-param] [implicit-group] implicit parameters =====
 
 /// Every path through the feature in one program: a `params` group spread

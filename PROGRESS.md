@@ -3715,6 +3715,14 @@ site plus a diagnostic, with the LSP surfacing the same message.
   `for` lowering to `while let`, simple-generator lowering. Effect-free
   producers only: pure simplification, `SalvoGen`/`SalvoYield`/`SalvoIter`
   deleted.
+  - **I2a** ✅ Done 2026-09-07 — `Once Iter<T>` is a real type and the
+    factory/pass distinction is checked. See "I2a as built" below.
+  - **I2b** — the protocol in std (`Next`/`Stopped`, `params Iterator<St,
+    T>`, `next`), `for` resolving `next` before `iter`, and the
+    "has a `next` but is not `Once`" error.
+  - **I2c** — the representation split: a pass becomes the generated state
+    struct, a factory keeps the arguments it re-mints from, `for` lowers to
+    `while let`, and the async machinery is deleted.
 - **I3** — The general flat state machine (CFG-ified body) as the
   backstop for bodies the fast path rejects.
 - **I4** — Effects threaded into `next`; [iter-effect-free] removed;
@@ -3737,7 +3745,7 @@ generated modules moved out of Rust string literals in the emitters into
 static text to extract.
 
 - **Extracted byte-for-byte, deliberately**: the files were captured from
-  the compiler's own output (`tmp/i1_extract/main.sv` touches all four),
+  the compiler's own output (one scratch program touching all four),
   so emitted bytes did not change, no insta snapshot moved, and no e2e
   content stamp missed. Verified by compiling that program before and
   after and diffing the whole output tree — identical on both backends.
@@ -3755,14 +3763,16 @@ static text to extract.
   that is not registered is a visible omission rather than an untested
   file.
 
-**I1b — the design is hand-verified end to end.** `tmp/i1_pull/source.sv`
-is the motivating program, written in the *planned* language: an
+**I1b — the design is hand-verified end to end.** The prototype lives in
+`experiments/pull-iterators/` (with a README recording what it proves and
+how to run it), since `tmp/` is scratch and these are evidence.
+`lines.sv` is the motivating program, written in the *planned* language: an
 effectful iterator function (`[FileSystem, Console]`) holding a resource,
 releasing it with a `defer` **that itself performs effects**, with two
 distinct resume points (a header `yield`, then a `yield` inside
 `while true`), consumed by a `for` that `break`s after three elements.
-`tmp/i1_pull/main.rs` and `main.kt` are what the emitters would produce.
-Both compile warning-free and print **byte-identical stdout**:
+`lines.rs` and `lines.kt` are what the emitters would produce. Both compile
+warning-free and print **byte-identical stdout**:
 
 ```
 opening data.txt
@@ -3806,6 +3816,60 @@ Not yet prototyped, and still the riskiest thing in the plan: a body where
 resumable at once. I1's program has one `defer` site and one loop; **I3
 should open with the gnarly shape** (`rangeIncl` with a `defer` inside a
 nested `for`) before the general lowering is written.
+
+### I2a as built (2026-09-07): the factory/pass distinction ships first
+
+`Once Iter<T>` is now a type the compiler accepts, and the one-shot rule is
+enforced — *before* the representation splits. That order is deliberate:
+the semantics are the part the user decided, they are checkable today, and
+landing them first makes I2c's representation change a non-event
+semantically (nothing legal before it becomes illegal after).
+
+What it took was small, because `Once` was already the right shape:
+
+- **`types::once_position`** is the single predicate for where `Once` may
+  be written — `Ty::Fn` or `Iter<T>` — read by *both* the checker's
+  position check and `is_subtype`'s inverted rule, so the two cannot drift
+  as D6 widens the list.
+- **The position check** (check.rs, `Once` branch of the qualifier
+  validation) now consults it, and its message names both positions:
+  ``` `Once` applies to function types and `Iter<T>`, not `Int` ```.
+- **The inverted subtyping rule** lost its `Ty::Fn` gate: `(_, Qualified
+  { Once, base })` with `once_position(base)`, so plain `Iter<T>` <:
+  `Once Iter<T>` exactly as plain `(A) -> B` <: `Once (A) -> B`. The
+  never-drop direction needed nothing — `qual_drop_block` was already
+  type-agnostic.
+- **The one new rule**: a `for` whose subject type carries `Once` calls
+  `fate_move(iterable, "iterate", "a `for` loop", …)` and gives the loop
+  binding *no* links — the elements are owned by the loop rather than
+  derived from a subject that is still alive [fate-link]. A factory keeps
+  the existing behaviour (links, no consumption). The diagnostic falls out
+  of the existing machinery: "`p` cannot be used here: it was consumed
+  (moved) by a `for` loop".
+- **The emitters needed no change at all**: `Once` erases
+  [qual-erasure], and `iter_elem_ty` already went through `strip_quals`.
+  Both backends compile and run a pass-returning producer, verified with
+  one shared program and one shared expected stdout
+  (`{rustc,kotlinc}_compiles_and_runs_a_once_iterator`,
+  `pass 6 / factory 6 6 / total 6 / total 6`).
+
+Tests: `crates/salvo-core/tests/once_tests.rs` (10) covers the position
+list, both variance directions, driving a pass once, driving it twice
+(consumed-use error), driving a factory twice (fine), and two calls giving
+two passes; plus the two e2e tests above.
+
+**Two diagnostic leftovers**, both quality rather than correctness:
+
+- A pass in a factory position reports "no matching overload for
+  `twice(Once Iter<Int>)`" rather than saying `Once` never drops. The
+  `qual_drop_block` message exists and is used for `^` widening; the
+  overload-failure path does not reach for it. This will be a common
+  mistake, so it is worth a near-miss hint.
+- An invalid `Once` position cascades: `let bad: Once Int = 3` reports the
+  position error *and* "expected `Once Int`, found `Int`", because the
+  rejected qualifier stays on the lowered type. One mistake should be one
+  diagnostic — the fix is to fall back to the base type when the position
+  check fails.
 
 ### Costs recorded up front
 

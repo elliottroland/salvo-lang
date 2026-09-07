@@ -4388,6 +4388,73 @@ fn kotlinc_compiles_and_runs_a_lazy_iterator() {
     run_kotlin_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }
 
+/// [once-fn] The pass/factory distinction, same source and same expected
+/// stdout as the Rust backend's `rustc_compiles_and_runs_a_once_iterator`.
+/// `Once` erases [qual-erasure], so what is being proved here is that a
+/// pass-returning producer emits and behaves identically — the one-shot rule
+/// itself is the checker's, in `once_tests.rs`.
+const ONCE_ITER_DEMO: &str = r#"
+fn pass_of(limit: Int) -> Once Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn factory_of(limit: Int) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn total(xs: Once Iter<Int>) -> Int {
+    let sum = 0
+    for n in xs {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = pass_of(4)
+    let seen = 0
+    for n in p {
+        seen = seen + n
+    }
+    println("pass ${seen}")
+    let f = factory_of(4)
+    let first = 0
+    for n in f {
+        first = first + n
+    }
+    let second = 0
+    for n in f {
+        second = second + n
+    }
+    println("factory ${first} ${second}")
+    println("total ${total(factory_of(4))}")
+    println("total ${total(pass_of(4))}")
+}
+"#;
+
+const ONCE_ITER_OUTPUT: &str = "pass 6\nfactory 6 6\ntotal 6\ntotal 6\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_once_iterator() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", ONCE_ITER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "once-iter", ONCE_ITER_OUTPUT);
+}
+
 // ===== [implicit-param] [implicit-group] implicit parameters =====
 
 /// The same source and expected stdout as the Rust backend's

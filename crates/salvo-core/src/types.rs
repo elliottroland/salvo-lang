@@ -309,13 +309,16 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                     .all(|q| q.name == "Once" || qa.contains(q))
         }
         // [once-fn] INVERTED subtyping, flagged for future review
-        // (user decision 2026-09-02): `Once` *restricts* (callable at
-        // most once) instead of refining, so a plain fn may be used
-        // where a `Once` fn is expected — the opposite direction of
-        // every other qualifier.
-        (Ty::Fn { .. }, Ty::Qualified { quals, base })
-            if quals.iter().any(|q| q.name == "Once")
-                && matches!(**base, Ty::Fn { .. }) =>
+        // (user decision 2026-09-02): `Once` *restricts* (usable at
+        // most once) instead of refining, so a plain value may be used
+        // where a `Once` one is expected — the opposite direction of
+        // every other qualifier. Generalized 2026-09-07 from fn types to
+        // every position `Once` is valid in: a factory (`Iter<T>`) fits
+        // where a *pass* (`Once Iter<T>`) is wanted, since promising to
+        // drive something at most once demands less than being able to
+        // drive it repeatedly. Never the reverse — `Once` never drops.
+        (_, Ty::Qualified { quals, base })
+            if quals.iter().any(|q| q.name == "Once") && once_position(base) =>
         {
             is_subtype(a, base)
         }
@@ -398,6 +401,22 @@ pub fn contract_fits(
 }
 
 /// Why a qualifier may **not** be dropped from a type, if it may not
+/// Whether `Once` may be written on this base type [once-fn]: function
+/// types, where using a value means calling it, and `Iter<T>`, where it
+/// means driving it. Deliberately a short list rather than "any type" —
+/// widening it is roadmap D6.
+///
+/// Read by the checker's position check and by `is_subtype`'s inverted
+/// `Once` rule, so the two cannot disagree about where the qualifier is
+/// meaningful.
+pub fn once_position(ty: &Ty) -> bool {
+    match ty {
+        Ty::Fn { .. } => true,
+        Ty::Named { name, .. } => name == "Iter",
+        _ => false,
+    }
+}
+
 /// [qual-widen]. The single exclusion list: `is_subtype`'s `Qual T <: T`
 /// rule and the `^` widening check both read it, so the two cannot drift as
 /// intrinsic qualifiers are added (user decision 2026-09-05).

@@ -994,7 +994,39 @@ fn rangeIncl(start: Int, end: Int) -> Iter<Int> {
 }
 ```
 
-An iterator is **lazy**: an element is produced when whatever consumes it asks for the next one, so a producer's work interleaves with the loop that drives it, creating an iterator runs none of its body, and an unbounded generator (`while true { yield ... }`) is a normal thing to write — the consumer decides when to stop. An iterator is also **repeatable**: two `for`-loops over the same `Iter<T>` both start from the beginning, each running the producer again. Both backends behave identically in all of this.
+An iterator is **lazy**: an element is produced when whatever consumes it asks for the next one, so a producer's work interleaves with the loop that drives it, creating an iterator runs none of its body, and an unbounded generator (`while true { yield ... }`) is a normal thing to write — the consumer decides when to stop. Both backends behave identically in all of this.
+
+Whether an iterator can be consumed *more than once* is the producer's choice, written in its return type:
+
+```
+Iter<T>        // a factory: replayable; each use mints a fresh pass
+Once Iter<T>   // a pass: a position in a sequence, consumed by driving it
+```
+
+```
+fn counted(limit: Int) -> Iter<Int> { ... }        // replayable
+fn drained(limit: Int) -> Once Iter<Int> { ... }   // one-shot
+
+let f = counted(4)
+for n in f { ... }      // `for` mints a pass from the factory
+for n in f { ... }      // fine — f is still a factory, and the producer re-runs
+
+let p = drained(4)
+for n in p { ... }      // drives p, consuming it
+for n in p { ... }      // ERROR: p was consumed by the loop above
+```
+
+`Once` is the same qualifier that marks a function value callable at most once ([Consuming a capture](#consuming-a-capture)) — it says a value may be *used* once, and driving is how an iterator is used. Its rules follow from that. `Once` never drops, so a pass can never be forgotten back into a replayable recipe; and a value with *fewer* restrictions fits where a restricted one is expected, so a factory may be passed where a pass is wanted but never the reverse:
+
+```
+fn total(xs: Once Iter<Int>) -> Int { ... }
+total(counted(4))       // fine: a factory fits where a pass is wanted
+
+fn twice(xs: Iter<Int>) -> Int { ... two loops ... }
+twice(drained(4))       // ERROR: `Once` never drops
+```
+
+Which to write is a judgement about the producer, not a default: a one-shot type is what a producer *holding* something — a file, a connection — wants, because a replay would re-open it. A producer that merely computes has nothing to protect, and a factory is friendlier.
 
 The price is that **an iterator function declares no effects** — not even `use`. Its body runs after the call that created the iterator has returned, so there is no longer a scope to hold the handlers it would need. Effects belong to the consumer instead, which costs nothing: the `for`-loop that walks the elements sits in a function of its own and may do anything that function declares.
 
@@ -1040,13 +1072,13 @@ for str in iter(list) {
 
 #### Planned change: Salvo-level pull iterators
 
-> **Not implemented.** Everything above describes the language as it is
-> today, and the compiler behaves that way. This subsection records the
-> shape of a design decided on 2026-09-07 whose implementation has not
-> started — it is here to be thought about, not to be built against. The
-> costing, the phases and the still-open questions live in PROGRESS.md
-> under "Roadmap: iterators — Salvo-level pull iterators (decided
-> 2026-09-07)".
+> **In progress, and not yet true of the compiler.** Everything above
+> describes the language as it is today — including the factory/pass
+> distinction, which shipped with the first phase of this work. What
+> follows is decided but unbuilt: it is here to be thought about, not to
+> be built against. The costing, the phases and the still-open questions
+> live in PROGRESS.md under "Roadmap: iterators — Salvo-level pull
+> iterators (decided 2026-09-07)".
 
 The iteration protocol becomes ordinary Salvo instead of a pair of
 intrinsics. `next` returns a `Next T | Stopped` union and takes the pass
@@ -1067,47 +1099,10 @@ they do into any other function, so **an iterator function may perform
 effects** and the restriction described above goes away; and iteration is
 monomorphic — nothing is suspended, boxed, or dynamically dispatched.
 
-**A factory and a pass are different types, distinguished by `Once`.** An
-iterator is either a recipe you may run repeatedly, or a position in a
-sequence that driving consumes — and which one you hold is written down
-rather than decided once for the whole language:
-
-```
-Iter<T>        // a factory: replayable; each use mints a fresh pass
-Once Iter<T>   // a pass: a position, consumed by driving it
-```
-
-```
-// Nothing is held, so replaying is free: this one is a factory.
-fn evens(limit: Int) -> Iter<Int> { ... }
-
-// Holds an open file, so driving it is a one-time act: a pass.
-fn lines(path: Str) [FileSystem] -> Once Iter<Str> { ... }
-
-let e = evens(10)
-for n in e { ... }      // iter(e) mints a pass from the factory
-for n in e { ... }      // fine — e is still a factory
-
-let ls = lines("data.txt")
-for l in ls { ... }     // drives ls, consuming it
-for l in ls { ... }     // ERROR: ls was consumed by the loop above
-```
-
-`Once` means what it always meant — usable at most once — generalized from
-calling a function value to consuming a value of any kind it is allowed
-on. Its existing rules are the ones a pass needs. `Once` never drops, so a
-pass can never be forgotten back into a replayable recipe; and a value
-carrying *fewer* restrictions fits where a restricted one is expected, so
-a factory may be passed where a pass is wanted — the implicit `iter()`
-mints it — but never the reverse:
-
-```
-fn count(xs: Once Iter<Int>) -> Int { ... }
-count(evens(10))        // fine: a factory fits where a pass is wanted
-
-fn twice(xs: Iter<Int>) -> None { ... two loops ... }
-twice(lines(path))      // ERROR: `Once` never drops
-```
+The factory/pass distinction above is *already* the language — what is
+still planned is the representation behind it. Today both forms emit the
+same thing, since `Once` erases; under the rework a pass becomes the state
+struct itself while a factory keeps the arguments it re-mints from.
 
 A pass is also *finished* rather than abandoned: the compiler releases it
 on every path that leaves the loop — exhaustion, `break`, `return`, a
@@ -1141,12 +1136,12 @@ inserts the indirection exactly there:
 ```
 fn primes(limit: Int) -> Iter<Int> { ... }
 
-// One producer, so the representation is `evens`'s own state: an
+// One producer, so the representation is `counted`'s own state: an
 // element costs an inlined call and no allocation.
-let xs = evens(100)
+let xs = counted(100)
 
 // A meeting point: one variable, two possible state types.
-let ys = if fast { evens(100) } else { primes(100) }
+let ys = if fast { counted(100) } else { primes(100) }
 
 struct Report {
     // A meeting point too: a field holds whatever it is given.
@@ -1480,7 +1475,7 @@ size(xs)             // ERROR: xs was consumed by the lambda; copy first
 
 **Function types carry contracts.** A higher-order function can state what the function it receives does to its arguments, using the same deduction syntax as ordinary signatures — name the parameter and write the list: `fn apply(f: (v: List<Int>) -> [] Int, data: List<Int>)` demands a function that *consumes* its argument (so `f(data)` consumes `data`, and calling it twice with the same value is an error), while `f: (v: List<Int>) -> [v] Int` demands one that *keeps* it (call it as often as you like; the caller keeps the argument). An unannotated function type keeps everything. A lambda checked against a keeping contract cannot consume its parameters (`copy` if needed), and a named function passed by value is checked with its real deductions — a consuming function never sneaks into a keeping position (the reverse is fine: keeping more than required never hurts). On the Rust backend this decides the physical calling convention — borrowed argument types for keeping contracts, owned for consuming, `&mut impl FnMut` for the function value itself — while Kotlin's aliases need no change.
 
-A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` is a qualifier for function types (`fn run(f: Once () -> None)`), and calling a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary function value can be used where a `Once` one is expected (you may always promise to call something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
+A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it, and an `Iter<T>` is used by driving it, which is how a one-shot iterator is spelled (`Once Iter<Int>`; see [Iterator functions](#iterator-functions)). Those two are the only places it may be written. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
 
 One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
 

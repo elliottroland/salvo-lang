@@ -1725,20 +1725,41 @@ Conventions:
     parameter bindings/annotations per contract, and named fns wrap in
     mechanical adapter closures bridging the contract's calling
     convention to the declaration's actual modes.
-* [once-fn] `Once` is the language-level call-multiplicity qualifier
-  (decision L7b, 2026-09-02): valid only on *function types*
-  (`f: Once () -> None`), it means the value is callable **at most
-  once**. Enforcement is consumption [deduce-consume]: calling a `Once`
-  value consumes it, so a second call, a call on the loop back edge,
-  and a call after the value escapes are the ordinary consumed-use
-  errors; a call on only some branches leaves it maybe-consumed
-  (conservative), and zero calls is fine.
+* [once-fn] `Once` is the language-level **use**-multiplicity qualifier
+  (decision L7b, 2026-09-02; generalized from calls to uses by a user
+  decision 2026-09-07): it means the value may be used **at most once**.
+  Enforcement is consumption [deduce-consume], and what counts as a use
+  depends on the type.
+  * **Valid positions**: *function types* (`f: Once () -> None`), where
+    using means calling, and `Iter<T>` (`Once Iter<Int>`), where using
+    means driving. Deliberately a short list rather than "any type" —
+    widening it to a general affine qualifier is roadmap D6. The one
+    predicate `once_position` is read by both the checker's position
+    check and `is_subtype`, so the two cannot disagree.
+  * **On a fn type**: calling a `Once` value consumes it, so a second
+    call, a call on the loop back edge, and a call after the value
+    escapes are the ordinary consumed-use errors; a call on only some
+    branches leaves it maybe-consumed (conservative), and zero calls is
+    fine.
+  * **On `Iter<T>`**: `Once Iter<T>` is a **pass** — a position in a
+    sequence — as against plain `Iter<T>`, a replayable **factory**. A
+    `for` over a pass *consumes* it (the loop binding takes ownership of
+    the elements rather than linking to a live subject [fate-link]), so a
+    second `for` is a consumed-use error; a `for` over a factory mints a
+    pass and leaves the factory usable, as before. This is how the
+    factory-or-pass question is answered per function instead of once for
+    the language (PROGRESS.md, "Factory and pass").
+  * `Once` erases like every other qualifier [qual-erasure]: the two
+    forms emit identically today, and the pass's distinct representation
+    arrives with the pull-iterator rework (PROGRESS.md roadmap I2c).
   * **Inverted subtyping — flagged for future review** (user decision
     2026-09-02): `Once` *restricts* instead of refining, so plain
     `(A) -> B` <: `Once (A) -> B` (any fn may be treated as
-    once-callable) and `Once` may **never** be dropped — the exact
+    once-callable), plain `Iter<T>` <: `Once Iter<T>` (a factory may be
+    treated as a pass), and `Once` may **never** be dropped — the exact
     opposite of every other qualifier's direction. Special-cased in
     `is_subtype` and `unify`.
+
   * A lambda that *consumes* a capture is legal (superseding the
     always-error rule in [fate-lambda]) and is `Once`-typed by
     construction: the capture is consumed at creation and the closure
