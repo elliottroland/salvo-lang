@@ -764,58 +764,139 @@ Conventions:
   * Yield-based iterator fns are exempt — their body produces elements,
     not a return value.
 * [fn-overload] Functions overload by parameter types (including
-  qualifiers: `full_name(Person)` vs `full_name(Surname Person)`).
-  * The checker scores viable candidates (exact type match > subtype;
-    qualified params more specific), breaks a remaining tie by specificity
-    [fn-overload-specific], and records the winner per call site
-    (`call_fn`). In unchecked contexts (no recorded winner) emitters
-    narrow same-arity candidates by the checked argument types' base
-    names; an ambiguous dispatch is a
+  qualifiers: `full_name(Person)` vs `full_name(Surname Person)`). One rule
+  decides every call, in three steps — `@module`, then the most specific
+  *scope* [fn-overload-scope], then the most specific *signature*
+  [fn-overload-rank] — and no single winner is an error
+  [fn-overload-ambiguous]. Nothing else takes part: not the return type, not
+  effects, not deductions, not implicit parameters.
+  * The checker records the winner per call site (`call_fn`). In unchecked
+    contexts (no recorded winner) emitters narrow same-arity candidates by
+    the checked argument types' base names; an ambiguous dispatch is a
     codegen error ("annotate the argument types"), never a guess
-    [backend-never-wrong].
+    [backend-never-wrong]. That fallback is a *subset* of the real rule: it
+    may only ever error where the checker would have chosen.
   * Generic bindings in `unify` widen: when arguments bind the same `T`
     to related types, the more general one wins regardless of order
     (`pick(1, maybe_int)` binds `T = Int?`). No occurs check,
     deliberately: `Ty::Var` identity is name-scoped per side, so a
     callee's `T` never appears inside argument types (a caller's
     same-named `T` is a different variable).
-* [fn-overload-specific] **A concrete parameter type beats a type
-  variable** (decision O1, user 2026-09-06). When the score leaves several
-  candidates standing, they are ranked on the *genericity* axis:
-  `describe(Int)` wins over `describe<T>(T)` for `describe(3)`, and
-  declaration order never decides.
-  * Structural and per parameter: `List<Int>` > `List<T>`, and likewise
-    inside arrays, tuples, fn types, equal-arity unions and equally
-    qualified types. A candidate **dominates** another when it is at least
-    as specific in every position and strictly more specific in one.
-  * A **partial** order, deliberately: when no candidate dominates the
-    rest the call is *ambiguous* and says so, naming the candidates and
-    both remedies (write the type arguments, or annotate an argument so
-    only one matches). `mix<T>(T, Int)` against `mix<T>(Int, T)` called as
-    `mix(1, 2)` is the shape.
-  * Only the genericity axis ranks. A pair the relation finds
-    *indifferent* — differing only in qualifiers, union shape, arity
-    source (variadic vs fixed) or optionality — keeps declaration order,
-    since ranking those axes is still undesigned (see PROGRESS.md's
-    overload roadmap). Qualifier specificity is already expressed as
-    score, not as this ranking.
-  * [type-unknown-lenient] An argument the checker could not infer fits
-    every candidate, so an un-inferred argument anywhere in the call
-    suppresses the ambiguity error: one mistake, one diagnostic.
-  * The ranking compares the **declared** parameter patterns, not the
-    substituted ones — after substitution `T` *is* `Int` and the two
-    candidates would look identical, which is exactly why the bug existed.
+* [fn-overload-scope] **The most specific scope that fits wins** (user
+  decision 2026-09-07). Functions arrive from ever more specific places —
+  `core`, then this file's explicit imports, then this module, then the fn's
+  own scope (fn-typed parameters, locals, implicit parameters, effect
+  members), then inner scopes — and only the most specific rung with a
+  candidate *fitting the arguments* competes.
+  * So an own-module `size(List<T>)` means *this* module's for calls in it,
+    while `size("text")` still reaches core's — the shadowing overload does
+    not fit, so it never competes. Before this rule, fns merged into one
+    flat overload set and declaration order handed the call to std, silently.
+  * The rungs above `Own` are not overload sets: a fn-typed local, parameter
+    or implicit *is* the function the caller chose and shadows the name
+    outright, an effect member takes the name before any fn does
+    [effect-member-unique], and a rename introduces a fresh name
+    [fn-rename]. `FnEntry::rung` therefore has three values (`Core`,
+    `Import`, `Own`).
+  * **Scope beats signature**, deliberately: the alternative is a rule no
+    reader can predict without knowing std's surface. When it discards a
+    *more specific signature* from a lower rung the call gets a
+    `Severity::Warning` naming both candidates and both `@module` forms —
+    writing either silences it, since an explicit selector is the
+    confirmation.
+* [fn-overload-rank] **Then the most specific signature**, compared **per
+  argument slot** (`types::spec_cmp`, `rank_cmp`):
+  1. a **type variable** says the least, structurally (`List<Int>` beats
+     `List<T>`);
+  2. **union arms compare as sets**: fewer arms says more, so `Int` beats
+     `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is
+     the broadest type, so it is always least specific — which is why the
+     written `Any` lowers to `Ty::Any` rather than a nominal type
+     [type-any-nothing];
+  3. **qualifier sets compare by inclusion**: more qualifiers says more, and
+     the *kind* never ranks (`Mut List<T>` and `NonEmpty List<T>` are
+     unrankable, deliberately — ranking them would ask the caller to know
+     more than what is in front of them);
+  4. with the slots otherwise equal, a **fixed** parameter list beats a
+     variadic one, which is what lets `list()` pick a no-argument overload
+     over `list(...elems)`.
+  * A candidate wins only by being at least as specific in *every* slot and
+    strictly more specific in one. A sum of per-slot scores was the previous
+    rule and is deliberately gone: it let one argument's gain pay for
+    another's loss, which is a guess.
+  * Criteria pulling in opposite directions within one slot (a more specific
+    base with a smaller qualifier set) are unrankable, for the same reason.
+  * Specificity never exceeds what the caller knows: an `Int | Str` value
+    does not *fit* `f(Int)`, and after narrowing it does — that is
+    subtyping, not a ranking rule.
   * The ranking also decides which candidate **leads**: expected types flow
-    into the arguments from the most specific candidate still compatible with
-    the arguments typed *so far*. That is what gives a bare lambda an
-    expected type when the name is overloaded (`map(xs, n -> n * 2)` with a
-    `List` fast path beside the generic overload), and the *per-argument
-    re-narrowing* is what keeps the subject deciding: `map(arr, n -> n + 1)`
-    drops the `List` candidate when `arr` turns out to be an array, before
-    the lambda is typed. With no dominant candidate the arguments keep the
-    untyped probe — expected types from an arbitrary candidate would be a
-    bias — and the lead is only ever a *hint*: the scoring re-derives
-    everything from the argument types it ends up with.
+    into the arguments from the most specific candidate *still compatible
+    with the arguments typed so far*, on the most specific rung. That is what
+    gives a bare lambda an expected type when the name is overloaded
+    (`map(xs, n -> n * 2)` with a `List` fast path beside the generic
+    overload), and the per-argument re-narrowing is what keeps the subject
+    deciding: `map(arr, n -> n + 1)` drops the `List` candidate when `arr`
+    turns out to be an array, before the lambda is typed. With no dominant
+    candidate the arguments keep the untyped probe, and the lead is only ever
+    a *hint* — the selection re-derives everything from the argument types it
+    ends up with.
+* [fn-overload-ambiguous] **No single most specific candidate is an error**,
+  never a pick. The diagnostic names the candidates and the remedies:
+  narrowing an argument, or `rename fn <new> = f(...)`.
+  * [type-unknown-lenient] An un-inferred argument fits every candidate, so
+    it suppresses the ambiguity: one mistake, one diagnostic. The winner in
+    that state is unspecified.
+* [fn-overload-at] **`f@module(args)`** names the module whose overload is
+  meant, overriding scope precedence: `size@core.list(xs)`,
+  `size@main(xs)`, and `xs.size@core.list()` in dot form (the selector
+  attaches to the *name*). Also valid as a value (`describe@main`).
+  * A module path, not a rung keyword: `@mod`/`@import` would ask the reader
+    to know which rung a name came in on (user decision 2026-09-07).
+  * Naming a module with no *fitting* overload is an error listing the
+    modules that have one — never a silent fallback.
+  * It is the way out of a **shadowed** name: a local of the same name hides
+    every function, and `@` is what reaches one anyway.
+  * On a renamed name it is an error: a rename already names one
+    declaration.
+* [fn-rename] **`rename fn add2 = add(a: Int | Str, b: Int | Str)`** gives
+  one overload a name of its own (user decision 2026-09-07), which is how an
+  ambiguity the ranking cannot settle is settled.
+  * **Not an alias**: from that point the overload answers *only* to the new
+    name — it leaves the old name's candidate set, in calls, in fn values
+    and in implicit resolution. That is what makes the old name unambiguous
+    again.
+  * The parameter list repeats one overload's parameters exactly (same
+    names, same types, type parameters positional), matched by the same
+    matcher `refn` uses [qual-refn-match] — so a std rename surfaces as a
+    diagnostic rather than as a rename that quietly stops applying. Effects,
+    a deduction list, a return type and an implicit-group spread are parse
+    errors naming the reason: none of them takes part in selection.
+  * **Scoped**: at module level it applies to the whole module (in every
+    file of it), order-independent like any module-level declaration; inside
+    a fn or a block it applies from its line to the end of that scope, loops
+    and lambdas included. Not importable — taking an overload out of a
+    shared name is the consumer's decision [qual-refn-scope]'s reasoning.
+  * The new name must be otherwise unused (a rename removes an ambiguity, so
+    adding one would defeat it), and it is **erased**: `renamed_calls` tells
+    the emitters to spell the declaration's own name, where an import alias
+    keeps the alias.
+* [fn-overload-duplicate] Two declarations of one name in one module with
+  the same parameter **types** are a duplicate, not an overload set —
+  reported at the second one. Parameter names and return types take no part
+  in selection, so nothing at a call site could tell them apart.
+* [fn-value-select] A function passed **by name** is selected by the
+  **expected fn type**, through the same three steps a call uses (parameters
+  contravariant, result covariant, contract included). With no expectation a
+  single candidate is taken and an overloaded name is an error naming both
+  remedies (annotate the position, or `rename`). When candidates exist but
+  none fits, the diagnostic says so and explains why — a contract difference
+  does not show in a printed type [fn-contract].
+* [effect-member-call] An effect member call is checked against its declared
+  parameters like any other call — arity and types. Members do not overload
+  [effect-member-unique], so there is nothing to select and nothing to rank;
+  these are plain mismatch diagnostics. (Until 2026-09-07 the member's
+  parameter types only flowed in as *expected* types, so `log(true)` on
+  `fn log(message: Str)` was accepted.)
 * [call-type-args] A generic call's type arguments must be **determined**.
   In order: an explicit list (`mutable_list<Int>()`) pins them; otherwise
   the arguments bind them by unification; otherwise the **expected type**
@@ -897,7 +978,7 @@ Conventions:
     perform effects [iter-effect-free] — which would rule out a `println`
     inside a `map`. Chaining still works: a list is iterable.
   * Each also has an `intrinsic` **`List` fast path**, which
-    [fn-overload-specific] selects when the subject really is a list; the
+    [fn-overload-rank] selects when the subject really is a list; the
     generic Salvo body is what every other subject reaches.
 * [fn-variadic] `...xs: T[]` collects remaining arguments as an array;
   a spread argument `...xs` forwards an array whole; variadics bind after

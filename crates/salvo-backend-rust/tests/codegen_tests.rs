@@ -2247,11 +2247,11 @@ qualifier Err<T> of T
 
 type Result = Ok Int | Err Str
 
-fn ok<T>(value: T) -> T as Ok {
+fn tag_ok<T>(value: T) -> T as Ok {
     return value
 }
 
-fn err<T>(value: T) -> T as Err {
+fn tag_err<T>(value: T) -> T as Err {
     return value
 }
 
@@ -2264,15 +2264,15 @@ fn describe(r: Result) -> Str {
 
 fn main() [use] -> [] None {
     use StdOutConsole
-    let arr: Result[] = [ok(1), err("a")]
+    let arr: Result[] = [tag_ok(1), tag_err("a")]
     for x in arr {
         println(describe(x))
     }
-    let tup: (Str, Result) = ("t", ok(2))
+    let tup: (Str, Result) = ("t", tag_ok(2))
     let (label, r) = tup
     println(describe(r))
     let make: (flag: Bool) -> Result = (flag: Bool) -> {
-        return if flag { ok(3) } else { err("b") }
+        return if flag { tag_ok(3) } else { tag_err("b") }
     }
     println(describe(make(true)))
     println(describe(make(false)))
@@ -2292,9 +2292,9 @@ fn union_coercion_in_array_tuple_lambda() {
         main.content
     );
     for needle in [
-        "Union2::<i32, String>::U1(ok(1))",
-        "Union2::<i32, String>::U2(err(\"a\".to_string()))",
-        "Union2::<i32, String>::U1(ok(2))",
+        "Union2::<i32, String>::U1(tag_ok(1))",
+        "Union2::<i32, String>::U2(tag_err(\"a\".to_string()))",
+        "Union2::<i32, String>::U1(tag_ok(2))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -4125,7 +4125,7 @@ fn a_refinement_conflict_warns_without_stopping_emission() {
     );
 }
 
-// ===== [fn-overload-specific] O1: concrete beats generic =====
+// ===== [fn-overload-rank] O1: concrete beats generic =====
 
 /// The same source and the same expected stdout as the Kotlin backend's
 /// `kotlinc_runs_the_most_specific_overload`: the winner is the checker's
@@ -4458,4 +4458,100 @@ fn sequence_functions_lower_to_helpers() {
 fn rustc_compiles_and_runs_sequences() {
     let files = generate(&[("main.sv", SEQ_DEMO)]);
     run_rust_files(&files, "sequences", SEQ_DEMO_OUTPUT);
+}
+
+// ===== [fn-overload-at] [fn-rename] the caller's two overrides =====
+
+/// The same source and stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_overload_overrides`: a module-level `size` that
+/// shadows std's, `@module` to reach past it (and past a *local* of the same
+/// name), and a `rename` giving one of two unrankable overloads a name of its
+/// own. Both mechanisms are compile-time only, so what the pair asserts is
+/// that the two targets agree about which declaration each call meant.
+const OVERLOAD_OVERRIDE_DEMO: &str = r#"
+qualifier Even of Int with Small {
+    fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
+}
+
+qualifier Small of Int with Even {
+    fn qualifies(n: Int) -> Bool { return n < 10 }
+}
+
+fn size<T>(list: List<T>) -> [list] Str {
+    return "mine"
+}
+
+fn label(n: Even Int) -> [n] Str {
+    return "even"
+}
+
+fn label(n: Small Int) -> [n] Str {
+    return "small"
+}
+
+// The two `label`s are unrankable — one qualifier each, and the *kind* of
+// qualifier never ranks — so one of them takes a name of its own.
+rename fn label_small = label(n: Small Int)
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3)
+    // This module's `size` wins; `@core.list` reaches std's.
+    println(size(xs))
+    println("core: ${size@core.list(xs)}")
+    println("dot: ${xs.size@core.list()}")
+    let n = 4
+    if n is Even && n is Small {
+        println("${label(n)} ${label_small(n)}")
+    }
+    // A local shadows every function of that name — `@` is the way out.
+    let describe = "a local"
+    println(describe)
+    println(describe@main(7))
+}
+
+fn describe(n: Int) -> Str {
+    return "fn ${n}"
+}
+"#;
+
+const OVERLOAD_OVERRIDE_OUTPUT: &str = "mine\ncore: 3\ndot: 3\neven small\na local\nfn 7\n";
+
+/// [fn-overload-at] [rs-shadowed-call] Neither override survives into the
+/// output — with one Rust-specific consequence: a **local of the same name**
+/// shadows the
+/// function in Rust's value namespace (E0618), where Kotlin keeps functions
+/// and properties apart, so such a call is spelled as a path.
+#[test]
+fn scope_selectors_and_renames_are_erased() {
+    let files = generate(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    assert!(!main.contains('@'), "unexpected `@` in:\n{main}");
+    assert!(!main.contains("label_small"), "unexpected rename in:\n{main}");
+    // `@core.list` is std's `size`, mangled because this program declares its
+    // own [rs-fn-mangling].
+    assert!(
+        main.contains("(xs.len() as i32)"),
+        "expected the core lowering:\n{main}"
+    );
+    // The renamed overload is called by its declaration's mangled name.
+    assert!(
+        main.contains("label__Small(&n)") || main.contains("label__Small(n)"),
+        "unexpected:\n{main}"
+    );
+    // The shadowed call goes through the crate path.
+    assert!(
+        main.contains("crate::describe(7)"),
+        "expected a path past the local:\n{main}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_overload_overrides() {
+    let files = generate(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
+    run_rust_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
 }

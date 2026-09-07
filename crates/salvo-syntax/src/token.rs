@@ -43,6 +43,9 @@ pub enum TokenKind {
     KwWith,
     KwCanbe,
     KwProvenance,
+    /// `rename fn add2 = add(a: Int, b: Int)` — a scope-local name for one
+    /// overload, which stops answering to its own name [fn-rename].
+    KwRename,
     /// `refn` — a qualifier *refinement* of an existing function
     /// [qual-refn].
     KwRefn,
@@ -95,6 +98,7 @@ pub enum TokenKind {
     Percent,  // %
     PlusPlus, // ++
     Caret,    // ^ — the qualifier-widening check [qual-widen]
+    At,       // @ — the scope selector on a call [fn-overload-at]
 
     Eof,
 }
@@ -132,6 +136,7 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("canbe", TokenKind::KwCanbe),
     ("provenance", TokenKind::KwProvenance),
     ("refn", TokenKind::KwRefn),
+    ("rename", TokenKind::KwRename),
     ("is", TokenKind::KwIs),
     ("if", TokenKind::KwIf),
     ("elif", TokenKind::KwElif),
@@ -214,6 +219,7 @@ impl TokenKind {
             TokenKind::Percent => "%",
             TokenKind::PlusPlus => "++",
             TokenKind::Caret => "^",
+            TokenKind::At => "@",
             _ => unreachable!("symbol() called on non-symbol token"),
         }
     }

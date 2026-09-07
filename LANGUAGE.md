@@ -634,17 +634,98 @@ fn fresh() -> [] Mut List<Int> {
 
 Salvo does not look *forward* to a later use to decide a type argument, even where a target language would: what the compiler knows must be visible at the call itself. A type argument that never reaches the result type needs no context — nothing downstream could observe it.
 
-**When more than one overload matches a call, the most specific one wins**, and a parameter type that names a concrete type is more specific than one that names only "some type":
+### Overload resolution
+
+Salvo overloads by argument type, so a name may mean several functions. Which one a call means is decided by one rule in three steps, and the rule is designed to be *predictable*: where it cannot decide, it reports an error instead of guessing, and you always have a way to say what you meant.
+
+**1. The most specific *scope* wins.** Functions reach a call site from ever more specific places:
 
 ```
-fn describe<T>(value: T) -> Str { return "generic" }
-fn describe(value: Int) -> Str { return "concrete" }
-
-describe(3)        // "concrete" — both match, the concrete parameter wins
-describe("text")   // "generic"  — only one candidate matches at all
+core                    // implicitly visible, least specific
+explicit imports        // `import lib.describe`
+this module's own declarations
+the function's own scope    // fn-typed parameters, locals, implicit parameters, effect members
+inner scopes                // a `rename` in a block, a local in a block
 ```
 
-The comparison is per parameter and structural, so `List<Int>` is more specific than `List<T>`, and a candidate wins only if it is at least as specific in *every* parameter and strictly more specific in one. Two candidates that disagree about which parameter is the concrete one — `mix<T>(a: T, b: Int)` against `mix<T>(a: Int, b: T)`, called as `mix(1, 2)` — rank neither way, and the call is an error rather than a coin flip; annotating an argument so only one candidate matches resolves it. Declaration order never decides.
+Only the most specific scope that has an overload *fitting the arguments* competes. So declaring your own `size(List<T>)` means calls in your module get yours — whatever the standard library declares — while `size("text")` still reaches std's, because yours does not fit:
+
+```
+fn size<T>(list: List<T>) -> [list] Int {
+    return 99
+}
+
+size(list(1, 2, 3))   // 99 — this module's
+size("abcd")          // 4  — core's, the only one that fits
+```
+
+A local variable is at the function's scope, which is the most specific of all: it hides every function of that name outright.
+
+Scope beats *signature*, deliberately — the alternative is a rule you cannot predict without knowing std's whole surface. When a more specific signature is passed over because it sits in a less specific scope, the call gets a **warning** naming both, which you silence by saying which you meant (below).
+
+**2. Then the most specific *signature* wins**, compared per argument:
+
+- a **type variable** says the least: `describe(Int)` beats `describe<T>(T)`;
+- a **broader union** says less than a narrower one, which says less than a single arm: `Int` beats `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is the broadest type there is, so it is always last;
+- **more qualifiers** say more: `Mut NonEmpty List<T>` beats `Mut List<T>` beats `List<T>`. Which *kind* of qualifier never matters — ranking `Mut` against `NonEmpty` would ask you to know more than what is in front of you;
+- a **fixed** parameter list beats a variadic one, so `list()` picks a no-argument overload over `list(...elems)`.
+
+Specificity can never exceed what the caller knows: a value whose type is `Int | Str` does not fit `f(Int)` at all, and once narrowed with `is`, it does.
+
+The comparison is per argument, and a candidate wins only by being at least as specific in *every* argument and more specific in at least one. Nothing else takes part: not the return type, not effects, not deductions, not implicit parameters.
+
+**3. No single winner is an error.** Two candidates that each win one argument — `mix<T>(a: T, b: Int)` against `mix<T>(a: Int, b: T)`, called as `mix(1, 2)` — rank neither way, and so do two that differ only in *which* qualifier they demand. The call is an error naming both candidates, never a coin flip. Two declarations with the same parameter *types* are a duplicate rather than an overload set, reported where the second one is written.
+
+#### Saying which one you meant
+
+Two ways, both compile-time only and both erased from the output.
+
+**`@module` names the module whose overload you mean**, which overrides scope precedence and reaches past a local of the same name:
+
+```
+size@core.list(xs)      // std's, though this module declares its own
+size@main(xs)           // this module's, said explicitly (and no warning)
+xs.size@core.list()     // dot-notation, since `@` attaches to the name
+```
+
+**`rename` gives one overload a name of its own**, which is how an ambiguity is settled:
+
+```
+fn label(n: Even Int) -> [n] Str { return "even" }
+fn label(n: Small Int) -> [n] Str { return "small" }
+
+rename fn label_small = label(n: Small Int)
+
+label(n)         // the `Even` overload — the only one still called `label`
+label_small(n)   // the other one
+```
+
+A rename is not an alias: from that point on the renamed overload answers *only* to the new name. The parameter list repeats one overload's parameters exactly — same names, same types, type parameters positional — and may not mention effects, deductions or a return type, since none of them takes part in choosing an overload. A rename at module level applies to the whole module; written inside a function or a block it applies from that line to the end of that scope, loops and lambdas included. It is not importable: taking an overload out of a shared name is the consumer's decision to make.
+
+#### Two places the same rule applies
+
+**Passing a function by name** selects an overload from the type the position expects:
+
+```
+fn tag(v: Int) -> [v] Str { return "int" }
+fn tag(v: Str) -> [v] Str { return "str" }
+
+fn apply(f: (Str) -> Str, s: Str) -> [f, s] Str { return f(s) }
+
+apply(tag, "x")      // the `Str` overload: it is what `(Str) -> Str` needs
+let f = tag          // ERROR: nothing here says which `tag` — annotate, or rename
+```
+
+**Filling an implicit parameter** is the same query against a type rather than an argument list, so it obeys the ladder and the ranking too — and a renamed overload no longer fills an implicit of its old name:
+
+```
+params Iterable<It, T> {
+    fn iter(it: It) -> Iter<T>
+}
+
+// `map(xs, f)` fills `iter` with whichever `iter` fits `xs` — yours, if you
+// declared one for your own type, since this module beats core.
+```
 
 We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
 

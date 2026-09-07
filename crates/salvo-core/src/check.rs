@@ -31,18 +31,49 @@ use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
 
-/// [fn-overload-specific] One candidate of an overload set as a possible
+/// [fn-overload-rank] One candidate of an overload set as a possible
 /// *lead*: the source of the expected types its arguments are checked
 /// against. Carries the candidate's own generic names and the substitution
 /// the arguments typed so far have determined
 /// [call-generic-progressive].
+/// [fn-rename] One `rename fn` in force: the new name, the overload it
+/// means, and the name that overload no longer answers to.
+struct RenameBinding<'p> {
+    new_name: String,
+    target: String,
+    entry: crate::resolve::FnEntry<'p>,
+    /// Where it was written, for the "already named" diagnostic.
+    span: Span,
+}
+
+/// [fn-overload-rank] One candidate that *fits* a call: the declaration, the
+/// bindings and coercion targets its match produced, and everything the
+/// selection needs — the ranking view of its parameters, and the rung of the
+/// visibility ladder it came in on [fn-overload-scope].
+struct Viable<'p> {
+    key: Option<FnKey>,
+    decl: &'p FnDecl,
+    subst: HashMap<String, Ty>,
+    /// (argument index, substituted parameter type).
+    pairings: Vec<(usize, Ty)>,
+    rank: crate::types::RankedCandidate,
+    rung: crate::resolve::Rung,
+    /// The declaring module, rendered — for `@module` matching and for the
+    /// diagnostics.
+    module: String,
+}
+
 struct LeadCandidate {
     /// Index into the call's candidate list.
     index: usize,
-    /// The declared (un-substituted) parameter patterns, per argument slot.
-    patterns: Vec<Ty>,
+    /// The declared (un-substituted) parameter patterns, per argument slot,
+    /// as the ranking compares them [fn-overload-rank].
+    rank: crate::types::RankedCandidate,
     generics: HashSet<String>,
     subst: HashMap<String, Ty>,
+    /// [fn-overload-scope] Which rung it came in on: the lead is picked from
+    /// the most specific rung, like the winner.
+    rung: crate::resolve::Rung,
 }
 
 /// How an `is` check (or `when` branch check) lowers at runtime against the
@@ -146,6 +177,12 @@ pub struct Checked {
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
+    /// [fn-rename] Call sites (and fn-value uses) written with a **renamed**
+    /// name, keyed the same way as `call_fn`. A rename is erased, so the
+    /// emitters must spell the declaration's own name rather than the one in
+    /// the source — and they cannot tell a rename from an import alias, which
+    /// they *do* keep, without being told.
+    pub renamed_calls: HashSet<Key>,
     /// [qual-refn] Every qualifier refinement that applies, keyed by the
     /// file a call is written in and the overload it resolves to.
     /// Scope-dependent by design: opting into a qualifier opts into what
@@ -523,6 +560,7 @@ fn check_once<'p>(
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
             own_implicits: Vec::new(),
+            renames: Vec::new(),
             defers: Vec::new(),
             try_stack: Vec::new(),
             in_defer_body: false,
@@ -860,6 +898,11 @@ struct Checker<'p, 'r> {
     /// type, not by how they were declared, so a group spread here can fill
     /// an individually-declared `?add` there and the other way round.
     own_implicits: Vec<ImplicitParam>,
+    /// [fn-rename] Renames in force, outermost first: a module-level one for
+    /// the whole file, then one per `rename fn` statement, dropped when its
+    /// block ends. Each takes an overload *out* of its own name and gives it
+    /// the new one, so both directions read this table.
+    renames: Vec<RenameBinding<'p>>,
     /// Deferred blocks registered but not yet run [defer], in
     /// registration order (innermost/latest last). Each is applied at
     /// every exit of the frame it belongs to.
@@ -990,6 +1033,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= module / function traversal =================
 
     fn check_module(&mut self, module: &'p Module) {
+        // [fn-rename] Module-level renames are in force for the whole module,
+        // in every file of it — order-independent, like every other
+        // module-level declaration. They are validated once here (a duplicate
+        // or a mismatch is reported per file, which is where the reader is).
+        for decl in self.scope.renames.clone() {
+            self.declare_rename(decl);
+        }
         self.own_qualifiers = module
             .items
             .iter()
@@ -1796,10 +1846,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return Err(ImplicitMiss::Unknown);
         };
-        let entries: Vec<crate::resolve::FnEntry<'p>> = match self.scope.fns.get(name) {
-            Some(entries) => entries.clone(),
-            None => return Err(ImplicitMiss::Unknown),
-        };
+        // [fn-rename] Only the overloads that still answer to this name.
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        if entries.is_empty() {
+            return Err(ImplicitMiss::Unknown);
+        }
         let mut hits: Vec<FnKey> = Vec::new();
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
@@ -1889,7 +1940,468 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [fn-overload-specific] The pool of candidates that may *lead* a
+    /// [fn-value-select] A function passed **by name** (`apply(describe, x)`),
+    /// with an optional `@module` selector. Selection is the same three-step
+    /// rule a call uses [fn-overload-scope] — `@module`, then the most
+    /// specific rung, then the most specific signature — except that what a
+    /// candidate has to fit is the **expected fn type** rather than an
+    /// argument list (user decision 2026-09-07). Before this, an overloaded
+    /// name resolved to whichever overload was declared first, which then
+    /// failed to match wherever it was going.
+    ///
+    /// With no expected fn type there is nothing to fit, so a single
+    /// candidate is taken and an overloaded name is an error naming the two
+    /// remedies — an annotation, or `rename`.
+    fn fn_value_by_name(
+        &mut self,
+        name: &str,
+        name_span: Span,
+        at: Option<&'p [ast::Ident]>,
+        expected: Option<&Ty>,
+    ) -> Ty {
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        if entries.is_empty() {
+            return Ty::Unknown;
+        }
+        // `@module` first, exactly as in a call.
+        let mut pool: Vec<crate::resolve::FnEntry<'p>> = entries;
+        if let Some(path) = at {
+            let wanted = path
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
+            let named: Vec<crate::resolve::FnEntry<'p>> = pool
+                .iter()
+                .copied()
+                .filter(|e| e.module.to_string() == wanted)
+                .collect();
+            if named.is_empty() {
+                self.error(
+                    name_span,
+                    format!("no function named `{name}` is declared in module `{wanted}`"),
+                );
+                return Ty::Unknown;
+            }
+            pool = named;
+        }
+        // The most specific rung that has a candidate.
+        if let Some(top) = pool.iter().map(|e| e.rung).max() {
+            pool.retain(|e| e.rung == top);
+        }
+        // Then the expected type, if there is one: keep the candidates whose
+        // value type fits it.
+        if pool.len() > 1 {
+            if let Some(want) = expected {
+                let fitting: Vec<crate::resolve::FnEntry<'p>> = pool
+                    .iter()
+                    .copied()
+                    .filter(|e| {
+                        let candidate = self.fn_value_ty(e.key, e.decl);
+                        fn_value_fits(&candidate, want)
+                    })
+                    .collect();
+                if fitting.is_empty() {
+                    // None of them fits — which is a *mismatch*, not an
+                    // ambiguity, and the reason is worth naming: a contract
+                    // difference does not show in a printed type
+                    // [fn-contract].
+                    let mut shown: Vec<String> = pool
+                        .iter()
+                        .map(|e| {
+                            let ty = self.fn_value_ty(e.key, e.decl);
+                            match self.fn_fit_reason(want, &ty, name) {
+                                Some(reason) => format!("`{ty}` ({reason})"),
+                                None => format!("`{ty}`"),
+                            }
+                        })
+                        .collect();
+                    shown.sort();
+                    shown.dedup();
+                    self.error(
+                        name_span,
+                        format!(
+                            "no overload of `{name}` fits `{want}` here: {}",
+                            shown.join("; ")
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                pool = fitting;
+            }
+        }
+        if pool.len() > 1 {
+            let mut shown: Vec<String> = pool
+                .iter()
+                .map(|e| {
+                    let ty = self.fn_value_ty(e.key, e.decl);
+                    format!("`{ty}`")
+                })
+                .collect();
+            shown.sort();
+            shown.dedup();
+            self.error(
+                name_span,
+                format!(
+                    "`{name}` is overloaded, so passing it by name is ambiguous: \
+                     {} all fit here. Annotate the position with the fn type you \
+                     mean, or give one overload its own name with \
+                     `rename fn <new> = {name}(...)`",
+                    shown.join(", ")
+                ),
+            );
+            return Ty::Unknown;
+        }
+        let entry = pool[0];
+        // [fn-ref-table]
+        self.out.fn_refs.insert(self.key(name_span), entry.key);
+        // [fn-rename] A renamed *value* is erased too.
+        if self.renamed(name).is_some() {
+            self.out.renamed_calls.insert(self.key(name_span));
+        }
+        let decl = entry.decl;
+        let saved = self.enter_generics(&decl.generics);
+        let params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let ret = self.fn_return_ty(decl);
+        self.generics = saved;
+        // [fn-contract] The fn value carries the declaration's contract
+        // (written list, else the inferred facts), so boundary checks compare
+        // real modes — a consuming fn no longer masquerades as
+        // keeps-everything.
+        let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
+            Some(list) => Some(crate::deduce::from_written(
+                decl,
+                list,
+                &HashSet::new(),
+                |_, _| {},
+            )),
+            None => self.inferred.and_then(|table| table.get(&entry.key).cloned()),
+        };
+        let contract = facts.map(|facts| {
+            decl.params
+                .iter()
+                .zip(&params)
+                .map(|(p, pty)| {
+                    let entry = facts.iter().find(|d| d.param == p.name.name);
+                    FnParamContract {
+                        name: Some(p.name.name.clone()),
+                        kept: entry.map(|d| d.kept).unwrap_or(true),
+                        effect: entry
+                            .map(|d| d.effect.clone())
+                            .unwrap_or(QualEffect::KeepAll),
+                        mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                    }
+                })
+                .collect()
+        });
+        // [fn-effects] A named fn passed by value performs exactly the
+        // effects it declares (inherited entries included) — its callers
+        // supply them.
+        let effects = self
+            .out
+            .fn_effects
+            .get(&entry.key)
+            .cloned()
+            .unwrap_or_default();
+        // [fn-effects] What the *use site* expects the value to accept: a
+        // pure fn passed where effects are expected must still take (and
+        // ignore) them, so the emitters adapt against the expectation, not
+        // the declaration.
+        let taken = match expected.map(|t| t.strip_quals()) {
+            Some(Ty::Fn {
+                effects: exp_effects,
+                ..
+            }) => exp_effects.clone(),
+            _ => effects.clone(),
+        };
+        self.out.lambda_effects.insert(self.key(name_span), taken);
+        Ty::Fn {
+            params,
+            ret: Box::new(ret),
+            contract,
+            effects,
+        }
+    }
+
+    /// [fn-rename] Brings a `rename fn` into force: resolves the overload it
+    /// names, checks the new name is free, and records the binding.
+    ///
+    /// The overload is matched by parameter names and types, positionally for
+    /// type parameters — the same match a `refn` uses [qual-refn-match], so a
+    /// std rename surfaces as a diagnostic here rather than as a rename that
+    /// silently stops applying.
+    fn declare_rename(&mut self, decl: &'p ast::RenameDecl) {
+        // The rename's own type parameters are in scope for its parameter
+        // list, exactly as a `refn`'s are [qual-refn-match].
+        let saved = self.enter_generics(&decl.generics);
+        for p in &decl.params {
+            self.validate_type(&p.ty);
+        }
+        self.generics = saved;
+        let new_name = decl.name.name.as_str();
+        // The new name must be free: a rename exists to remove an ambiguity,
+        // so adding one to an existing name would defeat it.
+        if self.scope.fns.contains_key(new_name) {
+            self.error(
+                decl.name.span,
+                format!(
+                    "`{new_name}` is already a function in scope, so it cannot \
+                     name a renamed overload too: pick a name of its own (a \
+                     rename is not an alias — the overload stops answering to \
+                     `{}`)",
+                    decl.target.name
+                ),
+            );
+            return;
+        }
+        if self.scope.effect_members.contains_key(new_name) {
+            self.error(
+                decl.name.span,
+                format!("`{new_name}` is already an effect member in scope"),
+            );
+            return;
+        }
+        if let Some(prev) = self.renames.iter().find(|r| r.new_name == new_name) {
+            let prev_span = prev.span;
+            self.error(
+                decl.name.span,
+                format!(
+                    "`{new_name}` already names a renamed overload in this scope \
+                     (declared at {}..{})",
+                    prev_span.start, prev_span.end
+                ),
+            );
+            return;
+        }
+        let saved = self.enter_generics(&decl.generics);
+        let matched = crate::refine::match_overload(
+            self.scope,
+            &decl.target.name,
+            &decl.generics,
+            &decl.params,
+        );
+        self.generics = saved;
+        match matched {
+            Ok(entry) => {
+                // [lsp-definition] The new name points at the declaration it
+                // renames, so go-to-definition works through it.
+                self.out.fn_refs.insert(self.key(decl.name.span), entry.key);
+                self.renames.push(RenameBinding {
+                    new_name: new_name.to_string(),
+                    target: decl.target.name.clone(),
+                    entry,
+                    span: decl.span,
+                });
+            }
+            Err(shapes) if shapes.is_empty() => self.error(
+                decl.target.span,
+                format!(
+                    "no function `{}` is visible here, so there is nothing to \
+                     rename",
+                    decl.target.name
+                ),
+            ),
+            Err(shapes) => self.error(
+                decl.target.span,
+                format!(
+                    "this names no `{}` in scope: a rename repeats one overload's \
+                     parameters exactly — same names, same types (type \
+                     parameters match by position). In scope: {}",
+                    decl.target.name,
+                    shapes.join(", ")
+                ),
+            ),
+        }
+    }
+
+    /// [fn-rename] The overload a *renamed* name means, if `name` is one.
+    fn renamed(&self, name: &str) -> Option<crate::resolve::FnEntry<'p>> {
+        self.renames
+            .iter()
+            .rev()
+            .find(|r| r.new_name == name)
+            .map(|r| r.entry)
+    }
+
+    /// [fn-rename] Whether this overload has been renamed away from `name` —
+    /// "*only* the new name is valid for that variant".
+    fn renamed_away(&self, name: &str, key: FnKey) -> bool {
+        self.renames
+            .iter()
+            .any(|r| r.target == name && r.entry.key == key)
+    }
+
+    /// [fn-rename] The overloads of `name` that still answer to it, in scope
+    /// order — the candidate set every resolution path starts from.
+    fn overloads_of(&self, name: &str) -> Vec<crate::resolve::FnEntry<'p>> {
+        if let Some(entry) = self.renamed(name) {
+            return vec![entry];
+        }
+        self.scope
+            .fns
+            .get(name)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .copied()
+                    .filter(|e| !self.renamed_away(name, e.key))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// [fn-rename] Whether anything answers to this name — a declared
+    /// overload that has not been renamed away, or a rename itself.
+    fn has_callable(&self, name: &str) -> bool {
+        !self.overloads_of(name).is_empty()
+    }
+
+    /// [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous] Picks
+    /// the winner among the candidates that fit a call — the one rule the
+    /// whole language routes through (user decisions 2026-09-07):
+    ///
+    /// 1. **`@module` first.** A call that names a module means that
+    ///    module's overloads and no others; naming a module with no fitting
+    ///    overload is an error rather than a silent fallback.
+    /// 2. **The most specific *scope* wins.** Functions arrive from ever
+    ///    more specific places — `core`, then this file's imports, then this
+    ///    module — and only the most specific rung that has a fitting
+    ///    candidate competes. That is what makes a module's own `map` mean
+    ///    *its* `map`, whatever std declares.
+    /// 3. **Then the most specific *signature*.** A partial order
+    ///    [fn-overload-rank]: no single most specific candidate is an
+    ///    ambiguity error naming the remedies, never a pick.
+    ///
+    /// Scope beats signature, so a broad overload in this module hides a
+    /// precise one in `core` — deliberately, because the alternative is a
+    /// rule nobody can predict without knowing std's surface. When that
+    /// happens the call gets a **warning** naming the discarded candidate,
+    /// and writing `@module` on the call silences it (either module: naming
+    /// this one confirms the choice, naming the other takes the precise
+    /// overload).
+    fn select_overload(
+        &mut self,
+        name: &str,
+        viable: &[Viable<'p>],
+        arg_tys: &[Ty],
+        at: Option<&'p [ast::Ident]>,
+        span: Span,
+    ) -> Option<usize> {
+        let shown_args = || -> String {
+            arg_tys
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        // 1. `@module`: only that module's overloads compete.
+        let mut pool: Vec<usize> = (0..viable.len()).collect();
+        if let Some(path) = at {
+            let wanted = path
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
+            let named_module: Vec<usize> = pool
+                .iter()
+                .copied()
+                .filter(|&i| viable[i].module == wanted)
+                .collect();
+            if named_module.is_empty() {
+                let mut modules: Vec<String> =
+                    viable.iter().map(|v| v.module.clone()).collect();
+                modules.sort();
+                modules.dedup();
+                self.error(
+                    span,
+                    format!(
+                        "no overload of `{name}({})` is declared in module \
+                         `{wanted}`; the modules that declare a fitting one are: {}",
+                        shown_args(),
+                        modules.join(", ")
+                    ),
+                );
+                return None;
+            }
+            pool = named_module;
+        }
+        // 2. The most specific rung that has a candidate.
+        let top_rung = pool.iter().map(|&i| viable[i].rung).max()?;
+        let (chosen, shadowed): (Vec<usize>, Vec<usize>) = pool
+            .iter()
+            .copied()
+            .partition(|&i| viable[i].rung == top_rung);
+        // 3. The most specific signature within that rung.
+        let ranks: Vec<crate::types::RankedCandidate> =
+            chosen.iter().map(|&i| viable[i].rank.clone()).collect();
+        let winner = match crate::types::most_specific(&ranks) {
+            Some(i) => chosen[i],
+            None => {
+                // [type-unknown-lenient] An un-inferred argument fits every
+                // candidate, so it must not produce an ambiguity of its own:
+                // one mistake, one diagnostic.
+                if arg_tys.iter().any(ty_mentions_unknown) {
+                    return Some(chosen[0]);
+                }
+                let mut shown: Vec<String> = chosen
+                    .iter()
+                    .map(|&i| Self::render_signature(name, &viable[i]))
+                    .collect();
+                shown.sort();
+                shown.dedup();
+                self.error(
+                    span,
+                    format!(
+                        "ambiguous call to `{name}({})`: {} all fit and none is \
+                         more specific — a broader union, a smaller qualifier \
+                         set and a type variable are each less specific, but \
+                         these differ in ways the rule does not rank. Narrow an \
+                         argument, or give one overload its own name with \
+                         `rename fn <new> = {name}(...)`",
+                        shown_args(),
+                        shown.join(", ")
+                    ),
+                );
+                return None;
+            }
+        };
+        // The scope-override warning: a *more specific signature* was
+        // discarded because it sits on a less specific rung.
+        if at.is_none() {
+            let overridden = shadowed.into_iter().find(|&i| {
+                crate::types::spec_dominates(&viable[i].rank, &viable[winner].rank)
+            });
+            if let Some(other) = overridden {
+                let chosen_sig = Self::render_signature(name, &viable[winner]);
+                let other_sig = Self::render_signature(name, &viable[other]);
+                let (chosen_mod, other_mod) =
+                    (viable[winner].module.clone(), viable[other].module.clone());
+                let other_rung = viable[other].rung.describe();
+                let chosen_rung = viable[winner].rung.describe();
+                self.warn(
+                    span,
+                    format!(
+                        "`{name}` resolves to {chosen_sig} from `{chosen_mod}` \
+                         because {chosen_rung} is the more specific scope, even \
+                         though {other_sig} from `{other_mod}` ({other_rung}) is \
+                         the more specific signature. Write \
+                         `{name}@{chosen_mod}(...)` to confirm, or \
+                         `{name}@{other_mod}(...)` to call that one"
+                    ),
+                );
+            }
+        }
+        Some(winner)
+    }
+
+    /// How a candidate reads in a diagnostic: `name(ParamTy, ParamTy)`, from
+    /// the *declared* patterns, since those are what the ranking compared.
+    fn render_signature(name: &str, v: &Viable<'p>) -> String {
+        let ps: Vec<String> = v.rank.patterns.iter().map(|p| p.to_string()).collect();
+        format!("`{name}({})`", ps.join(", "))
+    }
+
+    /// [fn-overload-rank] The pool of candidates that may *lead* a
     /// call — provide the expected types its arguments are checked against.
     ///
     /// A single candidate always leads, variadic or not (its fixed
@@ -1900,12 +2412,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// help produce.
     fn lead_pool(
         &mut self,
-        candidates: &[(Option<FnKey>, &'p FnDecl)],
+        candidates: &[crate::resolve::FnEntry<'p>],
         arity: usize,
         type_args: &'p [ast::Type],
     ) -> Vec<LeadCandidate> {
         let mut pool: Vec<LeadCandidate> = Vec::new();
-        for (i, (_, decl)) in candidates.iter().enumerate() {
+        for (i, entry) in candidates.iter().enumerate() {
+            let decl = entry.decl;
             let fixed: Vec<&Param> = decl
                 .params
                 .iter()
@@ -1927,41 +2440,38 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.generics = saved;
             pool.push(LeadCandidate {
                 index: i,
-                patterns,
+                rank: crate::types::RankedCandidate {
+                    patterns,
+                    variadic: false,
+                },
                 generics: decl.generics.iter().map(|g| g.name.clone()).collect(),
                 subst,
+                rung: entry.rung,
             });
         }
         pool
     }
 
-    /// [fn-overload-specific] Which pool entry leads: the only one, or the
+    /// [fn-overload-rank] Which pool entry leads: the only one, or the
     /// one whose parameter patterns dominate every other's on the
     /// specificity axis. `None` when none dominates — expected types from an
     /// arbitrary candidate really would be a bias, so the arguments keep the
     /// untyped probe.
     fn dominant_lead(pool: &[LeadCandidate]) -> Option<usize> {
-        match pool.len() {
-            0 => None,
-            1 => Some(0),
-            n => {
-                let dominant: Vec<usize> = (0..n)
-                    .filter(|&a| {
-                        (0..n).all(|b| {
-                            a == b
-                                || crate::types::spec_dominates(
-                                    &pool[a].patterns,
-                                    &pool[b].patterns,
-                                )
-                        })
-                    })
-                    .collect();
-                match dominant.len() {
-                    1 => Some(dominant[0]),
-                    _ => None,
-                }
-            }
+        if pool.is_empty() {
+            return None;
         }
+        // [fn-overload-scope] The most specific rung first, exactly as the
+        // winner is chosen — otherwise a `core` candidate would be typing
+        // the arguments of a call that resolves in this module.
+        let top = pool.iter().map(|c| c.rung).max()?;
+        let at_top: Vec<usize> = (0..pool.len()).filter(|&i| pool[i].rung == top).collect();
+        if at_top.len() == 1 {
+            return Some(at_top[0]);
+        }
+        let ranks: Vec<crate::types::RankedCandidate> =
+            at_top.iter().map(|&i| pool[i].rank.clone()).collect();
+        crate::types::most_specific(&ranks).map(|i| at_top[i])
     }
 
     /// [implicit-infer] Extends a call's progressive substitution with what
@@ -2011,11 +2521,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             else {
                 continue;
             };
-            let entries: Vec<crate::resolve::FnEntry<'p>> = match self.scope.fns.get(imp.name.as_str())
-            {
-                Some(list) => list.clone(),
-                None => continue,
-            };
+                // [fn-rename] A renamed overload no longer answers to this name,
+            // so it cannot fill an implicit parameter of it either.
+            let entries: Vec<crate::resolve::FnEntry<'p>> =
+                self.overloads_of(&imp.name);
+            if entries.is_empty() {
+                continue;
+            }
             let mut found: Option<Ty> = None;
             let mut hits = 0usize;
             for entry in entries {
@@ -4372,6 +4884,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::NonNull { .. }
             | Expr::PostIncrement { .. }
             | Expr::Spread { .. }
+            | Expr::Scoped { .. }
             | Expr::Error { .. } => false,
         }
     }
@@ -4441,6 +4954,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::NonNull { .. }
             | Expr::PostIncrement { .. }
             | Expr::Spread { .. }
+            | Expr::Scoped { .. }
             | Expr::Error { .. } => false,
         }
     }
@@ -5111,6 +5625,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // fits everywhere and ends the path.
         if name == "Nothing" && base.args.is_empty() {
             return Ty::Nothing;
+        }
+        // [type-any-nothing] And the written `Any` *is* the top type, for the
+        // same reason: a parameter declared `Any` accepts every value, and
+        // overload ranking treats it as the broadest thing a parameter can
+        // say [fn-overload-rank]. As a nominal `Named("Any")` it accepted
+        // nothing at all, since unification compares names.
+        if name == "Any" && base.args.is_empty() {
+            return Ty::Any;
         }
         let args: Vec<Ty> = base
             .args
@@ -5830,6 +6352,13 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             collect_assigned_expr(base, out)
         }
+        // [fn-overload-at] `xs.add@core.list(..)`: the receiver is an
+        // ordinary expression.
+        Expr::Scoped { base, .. } => {
+            if let Some(base) = base {
+                collect_assigned_expr(base, out);
+            }
+        }
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
         | Expr::Spread { operand, .. } => collect_assigned_expr(operand, out),
@@ -5968,6 +6497,11 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         // [try] The delimiter's body is ordinary code — a value mentioned
         // only inside it is still mentioned.
         Expr::Try { body, .. } => block_mentions(body),
+        // [fn-overload-at] The name is a *function*, never a value; only the
+        // dot-notation receiver can mention anything.
+        Expr::Scoped { base, .. } => {
+            base.as_ref().is_some_and(|b| expr_mentions(b, name))
+        }
         // Leaves: no sub-expression, so nothing to mention.
         Expr::Int { .. }
         | Expr::Float { .. }
@@ -6177,6 +6711,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(HashMap::new());
         // [effect-scope] `use` registrations expire with the block.
         let effect_depth = self.effect_env.len();
+        // [fn-rename] So do renames: a `rename fn` is in force from its line
+        // to the end of the block it is written in — including a loop body or
+        // a lambda body, which are blocks like any other.
+        let rename_depth = self.renames.len();
         for binding in bindings {
             self.declare_binding(binding);
         }
@@ -6206,11 +6744,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_linear_frame_drop();
         self.locals.pop();
         self.effect_env.truncate(effect_depth);
+        self.renames.truncate(rename_depth);
         (value, tail)
     }
 
     fn check_stmt(&mut self, stmt: &'p Stmt) -> Ty {
         match stmt {
+            // [fn-rename] In force from here to the end of the block.
+            Stmt::Rename(decl) => {
+                self.declare_rename(decl);
+                Ty::none()
+            }
             Stmt::Let { pattern, ty, value, span } => {
                 if let Some(t) = ty {
                     self.validate_type(t);
@@ -6839,85 +7383,52 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.scope.handlers.contains_key(id.name.as_str()) {
                     return Ty::named(&id.name);
                 }
-                if let Some(entries) = self.scope.fns.get(id.name.as_str()) {
-                    // Passing a function by name.
-                    let entry = entries[0];
-                    // [fn-ref-table]
-                    self.out.fn_refs.insert(self.key(id.span), entry.key);
-                    let decl = entry.decl;
-                    let saved = self.enter_generics(&decl.generics);
-                    let params: Vec<Ty> =
-                        decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
-                    let ret = self.fn_return_ty(decl);
-                    self.generics = saved;
-                    // [fn-contract] The fn value carries the declaration's
-                    // contract (written list, else the inferred facts), so
-                    // boundary checks compare real modes — a consuming fn
-                    // no longer masquerades as keeps-everything.
-                    let facts: Option<Vec<crate::deduce::ParamDeduction>> =
-                        match &decl.deductions {
-                            Some(list) => {
-                                Some(crate::deduce::from_written(
-                                    decl,
-                                    list,
-                                    &HashSet::new(),
-                                    |_, _| {},
-                                ))
-                            }
-                            None => self.inferred.and_then(|table| {
-                                table.get(&entry.key).cloned()
-                            }),
-                        };
-                    let contract = facts.map(|facts| {
-                        decl.params
-                            .iter()
-                            .zip(&params)
-                            .map(|(p, pty)| {
-                                let entry =
-                                    facts.iter().find(|d| d.param == p.name.name);
-                                FnParamContract {
-                                    name: Some(p.name.name.clone()),
-                                    kept: entry.map(|d| d.kept).unwrap_or(true),
-                                    effect: entry
-                                        .map(|d| d.effect.clone())
-                                        .unwrap_or(QualEffect::KeepAll),
-                                    mutable: pty
-                                        .quals()
-                                        .iter()
-                                        .any(|q| q.name == "Mut"),
-                                }
-                            })
-                            .collect()
-                    });
-                    // [fn-effects] A named fn passed by value performs
-                    // exactly the effects it declares (inherited entries
-                    // included) — its callers supply them.
-                    let effects = self
-                        .out
-                        .fn_effects
-                        .get(&entry.key)
-                        .cloned()
-                        .unwrap_or_default();
-                    // [fn-effects] What the *use site* expects the value to
-                    // accept: a pure fn passed where effects are expected
-                    // must still take (and ignore) them, so the emitters
-                    // adapt against the expectation, not the declaration.
-                    let taken = match expected.map(|t| t.strip_quals()) {
-                        Some(Ty::Fn {
-                            effects: exp_effects,
-                            ..
-                        }) => exp_effects.clone(),
-                        _ => effects.clone(),
-                    };
-                    self.out.lambda_effects.insert(self.key(id.span), taken);
-                    return Ty::Fn {
-                        params,
-                        ret: Box::new(ret),
-                        contract,
-                        effects,
-                    };
+                if self.has_callable(&id.name) {
+                    // [fn-value-select] Passing a function *by name*: the
+                    // same selection every call goes through, against the
+                    // expected fn type instead of an argument list.
+                    return self.fn_value_by_name(&id.name, id.span, None, expected);
                 }
                 Ty::Unknown
+            }
+            // [fn-overload-at] [fn-value-select] A scope-selected fn *value*
+            // (`describe@main` passed to a higher-order function). As a
+            // *callee* it never reaches here — `check_call` handles it — so a
+            // receiver written here is a partially applied call, which Salvo
+            // does not have.
+            Expr::Scoped {
+                base,
+                name,
+                module,
+                span,
+            } => {
+                if let Some(base) = base {
+                    self.check_expr(base, None);
+                    self.error(
+                        *span,
+                        format!(
+                            "`{}` here is a *value*, so it takes no receiver: \
+                             write `{}@{}` to name the function, or call it",
+                            name.name,
+                            name.name,
+                            module
+                                .iter()
+                                .map(|m| m.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(".")
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                if !self.has_callable(&name.name) {
+                    self.error_unresolved(
+                        name.span,
+                        format!("no function named `{}` is in scope", name.name),
+                        &name.name,
+                    );
+                    return Ty::Unknown;
+                }
+                self.fn_value_by_name(&name.name, name.span, Some(module), expected)
             }
             Expr::Field { base, field, span } => {
                 let base_ty = self.check_expr(base, None);
@@ -8953,7 +9464,7 @@ fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
 /// Does `ty` contain an un-inferred part? [type-unknown-lenient] An
 /// argument like this fits *every* candidate, so overload ranking must not
 /// turn one un-inferred value into a second diagnostic
-/// [fn-overload-specific].
+/// [fn-overload-rank].
 fn ty_mentions_unknown(ty: &Ty) -> bool {
     match ty {
         Ty::Unknown => true,
@@ -9118,14 +9629,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // interop pass-through [call-resolve].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
-            let known = self.scope.effect_members.contains_key(name)
-                || self.scope.fns.contains_key(name);
+            let known =
+                self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
                 all_args.extend(args.iter());
                 return self.resolve_named_call(
-                    name, field.span, type_args, &all_args, named, expected, span,
+                    name, field.span, type_args, &all_args, named, expected, None,
+                    span,
                 );
             }
             self.check_expr(base, None);
@@ -9143,6 +9655,46 @@ impl<'p, 'r> Checker<'p, 'r> {
                 name,
             );
             return Ty::Unknown;
+        }
+
+        // [fn-overload-at] `f@core.list(x)` / `xs.f@core.list(y)`: the module
+        // whose overload is meant. Written *instead of* letting scope
+        // precedence decide, so it goes straight to overload selection — a
+        // local of the same name does not shadow it, which is what makes `@`
+        // the way out of a shadowed name.
+        if let Expr::Scoped {
+            base,
+            name,
+            module,
+            ..
+        } = callee
+        {
+            let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            if !self.has_callable(&name.name) {
+                for a in &all_args {
+                    self.check_expr(a, None);
+                }
+                self.error_unresolved(
+                    name.span,
+                    format!("no function named `{}` is in scope", name.name),
+                    &name.name,
+                );
+                return Ty::Unknown;
+            }
+            return self.resolve_named_call(
+                &name.name,
+                name.span,
+                type_args,
+                &all_args,
+                named,
+                expected,
+                Some(module),
+                span,
+            );
         }
 
         if let Expr::Ident(id) = callee {
@@ -9234,7 +9786,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
             return self.resolve_named_call(
-                &id.name, id.span, type_args, &arg_refs, named, expected, span,
+                &id.name, id.span, type_args, &arg_refs, named, expected, None, span,
             );
         }
 
@@ -9259,6 +9811,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::Unknown
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn resolve_named_call(
         &mut self,
         name: &str,
@@ -9267,6 +9820,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         args: &[&'p Expr],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
+        // [fn-overload-at] The module written after `@`, when the call names
+        // one: only that module's overloads compete.
+        at: Option<&'p [ast::Ident]>,
         span: Span,
     ) -> Ty {
         // 1. Effect member call: resolve which effect instance in scope
@@ -9282,17 +9838,23 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         // 2. Function overloads [fn-overload] (fn declarations, else
         // signatures).
-        let candidates: Vec<(Option<FnKey>, &'p FnDecl)> = self
-            .scope
-            .fns
-            .get(name)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .map(|e| (Some(e.key), e.decl))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        // [fn-rename] The overloads that still answer to this name — a
+        // renamed one answers only to its new name — and, when the name *is*
+        // a rename, exactly the overload it points at.
+        let candidates: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        if self.renamed(name).is_some() {
+            let key = self.key(span);
+            self.out.renamed_calls.insert(key);
+            if at.is_some() {
+                self.error(
+                    span,
+                    format!(
+                        "`{name}` is a renamed overload, so it already names one \
+                         declaration: drop the `@module`"
+                    ),
+                );
+            }
+        }
         if candidates.is_empty() {
             // 3. Handler constructor.
             for a in args {
@@ -9333,7 +9895,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // their parameter types and inherit fn-type contracts
         // [fn-contract].
         //
-        // [fn-overload-specific] The lead is the single candidate, or — when
+        // [fn-overload-rank] The lead is the single candidate, or — when
         // a name is overloaded — the most specific of those still compatible
         // with the arguments typed *so far*. Both halves matter: specificity
         // picks the candidate the ranking will pick anyway (so a bare lambda
@@ -9371,12 +9933,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // from resolving `iter` at `(It) -> Iter<T>` with `It`
                     // already bound by `xs`, and without it the lambda is
                     // typed against an unbound `T`.
-                    let key = candidates[pool[pi].index].0;
+                    let key = Some(candidates[pool[pi].index].key);
                     let mut subst = std::mem::take(&mut pool[pi].subst);
                     let generics = pool[pi].generics.clone();
                     self.extend_subst_from_implicits(key, &generics, &mut subst);
                     pool[pi].subst = subst;
                     pool[pi]
+                        .rank
                         .patterns
                         .get(i)
                         .map(|p| substitute_vars(p, &pool[pi].subst, &pool[pi].generics))
@@ -9419,7 +9982,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // that keeps the lead honest. A candidate that no longer fits is
             // not an error here: the scoring loop below reports the call as
             // a whole, against the *un-substituted* patterns.
-            pool.retain_mut(|c| match c.patterns.get(i) {
+            pool.retain_mut(|c| match c.rank.patterns.get(i) {
                 Some(pattern) => {
                     let mut extended = c.subst.clone();
                     if unify(pattern, &ty, &mut extended) {
@@ -9434,21 +9997,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             arg_tys.push(ty);
         }
 
-        struct Viable<'p> {
-            key: Option<FnKey>,
-            decl: &'p FnDecl,
-            subst: HashMap<String, Ty>,
-            pairings: Vec<(usize, Ty)>, // (arg index, substituted param type)
-            /// The *un-substituted* parameter patterns, one per argument
-            /// slot — what the specificity ranking compares
-            /// [fn-overload-specific].
-            patterns: Vec<Ty>,
-            score: i64,
-        }
         let mut viable: Vec<Viable<'p>> = Vec::new();
-        for (key, decl) in &candidates {
+        for entry in &candidates {
+            let (key, decl) = (entry.key, entry.decl);
             // [implicit-param] Implicits are never passed positionally, so
-            // they take no part in arity or scoring.
+            // they take no part in arity or ranking.
             let fixed: Vec<&Param> =
                 decl.params.iter().filter(|p| !p.variadic && !p.implicit).collect();
             let variadic = decl.params.iter().find(|p| p.variadic);
@@ -9494,7 +10047,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let lowered = self.lower_type(ta);
                 subst.insert(g.name.clone(), lowered);
             }
-            let mut score = 0i64;
             let mut pairings = Vec::new();
             let mut assignable = true;
             for (i, p) in patterns.iter().enumerate() {
@@ -9503,25 +10055,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     assignable = false;
                     break;
                 }
-                if arg_tys[i] == sp {
-                    score += 2;
-                } else {
-                    score += 1;
-                }
-                // Qualified parameters are more specific.
-                score += sp.quals().len() as i64 * 4;
                 pairings.push((i, sp));
             }
             if !assignable {
                 continue;
             }
+            // [fn-overload-rank] The slots a *variadic* parameter collected
+            // are what make the arity shape matter: with everything else
+            // equal, a fixed list wins.
+            let collects_variadic = variadic.is_some() && args.len() >= fixed.len();
             viable.push(Viable {
-                key: *key,
+                key: Some(key),
                 decl,
                 subst,
                 pairings,
-                patterns,
-                score,
+                rank: crate::types::RankedCandidate {
+                    patterns,
+                    variadic: collects_variadic,
+                },
+                rung: entry.rung,
+                module: entry.module.to_string(),
             });
         }
 
@@ -9533,82 +10086,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return Ty::Unknown;
         }
-        viable.sort_by_key(|v| -v.score);
-        // [fn-overload-specific] O1 (user decision 2026-09-06): among the
-        // candidates the score cannot separate, a **concrete** parameter
-        // type beats a type variable — `describe(Int)` wins over
-        // `describe<T>(T)` for `describe(3)` instead of the winner being
-        // whichever was declared first. The comparison is a partial order
-        // (`spec_cmp`), so when no candidate dominates the rest the call is
-        // *ambiguous* and says so; a pair that the genericity axis cannot
-        // distinguish at all (`spec_indifferent` — differing only in
-        // qualifiers, unions, variadics, …) keeps declaration order,
-        // because ranking those axes is still undesigned.
-        let mut best_idx = 0usize;
-        let top_score = viable[0].score;
-        let top: Vec<usize> = (0..viable.len())
-            .filter(|&i| viable[i].score == top_score)
-            .collect();
-        if top.len() > 1 {
-            let undominated: Vec<usize> = top
-                .iter()
-                .copied()
-                .filter(|&i| {
-                    !top.iter().copied().any(|j| {
-                        j != i
-                            && crate::types::spec_dominates(
-                                &viable[j].patterns,
-                                &viable[i].patterns,
-                            )
-                    })
-                })
-                .collect();
-            best_idx = undominated[0];
-            if undominated.len() > 1 {
-                let ranked_pair = undominated.iter().any(|&i| {
-                    undominated.iter().any(|&j| {
-                        i != j
-                            && !crate::types::spec_indifferent(
-                                &viable[i].patterns,
-                                &viable[j].patterns,
-                            )
-                    })
-                });
-                // [type-unknown-lenient] An un-inferred argument fits every
-                // candidate, so it must not also produce an ambiguity: one
-                // mistake, one diagnostic.
-                let lenient = arg_tys.iter().any(ty_mentions_unknown);
-                if ranked_pair && !lenient {
-                    let shown_args: Vec<String> =
-                        arg_tys.iter().map(|t| t.to_string()).collect();
-                    let mut shown: Vec<String> = undominated
-                        .iter()
-                        .map(|&i| {
-                            let ps: Vec<String> = viable[i]
-                                .patterns
-                                .iter()
-                                .map(|p| p.to_string())
-                                .collect();
-                            format!("`{name}({})`", ps.join(", "))
-                        })
-                        .collect();
-                    shown.dedup();
-                    self.error(
-                        span,
-                        format!(
-                            "ambiguous call to `{name}({})`: {} match, and neither \
-                             is more specific than the other (a concrete parameter \
-                             type beats a type variable, but these disagree about \
-                             which parameter); write the type arguments or annotate \
-                             the arguments to pick one",
-                            shown_args.join(", "),
-                            shown.join(" and ")
-                        ),
-                    );
-                    return Ty::Unknown;
-                }
-            }
-        }
+        let Some(best_idx) = self.select_overload(name, &viable, &arg_tys, at, span) else {
+            return Ty::Unknown;
+        };
         let best = &viable[best_idx];
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
@@ -10279,6 +10759,65 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [effect-member-call] A member call is checked against its declared
+        // parameters like any other call — arity and types. It used to be
+        // checked against *neither*: the member's type only flowed in as an
+        // expected type, so `log(true)` on `fn log(message: Str)` was
+        // accepted, and the argument reached the handler's implementation as
+        // whatever it was.
+        //
+        // Members do not overload [effect-member-unique], so there is nothing
+        // to select and nothing to rank — the name identifies one signature,
+        // and these are plain mismatch diagnostics.
+        {
+            // [implicit-param] Implicits are never passed positionally, and a
+            // variadic tail takes what is left — the same arity rule a fn call
+            // uses [fn-variadic].
+            let positional: Vec<usize> = member
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| !p.implicit && !p.variadic)
+                .map(|(i, _)| i)
+                .collect();
+            let variadic = member.params.iter().any(|p| p.variadic);
+            let fixed = positional.len();
+            let arity_ok = if variadic {
+                args.len() >= fixed
+            } else {
+                args.len() == fixed
+            };
+            if !arity_ok {
+                self.error(
+                    span,
+                    format!(
+                        "`{}` takes {fixed} argument(s), found {}",
+                        member.name.name,
+                        args.len()
+                    ),
+                );
+            }
+            for (i, a) in args.iter().enumerate() {
+                let Some(p) = positional.get(i).and_then(|&pi| member_params.get(pi)) else {
+                    continue;
+                };
+                let want = substitute_vars(p, &subst, &generic_set);
+                let got = self
+                    .out
+                    .ty_of(self.file_idx, a.span())
+                    .cloned()
+                    .unwrap_or(Ty::Unknown);
+                if !is_subtype(&got, &want) {
+                    self.error(
+                        a.span(),
+                        format!(
+                            "`{}` expects `{want}` here, found `{got}`",
+                            member.name.name
+                        ),
+                    );
+                }
+            }
+        }
         // [decl-explicit] The member's declared deduction list is a real
         // contract: apply it exactly like a named call's, so a member that
         // takes ownership consumes its argument. (Validating each
@@ -10409,6 +10948,8 @@ fn block_defer_escape(block: &Block, loop_depth: usize) -> Option<(&'static str,
         Stmt::Break { span, .. } if loop_depth == 0 => Some(("break", *span)),
         Stmt::Continue { span } if loop_depth == 0 => Some(("continue", *span)),
         Stmt::Break { .. } | Stmt::Continue { .. } => None,
+        // [fn-rename] A declaration, not control flow.
+        Stmt::Rename(_) => None,
         Stmt::Let { value, .. } => expr_defer_escape(value, loop_depth),
         Stmt::Assign { target, value, .. } => expr_defer_escape(target, loop_depth)
             .or_else(|| expr_defer_escape(value, loop_depth)),
@@ -10486,6 +11027,10 @@ fn expr_defer_escape(expr: &Expr, loop_depth: usize) -> Option<(&'static str, Sp
         Expr::Try { body, .. } => block_defer_escape(body, loop_depth),
         Expr::Call { callee, args, .. } => expr_defer_escape(callee, loop_depth)
             .or_else(|| args.iter().find_map(|a| expr_defer_escape(a, loop_depth))),
+        // [fn-overload-at]
+        Expr::Scoped { base, .. } => base
+            .as_ref()
+            .and_then(|b| expr_defer_escape(b, loop_depth)),
         Expr::Field { base, .. }
         | Expr::TupleIndex { base, .. }
         | Expr::Unary { operand: base, .. }

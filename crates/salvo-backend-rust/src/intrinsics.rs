@@ -79,7 +79,7 @@ pub fn fn_call(
         }
 
         // core.seq -------------------------------------------------------
-        // The `List` fast paths [fn-overload-specific] go through the
+        // The `List` fast paths [fn-overload-rank] go through the
         // generated helpers [rs-seq]: a generic parameter is what gives the
         // callback an expected type, which is what closure inference needs
         // and what no inline shape could supply. `&{}[..]` reaches an owned

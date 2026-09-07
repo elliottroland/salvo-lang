@@ -1,5 +1,85 @@
 # Salvo Compiler — Progress & Plan
 
+**Overload resolution finalized 2026-09-07 (user decisions), and it is now
+one rule with two escape hatches.** The agenda was drawn up from probing the
+old implementation — twelve small programs, most of which answered in ways
+nobody had chosen — and the user settled every item. The governing principle
+was stated first and decides most of the details: *the rule for which
+function is selected should be simple, we should refuse to guess but rather
+raise an error, and we should give the user options for addressing the
+error.*
+
+**The rule.** A call is decided in three steps [fn-overload]:
+
+1. `f@module(args)` names the module whose overload is meant, if written
+   [fn-overload-at].
+2. **The most specific scope that fits wins** [fn-overload-scope]: `core`,
+   then this file's imports, then this module, then the fn's own scope
+   (fn-typed locals, parameters, implicits, effect members), then inner
+   scopes. Only the most specific rung with a candidate *fitting the
+   arguments* competes.
+3. **Then the most specific signature** [fn-overload-rank], per argument
+   slot: a type variable says least; fewer union arms says more (`Int` >
+   `Int | Str` > `Int | Str | Bool`, and `Any` is the broadest type there
+   is); more qualifiers says more, with the *kind* never ranking; and a
+   fixed parameter list beats a variadic one. No single winner is an error
+   [fn-overload-ambiguous].
+
+**What that fixed.** The open defect from yesterday — an own-module fn losing
+to an identically shaped std one, *silently* — is closed by step 2: a
+program's own `size(List<T>)` now means its own, while `size("text")` still
+reaches core's, because the shadowing overload does not fit. Scope beats
+signature deliberately (the alternative needs the reader to know std's whole
+surface), and where it discards a more specific signature the call gets a
+**warning** naming both candidates and both `@module` forms.
+
+**The two escape hatches, both erased before emission:**
+
+- **`f@module(...)`** — a module *path*, not a rung keyword (`@mod`/`@import`
+  would ask the reader to know which rung a name came in on). It works in dot
+  form (`xs.size@core.list()`), as a value (`describe@main`), and it is the
+  only way to reach a function a **local of the same name** shadows.
+- **`rename fn label_small = label(n: Small Int)`** — a scope-local name for
+  one overload, which from that point answers *only* to it. Not an alias:
+  that is what makes the old name unambiguous again, and it is the remedy the
+  ambiguity diagnostic names. Module-scoped (whole module, not importable) or
+  block-scoped from its line, matched by the same overload matcher `refn`
+  uses [qual-refn-match], and it may not mention effects, deductions or a
+  return type — none of them takes part in selection [fn-rename].
+
+**Three defects came out with it**, all found by probing rather than by
+report: an own-module fn losing to std's (above); **two identical parameter
+lists** being declarable, with the second silently unreachable — now a
+declaration error [fn-overload-duplicate]; and **effect member calls not
+checking their arguments at all** (`log(true)` against
+`fn log(message: Str)`) — now checked like any other call
+[effect-member-call]. A fourth was already recorded and is fixed here too: an
+overloaded function *passed by name* resolved to whichever overload was
+declared first; it is now selected by the expected fn type
+[fn-value-select].
+
+**Two things the implementation forced:**
+
+- **`Any` had to become the top type it always claimed to be.** Written as
+  the `intrinsic type Any`, it lowered to a *nominal* `Named("Any")`, so
+  `f(v: Any)` accepted nothing at all — unification compares names. The
+  ranking rule "`Any` is the broadest thing a parameter can say" would have
+  been theory. `Any` now lowers to `Ty::Any`, like `Nothing` already lowered
+  to `Ty::Nothing` [type-any-nothing].
+- **Rust needed a path for a shadowed call** [rs-shadowed-call]: functions
+  and locals share one value namespace there, so `describe(7)` beside
+  `let describe = "…"` is E0618 — the emitted call is
+  `crate::describe(7)`. Kotlin needs nothing, since functions and properties
+  are separate namespaces. This is the first mechanism whose *only* reason to
+  exist is that `@` made a shadowed function reachable.
+
+Deferred, and recorded rather than dropped: **`@Effect` for member
+disambiguation** (`println@Console(...)`). Two effects declaring one member
+name is currently a declaration error whose message already promises this
+syntax; lifting it means a multimap plus every member path
+(`check_effect_call`, deduction inference, refinements, LSP), so it is a
+milestone of its own rather than an easy win.
+
 **S-Str landed 2026-09-06 (user design): `Str canbe Mut`, and the string
 function surface.** A string is still immutable; what `Mut Str` adds is a
 string *under construction*, asked for explicitly (`mutable_str("he",
@@ -74,14 +154,17 @@ parameters, so a customer type becomes iterable by declaring one function.
 The design was decided in advance and needed **four mechanisms that did not
 exist** — implicit resolution feeding back into type inference
 [implicit-infer], a *lead* candidate for expected types
-[fn-overload-specific], intrinsics passed as adapter closures
+[fn-overload-rank], intrinsics passed as adapter closures
 [implicit-intrinsic], and parameter contravariance in implicit resolution —
 plus generated Rust helpers, because Rust closure inference rules out every
 inline shape. Details under "Roadmap: standard library surface".
 
-**O1 (overload specificity) landed the same day** and is recorded under
-"Roadmap: overload resolution": a concrete parameter type now beats a type
-variable, which is what the `List` fast path of S-Seq needed.
+**O1 (overload specificity) landed the same day**, and was superseded the
+next: a concrete parameter type beating a type variable is now one rung of
+the finalized ranking [fn-overload-rank] — see "Overload resolution" and the
+entry at the top of this file. What O1 got right and the finalized rule kept:
+comparing the *declared* patterns, the partial order with an error for "no
+winner", and the leniency guard for un-inferred arguments.
 
 **Qualifier refinements (`refn`) landed 2026-09-06 (user design), closing
 roadmap D3.** D1 made deductions sound by forbidding a mutating function
@@ -2497,59 +2580,9 @@ by faithful emission. Rule [fn-contract]:
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation.
 
-### An own-module fn does not beat an identically shaped std one
-
-Found 2026-09-06 while testing S-Seq. A program that declares a function
-whose name *and shape* match an implicitly visible `core.*` one does not get
-its own:
-
-```
-fn size<T>(list: List<T>) -> [list] Int {
-    return 99
-}
-
-fn main() [use] {
-    use StdOutConsole()
-    let xs = list(1, 2, 3)
-    println("own size: ${size(xs)}")   // prints 3 — std's, silently
-}
-```
-
-and with the sequence functions the same shape produces a *diagnostic*
-instead, because neither candidate can type the lambda:
-
-```
-fn map<S, T>(list: List<S>, mapper: (S) -> T) -> [list, mapper] List<T> { ... }
-let ys = map(xs, n -> n + 1)
-// error: cannot infer type argument `U` of `map`  ← std's generic parameter
-```
-
-**Root cause.** For *functions*, resolution deliberately merges same-name
-declarations into one overload set rather than shadowing — that is what
-overloading by argument type means, and [mod-collision]'s "own declarations
-override implicit `core.*` visibility" applies to the *other* name kinds.
-Two candidates with the same shape are then indistinguishable: specificity
-[fn-overload-specific] finds them *indifferent* (nothing to rank on the
-genericity axis) and the winner is declaration order — which is std's,
-since std files are collected first.
-
-**Pre-existing**, not caused by S-Seq: the `size` case above behaves the
-same way before it. What S-Seq changed is the *surface*, since std now
-declares the names a customer is most likely to want (`map`, `filter`,
-`reduce`).
-
-**Not fixed here, because the fix is a language decision** (see the
-overload-resolution roadmap): should an own-module declaration *outrank* an
-implicitly visible std one when neither is more specific? A precedence rule
-would settle both cases, and it has precedent — own-module refinements
-replace imported ones [qual-refn-reconcile], and imports override `core.*`
-for every other name kind. The alternative is to report the tie as an
-ambiguity, which is honest but forces a rename on code that has every right
-to define its own `map`.
-
-Documentation is already clear of it: LANGUAGE.md's lambda example and the
-parser corpus were renamed to `transform` so nothing in the repository
-shadows a std function.
+*(None open. The last two — an own-module fn losing to an identically shaped
+std one, and effect member calls not checking their arguments — were fixed
+2026-09-07 by the overload-resolution work; see the entry at the top.)*
 
 ## Roadmap: toward full linear types
 
@@ -4238,99 +4271,81 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Roadmap: overload resolution
+## Overload resolution — **FINALIZED 2026-09-07**
 
-Salvo overloads by argument type, and that decision reaches further than
-any other single rule: `size(Str)`/`size(List)`/`size([])` are three
+Salvo overloads by argument type, and that decision reaches further than any
+other single rule: `size(Str)`/`size(List)`/`size([])` are three
 declarations, qualifiers make `full_name(Surname Person)` a distinct
 overload, mangling exists to keep the target from re-resolving them
 [kt-fn-mangling], and the checker's choice is authoritative everywhere
-downstream. What has never been *designed* is the ranking.
+downstream. What had never been *designed* was the ranking; it is now, along
+with the scope ladder and the two ways a caller overrides both. The rule is
+at the top of this file and in LANGUAGE.md; the labelled rules are
+[fn-overload] [fn-overload-scope] [fn-overload-rank]
+[fn-overload-ambiguous] [fn-overload-at] [fn-rename]
+[fn-overload-duplicate] [fn-value-select] [effect-member-call].
 
-**Finding (2026-09-06), and it was a bug rather than a gap.** With
+**Where the decisions came from.** Twelve probe programs against the old
+implementation, each answering a question nobody had chosen: `describe(3)`
+resolving to `describe<T>` (fixed as O1 on 2026-09-06); an own-module `size`
+losing to std's *silently*; two identical parameter lists both declarable;
+fixed-vs-variadic decided by declaration order; an unavailable-effect
+candidate winning and then erroring; an overloaded fn passed by name
+resolving to `entries[0]`; and effect member calls checking nothing about
+their arguments. The user's answers, in the order asked:
 
-```
-fn describe<T>(value: T) -> Str { return "generic" }
-fn describe(value: Int) -> Str { return "concrete" }
-```
+- **Scope first, then signature** — with a *warning* where scope discarded
+  the more specific signature, silenced by an explicit `@`.
+- **`@` takes a module path**, not a rung keyword: `@mod` vs `@import` asks
+  the reader to know which rung a name came in on.
+- **The fn rung is everything a function scope holds**: fn-typed parameters,
+  locals, implicit parameters, effect members.
+- **Qualifier sets rank by inclusion**, kind ignored; unrankable pairs are
+  settled by renaming.
+- **Unions rank by arm inclusion**; broader is less specific.
+- **Fixed beats variadic**, and an *empty* parameter list counts as fixed —
+  so `list()` picks the no-argument overload over `list(...elems)`, which is
+  what lets an "empty" case be an overload rather than a special form.
+- **Identical parameter types are a declaration error**, whatever the names
+  or return type say.
+- **Effect availability does not filter candidates**: selection is by types,
+  and a missing handler is its own diagnostic.
+- **Renames apply everywhere a name resolves**, including fn values and
+  implicit parameters — documented in LANGUAGE.md with examples, as asked.
+- **Implicit parameters take no part in ranking**; an unresolvable one is a
+  failure at the winner, not a demotion.
+- **`@Effect` for members is deferred** and recorded (see the top of this
+  file).
 
-`describe(3)` resolved to the **generic** overload and printed `generic`.
-Both candidates match — an unconstrained `T` unifies with anything — and
-nothing preferred the more specific one. It went unnoticed because every
-existing overload set has *disjoint* parameter types, so no two candidates
-ever both matched. Fixed by O1 below.
+**Implementation notes worth keeping:**
 
-- **O1 — specificity: landed 2026-09-06** (user decision the same day: a
-  concrete parameter type beats a type variable). Taken as part of the std
-  sequence functions (`map`/`filter`/`reduce`), which need a generic body
-  *and* a `List` fast path: without a ranking the two overloads are decided
-  by declaration order. Rule [fn-overload-specific], implementation
-  `types::spec_cmp`/`spec_dominates`/`spec_indifferent` +
-  `check_named_call`'s selection step:
-  * The score still runs first (exact match, qualified params). Specificity
-    only ranks the candidates it leaves tied, and it ranks the *declared*
-    patterns — after substitution `T` **is** `Int`, so the two candidates
-    look identical, which is exactly why the bug existed.
-  * A partial order, as recommended: the best set is the *undominated*
-    candidates, one winner is picked, and no winner is an "ambiguous call"
-    error naming both candidates. `mix<T>(T, Int)` vs `mix<T>(Int, T)` on
-    `mix(1, 2)` is the shape.
-  * **Two guards keep it from over-firing**, both found by running the
-    suite rather than by thinking:
-    - An *un-inferred* argument fits every candidate, so it suppresses the
-      ambiguity error [type-unknown-lenient]. Without this, a local
-      poisoned by a fate error reported that error *and* an ambiguity
-      between std's three `size` overloads — one mistake, two diagnostics.
-    - A pair the genericity axis finds **indifferent** (differing only in
-      qualifiers, unions, variadics, optionality) keeps declaration order
-      rather than erroring, because ranking those axes is the open design
-      below. The error fires only where the ranking was genuinely
-      attempted and failed.
-  * Verified end to end on both backends with one program (generic
-    overload declared first): `concrete` / `generic` under both `kotlinc`
-    and `rustc`. No backend change — the winner is a `call_fn` entry, and
-    mangling already keeps the target from re-resolving it
-    [kt-fn-mangling].
-- **Still to design (user request 2026-09-06): the full ranking.** The
-  rule above is the case in front of us, not a theory. Open questions,
-  each of which the current implementation answers by accident — where
-  "by accident" now means *by score, or by declaration order under the
-  indifference guard*:
-  * How do qualifier counts rank against base-type specificity — does
-    `f(Mut NonEmpty List<T>)` beat `f(List<Int>)`? (Today: score, +4 per
-    qualifier, which outranks any genericity difference.)
-  * Where do union parameters sit (`f(Int | Str)` vs `f(Int)`), given
-    arm-wise subtyping already prefers the arm? (Today: score, exact
-    match > subtype.)
-  * Optionals: `f(T?)` vs `f(T)` for a non-`None` argument. (Today: score.)
-  * Variadics: a fixed-arity candidate against a variadic one at the same
-    arity. (Today: declaration order — the patterns compare equal.)
-  * Implicit parameters: does a candidate needing fewer resolvable
-    implicits rank higher, and what happens when one of them is
-    unresolvable — a resolution failure or a demotion? (Today: implicits
-    take no part in scoring at all.)
-  * Whether the ranking is a partial order with a documented "no winner is
-    an error" rule (recommended — and what O1 shipped), or a total one
-    that always picks.
-  * Whether the *diagnostic* for an ambiguity names the tie-break that
-    failed, which is what makes any of this teachable. (Today it names the
-    candidates and the genericity rule; it cannot name a tie-break that
-    does not exist yet.)
-  * **Does an own-module declaration outrank an implicitly visible `core.*`
-    one when neither is more specific?** Today it does not, and declaration
-    order picks std's — see "Open defects". This is the one open question
-    with a *user-visible* consequence today, since std now declares `map`,
-    `filter` and `reduce`.
-  Precedent to follow: this is the same shape as [deduce-syntax]'s
-  polarity table — a small lattice, written down, with the error path
-  stated. Precedent to avoid: leaving it implicit in `unify`'s match-arm
-  order, which is what the gotchas already record as having bitten twice.
+- The old *sum of per-slot scores* is gone. A sum lets one argument's gain
+  pay for another's loss, which is the definition of a guess; the ranking is
+  a per-slot partial order (`types::spec_cmp` / `rank_cmp` /
+  `most_specific`), and "no winner" is the ambiguity error.
+- `FnEntry` carries its **rung** (`Core`/`Import`/`Own`) and its declaring
+  module, filled where the scope is built — the rungs above `Own` are not
+  overload sets, so they need no entry (a local shadows outright, a member
+  takes the name first, a rename introduces a new one).
+- The **lead candidate** (the source of expected types for arguments) uses
+  the same rung filter and the same ranking, re-narrowed per argument. That
+  is what keeps `map(arr, n -> n + 1)` working with a `List` fast path in
+  scope: the `List` candidate leads until `arr` turns out to be an array.
+- `Ty::Any` is now produced by lowering the written `Any` — see the top of
+  this file.
+- Verified end to end on both backends with one program that overrides
+  resolution both ways (`@core.list`, `@main`, a dot-form `@`, a rename, and
+  a call past a shadowing local): byte-identical stdout under `kotlinc` and
+  `rustc`, with the emitted sources asserted to contain no `@` and no renamed
+  name.
 
 ## Roadmap: standard library surface
 
-Decisions taken 2026-09-06 (user), unbuilt. Recorded here so the design
-survives a session boundary; each item is independently shippable, in the
-order given, because each feeds the next.
+Decisions taken 2026-09-06 (user). **S-Str and S-Seq are built** (see their
+entries below and the narrative at the top of this file); **S-IO** is the one
+still open, deferred by the user until IO streams are designed properly. Each
+item was independently shippable, in the order given, because each fed the
+next.
 
 ### S-Str — a mutable string, and the string function surface — **LANDED 2026-09-06**
 
@@ -4390,7 +4405,7 @@ every one of them:
   the pattern, then the caller's variables bind from the instantiated
   candidate. This is also what fixed the recorded array gap — the `List`
   case only ever worked because `List<T>`'s own `T` did the binding.
-- **[fn-overload-specific] — a *lead* candidate, re-narrowed per argument.**
+- **[fn-overload-rank] — a *lead* candidate, re-narrowed per argument.**
   With a `List` fast path beside the generic overload, a bare lambda had no
   expected type at all (multiple candidates kept the untyped probe), which
   is the second gap the memo recorded. Expected types now come from the most
@@ -4456,7 +4471,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 651)
+## Test inventory (all green: 672)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -4464,7 +4479,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 246 - 17 unit tests (file classification, including the
+- `salvo-core`: 266 - 18 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -4687,18 +4702,23 @@ and `cargo nextest run` when you want to see which tests cost what.
   refined qualifier (with the no-refinement control rejected by
   [deduce-infer]), and a *conditional* refined call **not** reaching the
   contract).
-- **10 overload-specificity tests** (`tests/overload_tests.rs`
-  [fn-overload-specific]: a concrete parameter beating a type variable in
-  *both* declaration orders — the return type of the selected overload is
-  the proof, so the wrong winner is a type error; the generic overload
-  still taking what the concrete one cannot; structural specificity
-  (`List<Int>` over `List<T>`, the S-Seq fast-path shape); a partially
-  generic candidate ranking between; an unrankable pair reported as an
-  ambiguity naming both candidates, and resolved by narrowing an argument;
-  an un-inferred argument producing no ambiguity [type-unknown-lenient];
-  qualifier-only differences left to the score; and a single candidate
-  never ranked at all) — plus the two `types.rs` unit tests for
-  `spec_cmp`/`spec_dominates`/`spec_indifferent` counted above.
+- **22 overload-resolution tests** (`tests/overload_tests.rs` [fn-overload]
+  [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous]
+  [fn-overload-at] [fn-rename] [fn-overload-duplicate] [fn-value-select]:
+  the ranking rung by rung — concrete over a type variable in *both*
+  declaration orders, a narrower union (and the caller-knowledge limit: an
+  `Int | Str` value not fitting `f(Int)` until it is narrowed), `T` over
+  `T?`, `Any` last *and* accepting everything, qualifier sets by inclusion
+  with the unrankable pair reported, fixed over variadic including the
+  no-argument case, and per-slot dominance so one slot never pays for
+  another; the ladder — this module over core, core→import→module in order,
+  and the scope-override *warning* naming both `@` forms; `@module` picking
+  a module's overload, erroring when that module has none, reaching past a
+  local of the same name, and working in dot form; fn values selected by the
+  expected type and reported as ambiguous without one; renames settling an
+  ambiguity, scoped to their block, refusing a taken name, a mismatched
+  parameter list and a `@module` on top; and a duplicate parameter list
+  reported as a duplicate while differing types stay an overload set).
 - **12 `Mut Str` tests** (`tests/str_tests.rs` [str-drop-mut]
   [type-canbe-mut]: `Str canbe Mut` while `Mut Int` is still an error, and a
   literal is not a builder; a recorded drop at every site — call argument
@@ -4709,7 +4729,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   generic position (which is what makes `copy(builder)` a builder) — nor
   for a plain `Str`).
 - **9 sequence-function tests** (`tests/seq_tests.rs` [seq-iterable]
-  [implicit-infer] [fn-overload-specific]: everything inferred for a `List`,
+  [implicit-infer] [fn-overload-rank]: everything inferred for a `List`,
   an **array** (the recorded gap) and a `Str` subject — with a `Char`
   element proved by rejecting a `Str` operation on it; iterators and chains
   composing through the identity `iter`; a customer struct made iterable by
@@ -4885,7 +4905,11 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 67 (two std snapshots added for `core.iterable` and
+- `salvo-syntax`: 70 (three parser tests for the scope selector and
+  `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
+  value, the placement error, module- and statement-level renames, and the
+  four things a rename may not repeat; two std snapshots for `core.iterable`
+  and
   `core.seq` [implicit-group]; three refinement parser tests [qual-refn]:
   a refinement in a qualifier body with its docs and its `+`/`-` entries, a
   top-level `refn` as an item of its own, and the four things a refinement
@@ -4944,7 +4968,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 116 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 128 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -5084,7 +5108,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   Rust run byte for byte. The `run_kotlin_entry` helper exists because
   `run_kotlin_files` hardcodes `salvo.main.MainKt`, and the entry here is
   the host's `salvo.platform.main.MainKt`); and 1 overload-specificity test
-  ([fn-overload-specific]: `kotlinc_runs_the_most_specific_overload` —
+  ([fn-overload-rank]: `kotlinc_runs_the_most_specific_overload` —
   `concrete` then `generic`, with the generic overload declared first); and
   4 string tests ([kt-mut-str] [str-drop-mut] [fn-variadic]:
   `mut_str_lowers_to_a_string_builder` asserting the `StringBuilder`
@@ -5094,12 +5118,17 @@ and `cargo nextest run` when you want to see which tests cost what.
   operator — the case that printed `[Ljava.lang.String;@…` before; plus
   kotlinc runs of the whole string surface and of `set` through a parameter
   and a field, both asserting the stdout the Rust backend asserts); and 2
-  sequence tests ([kt-seq] [implicit-group] [implicit-intrinsic]:
+  overload-override tests ([fn-overload-at] [fn-rename]:
+  `scope_selectors_and_renames_are_erased` asserting that no `@` and no
+  renamed name reaches Kotlin, that `@core.list` emits std's lowering, that
+  the renamed overload is called by its declaration's mangled name, and that
+  a call past a shadowing local needs nothing here (separate namespaces);
+  plus the kotlinc run of that program); and 2 sequence tests ([kt-seq] [implicit-group] [implicit-intrinsic]:
   `sequence_functions_lower_to_collection_operations` asserting
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
   `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 88 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 102 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -5243,7 +5272,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   without a host does not emit and that the error carries both the path and
   the command; plus the rustc compile+run of the *generated* skeleton with
   only its `todo!` body replaced, asserting the same stdout Kotlin does);
-  and 1 overload-specificity test ([fn-overload-specific]:
+  and 1 overload-specificity test ([fn-overload-rank]:
   `rustc_runs_the_most_specific_overload`, the generic overload declared
   first and the concrete one still chosen — same source and stdout as the
   Kotlin backend's `kotlinc_runs_the_most_specific_overload`, since the
@@ -5257,6 +5286,11 @@ and `cargo nextest run` when you want to see which tests cost what.
   `a_spread_into_a_variadic_intrinsic_is_the_collection`; plus rustc runs of
   the whole string surface and of `set` through a `&mut String` parameter
   and a field projection — the case the trait exists for — each asserting
+  the stdout Kotlin asserts); and 2 overload-override tests
+  ([fn-overload-at] [fn-rename] [rs-shadowed-call]: the same program as
+  Kotlin's, asserting the erasure, the std lowering behind `@core.list`, the
+  renamed overload's mangled name, and `crate::describe(7)` for the call
+  past a shadowing local — E0618 without it; plus the rustc run asserting
   the stdout Kotlin asserts); and 2 sequence tests ([rs-seq]
   [implicit-intrinsic]: `sequence_functions_lower_to_helpers` asserting the
   `salvo_map`/`salvo_filter`/`salvo_reduce` calls with their `&place[..]`
@@ -5270,6 +5304,33 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Probe the *current* behaviour before designing the rule.** The overload
+  agenda was worth more than the design discussion that followed it: twelve
+  five-line programs answered questions nobody had chosen an answer to —
+  fixed-vs-variadic by declaration order, an own-module fn losing to std's
+  *silently*, effect member calls checking nothing. Writing the options down
+  from the code would have missed all three, because the code looked
+  reasonable; only running it showed what it did.
+- **A ranking that sums per-argument scores is a guess in disguise.** The old
+  scoring added +2/+1/+4 per argument and picked the maximum, so a candidate
+  could win by being much better in one argument and worse in another. Nobody
+  noticed until the rule was written down as "at least as specific in every
+  argument", at which point the sum was obviously the wrong shape. When a
+  comparison is a *lattice*, implement the lattice, not a scalar projection
+  of it.
+- **A type declared in std is not the same as a type the compiler knows.**
+  `Any` was `intrinsic type Any` and lowered to a nominal `Named("Any")`, so
+  `f(v: Any)` accepted *nothing*: unification compares names, and no argument
+  is named `Any`. It had been that way for as long as `Any` existed, hidden
+  because nobody wrote an `Any` parameter. If a type has language-level
+  meaning ([type-any-nothing]), the lowering has to say so — the std
+  declaration only gives it a name.
+- **Making something reachable creates new emission cases.** `@module` let a
+  call reach a function shadowed by a local, which had been *unreachable*
+  before — and immediately produced E0618 on Rust, where functions and locals
+  share a namespace. A feature that removes a restriction should be followed
+  by the question "what did the restriction make impossible in the output?"
 
 - **A "free" widening can stop being free when a backend disagrees.**
   `Mut T <: T` had been one line in `is_subtype` because the only
@@ -5308,7 +5369,7 @@ snapshot diffs.
   when a lowering needs a *statement*, generate a helper instead of
   building an expression that pretends otherwise.
 - **A new tie-break needs a leniency audit before it needs tests.**
-  Overload specificity [fn-overload-specific] was correct on the case it
+  Overload specificity [fn-overload-rank] was correct on the case it
   was written for and immediately wrong on `size(xs)` where `xs` had *no
   inferred type*: an un-inferred argument fits every candidate, so a
   perfectly ordinary fate error grew a second, bogus "ambiguous call"

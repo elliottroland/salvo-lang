@@ -430,28 +430,64 @@ pub fn compatible(a: &Ty, b: &Ty) -> bool {
     is_subtype(a, b) && is_subtype(b, a)
 }
 
-/// [fn-overload-specific] How two parameter *patterns* (un-substituted
-/// declared parameter types of two overload candidates) compare on the
-/// **genericity axis**: `Greater` means `a` is more specific — it says
-/// something concrete where `b` says only "some type".
+/// [fn-overload-rank] How two parameter *patterns* (the un-substituted
+/// declared parameter types of two overload candidates) compare in
+/// **specificity**: `Greater` means `a` is more specific — it says more
+/// about the value it accepts.
 ///
-/// This is the whole of decision O1 and no more: a concrete type beats a
-/// type variable, structurally (`List<Int>` beats `List<T>`), and every
-/// other axis of specificity — qualifier counts, unions, optionals,
-/// variadics — deliberately compares `Equal` or `None` here, because
-/// ranking them is still undesigned. `None` is "these two cannot be
-/// ranked", which is what makes the relation a partial order and an
-/// un-rankable set of best candidates an error rather than a coin flip.
+/// The whole ladder, and no more (user decisions 2026-09-06/07):
+///
+/// 1. **A type variable knows nothing**, so it is the least specific thing
+///    a parameter can say — structurally, so `List<Int>` beats `List<T>`.
+/// 2. **Broader accepts less specifically**: a union's arms compare as
+///    *sets*, so `Int` (one arm) beats `Int | Str` beats `Int | Str | Bool`,
+///    and `Int` beats `Int?`. `Any` is the broadest type there is, so it is
+///    always the least specific.
+/// 3. **A qualifier says more**: qualifier *sets* compare by inclusion, so
+///    `Mut NonEmpty List<T>` beats `Mut List<T>` beats `List<T>`. The
+///    *kind* of qualifier deliberately does not matter — ranking `Mut`
+///    against `NonEmpty` would ask the caller to know more than what is in
+///    front of them — so `Mut List<T>` and `NonEmpty List<T>` are
+///    unrankable.
+///
+/// `None` is "these two cannot be ranked", which is what makes this a
+/// partial order: an un-rankable best set is an *error* naming the remedies
+/// rather than a coin flip [fn-overload-ambiguous]. Two criteria pulling in
+/// opposite directions is unrankable too (a more specific base with a
+/// smaller qualifier set), for the same reason.
 pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
     use std::cmp::Ordering::*;
     if a == b {
         return Some(Equal);
     }
     match (a, b) {
-        // A type variable knows nothing; anything else knows something.
+        // 1. A type variable knows nothing; anything else knows something.
         (Ty::Var(_), Ty::Var(_)) => Some(Equal),
         (Ty::Var(_), _) => Some(Less),
         (_, Ty::Var(_)) => Some(Greater),
+        // 2. `Any` accepts everything, so nothing is broader.
+        (Ty::Any, Ty::Any) => Some(Equal),
+        (Ty::Any, _) => Some(Less),
+        (_, Ty::Any) => Some(Greater),
+        // 3. Qualifier sets by inclusion, together with the bases. The
+        // *larger* qualifier set says more, so the sets go in swapped:
+        // `set_cmp` ranks the smaller set higher.
+        (Ty::Qualified { .. }, _) | (_, Ty::Qualified { .. }) => {
+            let (qa, qb) = (qual_names(a), qual_names(b));
+            combine(
+                [
+                    set_cmp(&qb, &qa),
+                    spec_cmp(a.strip_quals(), b.strip_quals()),
+                ]
+                .into_iter(),
+            )
+        }
+        // 4. Unions by arm inclusion — including the single-arm case, which
+        // is how an arm beats the union it belongs to.
+        (Ty::Union(_), _) | (_, Ty::Union(_)) => {
+            let (aa, ba) = (a.arms(), b.arms());
+            set_cmp(aa, ba)
+        }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab })
             if na == nb && aa.len() == ab.len() =>
         {
@@ -459,9 +495,6 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
         }
         (Ty::Array(x), Ty::Array(y)) => spec_cmp(x, y),
         (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => {
-            combine(xs.iter().zip(ys).map(|(x, y)| spec_cmp(x, y)))
-        }
-        (Ty::Union(xs), Ty::Union(ys)) if xs.len() == ys.len() => {
             combine(xs.iter().zip(ys).map(|(x, y)| spec_cmp(x, y)))
         }
         (
@@ -481,15 +514,34 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
                 .map(|(x, y)| spec_cmp(x, y))
                 .chain(std::iter::once(spec_cmp(ra, rb))),
         ),
-        // Equal qualifier sets: the genericity of the bases decides. A
-        // *difference* in qualifiers is the open question, so it does not
-        // rank here.
-        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb })
-            if qa == qb =>
-        {
-            spec_cmp(ba, bb)
-        }
         _ => None,
+    }
+}
+
+/// The qualifier names of a type, sorted (`Ty::Qualified` keeps them
+/// sorted, so this is just a projection).
+fn qual_names(ty: &Ty) -> Vec<&str> {
+    ty.quals().iter().map(|q| q.name.as_str()).collect()
+}
+
+/// [fn-overload-rank] Set inclusion as a specificity comparison: the
+/// **smaller** set is the more specific statement — fewer arms accepted,
+/// or more qualifiers demanded, depending on which side calls this. Both
+/// callers pass the set whose *shrinking* means "says more" first, so
+/// `Greater` always means "a is more specific".
+///
+/// Sets that neither contain the other are unrankable, which is what makes
+/// `Int | Str` and `Int | Bool` an ambiguity rather than a guess.
+fn set_cmp<T: PartialEq>(a: &[T], b: &[T]) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering::*;
+    let a_in_b = a.iter().all(|x| b.contains(x));
+    let b_in_a = b.iter().all(|x| a.contains(x));
+    match (a_in_b, b_in_a) {
+        (true, true) => Some(Equal),
+        // `a` is a subset: it accepts fewer things, so it says more.
+        (true, false) => Some(Greater),
+        (false, true) => Some(Less),
+        (false, false) => None,
     }
 }
 
@@ -509,35 +561,64 @@ fn combine(items: impl Iterator<Item = Option<std::cmp::Ordering>>) -> Option<st
     Some(acc)
 }
 
-/// [fn-overload-specific] Whether candidate `a`'s parameter patterns are at
-/// least as specific as `b`'s in every position and strictly more specific
-/// in at least one — i.e. whether `a` *dominates* `b` and should win.
-pub fn spec_dominates(a: &[Ty], b: &[Ty]) -> bool {
-    use std::cmp::Ordering::*;
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut strict = false;
-    for (x, y) in a.iter().zip(b) {
-        match spec_cmp(x, y) {
-            Some(Greater) => strict = true,
-            Some(Equal) => {}
-            _ => return false,
-        }
-    }
-    strict
+/// [fn-overload-rank] One overload candidate as the ranking sees it: its
+/// declared parameter patterns, one per *argument slot*, and whether the
+/// slots came from a variadic parameter.
+#[derive(Clone, Debug)]
+pub struct RankedCandidate {
+    pub patterns: Vec<Ty>,
+    /// True when the candidate collects some of these slots with `...xs`.
+    pub variadic: bool,
 }
 
-/// [fn-overload-specific] Whether two candidates' patterns are
-/// indistinguishable on the genericity axis — no position ranks either way.
-/// True means O1 has nothing to say about the pair (the difference between
-/// them lies on an axis that is still undesigned), which is what keeps the
-/// ambiguity error to genuine specificity ties.
-pub fn spec_indifferent(a: &[Ty], b: &[Ty]) -> bool {
-    a.len() == b.len()
-        && a.iter()
-            .zip(b)
-            .all(|(x, y)| spec_cmp(x, y) == Some(std::cmp::Ordering::Equal))
+/// [fn-overload-rank] How two candidates compare: per **argument slot**,
+/// and a candidate wins only by being at least as specific everywhere and
+/// strictly more specific somewhere. A sum of per-slot scores was the old
+/// rule and is deliberately gone: it let one argument's gain pay for
+/// another's loss, which is the definition of a guess.
+///
+/// The last word is arity shape: with the slots otherwise equal, a
+/// **fixed** parameter list beats a variadic one — `list()` picks the
+/// no-argument overload over `list(...elems)`, which is what lets an
+/// "empty" case be an overload rather than a special form.
+pub fn rank_cmp(a: &RankedCandidate, b: &RankedCandidate) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering::*;
+    if a.patterns.len() != b.patterns.len() {
+        return None;
+    }
+    let slots = combine(
+        a.patterns
+            .iter()
+            .zip(&b.patterns)
+            .map(|(x, y)| spec_cmp(x, y)),
+    )?;
+    if slots != Equal {
+        return Some(slots);
+    }
+    match (a.variadic, b.variadic) {
+        (false, true) => Some(Greater),
+        (true, false) => Some(Less),
+        _ => Some(Equal),
+    }
+}
+
+/// [fn-overload-rank] Whether `a` is strictly more specific than `b`.
+pub fn spec_dominates(a: &RankedCandidate, b: &RankedCandidate) -> bool {
+    rank_cmp(a, b) == Some(std::cmp::Ordering::Greater)
+}
+
+/// [fn-overload-rank] The index of the unique candidate that dominates
+/// every other, if there is one. `None` means the set has no single most
+/// specific member — which is an ambiguity, never a pick
+/// [fn-overload-ambiguous].
+pub fn most_specific(candidates: &[RankedCandidate]) -> Option<usize> {
+    if candidates.len() == 1 {
+        return Some(0);
+    }
+    (0..candidates.len()).find(|&i| {
+        (0..candidates.len())
+            .all(|j| i == j || spec_dominates(&candidates[i], &candidates[j]))
+    })
 }
 
 impl fmt::Display for Qual {
@@ -699,49 +780,111 @@ mod tests {
         assert_eq!(res.value_arms().len(), 2);
     }
 
-    /// [fn-overload-specific] O1: a concrete parameter type beats a type
-    /// variable, structurally — and nothing else ranks.
+    /// [fn-overload-rank] The specificity ladder, rung by rung: a type
+    /// variable is the least specific thing a parameter can say, `Any` is the
+    /// broadest type, a narrower union says more, and more qualifiers say
+    /// more.
     #[test]
-    fn specificity_ranks_concrete_over_variables() {
+    fn specificity_ladder() {
         use std::cmp::Ordering::*;
         let var = Ty::Var("T".into());
         let int = Ty::named("Int");
+        let str_ = Ty::named("Str");
+        // 1. A type variable knows nothing.
         assert_eq!(spec_cmp(&int, &var), Some(Greater));
         assert_eq!(spec_cmp(&var, &int), Some(Less));
         assert_eq!(spec_cmp(&var, &Ty::Var("U".into())), Some(Equal));
-        // Structural: `List<Int>` is more specific than `List<T>`.
         let list = |arg: Ty| Ty::Named {
             name: "List".into(),
             args: vec![arg],
         };
         assert_eq!(spec_cmp(&list(int.clone()), &list(var.clone())), Some(Greater));
-        // Different constructors do not rank (nor do differing qualifiers).
-        assert_eq!(spec_cmp(&int, &Ty::named("Str")), None);
-        assert_eq!(spec_cmp(&ok(int.clone()), &int), None);
-        // A disagreement between positions is unrankable.
-        let f = |a: Ty, b: Ty| Ty::Tuple(vec![a, b]);
-        assert_eq!(
-            spec_cmp(&f(int.clone(), var.clone()), &f(var.clone(), int.clone())),
-            None
-        );
+        // 2. `Any` accepts everything, so nothing is broader.
+        assert_eq!(spec_cmp(&int, &Ty::Any), Some(Greater));
+        assert_eq!(spec_cmp(&Ty::Any, &var), Some(Greater), "a variable is vaguer still");
+        // 3. Unions by arm inclusion: an arm beats its union beats a broader
+        // one, and `T` beats `T?`.
+        let both = Ty::union_of(vec![int.clone(), str_.clone()]);
+        let three = Ty::union_of(vec![int.clone(), str_.clone(), Ty::named("Bool")]);
+        assert_eq!(spec_cmp(&int, &both), Some(Greater));
+        assert_eq!(spec_cmp(&both, &three), Some(Greater));
+        assert_eq!(spec_cmp(&three, &int), Some(Less));
+        let opt = Ty::union_of(vec![int.clone(), Ty::none()]);
+        assert_eq!(spec_cmp(&int, &opt), Some(Greater));
+        // Same size, neither a subset: unrankable.
+        let other = Ty::union_of(vec![int.clone(), Ty::named("Bool")]);
+        assert_eq!(spec_cmp(&both, &other), None);
+        // 4. Qualifier sets by inclusion, kind ignored.
+        let mut_list = list(int.clone()).qualify(vec![Qual {
+            name: "Mut".into(),
+            args: vec![],
+        }]);
+        let mut_ne_list = mut_list.clone().qualify(vec![Qual {
+            name: "NonEmpty".into(),
+            args: vec![],
+        }]);
+        let ne_list = list(int.clone()).qualify(vec![Qual {
+            name: "NonEmpty".into(),
+            args: vec![],
+        }]);
+        assert_eq!(spec_cmp(&mut_list, &list(int.clone())), Some(Greater));
+        assert_eq!(spec_cmp(&mut_ne_list, &mut_list), Some(Greater));
+        // Different single qualifiers: the *kind* does not rank, so this is
+        // an ambiguity for the caller to settle with a rename.
+        assert_eq!(spec_cmp(&mut_list, &ne_list), None);
+        // Criteria pulling opposite ways are unrankable: more qualifiers but
+        // a vaguer base.
+        let ne_generic = list(var.clone()).qualify(vec![Qual {
+            name: "NonEmpty".into(),
+            args: vec![],
+        }]);
+        assert_eq!(spec_cmp(&ne_generic, &list(int.clone())), None);
+        // Agreeing criteria compose, though.
+        assert_eq!(spec_cmp(&ne_list, &list(var.clone())), Some(Greater));
     }
 
-    /// [fn-overload-specific] Dominance is per-position, needs one strict
-    /// win, and "indifferent" is the pair O1 has nothing to say about.
+    fn ranked(patterns: Vec<Ty>) -> RankedCandidate {
+        RankedCandidate {
+            patterns,
+            variadic: false,
+        }
+    }
+
+    /// [fn-overload-rank] Candidates compare **per argument slot**, and a
+    /// winner has to be at least as specific everywhere: one argument's gain
+    /// never pays for another's loss.
     #[test]
-    fn specificity_dominance() {
+    fn ranking_is_per_slot() {
         let var = Ty::Var("T".into());
         let int = Ty::named("Int");
-        assert!(spec_dominates(&[int.clone(), int.clone()], &[var.clone(), int.clone()]));
-        assert!(!spec_dominates(&[var.clone(), int.clone()], &[int.clone(), int.clone()]));
-        // No strict win anywhere: dominance needs one.
-        assert!(!spec_dominates(&[int.clone()], &[int.clone()]));
-        assert!(spec_indifferent(&[int.clone()], &[int.clone()]));
-        // Mutually unrankable: neither dominates, and they are not
-        // indifferent either — that pair is an ambiguity.
-        let a = [int.clone(), var.clone()];
-        let b = [var.clone(), int.clone()];
+        let concrete = ranked(vec![int.clone(), int.clone()]);
+        let half = ranked(vec![var.clone(), int.clone()]);
+        assert!(spec_dominates(&concrete, &half));
+        assert!(!spec_dominates(&half, &concrete));
+        // Mutually unrankable: each is more specific in one slot.
+        let a = ranked(vec![int.clone(), var.clone()]);
+        let b = ranked(vec![var.clone(), int.clone()]);
         assert!(!spec_dominates(&a, &b) && !spec_dominates(&b, &a));
-        assert!(!spec_indifferent(&a, &b));
+        assert_eq!(most_specific(&[a, b]), None, "no winner is an ambiguity");
+        assert_eq!(most_specific(&[concrete.clone(), half]), Some(0));
+        assert_eq!(most_specific(&[concrete]), Some(0));
+    }
+
+    /// [fn-overload-rank] With the slots equal, a **fixed** parameter list
+    /// beats a variadic one — which is what lets `list()` pick the
+    /// no-argument overload over `list(...elems)`.
+    #[test]
+    fn fixed_beats_variadic() {
+        let empty_fixed = RankedCandidate {
+            patterns: vec![],
+            variadic: false,
+        };
+        let empty_variadic = RankedCandidate {
+            patterns: vec![],
+            variadic: true,
+        };
+        assert!(spec_dominates(&empty_fixed, &empty_variadic));
+        assert!(!spec_dominates(&empty_variadic, &empty_fixed));
+        assert_eq!(most_specific(&[empty_variadic, empty_fixed]), Some(1));
     }
 }

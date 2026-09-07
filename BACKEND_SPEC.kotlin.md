@@ -96,6 +96,19 @@ Conventions:
   the Rust backend, where `T[]` maps to native arrays anyway).
 * [kt-iter-iterable] `Iter<T>` maps to `Iterable<T>` (what Kotlin
   `for`-loops accept).
+* [fn-overload-at] [fn-rename] Both ways a caller can override overload
+  resolution are **erased**: the checker records which declaration a call
+  means, and mangling already keeps Kotlin from re-resolving it
+  [kt-fn-mangling]. A call written with a renamed name emits the
+  declaration's own (mangled) name — `renamed_calls` is what distinguishes
+  that from an *import alias*, which the emitter keeps [kt-imports].
+  * A call reaching past a **local** of the same name needs nothing here:
+    Kotlin keeps functions and properties in separate namespaces, so
+    `describe(7)` beside `val describe = "…"` is the function (Rust needs a
+    path — [rs-shadowed-call]).
+  * A named fn passed *by value* emits the resolved declaration's mangled
+    name too, which is what makes `::name` right when the name is overloaded
+    [fn-value-select].
 * [kt-seq] std's sequence functions [seq-iterable]: the `List` fast paths
   lower to Kotlin's own operations — `map`/`filter` with
   `.toMutableList()`, since the result is a `Mut List<U>`, and `reduce` to

@@ -1088,3 +1088,77 @@ fn a_refinement_may_not_declare_effects_a_return_type_or_an_unsigned_qualifier()
         );
     }
 }
+
+// ===== [fn-overload-at] the scope selector, [fn-rename] the rename =====
+
+/// [fn-overload-at] `f@core.list(x)` parses as a call whose callee names the
+/// module, in plain and dot form, and as a *value*.
+#[test]
+fn a_scope_selector_parses_on_names_and_dot_calls() {
+    for source in [
+        "fn probe() -> None {\n    let n = size@core.list(xs)\n}\n",
+        "fn probe() -> None {\n    let n = xs.size@core.list()\n}\n",
+        "fn probe() -> None {\n    let f = describe@main\n}\n",
+        "fn probe() -> None {\n    let n = size@a.b.c(xs)\n}\n",
+    ] {
+        let errors = errors_of(source);
+        assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
+    }
+}
+
+/// The selector belongs to a *name*, so writing it after anything else is a
+/// parse error naming both places it may go.
+#[test]
+fn a_scope_selector_needs_a_name() {
+    let errors = errors_of("fn probe() -> None {\n    let n = (1 + 2)@core.list\n}\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`@` selects which module's overload")),
+        "expected the `@` placement error, got {errors:?}"
+    );
+}
+
+/// [fn-rename] `rename fn add2 = add(a: Int, b: Int)`, at module level and as
+/// a statement, with type parameters where the overload has them.
+#[test]
+fn a_rename_parses_at_module_and_statement_level() {
+    for source in [
+        "rename fn add2 = add(a: Int, b: Int)\n",
+        "rename fn list_size = size<T>(list: List<T>)\n",
+        "fn probe() -> None {\n    rename fn tag2 = tag(v: Str)\n    let s = tag2(\"x\")\n}\n",
+        "fn probe() -> None {\n    for i in xs {\n        rename fn tag2 = tag(v: Int)\n    }\n}\n",
+    ] {
+        let errors = errors_of(source);
+        assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
+    }
+}
+
+/// A rename names an overload by its parameters, so anything that takes no
+/// part in *choosing* one is refused by name: an effect list, a deduction
+/// list, a return type, and an implicit-group spread.
+#[test]
+fn a_rename_takes_no_effects_deductions_or_return_type() {
+    for (source, needle) in [
+        (
+            "rename fn add2 = add(a: Int) [Console]\n",
+            "takes no effect or deduction list",
+        ),
+        (
+            // The `->` is reported first here: a deduction list follows it.
+            "rename fn add2 = add(a: Int) -> [a] Int\n",
+            "takes no return type",
+        ),
+        ("rename fn add2 = add(a: Int) -> Int\n", "takes no return type"),
+        (
+            "rename fn total2 = total(xs: List<Int>, ?Field<Int>)\n",
+            "implicit parameters take no part",
+        ),
+    ] {
+        let errors = errors_of(source);
+        assert!(
+            errors.iter().any(|m| m.contains(needle)),
+            "expected {needle:?} for {source:?}, got {errors:?}"
+        );
+    }
+}

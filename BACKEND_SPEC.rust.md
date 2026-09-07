@@ -56,6 +56,18 @@ Conventions:
   `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
+* [fn-overload-at] [fn-rename] Both caller-side overrides of overload
+  resolution are **erased**: `call_fn` records the declaration and mangling
+  keeps Rust from re-resolving it [rs-fn-mangling]. A renamed call emits the
+  declaration's own name (`renamed_calls` tells it apart from an import
+  alias, which is kept [rs-imports]).
+* [rs-shadowed-call] A call that reaches past a **local of the same name**
+  (only possible as `f@module(...)`, since a plain call would have gone
+  through the local) is spelled as a path — `crate::<mounted module>::f(...)`,
+  or `crate::f(...)` for the crate root. Rust puts functions and locals in
+  one value namespace, so the bare name is the local (E0618: "call expression
+  requires function"); Kotlin needs nothing, which is why this rule is
+  backend-prefixed.
 * [rs-seq] std's sequence functions [seq-iterable]: the `List` fast paths
   lower to the generated helpers in `strings.rs`'s sibling `seq.rs` —
   `salvo_map`/`salvo_filter`/`salvo_reduce`, taking `&[T]` so a call splices

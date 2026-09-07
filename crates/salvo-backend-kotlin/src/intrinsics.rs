@@ -58,7 +58,7 @@ pub fn fn_call(
         ("iter", Some("List")) => a(0).to_string(),
 
         // core.seq -------------------------------------------------------
-        // [kt-seq] The `List` fast paths [fn-overload-specific]: Kotlin's own
+        // [kt-seq] The `List` fast paths [fn-overload-rank]: Kotlin's own
         // collection operations, with the eager result made mutable because
         // `map`/`filter` return `Mut List<U>`.
         ("map", Some("List")) => format!("{}.map({}).toMutableList()", a(0), a(1)),

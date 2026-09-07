@@ -15,7 +15,7 @@
 // Each function also has a `List` overload, declared `intrinsic` so that the
 // backends lower it to their own `map`/`filter`/`fold` — the generic body
 // below is the fallback, and overload specificity picks the fast path when
-// the subject really is a `List` [fn-overload-specific].
+// the subject really is a `List` [fn-overload-rank].
 
 // Applies [f] to every element of [xs], in order.
 fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) [] -> [xs, f] Mut List<U> {

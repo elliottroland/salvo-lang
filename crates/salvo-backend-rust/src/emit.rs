@@ -153,6 +153,7 @@ pub fn emit_program_reporting(
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         emitter.fusion = fusion;
         emitter.generated_imports = generated;
+        emitter.root_module = root_module;
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -1031,6 +1032,10 @@ struct Emitter<'p> {
     derived_return_fn: bool,
     taken_names: HashSet<String>,
     generated_imports: BTreeSet<String>,
+    /// [rs-crate] The module that became the crate root (the one declaring
+    /// `main`), so a path to a top-level fn can be spelled correctly:
+    /// `crate::…` for it, `crate::<mounted>::…` for every other module.
+    root_module: Option<&'p salvo_core::ModulePath>,
     /// [rs-effect-fusion] Program-wide: some handler declares an effect
     /// dependency, so every effect site threads one *fused* value.
     fusion: bool,
@@ -1151,6 +1156,7 @@ impl<'p> Emitter<'p> {
             derived_return_fn: false,
             taken_names: HashSet::new(),
             generated_imports: BTreeSet::new(),
+            root_module: None,
             fusion: false,
             generated_items: Vec::new(),
             conj_traits: BTreeMap::new(),
@@ -2435,6 +2441,35 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [rs-shadowed-call] The Rust path prefix that reaches a top-level fn from
+    /// inside this file: `crate::<mounted module>`. Used where a bare name
+    /// would resolve to something else — a local of the same name.
+    fn fn_module_path(&self, decl: &FnDecl) -> String {
+        let module = self
+            .checked
+            .fn_refs
+            .get(&(self.file_idx, decl.name.span))
+            .map(|key| key.file)
+            .and_then(|file| self.program.files.get(file))
+            .map(|f| &f.module);
+        match module {
+            // The crate root's items are `crate::…` [rs-crate].
+            Some(module) if Some(module) == self.root_module => "crate".to_string(),
+            Some(module) => {
+                let mangled = module
+                    .0
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                format!("crate::{}", rs_ident(&mangled))
+            }
+            // The declaring module is unknown only if a table lost an entry;
+            // `self` still reaches a fn of this file.
+            None => "self".to_string(),
+        }
+    }
+
     /// The Rust name for a top-level fn [rs-fn-mangling]: Rust has no
     /// overloading, so after the qualifier-suffix rule (shared with
     /// Kotlin, [kt-qual-mangling]) any *still*-colliding overloads with
@@ -3108,6 +3143,9 @@ impl<'p> Emitter<'p> {
         let pad = "    ".repeat(indent);
         self.expr_indent = indent;
         match stmt {
+            // [fn-rename] Erased: a rename is a compile-time name for an
+            // overload the call sites already resolved [fn-overload-scope].
+            Stmt::Rename(_) => String::new(),
             Stmt::Let {
                 pattern,
                 ty,
@@ -4605,6 +4643,31 @@ impl<'p> Emitter<'p> {
             | Expr::Index { .. } => {
                 unreachable!("place expressions are handled by the callers")
             }
+            // [fn-overload-at] [fn-value-select] A scope-selected fn *value*
+            // (`describe@main`): the selector is erased — the checker
+            // recorded which declaration it means — so this renders like any
+            // named fn passed by value [fn-contract].
+            Expr::Scoped { name, .. } => {
+                let span = name.span;
+                match self
+                    .checked
+                    .fn_refs
+                    .get(&(self.file_idx, span))
+                    .copied()
+                    .and_then(|k| self.fn_by_key(k))
+                {
+                    Some(decl) => self.rust_fn_name(decl),
+                    None => {
+                        self.error(format!(
+                            "internal error: `{}@…` reached the Rust emitter \
+                             unresolved (the checker records the declaration a \
+                             scope-selected name means)",
+                            name.name
+                        ));
+                        "todo!()".to_string()
+                    }
+                }
+            }
             Expr::Call {
                 callee,
                 type_args,
@@ -5888,6 +5951,17 @@ impl<'p> Emitter<'p> {
         } else if let Expr::Ident(id) = callee {
             let arg_refs: Vec<&Expr> = args.iter().collect();
             self.emit_resolved_call(&id.name, type_args, &arg_refs, named, span)
+        } else if let Expr::Scoped { base, name, .. } = callee {
+            // [fn-overload-at] The scope selector narrowed *which*
+            // declaration the checker resolved, which `call_fn` already
+            // records; emission is the ordinary call, with the receiver
+            // folded in for the dot form [fn-dot].
+            let mut all_args: Vec<&Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            self.emit_resolved_call(&name.name, type_args, &all_args, named, span)
         } else {
             // Calling a computed value (lambda etc.): owned args [fn-lambda],
             // with its effects threaded first [fn-effects].
@@ -6516,12 +6590,23 @@ impl<'p> Emitter<'p> {
             all = hoisted;
             all.extend(implicit_args);
         }
-        // A call through an import alias keeps the alias [rs-imports].
-        let rs_name = if name != f.name.name {
+        // A call through an import alias keeps the alias [rs-imports]; a
+        // [fn-rename] rename is erased instead, so the call spells the
+        // declaration's own (mangled) name. The checker says which it is.
+        let renamed = self.checked.renamed_calls.contains(&(self.file_idx, span));
+        let mut rs_name = if name != f.name.name && !renamed {
             rs_ident(name)
         } else {
             self.rust_fn_name(f)
         };
+        // [rs-shadowed-call] [fn-overload-at] A **local of the same name** shadows the function
+        // in Rust's value namespace (E0618: "call expression requires
+        // function"), where Kotlin keeps the two in separate namespaces. Such
+        // a call is only reachable through `f@module(...)` — a plain call
+        // would have gone through the local — so it is spelled as a path.
+        if self.bindings.contains_key(name) {
+            rs_name = format!("{}::{rs_name}", self.fn_module_path(f));
+        }
         Self::wrap_hoisted(&prelude, format!("{rs_name}({})", all.join(", ")))
     }
 
@@ -7249,6 +7334,12 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 out.insert(id.name.clone());
             }
         }
+        // [fn-overload-at] Only the dot-notation receiver is an expression.
+        Expr::Scoped { base, .. } => {
+            if let Some(base) = base {
+                collect_mutated_expr(base, out);
+            }
+        }
         Expr::If {
             branches,
             else_block,
@@ -7512,6 +7603,12 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             collect_declared_expr(base, out)
         }
+        // [fn-overload-at] Only the dot-notation receiver is an expression.
+        Expr::Scoped { base, .. } => {
+            if let Some(base) = base {
+                collect_declared_expr(base, out);
+            }
+        }
         Expr::Index { base, index, .. } => {
             collect_declared_expr(base, out);
             collect_declared_expr(index, out);
@@ -7656,6 +7753,7 @@ fn expr_terminates(expr: &Expr) -> bool {
         | Expr::NonNull { .. }
         | Expr::PostIncrement { .. }
         | Expr::Spread { .. }
+        | Expr::Scoped { .. }
         | Expr::Error { .. } => false,
     }
 }

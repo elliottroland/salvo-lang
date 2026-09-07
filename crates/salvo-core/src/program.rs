@@ -68,6 +68,10 @@ impl<'p> Symbols<'p> {
             for item in &unit.ast.items {
                 match item {
                     Item::Fn(f) => symbols.fns.entry(&f.name.name).or_default().push(f),
+                    // [fn-rename] A rename introduces no declaration: it is a
+                    // scope-local name for one that already exists, and it is
+                    // erased before emission.
+                    Item::Rename(_) => {}
                     Item::Struct(s) => {
                         symbols.structs.insert(&s.name.name, s);
                     }

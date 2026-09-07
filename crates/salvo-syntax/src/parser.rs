@@ -422,6 +422,8 @@ impl<'s> Parser<'s> {
             // statement about a function, which is how conflicting
             // refinements from two qualifiers get reconciled.
             TokenKind::KwRefn => self.parse_refn().map(Item::Refn),
+            // [fn-rename] A module-scoped name for one overload.
+            TokenKind::KwRename => self.parse_rename().map(Item::Rename),
             TokenKind::KwParams => self.parse_params_group().map(Item::Params),
             TokenKind::KwFn => {
                 let f = self.parse_fn(false)?;
@@ -711,6 +713,77 @@ impl<'s> Parser<'s> {
     /// qualifiers. Each of the three omissions is a diagnostic naming the
     /// reason rather than a bare parse error, since each is a plausible
     /// thing to try.
+    /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)`.
+    ///
+    /// The parameter list is there to pick one overload, so it repeats the
+    /// parameters exactly — same names, same types [qual-refn-match]. What it
+    /// may *not* repeat is anything that plays no part in selection: an
+    /// effect list, a deduction list, or a return type. Each is reported by
+    /// name, since writing one is a reasonable guess about how this works.
+    fn parse_rename(&mut self) -> Option<RenameDecl> {
+        let docs = self.docs_here();
+        let start = self.expect(&TokenKind::KwRename)?.span;
+        self.expect(&TokenKind::KwFn)?;
+        let name = self.ident_value("renamed function")?;
+        self.expect(&TokenKind::Eq)?;
+        let target = self.ident_value("function")?;
+        let generics = self.parse_generics();
+        let (params, implicit_groups) = self.parse_params()?;
+        // [implicit-param] Implicits play no part in selection either, so a
+        // group spread here is the same mistake as an effect list.
+        if !implicit_groups.is_empty() {
+            let span = name.span;
+            self.error(
+                format!(
+                    "`rename fn {}` names an overload by its ordinary \
+                     parameters: implicit parameters take no part in choosing \
+                     one, so `?Group` does not belong here",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        }
+        let params_end = params
+            .last()
+            .map(|p| p.span)
+            .unwrap_or(target.span);
+        if self.at(&TokenKind::LBracket) && self.same_line() {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "`rename fn {}` names an overload by its parameters, so it \
+                     takes no effect or deduction list: neither takes part in \
+                     choosing an overload",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        }
+        if self.at(&TokenKind::Arrow) && self.same_line() {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "`rename fn {}` names an overload by its parameters, so it \
+                     takes no return type: overloads are never chosen by what \
+                     they return",
+                    name.name
+                ),
+                span,
+            );
+            return None;
+        }
+        Some(RenameDecl {
+            docs,
+            name,
+            target,
+            generics,
+            params,
+            span: start.to(params_end),
+        })
+    }
+
     fn parse_refn(&mut self) -> Option<RefnDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwRefn)?.span;
@@ -1468,6 +1541,8 @@ impl<'s> Parser<'s> {
     fn parse_stmt(&mut self) -> Option<Stmt> {
         match self.kind() {
             TokenKind::KwLet => self.parse_let(),
+            // [fn-rename] In force from here to the end of the block.
+            TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
             TokenKind::KwReturn => {
                 let start = self.bump().span;
                 let value = if self.stmt_value_follows() {
@@ -2023,6 +2098,53 @@ impl<'s> Parser<'s> {
                         base: Box::new(expr),
                         field,
                         span,
+                    };
+                }
+                // [fn-overload-at] `name@core.list(...)`: the module whose
+                // overload is meant. Written on the *name*, so it attaches
+                // to an identifier or to the field of a dot-notation call.
+                TokenKind::At if self.same_line() => {
+                    let at = self.bump().span;
+                    let mut module = vec![self.ident()?];
+                    while self.at(&TokenKind::Dot) && self.same_line() {
+                        // A dot after the module path may belong to the path
+                        // (`core.list`) or to a following field access; a
+                        // module segment is always a lowercase name, and so
+                        // is a field, so the path simply takes them all —
+                        // `f@a.b.c(x)` names module `a.b.c`.
+                        self.bump();
+                        module.push(self.ident()?);
+                    }
+                    let end = module.last().unwrap().span;
+                    expr = match expr {
+                        Expr::Ident(name) => {
+                            let span = name.span.to(end);
+                            Expr::Scoped {
+                                base: None,
+                                name,
+                                module,
+                                span,
+                            }
+                        }
+                        Expr::Field { base, field, .. } => {
+                            let span = base.span().to(end);
+                            Expr::Scoped {
+                                base: Some(base),
+                                name: field,
+                                module,
+                                span,
+                            }
+                        }
+                        other => {
+                            self.error(
+                                "`@` selects which module's overload a *name* \
+                                 means, so it follows a function name \
+                                 (`add@core.list(x)`) or a dot-notation call \
+                                 (`xs.add@core.list(x)`)",
+                                at,
+                            );
+                            other
+                        }
                     };
                 }
                 TokenKind::LParen if self.same_line() => {

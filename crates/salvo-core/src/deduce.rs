@@ -809,6 +809,14 @@ impl<'p> Walk<'_, 'p> {
             Expr::Call {
                 callee, args, span, ..
             } => self.call(callee, args, *span),
+            // [fn-overload-at] A scope-selected callee only appears inside a
+            // `Call` (or as a fn value, which moves nothing); the receiver of
+            // its dot form is an ordinary read.
+            Expr::Scoped { base, .. } => {
+                if let Some(base) = base {
+                    self.expr(base);
+                }
+            }
             // Struct/array/tuple construction stores the value.
             Expr::StructLit { fields, .. } => {
                 for f in fields {

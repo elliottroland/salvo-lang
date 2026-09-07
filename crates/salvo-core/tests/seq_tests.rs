@@ -1,4 +1,4 @@
-//! [seq-iterable] [implicit-group] [implicit-infer] [fn-overload-specific] The sequence
+//! [seq-iterable] [implicit-group] [implicit-infer] [fn-overload-rank] The sequence
 //! functions — `map`, `filter`, `reduce` — and what makes them work over
 //! *anything iterable*.
 //!
@@ -199,7 +199,7 @@ fn a_subject_with_no_iter_is_an_error() {
 
 // ===== the fast path, and what picks it =====
 
-/// [fn-overload-specific] With a `List` subject the *intrinsic* overload
+/// [fn-overload-rank] With a `List` subject the *intrinsic* overload
 /// wins: `List<T>` is more specific than a bare `It`. This is the case O1
 /// was taken for.
 #[test]
@@ -216,7 +216,7 @@ fn other_subjects_pick_the_generic_body() {
     assert!(!picked_fast_path(&src, "map"), "expected the generic overload");
 }
 
-/// [fn-overload-specific] The lead candidate is re-narrowed *per argument*,
+/// [fn-overload-rank] The lead candidate is re-narrowed *per argument*,
 /// which is what makes the array case above work at all: the `List`
 /// candidate leads on specificity, and typing the subject has to drop it
 /// before the lambda is checked against `List<T>`'s element type.

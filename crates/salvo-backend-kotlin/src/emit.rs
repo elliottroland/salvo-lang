@@ -1667,6 +1667,9 @@ impl<'p> Emitter<'p> {
         let pad = "    ".repeat(indent);
         self.expr_indent = indent;
         match stmt {
+            // [fn-rename] Erased: a rename is a compile-time name for an
+            // overload the call sites already resolved [fn-overload-scope].
+            Stmt::Rename(_) => String::new(),
             Stmt::Let {
                 pattern,
                 ty,
@@ -2652,6 +2655,11 @@ impl<'p> Emitter<'p> {
                     kt_ident(&id.name)
                 }
             }
+            // [fn-overload-at] [fn-value-select] A scope-selected fn *value*
+            // (`describe@main`): the selector is erased — the checker already
+            // recorded which declaration it means — so this is the ordinary
+            // function reference.
+            Expr::Scoped { name, .. } => self.named_fn_value(&name.name, name.span),
             Expr::Field { base, field, span } => {
                 let code = format!("{}.{}", self.emit_expr(base), kt_ident(&field.name));
                 // Predicate-qualifier field overrides cast + assert.
@@ -3294,7 +3302,18 @@ impl<'p> Emitter<'p> {
     /// function reference when the effect lists line up, an adapter lambda
     /// when they do not.
     fn named_fn_value(&mut self, name: &str, span: Span) -> String {
-        let reference = format!("::{}", kt_ident(name));
+        // [fn-value-select] [fn-rename] The *declaration* decides the emitted
+        // name: an overloaded name is mangled [kt-fn-mangling], and a renamed
+        // one does not exist in the output at all.
+        let target = self
+            .checked
+            .fn_refs
+            .get(&(self.file_idx, span))
+            .copied()
+            .and_then(|k| self.fn_by_key(k))
+            .map(|decl| self.kotlin_fn_name(decl))
+            .unwrap_or_else(|| kt_ident(name));
+        let reference = format!("::{target}");
         let taken: Vec<Ty> = self
             .checked
             .lambda_effects
@@ -3516,6 +3535,20 @@ impl<'p> Emitter<'p> {
         if let Expr::Ident(id) = callee {
             let arg_refs: Vec<&Expr> = args.iter().collect();
             return self.emit_resolved_call(&id.name, type_args, &arg_refs, named, span);
+        }
+
+        // [fn-overload-at] `f@core.list(x)` / `xs.f@core.list(y)`: the scope
+        // selector is a *checker* mechanism — it only narrowed which
+        // declaration the call resolves to, which `call_fn` already records
+        // — so emission is the ordinary call, with the receiver folded in for
+        // the dot form [fn-dot].
+        if let Expr::Scoped { base, name, .. } = callee {
+            let mut all_args: Vec<&Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            return self.emit_resolved_call(&name.name, type_args, &all_args, named, span);
         }
 
         // Calling a computed value (lambda etc.) — [fn-effects] threads its
@@ -4049,7 +4082,11 @@ impl<'p> Emitter<'p> {
         // A mangled qualified overload keeps the same `__Qual` suffix on
         // the alias [kt-qual-mangling].
         let kotlin_name = self.kotlin_fn_name(f);
-        let kt_name = if name != f.name.name {
+        // [fn-rename] A rename is erased: the call spells the declaration's
+        // own (mangled) name, where an *alias* import keeps the alias
+        // [kt-imports]. The checker says which of the two this is.
+        let renamed = self.checked.renamed_calls.contains(&(self.file_idx, span));
+        let kt_name = if name != f.name.name && !renamed {
             aliased_symbol(&kotlin_name, &f.name.name, name)
         } else {
             kotlin_name
@@ -4444,6 +4481,12 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::PostIncrement { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
+            }
+        }
+        // [fn-overload-at] Only the dot-notation receiver is an expression.
+        Expr::Scoped { base, .. } => {
+            if let Some(base) = base {
+                collect_mutated_expr(base, out);
             }
         }
         Expr::If {

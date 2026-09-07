@@ -80,6 +80,15 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
     for item in &module.items {
         match item {
             Item::Fn(f) => fn_names(f, &mut used),
+            // [fn-rename] The renamed function's name and its parameter types
+            // are mentioned, so whatever module declares them is reached
+            // [mod-used-only].
+            Item::Rename(r) => {
+                used.insert(&r.target.name);
+                for p in &r.params {
+                    type_names(&p.ty, &mut used);
+                }
+            }
             Item::Struct(s) => {
                 for q in &s.auto_qualifiers {
                     type_ref_names(q, &mut used);
@@ -230,6 +239,13 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
                 }
                 expr_names(value, used);
             }
+            // [fn-rename]
+            Stmt::Rename(r) => {
+                used.insert(&r.target.name);
+                for p in &r.params {
+                    type_names(&p.ty, used);
+                }
+            }
             Stmt::Assign { target, value, .. } => {
                 expr_names(target, used);
                 expr_names(value, used);
@@ -265,6 +281,14 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             expr_names(base, used)
+        }
+        // [fn-overload-at] `f@core.list(x)` uses the name *and* names the
+        // module explicitly — both matter for reachability [mod-used-only].
+        Expr::Scoped { base, name, .. } => {
+            used.insert(&name.name);
+            if let Some(base) = base {
+                expr_names(base, used);
+            }
         }
         Expr::Call {
             callee,

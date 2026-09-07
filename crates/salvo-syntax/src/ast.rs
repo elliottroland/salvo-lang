@@ -33,6 +33,8 @@ pub enum Item {
     /// *consumer* rather than by a qualifier, which is how two
     /// conflicting refinements are reconciled in one's own module.
     Refn(RefnDecl),
+    /// `rename fn add2 = add(a: Int, b: Int)` [fn-rename].
+    Rename(RenameDecl),
 }
 
 /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`
@@ -60,6 +62,32 @@ pub struct RefnDecl {
     pub generics: Vec<Ident>,
     pub params: Vec<Param>,
     pub deductions: Vec<RefnDeduction>,
+    pub span: Span,
+}
+
+/// [fn-rename] `rename fn add2 = add(a: Int | Str, b: Int | Str)`: a
+/// scope-local name for **one** overload, which from that point on stops
+/// answering to its own name (user decision 2026-09-07). Not an alias: the
+/// renamed overload leaves the `add` candidate set for the rest of the
+/// scope, which is what makes it a way *out* of an ambiguity rather than a
+/// second way in.
+///
+/// The parameter list identifies the overload and nothing else — same names,
+/// same types, type parameters positional, as `refn` matches [qual-refn-match].
+/// Effects, deductions and a return type may not be written: none of them
+/// takes part in selecting an overload, so writing one could only be wrong.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RenameDecl {
+    /// The `//` comment block above the declaration [doc-comment].
+    pub docs: Vec<String>,
+    /// The new name.
+    pub name: Ident,
+    /// The overload's own name.
+    pub target: Ident,
+    /// Type parameters written on the rename, matched positionally against
+    /// the declaration's.
+    pub generics: Vec<Ident>,
+    pub params: Vec<Param>,
     pub span: Span,
 }
 
@@ -528,7 +556,11 @@ pub enum Stmt {
     /// [defer]. Its meaning is *splice at exit*: the body runs at every
     /// exit of the enclosing block (the end of the block, and each
     /// `return`/`break`/`continue` that leaves it), latest `defer` first.
-    Defer { body: Block, span: Span },    /// A bare expression statement.
+    Defer { body: Block, span: Span },
+    /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)` inside a block:
+    /// in force from this line to the end of the enclosing scope.
+    Rename(RenameDecl),
+    /// A bare expression statement.
     Expr(Expr),
 }
 
@@ -586,6 +618,19 @@ pub enum Expr {
     },
     /// `callee(args)` — including dot-notation `list.size()` which is kept
     /// as a `Field` callee and normalized later.
+    /// [fn-overload-at] `add@core.list(x)`, or `xs.add@core.list(x)` in dot
+    /// form: the *module* whose overload is meant, written where scope
+    /// precedence would otherwise choose [fn-overload-scope]. Also valid as
+    /// a value (`describe@main` passed to a higher-order function), which is
+    /// how an overloaded name is disambiguated in a non-call position.
+    Scoped {
+        /// The dot-notation receiver, when written as `base.name@module(..)`.
+        base: Option<Box<Expr>>,
+        name: Ident,
+        /// The module path, as written (`core.list`).
+        module: Vec<Ident>,
+        span: Span,
+    },
     Call {
         callee: Box<Expr>,
         /// Explicit generic args: `next_random<Int>()`.
@@ -811,6 +856,7 @@ impl Expr {
             | Expr::Str { span, .. }
             | Expr::Field { span, .. }
             | Expr::TupleIndex { span, .. }
+            | Expr::Scoped { span, .. }
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
             | Expr::ArrayLit { span, .. }

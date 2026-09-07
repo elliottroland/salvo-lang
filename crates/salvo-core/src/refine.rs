@@ -651,6 +651,69 @@ fn base_names<'t>(ty: &'t Type, out: &mut Vec<&'t Ident>) {
 /// A parameter list rendered for overload matching [qual-refn-match]: each
 /// parameter's name, flags and type, with type parameters replaced by their
 /// *position*, so a refinement need not use the same names.
+/// [fn-rename] [qual-refn-match] Which visible overload a written parameter
+/// list names: same parameter names, same types, type parameters matched by
+/// position. The one matcher for both mechanisms that name an overload — a
+/// refinement and a rename — so the two cannot drift.
+///
+/// `Err` carries the visible candidates' shapes, for the diagnostic.
+pub(crate) fn match_overload<'p>(
+    scope: &crate::resolve::ModuleScope<'p>,
+    name: &str,
+    generics: &[salvo_syntax::ast::Ident],
+    params: &[Param],
+) -> Result<crate::resolve::FnEntry<'p>, Vec<String>> {
+    let gnames: Vec<&str> = generics.iter().map(|g| g.name.as_str()).collect();
+    let want = signature(params, &gnames);
+    let candidates = scope.fns.get(name).map(|v| v.as_slice()).unwrap_or(&[]);
+    let matched: Vec<&crate::resolve::FnEntry<'p>> = candidates
+        .iter()
+        .filter(|c| {
+            let mut cg: Vec<&str> = c.decl.generics.iter().map(|g| g.name.as_str()).collect();
+            for (g, _) in &c.decl.generic_canbe {
+                if !cg.contains(&g.name.as_str()) {
+                    cg.push(g.name.as_str());
+                }
+            }
+            signature(&c.decl.params, &cg) == want
+        })
+        .collect();
+    match matched.as_slice() {
+        [one] => Ok(**one),
+        _ => Err(candidates
+            .iter()
+            .map(|c| {
+                let ps: Vec<String> = c
+                    .decl
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name.name, p.ty))
+                    .collect();
+                format!("`{name}({})`", ps.join(", "))
+            })
+            .collect()),
+    }
+}
+
+/// [fn-overload-duplicate] A parameter list as *overload identity*: the
+/// types only, with type parameters positional and the `...`/`?` markers
+/// kept. Two declarations of one name that agree here are duplicates —
+/// nothing at a call site could ever tell them apart, since parameter names
+/// and return types take no part in selection [fn-overload-rank].
+pub(crate) fn param_type_signature(params: &[Param], generics: &[&str]) -> Vec<String> {
+    params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}{}{}",
+                if p.variadic { "..." } else { "" },
+                if p.implicit { "?" } else { "" },
+                normalize(&p.ty, generics)
+            )
+        })
+        .collect()
+}
+
 fn signature(params: &[Param], generics: &[&str]) -> Vec<String> {
     params
         .iter()

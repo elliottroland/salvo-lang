@@ -2777,11 +2777,11 @@ qualifier Err<T> of T
 
 type Result = Ok Int | Err Str
 
-fn ok<T>(value: T) -> T as Ok {
+fn tag_ok<T>(value: T) -> T as Ok {
     return value
 }
 
-fn err<T>(value: T) -> T as Err {
+fn tag_err<T>(value: T) -> T as Err {
     return value
 }
 
@@ -2794,15 +2794,15 @@ fn describe(r: Result) -> Str {
 
 fn main() [use] -> [] None {
     use StdOutConsole
-    let arr: Result[] = [ok(1), err("a")]
+    let arr: Result[] = [tag_ok(1), tag_err("a")]
     for x in arr {
         println(describe(x))
     }
-    let tup: (Str, Result) = ("t", ok(2))
+    let tup: (Str, Result) = ("t", tag_ok(2))
     let (label, r) = tup
     println(describe(r))
     let make: (flag: Bool) -> Result = (flag: Bool) -> {
-        return if flag { ok(3) } else { err("b") }
+        return if flag { tag_ok(3) } else { tag_err("b") }
     }
     println(describe(make(true)))
     println(describe(make(false)))
@@ -2820,9 +2820,9 @@ fn union_coercion_in_array_tuple_lambda() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     for needle in [
-        "arrayOf(U2_1<Int, String>(ok(1)), U2_2<Int, String>(err(\"a\")))",
-        "Pair(\"t\", U2_1<Int, String>(ok(2)))",
-        "U2_1<Int, String>(ok(3))",
+        "arrayOf(U2_1<Int, String>(tag_ok(1)), U2_2<Int, String>(tag_err(\"a\")))",
+        "Pair(\"t\", U2_1<Int, String>(tag_ok(2)))",
+        "U2_1<Int, String>(tag_ok(3))",
     ] {
         assert!(
             main.content.contains(needle),
@@ -4723,7 +4723,7 @@ fn a_refinement_conflict_warns_without_stopping_emission() {
     );
 }
 
-// ===== [fn-overload-specific] O1: concrete beats generic =====
+// ===== [fn-overload-rank] O1: concrete beats generic =====
 
 /// Two matching overloads, the generic one declared first. Before O1 the
 /// checker picked by declaration order, so this program printed `generic`
@@ -5067,4 +5067,109 @@ fn kotlinc_compiles_and_runs_sequences() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "sequences", SEQ_DEMO_OUTPUT);
+}
+
+// ===== [fn-overload-at] [fn-rename] the caller's two overrides =====
+
+/// A program that overrides overload resolution both ways: a module-level
+/// `size` that shadows std's, `@module` to reach past it (and past a local of
+/// the same name), and a `rename` that gives one of two unrankable overloads
+/// a name of its own. Both are **compile-time only** — the checker records
+/// which declaration each call means and mangling keeps the target from
+/// re-resolving anything [kt-fn-mangling] — so the point of the pair is that
+/// the two backends produce the same answers from the same source.
+const OVERLOAD_OVERRIDE_DEMO: &str = r#"
+qualifier Even of Int with Small {
+    fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
+}
+
+qualifier Small of Int with Even {
+    fn qualifies(n: Int) -> Bool { return n < 10 }
+}
+
+fn size<T>(list: List<T>) -> [list] Str {
+    return "mine"
+}
+
+fn label(n: Even Int) -> [n] Str {
+    return "even"
+}
+
+fn label(n: Small Int) -> [n] Str {
+    return "small"
+}
+
+// The two `label`s are unrankable — one qualifier each, and the *kind* of
+// qualifier never ranks — so one of them takes a name of its own.
+rename fn label_small = label(n: Small Int)
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3)
+    // This module's `size` wins; `@core.list` reaches std's.
+    println(size(xs))
+    println("core: ${size@core.list(xs)}")
+    println("dot: ${xs.size@core.list()}")
+    let n = 4
+    if n is Even && n is Small {
+        println("${label(n)} ${label_small(n)}")
+    }
+    // A local shadows every function of that name — `@` is the way out.
+    let describe = "a local"
+    println(describe)
+    println(describe@main(7))
+}
+
+fn describe(n: Int) -> Str {
+    return "fn ${n}"
+}
+"#;
+
+const OVERLOAD_OVERRIDE_OUTPUT: &str = "mine\ncore: 3\ndot: 3\neven small\na local\nfn 7\n";
+
+/// [fn-overload-at] [fn-rename] Neither override survives into the output:
+/// the calls emit the ordinary (mangled) names of the declarations the
+/// checker resolved.
+#[test]
+fn scope_selectors_and_renames_are_erased() {
+    let program = build_program(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    // No `@` and no renamed name reaches Kotlin.
+    assert!(!main.contains('@'), "unexpected `@` in:\n{main}");
+    assert!(!main.contains("label_small"), "unexpected rename in:\n{main}");
+    // `size@core.list(xs)` is std's `size` — the mangled one, since this
+    // program declares its own.
+    assert!(
+        main.contains("println(console, \"core: ${xs.size}\")"),
+        "unexpected:\n{main}"
+    );
+    // The renamed overload is called by its declaration's mangled name —
+    // both `label`s are mangled, since they are overloads of one name
+    // [kt-fn-mangling].
+    assert!(
+        main.contains("${label__Even(n)} ${label__Small(n)}"),
+        "unexpected:\n{main}"
+    );
+    // A call reaching past a local of the same name needs nothing special
+    // here: Kotlin keeps functions and properties in separate namespaces.
+    assert!(main.contains("println(console, describe(7))"), "unexpected:\n{main}");
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_overload_overrides() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
 }

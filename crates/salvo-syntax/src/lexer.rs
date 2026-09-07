@@ -451,6 +451,8 @@ impl<'s> Lexer<'s> {
             ('/', _) => TokenKind::Slash,
             ('%', _) => TokenKind::Percent,
             ('^', _) => TokenKind::Caret,
+            // [fn-overload-at] `add@core.list(x)`: which module's overload.
+            ('@', _) => TokenKind::At,
             _ => {
                 let span = Span::new(start, self.offset());
                 self.error(format!("unexpected character `{c}`"), span);

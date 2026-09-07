@@ -14,8 +14,8 @@ use std::collections::HashMap;
 
 use salvo_syntax::ast::{
     ParamsDecl,
-    EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, StructDecl,
-    TypeDecl,
+    EffectDecl, FnDecl, HandlerDecl, ImportDecl, Item, QualifierDecl, RefnDecl, RenameDecl,
+    StructDecl, TypeDecl,
 };
 
 use crate::diag::FileDiagnostic;
@@ -35,6 +35,41 @@ pub struct FnKey {
 pub struct FnEntry<'p> {
     pub key: FnKey,
     pub decl: &'p FnDecl,
+    /// [fn-overload-scope] Which rung of the visibility ladder brought this
+    /// overload into scope. Overload selection prefers the *most specific*
+    /// rung that has a candidate matching the arguments, so a module's own
+    /// `map` wins over `core`'s without either being an error.
+    pub rung: Rung,
+    /// The module that declares it — what `f@core.list(...)` names
+    /// [fn-overload-at], and what the scope-override warning points at.
+    pub module: &'p ModulePath,
+}
+
+/// [fn-overload-scope] The visibility ladder, least specific first (user
+/// decision 2026-09-07). The rungs above `Own` are not overload sets and so
+/// are not listed here: a fn-typed local, parameter or implicit shadows a
+/// name outright (it *is* the function the caller chose), an effect member
+/// takes the name before any fn does, and a `rename` introduces a fresh
+/// name [fn-rename].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rung {
+    /// Implicitly visible `core.*`.
+    Core,
+    /// Named by an `import` in this file.
+    Import,
+    /// Declared by this file's own module.
+    Own,
+}
+
+impl Rung {
+    /// How the rung reads in a diagnostic.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Rung::Core => "the standard library",
+            Rung::Import => "an import in this file",
+            Rung::Own => "this module",
+        }
+    }
 }
 
 /// Where a declaration's *name* is written [lsp-definition]: the file it
@@ -66,6 +101,12 @@ pub struct ModuleScope<'p> {
     /// *inside* a qualifier needs no entry here — it travels with the
     /// qualifier, so `qualifiers` already carries it.)
     pub refns: Vec<&'p RefnDecl>,
+    /// [fn-rename] `rename fn` declarations of this file's *own module*,
+    /// module-scoped and deliberately not importable: a rename removes an
+    /// overload from a name, and a library shipping that decision would take
+    /// it away from the consumer who has to live with it (the same reasoning
+    /// as a top-level `refn`).
+    pub renames: Vec<&'p RenameDecl>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
     /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
@@ -139,6 +180,8 @@ struct ModuleItems<'p> {
     /// collected per module and added to the scope of every file of that
     /// module — and to no other.
     refns: Vec<&'p RefnDecl>,
+    /// [fn-rename] Module-scoped, like `refns`.
+    renames: Vec<&'p RenameDecl>,
     type_aliases: Vec<(usize, &'p TypeDecl)>,
     opaque_types: Vec<(usize, &'p TypeDecl)>,
 }
@@ -250,6 +293,18 @@ enum Level {
     Import,
 }
 
+impl Level {
+    /// [fn-overload-scope] The same distinction, as the ladder rung an
+    /// overload entry records.
+    fn rung(self) -> Rung {
+        match self {
+            Level::Core => Rung::Core,
+            Level::Own => Rung::Own,
+            Level::Import => Rung::Import,
+        }
+    }
+}
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
@@ -273,6 +328,8 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 // [qual-refn-scope] A top-level refinement belongs to its
                 // module, not to a name: there is nothing to import.
                 Item::Refn(r) => items.refns.push(r),
+                // [fn-rename] Module-scoped too, and not importable.
+                Item::Rename(r) => items.renames.push(r),
                 // An `intrinsic type` is opaque (the backend maps it);
                 // anything else is an alias, since a bodiless
                 // non-intrinsic `type` is a parse error [decl-body].
@@ -376,6 +433,47 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
+    // [fn-overload-duplicate] Two fns of one module with the same name *and*
+    // the same parameter types are duplicates, not overloads: nothing at a
+    // call site could tell them apart, since neither parameter names nor
+    // return types take part in selection [fn-overload-rank]. Reported at the
+    // second declaration (user decision 2026-09-07).
+    {
+        let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
+        sorted_modules.sort_by_key(|m| m.to_string());
+        for module in sorted_modules {
+            let items = &by_module[*module];
+            let mut seen: HashMap<(&str, Vec<String>), Span> = HashMap::new();
+            for (key, f) in &items.fns {
+                let mut generics: Vec<&str> =
+                    f.generics.iter().map(|g| g.name.as_str()).collect();
+                for (g, _) in &f.generic_canbe {
+                    if !generics.contains(&g.name.as_str()) {
+                        generics.push(g.name.as_str());
+                    }
+                }
+                let sig = crate::refine::param_type_signature(&f.params, &generics);
+                if seen.contains_key(&(f.name.name.as_str(), sig.clone())) {
+                    let shown = sig.join(", ");
+                    errors.push(FileDiagnostic::error(
+                        key.file,
+                        f.name.span,
+                        format!(
+                            "duplicate fn `{}({shown})` in module `{module}`: an \
+                             overload set is distinguished by parameter *types*, \
+                             so this one could never be called. Parameter names \
+                             and return types take no part in choosing an \
+                             overload [fn-overload-rank]",
+                            f.name.name
+                        ),
+                    ));
+                    continue;
+                }
+                seen.insert((f.name.name.as_str(), sig), f.name.span);
+            }
+        }
+    }
+
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
@@ -403,6 +501,10 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             // from `core.*` (which is visible everywhere) and not through
             // an import.
             scope.refns.extend(items.refns.iter().copied());
+            // [fn-rename] Module-scoped and order-independent, like every
+            // other module-level declaration: a module-level rename is in
+            // force for the whole module, in every file of it.
+            scope.renames.extend(items.renames.iter().copied());
         }
         // Explicit imports.
         for item in &ast.items {
@@ -631,7 +733,12 @@ fn add_items<'p>(
                 .fns
                 .entry(name)
                 .or_default()
-                .push(FnEntry { key: *key, decl: f });
+                .push(FnEntry {
+                    key: *key,
+                    decl: f,
+                    rung: level.rung(),
+                    module,
+                });
             origin(name, scope);
         }
     }

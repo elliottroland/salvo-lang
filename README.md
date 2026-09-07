@@ -126,8 +126,11 @@ fn main() [use] {
 - **Scope exits**: `defer { ... }` runs a block when the enclosing block
   ends — at its end and at every `return`/`break`/`continue` that leaves
   it, latest first — so a resource is released once, on every path.
-- **Functions**: overloading by argument types — the most specific overload
-  wins, and an ambiguity is an error rather than a coin flip — dot-notation
+- **Functions**: overloading by argument types — the most specific *scope*
+  wins first (`core`, then imports, then your module, then the function's own
+  scope), then the most specific signature; an ambiguity is an error, and the
+  caller picks with `size@core.list(xs)` or `rename fn size2 = size(...)` —
+  dot-notation
   (`list.size()` ≡ `size(list)`), variadics, lambdas, generics, and
   `yield`-based iterator functions. `map`/`filter`/`reduce` work on anything
   with an `iter`: `params Iterable<It, T>` is a bundle of implicit
