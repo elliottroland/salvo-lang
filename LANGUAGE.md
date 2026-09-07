@@ -1081,16 +1081,24 @@ for str in iter(list) {
 > iterators (decided 2026-09-07)".
 
 The iteration protocol becomes ordinary Salvo instead of a pair of
-intrinsics. `next` returns a `Next T | Stopped` union and takes the pass
-it advances, so `has_next`/`next` above are retired and an iterator can
-be written *by hand* — which is how you get the ones `yield` cannot
+intrinsics. `next` returns an `Emitted T | Finished` union and takes the
+pass it advances, so `has_next`/`next` above are retired and an iterator
+can be written *by hand* — which is how you get the ones `yield` cannot
 express, like `zip` and `merge`, since they read two sources at once:
 
 ```
+qualifier Emitted<T> of T
+struct Finished {}
+
 params Iterator<St, T> {
-    fn next(st: Mut St) -> [st: Mut] Next T | Stopped
+    fn next(st: Mut St) -> [st: Mut] Emitted T | Finished
 }
 ```
+
+`Emitted` is a qualifier so the element keeps its own type, which is also
+what keeps the end of a sequence of optionals distinguishable: `Emitted
+None | Finished` has two arms where `None | None` would have one.
+`Finished` is a fieldless struct because it has nothing to qualify.
 
 An iterator function's body still uses `yield`; the compiler lowers it to
 a state struct with a `next` of its own, rather than borrowing the target
@@ -1114,19 +1122,25 @@ A hand-written iterator says `Once` for itself. Declaring a `next` for a
 struct of your own is what makes `zip` and `merge` writable, but it does
 not by itself make the struct a pass: `next` says the value can be
 advanced, `Once` says advancing it uses it up, and only you know whether
-that is true. So driving a value that has a `next` and no `Once` is an
-error, and it names the remedy:
+that is true. So the struct opts in with `canbe Once`, its builder applies
+the qualifier, and driving a value that has a `next` and neither is an
+error naming the remedy:
 
 ```
-struct Zip<A, B> { ... }
-fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Next (A, B) | Stopped { ... }
+struct Zip<A, B> canbe Mut, Once {
+    ...
+}
 
-fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
+fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished { ... }
 
-for pair in zip(names, ages) { ... }   // ERROR: `Zip<A, B>` has a `next`
-                                       // but is not a pass — return
-                                       // `Once Zip<A, B>`
+fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Once Zip<A, B> { ... }
+
+for pair in zip(names, ages) { ... }   // drives the pass, consuming it
 ```
+
+Leave the `Once` off `zip`'s return type and the `for` reports it:
+``` `Zip<A, B>` has a `next` but is not a pass: driving it uses it up, so it
+has to be declared `Once Zip<A, B>` ```.
 
 **Where two iterators meet, the compiler boxes.** Each iterator function
 gets its *own* state type. A position that must hold either of two
@@ -1475,7 +1489,7 @@ size(xs)             // ERROR: xs was consumed by the lambda; copy first
 
 **Function types carry contracts.** A higher-order function can state what the function it receives does to its arguments, using the same deduction syntax as ordinary signatures — name the parameter and write the list: `fn apply(f: (v: List<Int>) -> [] Int, data: List<Int>)` demands a function that *consumes* its argument (so `f(data)` consumes `data`, and calling it twice with the same value is an error), while `f: (v: List<Int>) -> [v] Int` demands one that *keeps* it (call it as often as you like; the caller keeps the argument). An unannotated function type keeps everything. A lambda checked against a keeping contract cannot consume its parameters (`copy` if needed), and a named function passed by value is checked with its real deductions — a consuming function never sneaks into a keeping position (the reverse is fine: keeping more than required never hurts). On the Rust backend this decides the physical calling convention — borrowed argument types for keeping contracts, owned for consuming, `&mut impl FnMut` for the function value itself — while Kotlin's aliases need no change.
 
-A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it, and an `Iter<T>` is used by driving it, which is how a one-shot iterator is spelled (`Once Iter<Int>`; see [Iterator functions](#iterator-functions)). Those two are the only places it may be written. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
+A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it, and an `Iter<T>` is used by driving it, which is how a one-shot iterator is spelled (`Once Iter<Int>`; see [Iterator functions](#iterator-functions)). A type of your own reaches the same place by opting in — `struct Countdown canbe Mut, Once` — the way it opts into mutability; those three are the only places `Once` may be written, and the opt-in is the author's call because an obligation should not attach to a type on the strength of a method name. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
 
 One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
 

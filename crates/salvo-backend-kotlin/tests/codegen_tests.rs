@@ -432,6 +432,30 @@ fn expect_errors(src: &str) -> Vec<String> {
         .expect("expected type errors")
 }
 
+/// [iter-protocol] [backend-never-wrong] Same as the Rust backend: the
+/// checker resolves a `for` over a hand-written **pass** and records the
+/// `next` it would drive, but the driving loop is not lowered yet (phase
+/// I2c). Kotlin's own `for` would reject such a subject too, and letting
+/// kotlinc be the one to notice is what the invariant forbids.
+#[test]
+fn driving_a_hand_written_pass_is_a_codegen_error() {
+    let errors = expect_errors(
+        "struct Countdown canbe Mut, Once {\n    at: Int\n}\n\
+         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
+         if c.at <= 0 { return finished() }\n\
+         let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}\n\
+         fn countdown(from: Int) -> Once Countdown { return Countdown { at: from } }\n\
+         fn main() [use] {\n    use StdOutConsole()\n\
+         for n in countdown(3) { println(\"n ${n}\") }\n}\n",
+    );
+    assert!(
+        errors.iter().any(|e| {
+            e.contains("driving a hand-written pass") && e.contains("not supported yet")
+        }),
+        "expected the pass-driving rejection, got: {errors:?}"
+    );
+}
+
 // [qual-no-dup]
 #[test]
 fn duplicate_qualifier_is_rejected() {

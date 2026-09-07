@@ -346,7 +346,8 @@ fn canbe_only_accepts_the_intrinsic_qualifiers() {
     assert!(
         messages
             .iter()
-            .any(|m| m.contains("only `Mut` and `Linear` can be opted into with `canbe`")),
+            .any(|m| m
+                .contains("only `Mut`, `Linear` and `Once` can be opted into with `canbe`")),
         "got {messages:?}"
     );
 }

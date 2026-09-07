@@ -1057,6 +1057,27 @@ impl<'p> Emitter<'p> {
         self.checked.is_tests.get(&(self.file_idx, span))
     }
 
+    /// [iter-protocol] [backend-never-wrong] A `for` over a **pass** — a
+    /// value with a `next` rather than an array, an `Iter<T>`, or something
+    /// with an `iter` — is not lowered yet: the driving loop has to call the
+    /// resolved `next` and match its `Emitted`/`Finished` arms, which is
+    /// phase I2c. Reported rather than emitted, because the syntactic
+    /// fallback (`for x in subject`) is not valid Rust for such a value and
+    /// leaning on rustc to notice is exactly what the invariant forbids.
+    fn reject_pass_subject(&mut self, iterable: &Expr) {
+        if self
+            .checked
+            .for_drivers
+            .contains_key(&(self.file_idx, iterable.span()))
+        {
+            self.error(
+                "driving a hand-written pass (a value with a `next`) is not \
+                 supported yet: iterate an array, an `Iter<T>`, or a value with \
+                 an `iter` for now",
+            );
+        }
+    }
+
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
         match self.program.modules.get(key.file)?.items.get(key.item)? {
             Item::Fn(f) => Some(f),
@@ -3800,6 +3821,7 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
+                self.reject_pass_subject(iterable);
                 let ran = else_block
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
@@ -5374,6 +5396,7 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("let mut {ran} = false;\n"));
         }
         if is_for {
+            self.reject_pass_subject(cond_or_iter);
             // Value-position loops keep owned iteration (no borrow
             // refinement yet [rs-borrow-locals]).
             let var = self.for_pattern_var(pattern.unwrap(), false);

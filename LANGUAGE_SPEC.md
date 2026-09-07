@@ -273,10 +273,15 @@ Conventions:
     two qualifiers may co-apply to one type ("Old may stack with
     Surname", [qual-with]). Separate keywords (`TokenKind::KwCanbe`),
     accepted at disjoint positions (user decision 2026-09-03).
-  * Only the compiler's own qualifiers can be opted into: `Mut` and
-    `Linear` on declarations, `Linear` on type parameters. A user
+  * Only the compiler's own qualifiers can be opted into: `Mut`, `Linear`
+    and `Once` on declarations, `Linear` on type parameters. A user
     qualifier in a `canbe` clause is the `with` confusion above, and is
     rejected as such.
+  * `Once` joined the list 2026-09-07 (user decision) so a hand-written
+    **pass** can declare that driving it uses it up
+    ([iter-protocol], [once-fn]) — the alternative, inferring it from the
+    presence of a `next`, would attach an obligation to someone's type on
+    the strength of a method name.
 * [qual-with] Two qualifiers may stack on one type only if one declares
   `with` the other; the `Mut` auto-qualifier composes with everything
   [type-canbe-mut].
@@ -964,9 +969,43 @@ Conventions:
 * [index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
-* [iter-resolve] A `for` subject must be an array, an `Iter<T>`, or a value
-  some declared `iter` overload accepts (the implicit `iter(subject)`
-  call); anything else is an error.
+* [iter-resolve] A `for` subject must be an array, an `Iter<T>`, a **pass**
+  [iter-protocol], or a value some declared `iter` overload accepts (the
+  implicit `iter(subject)` call); anything else is an error.
+  * Resolution order: `Iter<T>` and arrays natively, then `next`
+    [iter-protocol], then `iter`. `next` comes before `iter` because a type
+    with both is *already* a position in a sequence, so minting a second
+    pass from it would be wrong.
+* [iter-protocol] The pull iteration protocol is declared in std
+  (`std/core/iterator.sv`), not built into the compiler: a **pass** is a
+  value some `next` accepts, and `next` reports
+  `Emitted T | Finished` (user decision 2026-09-07; the names were
+  `Next`/`Stopped` in the design). This is the manual half of the iterator
+  story — `zip`, `merge`, anything reading two sources at once — which
+  `yield` cannot express.
+  * `Emitted` is a *qualifier* (`qualifier Emitted<T> of T`) so the element
+    keeps its own type, which is also what keeps the end of a sequence of
+    optionals distinguishable: `Emitted None | Finished` has two arms where
+    `None | None` would have one. `Finished` is a fieldless struct — it has
+    nothing to qualify, and `None` would say "absent" where the claim is
+    "the sequence ended".
+  * `params Iterator<St, T> { fn next(st: Mut St) -> [st: Mut] Emitted T |
+    Finished }` [implicit-group]: a type of your own becomes drivable by
+    declaring one `next`. The state is `Mut` because advancing a pass
+    mutates its position.
+  * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
+    any other shape is an ordinary function.
+  * **A pass must declare itself `Once`** [once-fn]: a value with a `next`
+    and no `Once` is an error at the `for`, naming the remedy (`canbe Once`
+    on the type, `Once T` on the builder's return). `next` says the value
+    can be advanced; `Once` says advancing uses it up, and only the author
+    knows the second.
+  * The overload a `for` drives is recorded in `Checked::for_drivers`,
+    keyed by the subject's span: the driving loop is synthesized, so there
+    is no call node for the emitters to resolve.
+  * **Not lowered yet** (phase I2c): both backends *reject* a `for` over a
+    pass rather than falling back to a native loop, which would not be
+    valid target code [backend-never-wrong].
 * [seq-iterable] std's sequence functions (`map`, `filter`, `reduce`) take
   their subject through `?Iterable<It, T>` — the one `params` group std
   declares — so anything with a visible `iter` is a subject: a `List<T>`, an
@@ -1731,17 +1770,26 @@ Conventions:
   Enforcement is consumption [deduce-consume], and what counts as a use
   depends on the type.
   * **Valid positions**: *function types* (`f: Once () -> None`), where
-    using means calling, and `Iter<T>` (`Once Iter<Int>`), where using
-    means driving. Deliberately a short list rather than "any type" —
-    widening it to a general affine qualifier is roadmap D6. The one
-    predicate `once_position` is read by both the checker's position
-    check and `is_subtype`, so the two cannot disagree.
+    using means calling; `Iter<T>` (`Once Iter<Int>`), where using means
+    driving; and **a type that opts in with `canbe Once`**
+    [canbe-optin] (user decision 2026-09-07), which is how a hand-written
+    pass says that driving it uses it up [iter-protocol]. Opting in is the
+    author's call for the same reason `Linear` is declared rather than
+    applied [linear-canbe]: an obligation should not attach to someone's
+    type on the strength of a method name. Making `Once` valid on *any*
+    type is roadmap D6, to be designed with D7.
+    * The built-in half is `types::once_position`; the opt-in half is the
+      checker's `has_auto_once`, since it needs the declaration.
+      `is_subtype`'s inverted rule deliberately checks *neither* — where
+      the qualifier may be **written** is a different question from what
+      it means once present, and a `Once` on a base that never opted in has
+      already been reported.
   * **On a fn type**: calling a `Once` value consumes it, so a second
     call, a call on the loop back edge, and a call after the value
     escapes are the ordinary consumed-use errors; a call on only some
     branches leaves it maybe-consumed (conservative), and zero calls is
     fine.
-  * **On `Iter<T>`**: `Once Iter<T>` is a **pass** — a position in a
+  * **On `Iter<T>` and on a `canbe Once` type**: `Once T` is a **pass** — a position in a
     sequence — as against plain `Iter<T>`, a replayable **factory**. A
     `for` over a pass *consumes* it (the loop binding takes ownership of
     the elements rather than linking to a live subject [fate-link]), so a

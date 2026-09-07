@@ -177,6 +177,13 @@ pub struct Checked {
     pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, FnKey>,
+    /// [iter-protocol] The `next` overload a `for` loop drives, keyed by the
+    /// span of its *subject*. Present only when the subject is a **pass** —
+    /// something with a `next` — rather than an array, an `Iter<T>`, or a
+    /// value with an `iter`. There is no call node in the AST for the
+    /// emitters to look at (the driving loop is synthesized), so the choice
+    /// of overload has to be handed over here.
+    pub for_drivers: HashMap<Key, FnKey>,
     /// [fn-rename] Call sites (and fn-value uses) written with a **renamed**
     /// name, keyed the same way as `call_fn`. A rename is erased, so the
     /// emitters must spell the declaration's own name rather than the one in
@@ -1278,20 +1285,46 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [canbe-optin] A `canbe` clause names one of the compiler's
     /// permission/obligation qualifiers; user qualifiers are applied in
     /// types, not granted by opt-in.
+    ///
+    /// `Once` joined the list 2026-09-07 (user decision) so a hand-written
+    /// **pass** — a type with a `next` [iter-protocol] — can say that
+    /// driving it uses it up. Opting in is the author's call for the same
+    /// reason `Linear` is declared rather than applied [linear-canbe]: an
+    /// obligation should not attach to someone's type on the strength of a
+    /// method name.
     fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
         for q in quals {
-            if matches!(q.name.name.as_str(), "Mut" | "Linear") {
+            if matches!(q.name.name.as_str(), "Mut" | "Linear" | "Once") {
                 continue;
             }
             self.error(
                 q.span,
                 format!(
-                    "only `Mut` and `Linear` can be opted into with `canbe` \
-                     (found `{}`)",
+                    "only `Mut`, `Linear` and `Once` can be opted into with \
+                     `canbe` (found `{}`)",
                     q.name.name
                 ),
             );
         }
+    }
+
+    /// [once-fn] [canbe-optin] Whether this type opted into `Once` with a
+    /// `canbe` clause, which is what makes `Once T` writable for a type of
+    /// one's own. Mirrors [`Self::has_auto_mut`].
+    fn has_auto_once(&self, base: &Ty) -> bool {
+        let Ty::Named { name, .. } = base.strip_quals() else {
+            return false;
+        };
+        let has_once = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Once");
+        self.scope
+            .structs
+            .get(name.as_str())
+            .is_some_and(|s| has_once(&s.auto_qualifiers))
+            || self
+                .scope
+                .opaque_types
+                .get(name.as_str())
+                .is_some_and(|t| has_once(&t.auto_qualifiers))
     }
 
     /// [decl-explicit] Nothing the compiler cannot see may be inferred: a
@@ -5878,12 +5911,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // decision of its own, kept as roadmap D6 rather than
                 // shipped as a side effect of this one.
                 if q.name.name == "Once" {
-                    if !crate::types::once_position(base) {
+                    if !crate::types::once_position(base) && !self.has_auto_once(base) {
                         self.error(
                             q.span,
                             format!(
-                                "`Once` applies to function types and `Iter<T>`, \
-                                 not `{base}`"
+                                "`Once` applies to function types and `Iter<T>`; a \
+                                 type of your own opts in with `canbe Once` (found \
+                                 `{base}`)"
                             ),
                         );
                     }
@@ -7999,13 +8033,81 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(self.lower_type_subst(&field.ty, &subst, 0))
     }
 
+    /// [iter-protocol] The element type of a **pass**: a value some `next`
+    /// accepts, returning `Emitted T | Finished`. Records the overload the
+    /// emitters have to drive (there is no call node in the AST for them to
+    /// resolve, since the driving loop is synthesized) and reports a value
+    /// that has a `next` but does not declare itself `Once`.
+    ///
+    /// `stripped` selects the overload — a subject's own `Once`/`Mut` say
+    /// nothing about which `next` fits — while `full` is what carries the
+    /// qualifiers the rule is about.
+    fn pass_elem_ty(&mut self, stripped: &Ty, full: &Ty, span: Span) -> Option<Ty> {
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("next")?.clone();
+        for entry in entries {
+            let decl = entry.decl;
+            if decl.params.len() != 1 {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pt = self.lower_type(&decl.params[0].ty);
+            let ret = decl
+                .return_type
+                .as_ref()
+                .map(|t| self.lower_type(t))
+                .unwrap_or_else(Ty::none);
+            self.generics = saved;
+            let mut subst = HashMap::new();
+            // The parameter is `Mut St` [iter-protocol]: advancing a pass
+            // mutates its position. Match on the bare types.
+            if !unify(pt.strip_quals(), stripped, &mut subst) {
+                continue;
+            }
+            let callee_generics: HashSet<String> =
+                decl.generics.iter().map(|g| g.name.clone()).collect();
+            let ret = substitute_vars(&ret, &subst, &callee_generics);
+            let Some(elem) = emitted_arm_ty(&ret) else {
+                // A `next` of some other shape is not the protocol; keep
+                // looking, and let `iter` have its turn.
+                continue;
+            };
+            // [once-fn] A pass must say it is one. `next` says the value can
+            // be advanced; `Once` says advancing uses it up, and only the
+            // author knows whether that is true — inferring it from a method
+            // name would attach an obligation to someone's type on the
+            // strength of a name (user decision 2026-09-07).
+            if !full.quals().iter().any(|q| q.name == "Once") {
+                self.error(
+                    span,
+                    format!(
+                        "`{stripped}` has a `next` but is not a pass: driving it \
+                         uses it up, so it has to be declared `Once {stripped}` — \
+                         annotate the return type of the function that builds it"
+                    ),
+                );
+            }
+            self.out.for_drivers.insert(self.key(span), entry.key);
+            return Some(elem);
+        }
+        None
+    }
+
     fn iter_elem_ty(&mut self, iter_ty: &Ty, span: Span) -> Ty {
         match iter_ty.strip_quals() {
             Ty::Named { name, args } if name == "Iter" && !args.is_empty() => args[0].clone(),
             Ty::Array(elem) => (**elem).clone(),
             other => {
-                // `for x in list` implicitly calls `iter(list)`.
                 let other = other.clone();
+                // [iter-protocol] A **pass** — anything with a `next` — is
+                // driven directly, and is looked for *before* `iter`: a type
+                // that has both is already a position in a sequence, so
+                // minting a second pass from it would be wrong. This is the
+                // manual half of the iterator story (`zip`, `merge`), which
+                // `yield` cannot express.
+                if let Some(elem) = self.pass_elem_ty(&other, iter_ty, span) {
+                    return elem;
+                }
+                // `for x in list` implicitly calls `iter(list)`.
                 if let Some(entries) = self.scope.fns.get("iter") {
                     let entries: Vec<crate::resolve::FnEntry<'p>> = entries.clone();
                     for entry in entries {
@@ -10923,6 +11025,39 @@ fn op_symbol(op: BinaryOp) -> &'static str {
 /// `return`). Conservative: loops never count (they may run zero times),
 /// `if` needs an `else`, `when` needs every branch to exit (exhaustiveness
 /// over union arms is enforced separately [when-exhaustive]).
+
+/// [iter-protocol] The element type carried by a `next` return type — the
+/// `Emitted T` arm of `Emitted T | Finished` — or `None` when the type is not
+/// that shape, in which case the function is some other `next` and not a
+/// driver.
+///
+/// Exactly two arms, one tagged `Emitted` and one the fieldless `Finished`:
+/// the shape is the protocol, so anything else is deliberately not accepted
+/// rather than half-understood.
+fn emitted_arm_ty(ret: &Ty) -> Option<Ty> {
+    let Ty::Union(arms) = ret else { return None };
+    if arms.len() != 2 {
+        return None;
+    }
+    let mut elem = None;
+    let mut finished = false;
+    for arm in arms {
+        match arm {
+            Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == "Emitted") => {
+                elem = Some((**base).clone());
+            }
+            Ty::Named { name, args } if name == "Finished" && args.is_empty() => {
+                finished = true;
+            }
+            _ => return None,
+        }
+    }
+    if finished {
+        elem
+    } else {
+        None
+    }
+}
 
 /// Whether the fn body contains a `yield` statement — iterator fns build
 /// their `Iter` return value from yields and are exempt from

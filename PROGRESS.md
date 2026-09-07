@@ -3515,13 +3515,13 @@ turns out to need it; nothing in this design forecloses it.
 1. **Pull stays the model.** Push revisitable as an addition, never as a
    replacement.
 2. **The protocol is Salvo-level, not intrinsic**: `fn next(st: Mut St)
-   -> [st: Mut] Next T | Stopped`, gathered in a `params Iterator<St, T>`
+   -> [st: Mut] Emitted T | Finished`, gathered in a `params Iterator<St, T>`
    group beside the existing `params Iterable<It, T>`. `has_next`/`next`
    retire. Consequences: a user can write an iterator *by hand* (which is
    how `zip`/`merge` become ordinary structs — no materialising one side),
    and the state type binds per call site through the `params` group, so
    it never has to be named in a signature.
-   * Tagged `Next T | Stopped`, **not** `T?`: Salvo's unions are flat, so
+   * Tagged `Emitted T | Finished`, **not** `T?`: Salvo's unions are flat, so
      `Iter<Int?>` would collapse `Int??` and lose the end signal. It
      lowers to the generated `Union2`; the emitter may special-case
      `Option` where the element type is provably non-nullable.
@@ -3581,7 +3581,7 @@ turns out to need it; nothing in this design forecloses it.
 ### Abandonment, and why `close` is mandatory
 
 A consumer that `break`s stops driving an iterator before it reports
-`Stopped`, leaving the body suspended at a `yield` forever. Today that is
+`Finished`, leaving the body suspended at a `yield` forever. Today that is
 harmless *only* because of [iter-effect-free]: a producer that cannot
 perform effects holds nothing worth releasing, and its pending `defer`
 blocks are skipped invisibly (dropping the future / abandoning the
@@ -3677,8 +3677,82 @@ Consequences recorded with it:
 
 ### Still open
 
-- **D6** — `Once` on any type.
+- **D6** — `Once` on any type (and see the I2b collision below, which forces
+  the question in a narrower form).
 - **D7** — qualifier-conditional linearity.
+
+### I2b as built (2026-09-07): the protocol, and the collision it found
+
+Built and verified so far:
+
+- **`std/core/iterator.sv`** declares the protocol in Salvo rather than in
+  the compiler: `qualifier Emitted<T> of T` with its constructor, a fieldless
+  `struct Finished {}`, and
+  `params Iterator<St, T> { fn next(st: Mut St) -> [st: Mut] Emitted T | Finished }`.
+  Names are the user's (2026-09-07), renamed from `Next`/`Stopped` before
+  any of it was written.
+  * `Emitted` is a *qualifier* so the element keeps its own type and a
+    sequence of optionals still has a distinguishable end (`Emitted None |
+    Finished` has two arms where `None | None` would have one). `Finished`
+    is a *struct* because it has nothing to qualify, and reusing `None`
+    would say "absent" where the claim is "the sequence ended".
+- **`Checked::for_drivers`**, a side table keyed by the subject's span,
+  holding the `next` overload a `for` drives. The driving loop is
+  synthesized, so there is no call node for the emitters to resolve — the
+  choice has to be handed over.
+- **`pass_elem_ty`** resolves `next` *before* `iter` in `iter_elem_ty` (a
+  type with both is already a position in a sequence, so minting a second
+  pass from it would be wrong), matching on the bare types since a
+  subject's own `Once`/`Mut` say nothing about which `next` fits, and
+  accepting only the exact `Emitted T | Finished` shape — anything else is
+  some other `next`, not a driver.
+- **The "not a pass" error** fires and reads well:
+  ``` `Countdown` has a `next` but is not a pass: driving it uses it up, so
+  it has to be declared `Once Countdown` — annotate the return type of the
+  function that builds it ```
+
+**The collision, and how it was resolved.** The error's remedy was at first
+impossible: I2a restricted `Once` to function types and `Iter<T>`
+deliberately, to keep a general affine qualifier as roadmap D6 — but a
+hand-written pass is a *user type*, so "hand-written iterators must say
+`Once`" requires `Once` on user types. Three ways out were costed (`canbe
+Once`; take D6 now; or make `Once` valid on any type that has a `next`,
+which would make a *type*'s legality depend on which functions are in
+scope). **User decision 2026-09-07: `canbe Once`**, with the note that D6
+and D7 should be designed together rather than piecemeal.
+
+- **`canbe Once`** joins `canbe Mut` and `canbe Linear` [canbe-optin]: a
+  type opts into being a pass the way it opts into mutability and
+  linearity, and `Once` stays inapplicable to types that never asked. The
+  author declaring it is the same argument the "not a pass" error rests on
+  — an obligation should not attach on the strength of a method name.
+- The position rule is now in **two halves, on purpose**:
+  `types::once_position` (fn types, `Iter<T>`) and the checker's
+  `has_auto_once` (the opt-in, which needs the declaration).
+  `is_subtype`'s inverted `Once` rule checks *neither* — where a qualifier
+  may be **written** is a different question from what it means once
+  present, and an unauthorized `Once` has already been reported, so
+  accepting it in the weakening direction keeps one mistake to one
+  diagnostic. That is a deliberate reversal of I2a's "one predicate, no
+  drift" arrangement, which stopped being possible once the answer depended
+  on a declaration.
+
+**Emission is deliberately not part of I2b.** Both backends *reject* a `for`
+over a pass — "driving a hand-written pass (a value with a `next`) is not
+supported yet" — rather than falling back to a native loop, which would not
+be valid target code in either language [backend-never-wrong]. Verified by a
+codegen-error test on each side.
+
+Tests: `once_tests.rs` grew to 15 — the opt-in as a valid position, the
+`canbe` allowlist rejection, a hand-written pass driving a `for`, driving it
+twice, and the not-a-pass error; plus
+`driving_a_hand_written_pass_is_a_codegen_error` in both backends.
+
+**What is left before `zip`/`merge` actually run**: the driving-loop
+emission, which is independent of the state-machine work. The checker
+already hands over everything it needs (`for_drivers` names the overload;
+the union arms are positional over the declared type), so this could land
+well before I3 and is the highest-value next step.
 
 ### Hand-written iterators must say `Once` (user decision 2026-09-07)
 
@@ -3690,7 +3764,7 @@ the diagnostic names the remedy — annotate the return type `Once X`.
 
 ```
 struct Zip<A, B> { ... }
-fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Next (A, B) | Stopped { ... }
+fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished { ... }
 
 fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
 for pair in zip(as, bs) { ... }   // ERROR: `Zip<A, B>` has a `next` but is
@@ -3711,18 +3785,22 @@ site plus a diagnostic, with the LSP surfacing the same message.
 - **I1** — ✅ Done 2026-09-07. Runtime modules extracted to real source files
   and the motivating program hand-verified on both backends; see "I1 as
   built" below.
-- **I2** — Salvo-level protocol (`Next T | Stopped`, `params Iterator`),
+- **I2** — Salvo-level protocol (`Emitted T | Finished`, `params Iterator`),
   `for` lowering to `while let`, simple-generator lowering. Effect-free
   producers only: pure simplification, `SalvoGen`/`SalvoYield`/`SalvoIter`
   deleted.
   - **I2a** ✅ Done 2026-09-07 — `Once Iter<T>` is a real type and the
     factory/pass distinction is checked. See "I2a as built" below.
-  - **I2b** — the protocol in std (`Next`/`Stopped`, `params Iterator<St,
-    T>`, `next`), `for` resolving `next` before `iter`, and the
-    "has a `next` but is not `Once`" error.
-  - **I2c** — the representation split: a pass becomes the generated state
-    struct, a factory keeps the arguments it re-mints from, `for` lowers to
-    `while let`, and the async machinery is deleted.
+  - **I2b** ✅ Done 2026-09-07 — the protocol in std (`Emitted`/`Finished`,
+    `params Iterator<St, T>`, `next`), `for` resolving `next` before `iter`,
+    the "has a `next` but is not `Once`" error, and `canbe Once`. Emission
+    is not part of it: both backends reject a `for` over a pass for now.
+    See "I2b as built" below.
+  - **I2c** — the driving-loop emission (`for` over a pass lowers to a
+    `while let` calling the resolved `next`), then the representation split:
+    a pass becomes the generated state struct, a factory keeps the arguments
+    it re-mints from, and the async machinery is deleted. The first half is
+    independent of the second and unlocks `zip`/`merge`.
 - **I3** — The general flat state machine (CFG-ified body) as the
   backstop for bodies the fast path rejects.
 - **I4** — Effects threaded into `next`; [iter-effect-free] removed;
@@ -4341,7 +4419,11 @@ it would burden the factory too.
 - **Relation to D6**: if `Once` generalizes to any type, this is the
   natural companion — the pair "at most once" (applied) and "exactly
   once" (currently declared) would want the same application mechanism.
-  Decide them together.
+  **Decide them together** (user, 2026-09-07: "I think we'll need to design
+  the 'Once on any type' (D6) and the 'optional Linear' (D7) together").
+  The 2026-09-07 iterator work took the narrow road instead — `canbe Once`,
+  an opt-in on the declaration — precisely so that this pair stays a single
+  deliberate design rather than an accumulation of special cases.
 - **Payoff beyond iterators**: it is the general shape of
   "borrowed handle versus owned resource" without lifetimes — the same
   question `ReadOnly[from: p]` answers for derived returns [readonly-return].
@@ -5778,6 +5860,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Adding a file to `std/` does not always reach the CLI.** The embedded
+  standard library is `include_dir!("$CARGO_MANIFEST_DIR/../../std")` in
+  `salvo-cli/src/analysis.rs`, and there is no `build.rs` emitting
+  `rerun-if-changed` for that tree — so a *new* `.sv` file can leave the
+  binary compiled against the old set. The tell is the file count in the
+  CLI's own output ("analyzed 12 file(s) (1 user, 11 std)"): if it did not
+  go up, touch `analysis.rs` and rebuild. Found while adding
+  `std/core/iterator.sv` (2026-09-07); editing an *existing* std file is
+  fine, since its content is part of the macro's input.
 
 - **Probe the *current* behaviour before designing the rule.** The overload
   agenda was worth more than the design discussion that followed it: twelve

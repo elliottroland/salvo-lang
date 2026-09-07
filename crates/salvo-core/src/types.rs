@@ -313,13 +313,19 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // most once) instead of refining, so a plain value may be used
         // where a `Once` one is expected — the opposite direction of
         // every other qualifier. Generalized 2026-09-07 from fn types to
-        // every position `Once` is valid in: a factory (`Iter<T>`) fits
-        // where a *pass* (`Once Iter<T>`) is wanted, since promising to
-        // drive something at most once demands less than being able to
-        // drive it repeatedly. Never the reverse — `Once` never drops.
-        (_, Ty::Qualified { quals, base })
-            if quals.iter().any(|q| q.name == "Once") && once_position(base) =>
-        {
+        // any base: a factory (`Iter<T>`) fits where a *pass*
+        // (`Once Iter<T>`) is wanted, and so does an un-driven value of a
+        // `canbe Once` type, since promising to use something at most once
+        // demands less than being able to use it repeatedly. Never the
+        // reverse — `Once` never drops [qual-widen].
+        //
+        // Deliberately unconditional on the base, unlike the *position*
+        // rule: whether `Once` may be **written** on a type needs the
+        // declaration (`canbe Once`), which lives in the checker's scope
+        // and not here. An `Once` on a base that never opted in has
+        // already been reported, so accepting it in this direction costs
+        // nothing and keeps one mistake to one diagnostic.
+        (_, Ty::Qualified { quals, base }) if quals.iter().any(|q| q.name == "Once") => {
             is_subtype(a, base)
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
@@ -401,14 +407,14 @@ pub fn contract_fits(
 }
 
 /// Why a qualifier may **not** be dropped from a type, if it may not
-/// Whether `Once` may be written on this base type [once-fn]: function
-/// types, where using a value means calling it, and `Iter<T>`, where it
-/// means driving it. Deliberately a short list rather than "any type" —
-/// widening it is roadmap D6.
+/// Whether `Once` may be written on this base type *without* an opt-in
+/// [once-fn]: function types, where using a value means calling it, and
+/// `Iter<T>`, where it means driving it.
 ///
-/// Read by the checker's position check and by `is_subtype`'s inverted
-/// `Once` rule, so the two cannot disagree about where the qualifier is
-/// meaningful.
+/// A type of one's own reaches the same place by declaring `canbe Once`,
+/// which needs the declaration and therefore lives in the checker
+/// (`has_auto_once`) — this predicate is only the built-in half. Widening it
+/// to every type is roadmap D6, to be designed together with D7.
 pub fn once_position(ty: &Ty) -> bool {
     match ty {
         Ty::Fn { .. } => true,

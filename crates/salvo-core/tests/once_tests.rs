@@ -106,8 +106,34 @@ fn once_on_a_plain_type_is_an_error_naming_the_positions() {
     assert!(
         errs.iter()
             .any(|e| e.contains("`Once` applies to function types and `Iter<T>`")
-                && e.contains("not `Int`")),
-        "expected the position error naming fn types and Iter<T>, got {errs:?}"
+                && e.contains("`canbe Once`")
+                && e.contains("`Int`")),
+        "expected the position error naming fn types, Iter<T> and the opt-in, \
+         got {errs:?}"
+    );
+}
+
+/// [canbe-optin] A type of one's own reaches the same place by opting in, the
+/// way it opts into mutability and linearity — the author declares that using
+/// the value uses it up, rather than the compiler inferring an obligation
+/// (user decision 2026-09-07).
+#[test]
+fn canbe_once_makes_a_user_type_a_valid_position() {
+    let errs = errors(
+        "struct Ticket canbe Once {\n    id: Int\n}\n\
+         fn f(t: Once Ticket) -> [] None {}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+#[test]
+fn canbe_rejects_a_qualifier_that_is_not_an_opt_in() {
+    let errs = errors("struct Ticket canbe Ok {\n    id: Int\n}\n");
+    assert!(
+        errs.iter().any(|e| e.contains(
+            "only `Mut`, `Linear` and `Once` can be opted into with `canbe`"
+        )),
+        "expected the canbe allowlist error, got {errs:?}"
     );
 }
 
@@ -184,5 +210,81 @@ fn a_pass_does_not_fit_where_a_factory_is_expected() {
         errs.iter()
             .any(|e| e.contains("twice(Once Iter<Int>)") || e.contains("Once Iter<Int>")),
         "expected the pass to be rejected in a factory position, got {errs:?}"
+    );
+}
+
+// --- [iter-protocol] hand-written passes ------------------------------------
+
+/// The protocol as std declares it, inlined because this harness loads a
+/// minimal prelude rather than the real `std/core/iterator.sv`.
+const PROTOCOL: &str = r#"
+qualifier Emitted<T> of T
+struct Finished {}
+fn emitted<T>(value: T) [] -> [] T as Emitted { return value }
+fn finished() [] -> [] Finished { return Finished {} }
+
+struct Countdown canbe Mut, Once {
+    at: Int
+}
+
+fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+"#;
+
+/// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
+/// than through `iter` — but only if it says it is a pass. `next` says the
+/// value can be advanced; `Once` says advancing uses it up, and inferring the
+/// second from the first would attach an obligation on the strength of a name
+/// (user decision 2026-09-07).
+/// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
+/// which is what makes `zip`/`merge` — the iterators `yield` cannot express —
+/// writable at all.
+#[test]
+fn a_hand_written_pass_drives_a_for_loop() {
+    let errs = errors(&format!(
+        "{PROTOCOL}\n\
+         fn build(from: Int) -> Once Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// Driving consumes, whatever the pass is made of: the rule is the
+/// qualifier's, not `Iter`'s.
+#[test]
+fn driving_a_hand_written_pass_twice_is_an_error() {
+    let errs = errors(&format!(
+        "{PROTOCOL}\n\
+         fn build(from: Int) -> Once Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn go() -> [] None {{\n\
+         let p = build(3)\n\
+         for n in p {{}}\n\
+         for n in p {{}}\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("consumed (moved) by a `for` loop")),
+        "expected the pass to be consumed by the first loop, got {errs:?}"
+    );
+}
+
+#[test]
+fn a_next_without_once_is_not_a_pass() {
+    let errs = errors(&format!(
+        "{PROTOCOL}\n\
+         fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("has a `next` but is not a pass")
+            && e.contains("`Once Countdown`")),
+        "expected the not-a-pass error naming the remedy, got {errs:?}"
     );
 }

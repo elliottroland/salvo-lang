@@ -1449,10 +1449,12 @@ fn l7b_once_fns() {
         ),
         "stderr: {stderr}"
     );
-    // `Once` applies to fn types and `Iter<T>` — nothing else (roadmap D6
-    // is where widening it to any type is weighed).
+    // `Once` applies to fn types and `Iter<T>`; a type of one's own opts in
+    // with `canbe Once` [canbe-optin]. Widening it to *any* type is roadmap
+    // D6, to be designed with D7.
     assert!(
-        stderr.contains("`Once` applies to function types and `Iter<T>`, not `Int`"),
+        stderr.contains("`Once` applies to function types and `Iter<T>`")
+            && stderr.contains("`canbe Once`"),
         "stderr: {stderr}"
     );
     // run_maybe, once_where_once_ok, plain_where_once_ok are clean.

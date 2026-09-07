@@ -3948,6 +3948,31 @@ fn a_function_in_a_struct_field_is_a_codegen_error() {
     );
 }
 
+/// [iter-protocol] [backend-never-wrong] The checker resolves a `for` over a
+/// hand-written **pass** (a value with a `next`) and records the overload in
+/// `for_drivers`, but the driving loop is not lowered yet — phase I2c. The
+/// syntactic fallback would be `for n in countdown(3)`, which is not valid
+/// target code for such a value, so this has to be a Salvo error rather than
+/// something the target compiler discovers.
+#[test]
+fn driving_a_hand_written_pass_is_a_codegen_error() {
+    let errors = expect_errors(
+        "struct Countdown canbe Mut, Once {\n    at: Int\n}\n\
+         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
+         if c.at <= 0 { return finished() }\n\
+         let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}\n\
+         fn countdown(from: Int) -> Once Countdown { return Countdown { at: from } }\n\
+         fn main() [use] {\n    use StdOutConsole()\n\
+         for n in countdown(3) { println(\"n ${n}\") }\n}\n",
+    );
+    assert!(
+        errors.iter().any(|e| {
+            e.contains("driving a hand-written pass") && e.contains("not supported yet")
+        }),
+        "expected the pass-driving rejection, got: {errors:?}"
+    );
+}
+
 /// [implicit-param] An effect member is an ordinary signature, so it may
 /// declare implicit parameters (user decision 2026-09-06): the trait method
 /// takes them, every handler's implementation takes them, and the call site

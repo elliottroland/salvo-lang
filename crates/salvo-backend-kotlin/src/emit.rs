@@ -545,6 +545,27 @@ impl<'p> Emitter<'p> {
         self.checked.is_tests.get(&(self.file_idx, span))
     }
 
+    /// [iter-protocol] [backend-never-wrong] A `for` over a **pass** — a
+    /// value with a `next` rather than an array, an `Iter<T>`, or something
+    /// with an `iter` — is not lowered yet: the driving loop has to call the
+    /// resolved `next` and match its `Emitted`/`Finished` arms, which is
+    /// phase I2c. Reported rather than emitted: Kotlin's `for` would reject
+    /// such a subject too, and letting the target compiler be the one to
+    /// notice is what the invariant forbids.
+    fn reject_pass_subject(&mut self, iterable: &Expr) {
+        if self
+            .checked
+            .for_drivers
+            .contains_key(&(self.file_idx, iterable.span()))
+        {
+            self.error(
+                "driving a hand-written pass (a value with a `next`) is not \
+                 supported yet: iterate an array, an `Iter<T>`, or a value with \
+                 an `iter` for now",
+            );
+        }
+    }
+
     /// Looks up a checker-resolved fn declaration by its stable key.
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
         match self.program.modules.get(key.file)?.items.get(key.item)? {
@@ -1955,6 +1976,7 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
+                self.reject_pass_subject(iterable);
                 let ran = else_block
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
@@ -3180,6 +3202,7 @@ impl<'p> Emitter<'p> {
                 else_block,
                 ..
             } => {
+                self.reject_pass_subject(iterable);
                 if else_block.is_some() {
                     out.push_str(&format!("var {ran} = false\n"));
                 }
