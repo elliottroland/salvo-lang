@@ -540,6 +540,82 @@ fn a_fieldless_struct_is_a_plain_class() {
     );
 }
 
+/// [iter-protocol] [throw] A **fallible** pass: the producer yields a result
+/// and the *consumer* throws. This is the answer to "does the protocol need
+/// `Throw` support" — it does not, so `Emitted T | Finished` stays exactly two
+/// arms and a `yield` fn never has to declare an effect it cannot perform
+/// while suspended. Also the regression test for the element being a union
+/// (see the open defect about wrapping an inner arm under a qualifier: the
+/// intermediate `let` here is that workaround, not decoration).
+const FALLIBLE_PASS_DEMO: &str = r#"
+struct Reader canbe Mut, Once {
+    lines: List<Str>,
+    at: Int
+}
+
+fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
+    let line = get(r.lines, r.at)
+    if line is Str {
+        r.at = r.at + 1
+        if line == "boom" {
+            let bad: Ok Str | Err Str = err("bad line at ${r.at}")
+            return emitted(bad)
+        }
+        let good: Ok Str | Err Str = ok(line)
+        return emitted(good)
+    }
+    return finished()
+}
+
+fn reader(lines: List<Str>) -> [] Once Reader {
+    return Reader { lines: lines, at: 0 }
+}
+
+fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int {
+    let count = 0
+    for outcome in reader(lines) {
+        when outcome {
+            is Ok {
+                println("line ${outcome}")
+                count = count + 1
+            }
+            is Err {
+                return throw("stopped: ${outcome}")
+            }
+        }
+    }
+    return count
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let good = try { read_all(list("alpha", "beta")) }
+    when good {
+        is Ok { println("read ${good}") }
+        is Thrown { println("failed: ${good}") }
+    }
+    let bad = try { read_all(list("alpha", "boom", "gamma")) }
+    when bad {
+        is Ok { println("read ${bad}") }
+        is Thrown { println("failed: ${bad}") }
+    }
+}
+"#;
+
+const FALLIBLE_PASS_OUTPUT: &str = "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
+
+#[test]
+fn a_fallible_pass_yields_a_result() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", FALLIBLE_PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "fallible-pass", FALLIBLE_PASS_OUTPUT);
+}
+
 #[test]
 fn kotlinc_compiles_and_runs_a_hand_written_pass() {
     if !kotlin_toolchain() {

@@ -2580,9 +2580,62 @@ by faithful emission. Rule [fn-contract]:
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation.
 
-*(None open. The last two — an own-module fn losing to an identically shaped
-std one, and effect member calls not checking their arguments — were fixed
-2026-09-07 by the overload-resolution work; see the entry at the top.)*
+### Applying a qualifier to an already-qualified value flattens, so it cannot fit a qualified *group* arm
+
+Found 2026-09-07 while answering whether a fallible producer needs `Throw`
+support [iter-protocol]. Minimal repro:
+
+```
+fn b(flag: Bool) -> Emitted (Ok Str | Err Str) | Finished {
+    if flag {
+        return emitted(ok("x"))    // ERROR
+        // no arm of `Emitted (Ok Str | Err Str) | Finished` accepts a value
+        // of type `Emitted Ok Str`
+    }
+    return finished()
+}
+```
+
+**Root cause** (localized by two probes, both of which *pass*, so the fault is
+in the combination and not in either half):
+
+```
+fn d(flag: Bool) -> Emitted (Str | Int) | Finished { ... return emitted("x") }   // fine
+fn c() -> Ok Str | Err Str { return ok("x") }                                    // fine
+```
+
+`Ty::Qualified` holds a **flat** qualifier list, and `qualify` appends. So
+`emitted(ok("x"))` — a qualifier applied to an already-qualified value —
+produces `Qualified { quals: [Ok, Emitted], base: Str }`, which is
+indistinguishable from "two qualifiers on a `Str`" and is *not* `Emitted`
+applied to `Ok Str`. Matching it against the arm
+`Qualified { quals: [Emitted], base: Union[Ok Str, Err Str] }` therefore
+compares `Str` against `Ok Str | Err Str`, and a plain value never subtypes a
+constructive qualifier [qual-constructive] — hence no arm accepts it. The
+rendering ("Emitted Ok Str", no parentheses) is the same ambiguity showing
+through.
+
+So the earlier guess in this slot — "`Coercion::WrapUnion` cannot chain" — was
+wrong, though a nested wrap *is* still needed for emission once matching is
+fixed: the value would be a bare `Str` that has to be wrapped into the inner
+union's wrapper before the outer arm's.
+
+**Fix, when it is picked up**: either nest `Ty::Qualified` (a representation
+change with wide reach) or add a targeted rule where the expected arm is
+`Q (union)` — split the value's qualifier list into `Q` and the rest, and test
+whether the remainder fits the union — plus the inner wrap in both emitters.
+
+**Workaround, and it is one line**: bind the union first, so the value already
+has the arm's type.
+
+```
+let good: Ok Str | Err Str = ok("x")
+return emitted(good)
+```
+
+Verified end to end on both backends with that binding — see
+`a_fallible_pass_yields_a_result` in each backend's codegen tests. Nothing is
+blocked by it.
 
 ## Roadmap: toward full linear types
 
@@ -3565,12 +3618,13 @@ turns out to need it; nothing in this design forecloses it.
    state machine) and hand-written struct + `next`. Both satisfy
    `params Iterator<St, T>`, so `for`/`map`/`filter` accept either — which
    lets tier 1 stay deliberately incomplete without blocking anyone.
-   * **Simple-generator fast path**: when every `yield` sits in the tail
-     of a single loop nest, the state is the loop's locals plus a resume
-     bit and `next` emits as readable structured code. `range`, `chars`,
-     lazy `map`/`filter` land here; `rangeIncl` needs two states but still
-     no CFG. The general flat machine is the correctness backstop, not the
-     common path, so it can land later than the feature.
+   * ~~**Simple-generator fast path**~~ — **dropped 2026-09-07** (user,
+    following the I3 prototype). One lowering, not two: the fast path would
+    have covered less than it looked (a body with statements *after* its
+    yield, or any `break`/`continue`/`defer`, does not qualify — including
+    `naturals`, the repo's own demo producer), while the flat machine reads
+    acceptably for simple bodies. Two lowerings is two things to keep in
+    agreement, which is the divergence risk the laziness episode taught.
 8. **Consumer side lowers to `while let`**; a `for` over an obvious
    backend iterable (list, array, `Str`) keeps emitting a native loop, so
    the common case pays nothing.
@@ -3787,6 +3841,164 @@ generated state struct, a factory keeping the arguments it re-mints from, and
 the async machinery going away. That is the `yield` half; the manual half is
 done.
 
+### I3 prototyped (2026-09-07): the general lowering is mechanical
+
+Before writing any state-machine lowering, the gnarly shape was hand-written
+and checked against an **oracle**, per the standing caution. Everything lives
+in `experiments/pull-iterators/` (`gnarly.sv`, `gnarly.rs`, `gnarly.kt`,
+`gnarly_oracle.rs`), with the README recording how to run it.
+
+The body puts everything resumable in one place: a fn-level `defer`; a
+`defer` **inside a loop body**, registered anew each iteration and reading a
+per-iteration local; a nested loop over *another pass*, alive across the outer
+body's suspensions; a `continue`; two yields per outer iteration and a third
+after the loop (four resume points); effects performed by the producer *and*
+by a deferred block; and a consumer that stops early, so the release path runs
+with the body suspended mid-nest.
+
+**The oracle is the part worth copying.** A hand-written machine is only as
+trustworthy as whatever decides the expected answer, and hand-tracing when a
+*suspended* body's deferred blocks run is exactly the reasoning most likely to
+be wrong. So the same body is written in *push* style — where `yield` is a
+callback and no bookkeeping exists — with each `defer` expressed as a Rust
+`Drop` impl, making **Rust's own scope discipline** the authority on ordering.
+Salvo's `[defer]` rule is precisely Rust's drop order for locals. Both
+machines then had to match it, on both exit paths (break after four elements,
+and drain — the only path that reaches the yield after the loop and the normal
+end of the body). All four programs agree, byte for byte.
+
+What it established:
+
+- **The lowering is mechanical**: numbered resume points, the body's locals as
+  fields, a flat `loop { match state }` dispatch. Nesting needed no special
+  case — an inner loop is just more states.
+- **`continue` is staying in the same state**, and a **yield in the middle of
+  a loop body** is free: the state *after* the yield is "the statements after
+  it", and the back edge is a transition.
+- **A nested pass becomes a field**, which is also exactly why a *recursive*
+  producer needs a `Box`: that field would have the struct's own type.
+- **One slot per `defer` site is enough — and now the reason is known rather
+  than assumed**: a loop-body `defer` is discharged before the back edge, so
+  it cannot outlive its iteration and no stack is needed. What it needs
+  alongside the flag is the local the deferred block reads, which is already a
+  field because every local is.
+- **The release path is unchanged from I1b**: flags, latest-first, idempotent,
+  one `close` after the loop covering `break` and exhaustion alike.
+
+### The `Throw` question, answered without new machinery (2026-09-07)
+
+The last unknown was a **`Throw` transfer out of a suspended body**. Rather
+than prototype the machinery (`next` returning
+`ControlFlow<M, Emitted T | Finished>`, pending defers running on the `Break`
+path, and a `for` that propagates it), the *alternative* was tested against
+the real compiler first: **a fallible producer yields a result, and the
+consumer throws.**
+
+It works, today, on both backends with identical output — a `Reader` pass
+whose `next` returns `Emitted (Ok Str | Err Str) | Finished`, driven by a
+`read_all` that declares `[Throw<Str>]` and throws on the `Err` arm, wrapped
+in a `try` (`a_fallible_pass_yields_a_result` in both backends' codegen
+tests):
+
+```
+line alpha / line beta / read 2 / line alpha / failed: stopped: bad line at 2
+```
+
+So the protocol needs nothing: `Emitted T | Finished` stays exactly two arms,
+and no machinery has to cross a suspension. **User decision 2026-09-07: a
+`yield` fn may not declare `[Throw<M>]`** — a producer that can fail yields a
+result. The reasoning is
+that `Throw` exists so *intermediate* frames stay silent, and a suspended
+generator is not an intermediate frame: it is a value the consumer drives, so
+its failure belongs in the value it hands over. The consumer's own `throw`
+inside the loop body already works and needed nothing from the producer.
+
+The one thing this turned up is an open defect — an inner arm not wrapping
+into a union *under a qualifier*, so the element union has to be bound to a
+local first. See "Open defects"; the workaround is one `let`.
+
+### I4/I2c implementation plan: the `yield` lowering (written 2026-09-07)
+
+The prototypes have fixed the target shape exactly (see
+`experiments/pull-iterators/`), so what remains is mechanical rather than
+exploratory. The plan, in the order it should be built:
+
+**1. A shared pass in `salvo-core` (`generator.rs`), not two lowerings.**
+Given a `yield` fn body it produces a plan the emitters *render*; neither
+backend re-derives control flow. Shape, straight off the prototypes:
+
+```
+struct GeneratorPlan<'p> {
+    fields: Vec<Field<'p>>,        // params, hoisted locals, nested pass slots
+    defers: Vec<DeferSite<'p>>,    // one flag each; the locals they read are fields
+    states: Vec<State<'p>>,        // numbered resume points
+}
+
+enum Step<'p> {
+    Plain(&'p Stmt),                                    // no control flow, no yield
+    Register(usize), Discharge(usize),                  // defer flag set / run
+    Goto(usize),
+    Branch { cond: &'p Expr, then_state: usize, else_state: usize },
+    Emit { value: &'p Expr, resume: usize },            // `yield`
+    OpenPass { slot: usize, subject: &'p Expr },        // entering a nested `for`
+    Drive { slot: usize, pattern: &'p Pattern, body: usize, done: usize },
+    Finish,
+}
+```
+
+The prototype's numbering is the acceptance test: building the plan for
+`gnarly.sv` must produce the eight states of `gnarly.rs`, in that order.
+
+**2. Locals become fields, which needs a name-resolution mode.** Every body
+local reads and writes through `self`. Both emitters already have the concept
+for handler state ("a handler constructor param or state field: accessed as
+`self.x`"), so this is a binding kind, not new machinery.
+
+**3. Emission per backend**, rendering the same plan: a struct with the
+fields plus `state`, a `next` whose body is `loop { match state { … } }`, and
+a `close` running pending defers latest-first. Rust and Kotlin differ only
+where they already differ (`while let` vs a guard, `Option<Box<…>>` for a
+recursive pass slot).
+
+**4. The representation split.** `Once Iter<T>` *is* the state struct; plain
+`Iter<T>` is the arguments plus a mint operation, so a second `for` re-runs
+the producer. Boxing appears only at a meeting point (decision 5).
+
+**5. Effects thread into `next`** (I4), removing [iter-effect-free] — except
+`[Throw<M>]`, which stays rejected on a `yield` fn (user decision
+2026-09-07).
+
+**6. Delete** `SalvoGen`/`SalvoYield`/`SalvoIter` from `runtime/iter.rs`, the
+Kotlin `iterator { … }` builder, the `'static`+`Clone` bounds and the
+`Fn`-not-`FnMut` convention exception, then sweep std (`seq.sv` can go lazy)
+and the ~48 tests and 10 snapshots that mention `Iter`/`yield`.
+
+Restrictions worth shipping v1 with, reported rather than guessed: a `when`
+containing a `yield` (the prototypes used `if`, and guessing the arm/binding
+interaction is what the invariants forbid), and a `yield` inside a `defer`
+body (already an error [defer-no-escape]).
+
+### Recommendation: drop the simple-generator fast path (decision 7)
+
+Decision 7 planned two lowerings — a readable direct form for bodies whose
+yields sit in the tail of a single loop nest, with the flat machine as a
+backstop. The prototype argues against it, and this is worth deciding before
+I2c's second half is built:
+
+- **The fast path's coverage is thinner than it looked.** `naturals`
+  (`while true { yield copy(i); i = i + 1 }`) — the producer in the repo's own
+  lazy-iterator demo — has statements *after* its yield, so it needs two
+  states and does not qualify. Neither does anything containing a `break`, a
+  `continue`, or a `defer`.
+- **The flat machine is not much worse for simple bodies.** `range` becomes
+  three states and reads fine; the dispatch loop is the same shape either way.
+- **Two lowerings is two things to keep correct**, and the divergence risk is
+  the one the laziness episode already taught.
+
+Recommendation: emit the flat machine always. **Accepted by the user
+2026-09-07**, superseding decision 7's second bullet: there is one lowering,
+and the "simple-generator fast path" is not to be built.
+
 ### Hand-written iterators must say `Once` (user decision 2026-09-07)
 
 A hand-written state type — the point of decision 2, since `zip`/`merge`
@@ -3834,8 +4046,10 @@ site plus a diagnostic, with the LSP surfacing the same message.
     representation split — a pass becomes the generated state struct, a
     factory keeps the arguments it re-mints from, and the async machinery is
     deleted.
-- **I3** — The general flat state machine (CFG-ified body) as the
-  backstop for bodies the fast path rejects.
+- **I3** — ✅ *prototyped* 2026-09-07 (see "I3 prototyped" below): the
+  general state machine, hand-written on both backends and verified against
+  an oracle. Remaining: teaching it to the emitters, and prototyping a
+  `Throw` transfer out of a suspended body.
 - **I4** — Effects threaded into `next`; [iter-effect-free] removed;
   injected `close`.
 - **I5** — Lazy `map`/`filter` in `seq.sv` (the eager-because-of-callbacks

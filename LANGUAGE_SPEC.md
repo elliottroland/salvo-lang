@@ -1188,7 +1188,17 @@ Conventions:
     `Iterable` already did, and what keeps `for` from consuming its
     subject.
 * [iter-effect-free] An iterator function declares **no effects** — not
-  even `use` (user decision 2026-09-05). Laziness is the reason: the body
+  even `use` (user decision 2026-09-05).
+  * **Planned reversal** (roadmap I4): once a `yield` fn lowers to a state
+    struct whose `next` takes the handlers as parameters, effects thread in
+    per resume and this restriction goes away — with one exception that
+    stays: **`[Throw<M>]` is never allowed on a `yield` fn** (user decision
+    2026-09-07). `Throw` exists so *intermediate* frames stay silent, and a
+    suspended generator is not an intermediate frame — it is a value the
+    consumer drives, so its failure belongs in the value it hands over. A
+    fallible producer yields a result (`Emitted (Ok T | Err E) | Finished`)
+    and the consumer throws; verified end to end on both backends before the
+    rule was taken. Laziness is the reason: the body
   runs after the call that created the iterator returned, so a handler it
   performed against would have to outlive the scope that supplied it. The
   consumer is where effects belong; a `for` loop in an effectful function

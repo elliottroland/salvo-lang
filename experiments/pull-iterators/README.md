@@ -73,6 +73,98 @@ Note what is absent from `lines.rs`: no `Pin`, `Future`, `Waker`,
 
 One `defer` site and one loop. The interaction still to distrust is a body
 where `defer`, `when`, labelled loops and a `Throw` transfer all have to be
-resumable at once — phase I3 should open by prototyping that shape
-(`rangeIncl` with a `defer` inside a nested `for`) before the general
-lowering is written.
+resumable at once — see the gnarly prototype below, which took most of that
+on.
+
+# The gnarly prototype (I3)
+
+`gnarly.sv` is the body that decides whether the general lowering is
+tractable: everything resumable at once. `gnarly.rs` and `gnarly.kt` are the
+hand-written state machines, and `gnarly_oracle.rs` is what says whether they
+are right.
+
+| file | what it is |
+|---|---|
+| `gnarly.sv` | the Salvo source, in the planned language |
+| `gnarly_oracle.rs` | the **oracle**: the same body in *push* style, with `defer` as Rust scope guards |
+| `gnarly.rs` | the state machine, Rust |
+| `gnarly.kt` | the state machine, Kotlin |
+
+```bash
+rustc --edition 2021 gnarly_oracle.rs -o oracle && ./oracle
+rustc --edition 2021 gnarly.rs -o gnarly_rs && ./gnarly_rs
+kotlinc gnarly.kt -d classes && kotlin -cp classes salvo.GnarlyKt
+```
+
+All three print:
+
+```
+open
+got 2
+got 0
+row 0 end
+got 12
+got 100
+row 1 end
+close
+done
+```
+
+## Why there is an oracle
+
+A hand-written state machine is only as trustworthy as the thing that decides
+the expected answer, and hand-tracing when a *suspended* body's deferred
+blocks run is exactly the reasoning most likely to be wrong. So the oracle
+writes the same body in the one style that needs no bookkeeping at all —
+`yield` becomes a callback — and expresses each `defer` as a `Drop` impl,
+which makes **Rust's own scope discipline** the authority on when deferred
+code runs and in what order. Salvo's `[defer]` rule (end of the enclosing
+block, latest-registered first, on every exit path) is precisely Rust's drop
+order for locals.
+
+The two machines were then required to match it, on both exit paths: the
+consumer breaking after four elements, and the consumer draining (which is
+the only path that reaches the `yield` after the loop and the normal end of
+the body).
+
+## What the body exercises
+
+- a `defer` at fn-block level, released on every exit path;
+- a `defer` **inside a loop body**, registered anew each iteration, reading a
+  per-iteration local, discharged at the end of that iteration;
+- a nested loop over **another pass**, which has to stay alive across the
+  outer body's suspensions;
+- `continue` inside the inner loop;
+- two yields per outer iteration, and a third after the loop — four resume
+  points in all;
+- effects performed by the producer *and* by a deferred block;
+- a consumer that stops early, so the release path runs while the body is
+  suspended mid-nest.
+
+## What it established
+
+- **The lowering is mechanical**: numbered resume points, the body's locals
+  as fields, and a flat `loop { match state }` dispatch. Nothing about the
+  nesting needed a special case — an inner loop is just more states.
+- **`continue` is free**: it is staying in the same state.
+- **A yield in the middle of a loop body is free**: the state *after* the
+  yield is "the statements after it", and the back edge is a state
+  transition.
+- **A nested pass becomes a field**, which is also the reason a *recursive*
+  producer needs a `Box`: the field would have the struct's own type.
+- **One slot per `defer` site is enough, and now we know why**: a loop-body
+  `defer` is discharged before the back edge, so it cannot outlive its
+  iteration and no stack is needed. What the flag needs alongside it is the
+  local the deferred block *reads* — which is already a field, since every
+  local is.
+- **The release path is unchanged from I1b**: flags, latest-first,
+  idempotent, so a single `close` after the loop covers `break` and
+  exhaustion alike.
+
+## Still not prototyped
+
+A **`Throw` transfer out of a suspended body**. The shape is probably
+`next` returning `ControlFlow<M, Emitted T | Finished>` with the pending
+defers running on the `Break` path, but that changes the protocol's result
+type and how a `for` drives it, so it wants its own prototype before it is
+designed.
