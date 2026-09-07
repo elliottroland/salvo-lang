@@ -3475,7 +3475,357 @@ Built as [iter-effect-free] + [rs-iter-lazy]; the lead entry records what it
 took. The second decision the costing flagged — whether a lazy `Iter` is
 **one-shot**, which would make `for` consume its subject and interact with
 linear types — did **not** have to be taken: keeping `SalvoIter` a factory
-preserves Kotlin's repeatable semantics exactly.
+preserves Kotlin's repeatable semantics exactly. It is back on the table
+under the next section, which supersedes this one's *implementation*
+(the semantics it chose — lazy, both backends — are kept).
+
+## Roadmap: iterators — Salvo-level pull iterators (decided 2026-09-07, **not started**)
+
+The design above works, and its cost is concentrated in one place: the
+Rust body is lowered through `async` because stable Rust has no
+generators, and *that* is what forces [iter-effect-free]. An `async`
+closure captures its environment `'static`, while a handler arrives as
+`&mut dyn E` borrowed for one call, so a suspended producer cannot hold
+one. Every other compromise follows from the same root: the `Rc<dyn Fn()
+-> Box<dyn Iterator>>` factory, the `T: Clone + 'static` bounds, the
+clone-params-per-pass, the `Fn`-not-`FnMut` convention exception, and
+eager `map`/`filter` in `seq.sv`.
+
+The exit is to stop borrowing the target language's coroutine transform
+and materialise a pull iterator as a **state struct the compiler writes**,
+whose `next` takes the effect handlers as parameters like any other Salvo
+function. Then effects thread in per resume, nothing is captured, and
+[iter-effect-free] dissolves — without going push, so `zip`, `merge` and
+lookahead stay expressible.
+
+### How this was decided
+
+A push design was costed first (`yield` as a tail-resumptive effect, à la
+Koka: producer runs inside the consumer's dynamic scope). It was
+**rejected as the iteration model** (user, 2026-09-07) once it became
+clear that its sole real advantage — effectful producers — is a property
+of *owning the suspension*, not of pushing, and that push can never zip or
+merge two lazy sequences (inverting a push producer needs the `ctl`-clause
+continuation capture Koka has and the Rust backend cannot). Pull → push is
+free, so a yielding *consumer* can be layered on later if some feature
+turns out to need it; nothing in this design forecloses it.
+
+### Decisions taken (user, 2026-09-07)
+
+1. **Pull stays the model.** Push revisitable as an addition, never as a
+   replacement.
+2. **The protocol is Salvo-level, not intrinsic**: `fn next(st: Mut St)
+   -> [st: Mut] Next T | Stopped`, gathered in a `params Iterator<St, T>`
+   group beside the existing `params Iterable<It, T>`. `has_next`/`next`
+   retire. Consequences: a user can write an iterator *by hand* (which is
+   how `zip`/`merge` become ordinary structs — no materialising one side),
+   and the state type binds per call site through the `params` group, so
+   it never has to be named in a signature.
+   * Tagged `Next T | Stopped`, **not** `T?`: Salvo's unions are flat, so
+     `Iter<Int?>` would collapse `Int??` and lose the end signal. It
+     lowers to the generated `Union2`; the emitter may special-case
+     `Option` where the element type is provably non-nullable.
+3. **Effects thread into `next`** like any other function, so an iterator
+   function may perform them and [iter-effect-free] goes away. An
+   effectful iterator is consequently not a `std::iter::Iterator` (its
+   `next` takes extra parameters), which costs nothing — the `for` lowering
+   is ours. Kotlin *could* instead capture the handler at creation (a JVM
+   handler is just a reference), and must not: creation-time vs
+   consumption-time binding is observable when an iterator outlives the
+   `use` scope that made it, i.e. exactly the class of [backend-parity]
+   divergence the laziness episode was about.
+4. **`close` is mandatory and compiler-injected.** See "Abandonment"
+   below.
+5. **Boxing at the meeting point.** Each iterator function has its own
+   state type, so a position holding either of two producers gets one
+   boxed value there and nowhere else. Recorded with an example in
+   LANGUAGE.md ("Planned change: Salvo-level pull iterators") for further
+   thought. The alternative — rejecting such positions
+   [backend-never-wrong] — would have kept Rust output free of `dyn`
+   entirely at the price of banning an `Iter<T>` struct field.
+6. **One uniform lowering on both backends**, hidden behind hand-written
+   runtime modules so user-facing generated code stays concise. Those
+   modules move out of the emitters' string literals into real source
+   files under each backend crate (`runtime/iter.rs`, `runtime/iter.kt`,
+   pulled in with `include_str!`) — which makes them reviewable as code
+   and, more importantly, lets a test hand them straight to `rustc` /
+   `kotlinc`, turning the "hand-verify the generated shape first" gotcha
+   into a standing test. `[mod-used-only]` still applies, and a test must
+   compile *emitter output against the checked-in runtime*, since the two
+   can now drift in a way a string literal made impossible.
+   * The same treatment is wanted for `defer` on Kotlin: an
+     `inline fun <R> deferScope(f: DeferScope.() -> R): R` in the runtime
+     module instead of the current try/finally splices. **`inline` is
+     mandatory** — Salvo's `defer` bans control flow out of the *deferred*
+     body, but the enclosing block's `return`/`break`/`continue` must
+     still cross the scope function, which Kotlin permits only through an
+     inline lambda. It trades a zero-allocation splice for one scope
+     object per block.
+7. **Two tiers over one protocol**: `yield` functions (compiler-generated
+   state machine) and hand-written struct + `next`. Both satisfy
+   `params Iterator<St, T>`, so `for`/`map`/`filter` accept either — which
+   lets tier 1 stay deliberately incomplete without blocking anyone.
+   * **Simple-generator fast path**: when every `yield` sits in the tail
+     of a single loop nest, the state is the loop's locals plus a resume
+     bit and `next` emits as readable structured code. `range`, `chars`,
+     lazy `map`/`filter` land here; `rangeIncl` needs two states but still
+     no CFG. The general flat machine is the correctness backstop, not the
+     common path, so it can land later than the feature.
+8. **Consumer side lowers to `while let`**; a `for` over an obvious
+   backend iterable (list, array, `Str`) keeps emitting a native loop, so
+   the common case pays nothing.
+9. **Factory and pass are distinguished at the type level, by `Once`** —
+   see the next subsection. This retired the open DECISION rather than
+   answering it: both exist, and the author of an iterator function picks.
+
+### Abandonment, and why `close` is mandatory
+
+A consumer that `break`s stops driving an iterator before it reports
+`Stopped`, leaving the body suspended at a `yield` forever. Today that is
+harmless *only* because of [iter-effect-free]: a producer that cannot
+perform effects holds nothing worth releasing, and its pending `defer`
+blocks are skipped invisibly (dropping the future / abandoning the
+coroutine never runs the emitted exit code). Threading effects in creates
+the problem — `let f = open(path); defer { close(f) }` inside a producer
+leaks the handle on every `break`.
+
+Because the machine is ours, each state knows which defers are pending, so
+it gets a **close path** that jumps to the unwind states and runs them
+latest-first. The compiler injects the call on every exit out of the `for`
+— exhaustion, `break`, `return`, a `Throw` transfer. Deterministic on both
+backends, and it needs no destructors: Kotlin has none, and a Rust `Drop`
+could not take the effect parameters a deferred block may need.
+
+**On the linear-types angle** (user asked whether the injection could
+later be removed): must-use linearity is already *built* — L6, done
+2026-09-02, rules [linear-obligation] / [linear-discard] / [linear-canbe].
+So the obligation is expressible today: declare the pass type
+`canbe Linear` and draining-or-closing becomes the ordinary all-paths
+obligation check, with `close` as its `discard`. The injection is
+therefore a *convenience* (the `for` lowering is the one place the
+compiler always knows every exit path) rather than a workaround for a
+missing feature, and it can be relaxed to a plain obligation whenever we
+want the user to see it. The umbrella roadmap already exists — "Roadmap:
+toward full linear types" above, remaining phases L5 (places and partial
+moves) and L7 (derived-return annotations) — so no new roadmap item was
+added; what is *not* yet decided is whether a hand-written iterator's
+state must be `canbe Linear` by rule.
+
+### Factory and pass: `Iter<T>` vs `Once Iter<T>` (user decision 2026-09-07)
+
+The 2026-09-05 costing deferred a second question — whether a lazy `Iter`
+is **one-shot** — and a state-struct materialisation brings it back, now
+sharper: with producers allowed to perform effects, replaying a pass
+replays its I/O. Both branches were costed (factory: two loops over one
+value both replay, silently re-reading a file; pass: the second use is a
+consumption error, and re-reading means calling the producer again, where
+the cost is visible).
+
+Neither branch was taken. **The distinction moves into the type**, and
+`Once` already means exactly what a pass needs — with no new rule to
+write:
+
+```
+Iter<T>        // factory: replayable; a fresh pass is minted per use
+Once Iter<T>   // pass: a position in a sequence, consumed by driving it
+```
+
+Why `Once` fits with nothing invented:
+
+- It is already specified as **never droppable** ("it restricts rather
+  than refines", LANGUAGE.md; [qual-*]: the compiler owns permissions,
+  which drop, and obligations, which do not). A pass must never be
+  forgettable into a replayable recipe, and it cannot be.
+- Its **variance is already inverted and already the direction needed**:
+  "any ordinary function value can be used where a `Once` one is
+  expected — never the reverse" generalizes to "a factory fits where a
+  pass is wanted, never the reverse".
+- The **conversion in the permitted direction is already a call**: the
+  implicit `iter()` that `[iter-resolve]` inserts *is* factory → pass.
+- **Enforcement is the existing consumption machinery**
+  [deduce-consume] / [once-fn]; no new analysis.
+- The backend mapping follows the existing pattern (`Once` fn params
+  already compile to `FnOnce`): `Once Iter<T>` is the owned state struct,
+  plain `Iter<T>` the argument bundle it re-mints from. Boxing at the
+  meeting point (decision 5) applies to each form independently.
+
+Rejected alternative: a second nominal type (`Pass<T>` / `Cursor<T>`). It
+would need its own variance rule, its own never-drop rule and its own
+name in every signature — three things `Once` already has written down.
+The one objection to `Once` is that a qualifier would gate the *operation
+set* (`iter` versus `next`), and `Mut` is the precedent for exactly that
+(it gates the mutators, overloads select on qualifiers, and a backend may
+render `Mut T` as a different type with the compiler inserting the
+conversion).
+
+Consequences recorded with it:
+
+- **`Once` generalizes from call-multiplicity to use-multiplicity**
+  (user, 2026-09-07), with the fn case as the instance where using means
+  calling. Valid positions stay explicit — fn types and `Iter<T>` — and
+  whether it applies to *any* type is roadmap **D6**.
+- **An effectful producer may return a factory** (user, 2026-09-07).
+  Mechanically fine, since handlers arrive per `next`; semantically,
+  replay re-does the I/O, and `Iter<T>` visibly means replayable, so the
+  type carries the warning. Forbidding it would outlaw the legitimate
+  read-a-file-twice case. Each minted pass is closed at its own loop
+  exit, so nothing leaks either way.
+- **The close obligation stays injected, not declared.** `Once` covers
+  no-replay; the injected `close` covers no-leak. Making the obligation
+  visible in the language needs linearity conditioned on a use-site
+  qualifier — roadmap **D7**, which records the relation to this change.
+
+### Still open
+
+- **D6** — `Once` on any type.
+- **D7** — qualifier-conditional linearity.
+
+### Hand-written iterators must say `Once` (user decision 2026-09-07)
+
+A hand-written state type — the point of decision 2, since `zip`/`merge`
+read two sources and `yield` cannot express them — has to be drivable by
+`for` like a generated one. It is **not** inferred: a value whose type has
+a `next` but no `Once` qualifier is an **error** at the driving site, and
+the diagnostic names the remedy — annotate the return type `Once X`.
+
+```
+struct Zip<A, B> { ... }
+fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Next (A, B) | Stopped { ... }
+
+fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
+for pair in zip(as, bs) { ... }   // ERROR: `Zip<A, B>` has a `next` but is
+                                  // not a pass — return `Once Zip<A, B>`
+```
+
+Why an error rather than an inference: a struct with a `next` is not
+self-evidently single-use — `next` says it can be advanced, `Once` says
+advancing it uses it up, and only the author knows whether the second is
+true. Inferring `Once` from the presence of `next` would attach an
+obligation to someone's type on the strength of a name, and attaching
+obligations silently is what [qual-*] keeps the compiler from doing. The
+error is also the cheap half of the feature: it is a check at the driving
+site plus a diagnostic, with the LSP surfacing the same message.
+
+### Phases
+
+- **I1** — ✅ Done 2026-09-07. Runtime modules extracted to real source files
+  and the motivating program hand-verified on both backends; see "I1 as
+  built" below.
+- **I2** — Salvo-level protocol (`Next T | Stopped`, `params Iterator`),
+  `for` lowering to `while let`, simple-generator lowering. Effect-free
+  producers only: pure simplification, `SalvoGen`/`SalvoYield`/`SalvoIter`
+  deleted.
+- **I3** — The general flat state machine (CFG-ified body) as the
+  backstop for bodies the fast path rejects.
+- **I4** — Effects threaded into `next`; [iter-effect-free] removed;
+  injected `close`.
+- **I5** — Lazy `map`/`filter` in `seq.sv` (the eager-because-of-callbacks
+  justification disappears); std surface sweep.
+- **I6** — Sweep: ~48 test fns and 10 of 23 insta snapshots mention
+  `Iter`/`yield`; `[fn-iterator]`, `[iter-effect-free]`, `[rs-iter-lazy]`,
+  `[seq-iterable]` rewritten; the LANGUAGE.md planned-change subsection
+  folded into the section proper.
+
+### I1 as built (2026-09-07)
+
+**I1a — the runtime modules are source files now.** The four *static*
+generated modules moved out of Rust string literals in the emitters into
+`crates/salvo-backend-rust/runtime/{iter.rs,strings.rs,seq.rs}` and
+`crates/salvo-backend-kotlin/runtime/throw.kt`, pulled in with
+`include_str!`. The parameterized generators stay generated — `unions.rs` /
+`unions.kt` are a function of the arities a program needs, so there is no
+static text to extract.
+
+- **Extracted byte-for-byte, deliberately**: the files were captured from
+  the compiler's own output (`tmp/i1_extract/main.sv` touches all four),
+  so emitted bytes did not change, no insta snapshot moved, and no e2e
+  content stamp missed. Verified by compiling that program before and
+  after and diffing the whole output tree — identical on both backends.
+- **New tests** `crates/salvo-backend-{rust,kotlin}/tests/runtime_tests.rs`
+  compile each module *on its own* (`rustc --crate-type lib`, `kotlinc`)
+  and assert the toolchain said nothing at all: this code is spliced into
+  user output, where a warning is noise the user cannot fix. They skip
+  without the toolchain like every other e2e test, and they are
+  content-cached the same way.
+- **Negative-tested**, since a test that cannot fail is decoration: an
+  unused local added to `seq.rs` made
+  `every_runtime_module_compiles_warning_free` fail with the warning
+  quoted, and reverting restored green.
+- The list of modules is a `const` in each test, so a new runtime module
+  that is not registered is a visible omission rather than an untested
+  file.
+
+**I1b — the design is hand-verified end to end.** `tmp/i1_pull/source.sv`
+is the motivating program, written in the *planned* language: an
+effectful iterator function (`[FileSystem, Console]`) holding a resource,
+releasing it with a `defer` **that itself performs effects**, with two
+distinct resume points (a header `yield`, then a `yield` inside
+`while true`), consumed by a `for` that `break`s after three elements.
+`tmp/i1_pull/main.rs` and `main.kt` are what the emitters would produce.
+Both compile warning-free and print **byte-identical stdout**:
+
+```
+opening data.txt
+line -- data.txt --
+line alpha
+line beta
+closing data.txt
+done
+```
+
+What that establishes, in order of how much it was in doubt:
+
+- **`close` can be idempotent, and that collapses the injection.** Guard
+  the unwind path on the per-site `defer` flags and *one* call after the
+  loop covers `break` and exhaustion alike, because both land there — no
+  per-exit-path duplication, and no double-run. Verified with a second
+  variant that drains instead of breaking: exactly one `closing` line,
+  identical on both backends. Only `return`/`throw` out of the loop body
+  need their own splice, which is machinery `defer` already has.
+- **Effects thread in cleanly, and that is the whole design.** `next(&mut
+  self, fs: &mut dyn FileSystem, console: &mut dyn Console)` holds no
+  handler, so there is no lifetime, no `'static` bound, and nothing
+  captured — which is exactly what [iter-effect-free] existed to avoid.
+  A deferred block performing effects on the close path works for the same
+  reason, and it is why a Rust `Drop` impl could never have been the
+  mechanism (it takes no parameters).
+- **The Rust output contains no `Pin`, `Future`, `Waker`,
+  `Box<dyn Iterator>`, `Rc`, or `async`.** The state machine is a struct
+  with a `u32` state, the body's locals as fields, and one `bool` per
+  `defer` site.
+- **The consumer lowering is a `while let`** on Rust
+  (`while let SalvoStep::Next(l) = pass.next(fs, console)`) and the
+  obvious `while (true) { … if (step !is Next) break }` on Kotlin.
+- **The two backends can share one lowering** (decision 6) with the JVM
+  losing nothing: Kotlin's `iterator { … }` builder could only ever have
+  *captured* the handlers, so the uniform machine is not a concession on
+  that side, it is the only shape that threads them.
+
+Not yet prototyped, and still the riskiest thing in the plan: a body where
+`defer`, `when`, labelled loops and a `Throw` transfer all have to be
+resumable at once. I1's program has one `defer` site and one loop; **I3
+should open with the gnarly shape** (`rangeIncl` with a `defer` inside a
+nested `for`) before the general lowering is written.
+
+### Costs recorded up front
+
+- **Recursive producers need boxing on Rust.** A nested `for` keeps the
+  inner pass alive across the outer's suspensions, so it becomes a
+  *field*; for a recursive producer that field has the struct's own type
+  (`E0072`), hence `Option<Box<…>>`. One allocation per level per pass and
+  O(depth) per element — the cost profile of chained `flatten`. Kotlin is
+  unaffected. This is the one durable advantage push kept.
+- **The flat machine is the one lowering whose output stops resembling its
+  input**, and the interaction to distrust is `defer` + `when` + labelled
+  loops + `Throw` transfers all having to be resumable in the same body.
+  Hand-prototype the gnarly shape (`rangeIncl` with a `defer` inside a
+  nested `for`) before committing.
+- **`yield x` stops being a move.** Today it consumes ([deduce-consume],
+  "a yield in a loop consumes anew every iteration"); under a pass the
+  element is handed over per `next`, so the loop binding becomes a
+  kept-or-moved decision the deduction engine has to make. A class of
+  current errors disappears; sizing the analysis that replaces it is the
+  one item that could not be bounded from reading the code.
 
 ## Roadmap: shared mutable state (`Cell`)
 
@@ -3871,7 +4221,67 @@ arm, and only an explicitly parenthesized group can be qualified
   2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
   in practice.
 
-### D5 — Qualifier subjects: state vs provenance ✅ Done 2026-09-03
+### D6 — `Once` on any type (opened 2026-09-07)
+
+`Once` is specified as *fn-type only* ([once-fn], "the language-level
+call-multiplicity qualifier"). The iterator rework generalizes it to a
+**use-multiplicity** qualifier and applies it to `Iter<T>`, with the fn
+case as the instance where using means calling (user decision
+2026-09-07; see "Roadmap: iterators — Salvo-level pull iterators"). The
+generalization was accepted; the *scope* was deliberately left narrow.
+
+- **Open question: is `Once` valid on any type?** Nothing in its
+  semantics is iterator- or fn-specific — it is an obligation-side
+  qualifier the compiler owns, never droppable, with inverted variance
+  ([qual-*]: permissions drop, obligations do not), and enforcement is
+  the existing consumption machinery [deduce-consume]. So `Once
+  FileHandle` or `Once Ticket` would already mean something coherent:
+  "use this at most once".
+- **Why it was not opened up in the same step** (user decision
+  2026-09-07): shipping a general affine qualifier as a side effect of
+  an iterator change is how a language surface grows by accident. The
+  position list stays explicit — fn types and `Iter<T>` — and widens on
+  demand.
+- **What to weigh when it comes up**: `Once T` (at most once) sits next
+  to `canbe Linear` (exactly once) and `Mut`/`ReadOnly`; a general
+  `Once` makes the affine/linear pair complete and user-reachable,
+  which is a bigger vocabulary decision than it looks. Also note
+  `Once` is *applied* at use sites while `Linear` is *declared*
+  ([linear-canbe], "linearity is declared, not applied") — a general
+  `Once` would be the first obligation a user can attach to someone
+  else's type.
+
+### D7 — Qualifier-conditional linearity (opened 2026-09-07)
+
+Today linearity is a property of a *declaration*: `canbe Linear` opts a
+type in, and every value of it carries the obligation [linear-canbe]
+[linear-obligation]. There is no way to say **"the qualified form carries
+the obligation, the plain form does not."**
+
+The iterator rework is the first concrete need. `Once Iter<T>` (a pass)
+holds a position and may hold a resource, so it must be drained or
+closed; plain `Iter<T>` (a factory) holds nothing and needs no disposal.
+`canbe Linear` on the `Iter` declaration cannot express that split, since
+it would burden the factory too.
+
+- **Not blocking**: the mandatory `close` is *compiler-injected* on every
+  exit out of a `for` (decision 4 of the iterator roadmap), so the
+  no-leak half is covered without linearity. `Once` covers the no-replay
+  half. This item is about making the obligation *visible and checked in
+  the language* rather than injected.
+- **What it would take**: linearity conditioned on a use-site qualifier —
+  i.e. the obligation set becomes a function of the qualified type, not
+  of the declaration. The existing all-paths obligation machinery
+  (`owes_linear`, `check_linear_exit`, `merge_fallthrough`) would not
+  change shape; what changes is which values enter it.
+- **Relation to D6**: if `Once` generalizes to any type, this is the
+  natural companion — the pair "at most once" (applied) and "exactly
+  once" (currently declared) would want the same application mechanism.
+  Decide them together.
+- **Payoff beyond iterators**: it is the general shape of
+  "borrowed handle versus owned resource" without lifetimes — the same
+  question `ReadOnly[from: p]` answers for derived returns [readonly-return].
+
 
 The predicate/constructive split [qual-predicate] [qual-constructive] is
 an *evidence* axis — how a value acquires a fact. It says nothing about

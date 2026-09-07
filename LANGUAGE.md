@@ -1018,7 +1018,7 @@ fn iter<T>(list: List<T>) -> Iter<T>
 ```
 
 So, when we loop over the list the following are equivalent:
-§
+
 ```
 let list: List<Str> = get_list()
 
@@ -1037,6 +1037,128 @@ for str in iter(list) {
     // Do something
 }
 ```
+
+#### Planned change: Salvo-level pull iterators
+
+> **Not implemented.** Everything above describes the language as it is
+> today, and the compiler behaves that way. This subsection records the
+> shape of a design decided on 2026-09-07 whose implementation has not
+> started — it is here to be thought about, not to be built against. The
+> costing, the phases and the still-open questions live in PROGRESS.md
+> under "Roadmap: iterators — Salvo-level pull iterators (decided
+> 2026-09-07)".
+
+The iteration protocol becomes ordinary Salvo instead of a pair of
+intrinsics. `next` returns a `Next T | Stopped` union and takes the pass
+it advances, so `has_next`/`next` above are retired and an iterator can
+be written *by hand* — which is how you get the ones `yield` cannot
+express, like `zip` and `merge`, since they read two sources at once:
+
+```
+params Iterator<St, T> {
+    fn next(st: Mut St) -> [st: Mut] Next T | Stopped
+}
+```
+
+An iterator function's body still uses `yield`; the compiler lowers it to
+a state struct with a `next` of its own, rather than borrowing the target
+language's coroutines. Two consequences: effects thread into `next` like
+they do into any other function, so **an iterator function may perform
+effects** and the restriction described above goes away; and iteration is
+monomorphic — nothing is suspended, boxed, or dynamically dispatched.
+
+**A factory and a pass are different types, distinguished by `Once`.** An
+iterator is either a recipe you may run repeatedly, or a position in a
+sequence that driving consumes — and which one you hold is written down
+rather than decided once for the whole language:
+
+```
+Iter<T>        // a factory: replayable; each use mints a fresh pass
+Once Iter<T>   // a pass: a position, consumed by driving it
+```
+
+```
+// Nothing is held, so replaying is free: this one is a factory.
+fn evens(limit: Int) -> Iter<Int> { ... }
+
+// Holds an open file, so driving it is a one-time act: a pass.
+fn lines(path: Str) [FileSystem] -> Once Iter<Str> { ... }
+
+let e = evens(10)
+for n in e { ... }      // iter(e) mints a pass from the factory
+for n in e { ... }      // fine — e is still a factory
+
+let ls = lines("data.txt")
+for l in ls { ... }     // drives ls, consuming it
+for l in ls { ... }     // ERROR: ls was consumed by the loop above
+```
+
+`Once` means what it always meant — usable at most once — generalized from
+calling a function value to consuming a value of any kind it is allowed
+on. Its existing rules are the ones a pass needs. `Once` never drops, so a
+pass can never be forgotten back into a replayable recipe; and a value
+carrying *fewer* restrictions fits where a restricted one is expected, so
+a factory may be passed where a pass is wanted — the implicit `iter()`
+mints it — but never the reverse:
+
+```
+fn count(xs: Once Iter<Int>) -> Int { ... }
+count(evens(10))        // fine: a factory fits where a pass is wanted
+
+fn twice(xs: Iter<Int>) -> None { ... two loops ... }
+twice(lines(path))      // ERROR: `Once` never drops
+```
+
+A pass is also *finished* rather than abandoned: the compiler releases it
+on every path that leaves the loop — exhaustion, `break`, `return`, a
+`throw` passing through — so the `defer` blocks a producer registered run
+even when the consumer stops early. Nothing in the source says so, and
+nothing has to.
+
+A hand-written iterator says `Once` for itself. Declaring a `next` for a
+struct of your own is what makes `zip` and `merge` writable, but it does
+not by itself make the struct a pass: `next` says the value can be
+advanced, `Once` says advancing it uses it up, and only you know whether
+that is true. So driving a value that has a `next` and no `Once` is an
+error, and it names the remedy:
+
+```
+struct Zip<A, B> { ... }
+fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Next (A, B) | Stopped { ... }
+
+fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
+
+for pair in zip(names, ages) { ... }   // ERROR: `Zip<A, B>` has a `next`
+                                       // but is not a pass — return
+                                       // `Once Zip<A, B>`
+```
+
+**Where two iterators meet, the compiler boxes.** Each iterator function
+gets its *own* state type. A position that must hold either of two
+different producers therefore has nothing concrete to be, and the compiler
+inserts the indirection exactly there:
+
+```
+fn primes(limit: Int) -> Iter<Int> { ... }
+
+// One producer, so the representation is `evens`'s own state: an
+// element costs an inlined call and no allocation.
+let xs = evens(100)
+
+// A meeting point: one variable, two possible state types.
+let ys = if fast { evens(100) } else { primes(100) }
+
+struct Report {
+    // A meeting point too: a field holds whatever it is given.
+    source: Iter<Int>
+}
+```
+
+The type is `Iter<Int>` in all three cases — the difference is
+representation, not meaning, and it is the compiler's to make. What a
+boxed iterator costs is an indirect call per element instead of an
+inlined one; nothing else about it changes. A `for` loop over a call
+never meets anything, which is the common case.
 
 ### Effects
 
