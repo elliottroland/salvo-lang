@@ -6,16 +6,121 @@ Module {
     items: [
         Type(
             TypeDecl {
-                docs: [],
+                docs: [
+                    "Strings. `Str` is immutable — every function here returns a new string",
+                    "rather than changing its argument — and `canbe Mut` opts it into the",
+                    "language-level `Mut` auto-qualifier [type-canbe-mut] for the *building*",
+                    "case: a `Mut Str` is a string under construction, which a backend may map",
+                    "to a different native type (Kotlin's `StringBuilder`) or to the same one",
+                    "(Rust's `String`, where mutability lives in the binding).",
+                    "",
+                    "A `Mut Str` reaches every function below by *dropping* its `Mut`, which",
+                    "on a backend with a separate builder type is a real conversion rather",
+                    "than a widening [str-drop-mut] — so the surface is declared once, on",
+                    "`Str`, and the three mutators at the bottom are the only functions that",
+                    "take a `Mut Str`.",
+                ],
                 intrinsic: true,
                 name: Ident {
                     name: "Str",
-                    span: 15..18,
+                    span: 775..778,
                 },
                 generics: [],
-                auto_qualifiers: [],
+                auto_qualifiers: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Mut",
+                            span: 785..788,
+                        },
+                        args: [],
+                        span: 785..788,
+                    },
+                ],
                 alias: None,
-                span: 10..18,
+                span: 770..788,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Builds a mutable string from [parts] (concatenated in order). A string",
+                    "*literal* is a `Str`, never a `Mut Str`: mutability is asked for here,",
+                    "mirroring [mutable_list].",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "mutable_str",
+                    span: 980..991,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "parts",
+                            span: 995..1000,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 1002..1005,
+                                    },
+                                    args: [],
+                                    span: 1002..1005,
+                                },
+                            },
+                            span: 1002..1007,
+                        },
+                        variadic: true,
+                        implicit: false,
+                        span: 995..1007,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "parts",
+                                span: 1016..1021,
+                            },
+                            kind: KeepAll,
+                            span: 1016..1021,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 1023..1026,
+                                },
+                                args: [],
+                                span: 1023..1026,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 1027..1030,
+                            },
+                            args: [],
+                            span: 1027..1030,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 977..1030,
             },
         ),
         Fn(
@@ -26,7 +131,7 @@ Module {
                 intrinsic: true,
                 name: Ident {
                     name: "size",
-                    span: 83..87,
+                    span: 1095..1099,
                 },
                 generics: [],
                 generic_canbe: [],
@@ -35,22 +140,22 @@ Module {
                     Param {
                         name: Ident {
                             name: "str",
-                            span: 88..91,
+                            span: 1100..1103,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 93..96,
+                                    span: 1105..1108,
                                 },
                                 args: [],
-                                span: 93..96,
+                                span: 1105..1108,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 88..96,
+                        span: 1100..1108,
                     },
                 ],
                 implicit_groups: [],
@@ -62,10 +167,10 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "str",
-                                span: 105..108,
+                                span: 1117..1120,
                             },
                             kind: KeepAll,
-                            span: 105..108,
+                            span: 1117..1120,
                         },
                     ],
                 ),
@@ -75,16 +180,16 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "Int",
-                                span: 110..113,
+                                span: 1122..1125,
                             },
                             args: [],
-                            span: 110..113,
+                            span: 1122..1125,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 80..113,
+                span: 1092..1125,
             },
         ),
         Fn(
@@ -96,7 +201,7 @@ Module {
                 intrinsic: true,
                 name: Ident {
                     name: "char_at",
-                    span: 226..233,
+                    span: 1238..1245,
                 },
                 generics: [],
                 generic_canbe: [],
@@ -105,42 +210,42 @@ Module {
                     Param {
                         name: Ident {
                             name: "str",
-                            span: 234..237,
+                            span: 1246..1249,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 239..242,
+                                    span: 1251..1254,
                                 },
                                 args: [],
-                                span: 239..242,
+                                span: 1251..1254,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 234..242,
+                        span: 1246..1254,
                     },
                     Param {
                         name: Ident {
                             name: "index",
-                            span: 244..249,
+                            span: 1256..1261,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Int",
-                                    span: 251..254,
+                                    span: 1263..1266,
                                 },
                                 args: [],
-                                span: 251..254,
+                                span: 1263..1266,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 244..254,
+                        span: 1256..1266,
                     },
                 ],
                 implicit_groups: [],
@@ -152,18 +257,18 @@ Module {
                         Deduction {
                             param: Ident {
                                 name: "str",
-                                span: 263..266,
+                                span: 1275..1278,
                             },
                             kind: KeepAll,
-                            span: 263..266,
+                            span: 1275..1278,
                         },
                         Deduction {
                             param: Ident {
                                 name: "index",
-                                span: 268..273,
+                                span: 1280..1285,
                             },
                             kind: KeepAll,
-                            span: 268..273,
+                            span: 1280..1285,
                         },
                     ],
                 ),
@@ -174,18 +279,1669 @@ Module {
                             base: TypeRef {
                                 name: Ident {
                                     name: "Char",
-                                    span: 275..279,
+                                    span: 1287..1291,
                                 },
                                 args: [],
-                                span: 275..279,
+                                span: 1287..1291,
                             },
                         },
-                        span: 275..280,
+                        span: 1287..1292,
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 223..280,
+                span: 1235..1292,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The characters of [str], in order — which is what makes every sequence",
+                    "function over `Iter<T>` work on strings.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "iter",
+                    span: 1427..1431,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 1432..1435,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1437..1440,
+                                },
+                                args: [],
+                                span: 1437..1440,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1432..1440,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 1449..1452,
+                            },
+                            kind: KeepAll,
+                            span: 1449..1452,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Iter",
+                                span: 1454..1458,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Char",
+                                            span: 1459..1463,
+                                        },
+                                        args: [],
+                                        span: 1459..1463,
+                                    },
+                                },
+                            ],
+                            span: 1454..1464,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1424..1464,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Splits [str] around every occurrence of [sep]. An empty [str] yields one",
+                    "(empty) part; a [sep] that never occurs yields [str] whole.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "split",
+                    span: 1618..1623,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 1624..1627,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1629..1632,
+                                },
+                                args: [],
+                                span: 1629..1632,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1624..1632,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "sep",
+                            span: 1634..1637,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1639..1642,
+                                },
+                                args: [],
+                                span: 1639..1642,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1634..1642,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 1651..1654,
+                            },
+                            kind: KeepAll,
+                            span: 1651..1654,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "sep",
+                                span: 1656..1659,
+                            },
+                            kind: KeepAll,
+                            span: 1656..1659,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "List",
+                                span: 1661..1665,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Str",
+                                            span: 1666..1669,
+                                        },
+                                        args: [],
+                                        span: 1666..1669,
+                                    },
+                                },
+                            ],
+                            span: 1661..1670,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1615..1670,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The index of the first occurrence of [needle] in [str], or `None` when it",
+                    "does not occur. No `-1` sentinel: absence is `None` [type-nullable].",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "index_of",
+                    span: 1834..1842,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 1843..1846,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1848..1851,
+                                },
+                                args: [],
+                                span: 1848..1851,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1843..1851,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "needle",
+                            span: 1853..1859,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1861..1864,
+                                },
+                                args: [],
+                                span: 1861..1864,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1853..1864,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 1873..1876,
+                            },
+                            kind: KeepAll,
+                            span: 1873..1876,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "needle",
+                                span: 1878..1884,
+                            },
+                            kind: KeepAll,
+                            span: 1878..1884,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 1886..1889,
+                                },
+                                args: [],
+                                span: 1886..1889,
+                            },
+                        },
+                        span: 1886..1890,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1831..1890,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Whether [needle] occurs anywhere in [str]",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "contains",
+                    span: 1950..1958,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 1959..1962,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1964..1967,
+                                },
+                                args: [],
+                                span: 1964..1967,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1959..1967,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "needle",
+                            span: 1969..1975,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1977..1980,
+                                },
+                                args: [],
+                                span: 1977..1980,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1969..1980,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 1989..1992,
+                            },
+                            kind: KeepAll,
+                            span: 1989..1992,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "needle",
+                                span: 1994..2000,
+                            },
+                            kind: KeepAll,
+                            span: 1994..2000,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 2002..2006,
+                            },
+                            args: [],
+                            span: 2002..2006,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1947..2006,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Whether [str] begins with [prefix]",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "starts_with",
+                    span: 2059..2070,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2071..2074,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2076..2079,
+                                },
+                                args: [],
+                                span: 2076..2079,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2071..2079,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "prefix",
+                            span: 2081..2087,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2089..2092,
+                                },
+                                args: [],
+                                span: 2089..2092,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2081..2092,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2101..2104,
+                            },
+                            kind: KeepAll,
+                            span: 2101..2104,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "prefix",
+                                span: 2106..2112,
+                            },
+                            kind: KeepAll,
+                            span: 2106..2112,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 2114..2118,
+                            },
+                            args: [],
+                            span: 2114..2118,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2056..2118,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Whether [str] ends with [suffix]",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "ends_with",
+                    span: 2169..2178,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2179..2182,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2184..2187,
+                                },
+                                args: [],
+                                span: 2184..2187,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2179..2187,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "suffix",
+                            span: 2189..2195,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2197..2200,
+                                },
+                                args: [],
+                                span: 2197..2200,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2189..2200,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2209..2212,
+                            },
+                            kind: KeepAll,
+                            span: 2209..2212,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "suffix",
+                                span: 2214..2220,
+                            },
+                            kind: KeepAll,
+                            span: 2214..2220,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bool",
+                                span: 2222..2226,
+                            },
+                            args: [],
+                            span: 2222..2226,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2166..2226,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[str] without leading and trailing whitespace",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "trim",
+                    span: 2290..2294,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2295..2298,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2300..2303,
+                                },
+                                args: [],
+                                span: 2300..2303,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2295..2303,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2312..2315,
+                            },
+                            kind: KeepAll,
+                            span: 2312..2315,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 2317..2320,
+                            },
+                            args: [],
+                            span: 2317..2320,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2287..2320,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[str] without a leading [prefix] — unchanged when it does not start with",
+                    "one, so the caller needs no `starts_with` test first.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "trim_prefix",
+                    span: 2470..2481,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2482..2485,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2487..2490,
+                                },
+                                args: [],
+                                span: 2487..2490,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2482..2490,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "prefix",
+                            span: 2492..2498,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2500..2503,
+                                },
+                                args: [],
+                                span: 2500..2503,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2492..2503,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2512..2515,
+                            },
+                            kind: KeepAll,
+                            span: 2512..2515,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "prefix",
+                                span: 2517..2523,
+                            },
+                            kind: KeepAll,
+                            span: 2517..2523,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 2525..2528,
+                            },
+                            args: [],
+                            span: 2525..2528,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2467..2528,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[str] without a trailing [suffix] — unchanged when it does not end with",
+                    "one.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "trim_suffix",
+                    span: 2628..2639,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2640..2643,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2645..2648,
+                                },
+                                args: [],
+                                span: 2645..2648,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2640..2648,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "suffix",
+                            span: 2650..2656,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2658..2661,
+                                },
+                                args: [],
+                                span: 2658..2661,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2650..2661,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2670..2673,
+                            },
+                            kind: KeepAll,
+                            span: 2670..2673,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "suffix",
+                                span: 2675..2681,
+                            },
+                            kind: KeepAll,
+                            span: 2675..2681,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 2683..2686,
+                            },
+                            args: [],
+                            span: 2683..2686,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2625..2686,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The characters of [str] from [start] (inclusive) to [end] (exclusive), or",
+                    "`None` when that range does not lie within the string.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "substr",
+                    span: 2836..2842,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2843..2846,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2848..2851,
+                                },
+                                args: [],
+                                span: 2848..2851,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2843..2851,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "start",
+                            span: 2853..2858,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2860..2863,
+                                },
+                                args: [],
+                                span: 2860..2863,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2853..2863,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "end",
+                            span: 2865..2868,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2870..2873,
+                                },
+                                args: [],
+                                span: 2870..2873,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2865..2873,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2882..2885,
+                            },
+                            kind: KeepAll,
+                            span: 2882..2885,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "start",
+                                span: 2887..2892,
+                            },
+                            kind: KeepAll,
+                            span: 2887..2892,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "end",
+                                span: 2894..2897,
+                            },
+                            kind: KeepAll,
+                            span: 2894..2897,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2899..2902,
+                                },
+                                args: [],
+                                span: 2899..2902,
+                            },
+                        },
+                        span: 2899..2903,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2833..2903,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[str] with every character in upper case",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "to_upper",
+                    span: 2962..2970,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 2971..2974,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2976..2979,
+                                },
+                                args: [],
+                                span: 2976..2979,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2971..2979,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 2988..2991,
+                            },
+                            kind: KeepAll,
+                            span: 2988..2991,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 2993..2996,
+                            },
+                            args: [],
+                            span: 2993..2996,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2959..2996,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[str] with every character in lower case",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "to_lower",
+                    span: 3055..3063,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 3064..3067,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3069..3072,
+                                },
+                                args: [],
+                                span: 3069..3072,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3064..3072,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 3081..3084,
+                            },
+                            kind: KeepAll,
+                            span: 3081..3084,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 3086..3089,
+                            },
+                            args: [],
+                            span: 3086..3089,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3052..3089,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[parts] concatenated with [sep] between them",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "join",
+                    span: 3152..3156,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "parts",
+                            span: 3157..3162,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 3164..3168,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Str",
+                                                span: 3169..3172,
+                                            },
+                                            args: [],
+                                            span: 3169..3172,
+                                        },
+                                    },
+                                ],
+                                span: 3164..3173,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3157..3173,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "sep",
+                            span: 3175..3178,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3180..3183,
+                                },
+                                args: [],
+                                span: 3180..3183,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3175..3183,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "parts",
+                                span: 3192..3197,
+                            },
+                            kind: KeepAll,
+                            span: 3192..3197,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "sep",
+                                span: 3199..3202,
+                            },
+                            kind: KeepAll,
+                            span: 3199..3202,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 3204..3207,
+                            },
+                            args: [],
+                            span: 3204..3207,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3149..3207,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The integer [str] spells, or `None` when it does not spell one",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "parse_int",
+                    span: 3288..3297,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 3298..3301,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3303..3306,
+                                },
+                                args: [],
+                                span: 3303..3306,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3298..3306,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 3315..3318,
+                            },
+                            kind: KeepAll,
+                            span: 3315..3318,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 3320..3323,
+                                },
+                                args: [],
+                                span: 3320..3323,
+                            },
+                        },
+                        span: 3320..3324,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3285..3324,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Appends [text] to [str]. The string is mutated, which is why its",
+                    "surviving qualifiers are listed exhaustively [deduce-syntax].",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "append",
+                    span: 3472..3478,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 3479..3482,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3484..3487,
+                                    },
+                                    args: [],
+                                    span: 3484..3487,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3488..3491,
+                                },
+                                args: [],
+                                span: 3488..3491,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3479..3491,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "text",
+                            span: 3493..3497,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3499..3502,
+                                },
+                                args: [],
+                                span: 3499..3502,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3493..3502,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 3511..3514,
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3516..3519,
+                                        },
+                                        args: [],
+                                        span: 3516..3519,
+                                    },
+                                ],
+                            ),
+                            span: 3511..3519,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "text",
+                                span: 3521..3525,
+                            },
+                            kind: KeepAll,
+                            span: 3521..3525,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3527..3531,
+                            },
+                            args: [],
+                            span: 3527..3531,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3469..3531,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Replaces the character at [index] with [chr]. Out of range, it does",
+                    "nothing — the string is the caller's, and growing it here would make a",
+                    "`set` an `append`.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "set",
+                    span: 3715..3718,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 3719..3722,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3724..3727,
+                                    },
+                                    args: [],
+                                    span: 3724..3727,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3728..3731,
+                                },
+                                args: [],
+                                span: 3728..3731,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3719..3731,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "index",
+                            span: 3733..3738,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 3740..3743,
+                                },
+                                args: [],
+                                span: 3740..3743,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3733..3743,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "chr",
+                            span: 3745..3748,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Char",
+                                    span: 3750..3754,
+                                },
+                                args: [],
+                                span: 3750..3754,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3745..3754,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 3763..3766,
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3768..3771,
+                                        },
+                                        args: [],
+                                        span: 3768..3771,
+                                    },
+                                ],
+                            ),
+                            span: 3763..3771,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "index",
+                                span: 3773..3778,
+                            },
+                            kind: KeepAll,
+                            span: 3773..3778,
+                        },
+                        Deduction {
+                            param: Ident {
+                                name: "chr",
+                                span: 3780..3783,
+                            },
+                            kind: KeepAll,
+                            span: 3780..3783,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3785..3789,
+                            },
+                            args: [],
+                            span: 3785..3789,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3712..3789,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Removes every character from [str]",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "clear",
+                    span: 3842..3847,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 3848..3851,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3853..3856,
+                                    },
+                                    args: [],
+                                    span: 3853..3856,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 3857..3860,
+                                },
+                                args: [],
+                                span: 3857..3860,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3848..3860,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "str",
+                                span: 3869..3872,
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3874..3877,
+                                        },
+                                        args: [],
+                                        span: 3874..3877,
+                                    },
+                                ],
+                            ),
+                            span: 3869..3877,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3879..3883,
+                            },
+                            args: [],
+                            span: 3879..3883,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3839..3883,
             },
         ),
     ],

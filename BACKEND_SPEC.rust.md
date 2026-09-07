@@ -28,10 +28,13 @@ Conventions:
     as `mod core_console` (path parts joined with `_`): Rust module
     paths are flat, generated imports use `crate::core_console::*`.
   * The generated union enums live in `unions.rs`, mounted as
-    `mod unions` [rs-union-enums].
+    `mod unions` [rs-union-enums]; the lazy-iterator support in `iter.rs`
+    [rs-iter-lazy] and the string helpers in `strings.rs` [rs-mut-str],
+    each emitted only when the program needs it.
 * [rs-imports] Files get generated `use` items: `use crate::<mod>::*;`
   per foreign *emitted* module whose names the file uses, and
-  `use crate::unions::*;` when the file touches union wrappers. An aliased
+  `use crate::unions::*;` / `use crate::iter::*;` / `use crate::strings::*;`
+  when the file touches union wrappers, iterators or the string helpers. An aliased
   Salvo import of a Rust-visible item emits
   `use crate::<mod>::<name> as <alias>;` and call sites keep the alias.
   Intrinsic lowerings name everything by absolute path [intrinsic-fn], so
@@ -53,6 +56,52 @@ Conventions:
   `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
+* [rs-seq] std's sequence functions [seq-iterable]: the `List` fast paths
+  lower to the generated helpers in `strings.rs`'s sibling `seq.rs` —
+  `salvo_map`/`salvo_filter`/`salvo_reduce`, taking `&[T]` so a call splices
+  its receiver as `&place[..]` and works for an owned `Vec`, a `&Vec` and a
+  `&mut Vec` alike.
+  * **Functions rather than inline expressions**, and the reason is closure
+    inference: a Rust closure bound to a `let` cannot infer its parameter
+    types, and neither can one nested in another closure's argument, so
+    every inline shape needed an annotation the emitter does not have. A
+    generic parameter *is* an expected type — and it also pins the
+    callback's convention (`FnMut(&T)`), which is what a fn-typed parameter
+    of declared type `(T) -> U` renders as [rs-fn-param-convention].
+  * `salvo_reduce` is a loop, not `Iterator::fold`: the callback's
+    accumulator is *borrowed* by that convention and `fold` passes it by
+    value.
+  * A **lambda** argument to an intrinsic follows the declared parameter
+    type's conventions like any other fn-typed position, and a **named fn**
+    wraps in the same adapter closure [fn-contract] — a fn item's own
+    convention is by value, which is E0631 against `FnMut(&T)`.
+* [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter is
+  passed as an adapter closure whose body is the intrinsic's *lowering*:
+  emitting `iter(__i0)` would name the generated `iter` **module** (E0423).
+  A resolved *declared* fn's adapter forwards each argument in that fn's own
+  parameter mode [rs-borrows] — a kept struct parameter is `&T`, and passing
+  it by value is E0308.
+* [rs-mut-str] `Str` and `Mut Str` are **both** `String`: mutability lives
+  in the binding and the reference [type-canbe-mut], so a `Mut` drop
+  renders nothing at all ([str-drop-mut] — `coercion_of` unwraps a
+  `DropMut` record to whatever it carries, so even the "is this argument a
+  fresh temporary?" tests see that nothing happens at a drop).
+  * String indexes are **characters**, not bytes: `size` counts `chars()`,
+    and `index_of`/`substr`/`set` convert, since `find` answers in bytes.
+    (Kotlin counts UTF-16 code units — the divergence `size` already had.)
+  * A read-only lowering binds its receiver once — `{ let __s = &A[..]; … }`
+    — which both avoids evaluating a call argument twice and gives a `&str`
+    whatever shape the place had (`String`, `&String`, `&mut String`).
+  * `mutable_str(parts)` *borrows* its parts (`[&a[..], &b[..]].concat()`):
+    they are read, not stored, and a variadic position is untracked by the
+    flow analysis, so an owned splice would move a variable the checker
+    still considers live [fn-variadic].
+  * `set` is the one operation with no single `String` method, and an
+    inline `let s: &mut String = &mut place;` does not work for a `&mut
+    String` *parameter* (E0596: the binding is not `mut`). So it is a
+    method on a generated trait — `strings.rs`, mounted and imported like
+    `iter.rs`, gated on use — which auto-refs every place shape and
+    mentions the receiver once.
 * [kt-none-unit]-equivalent: `None` as a return type is `()` (omitted);
   `None` as a union arm is `Option` [rs-option].
 * [rs-option] `T?` maps to `Option<T>`: `None`→`None`, `is None`→

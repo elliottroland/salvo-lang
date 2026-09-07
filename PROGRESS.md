@@ -1,5 +1,88 @@
 # Salvo Compiler — Progress & Plan
 
+**S-Str landed 2026-09-06 (user design): `Str canbe Mut`, and the string
+function surface.** A string is still immutable; what `Mut Str` adds is a
+string *under construction*, asked for explicitly (`mutable_str("he",
+"llo")` — a literal is never a builder) and mutated by exactly three
+functions (`append`, `set`, `clear`). Everything else in `core.string` takes
+a plain `Str`, and a builder reaches all of it by dropping its `Mut`.
+
+**That drop is the feature.** Every other qualifier erases, so widening only
+forgets a claim — and `Mut List<T> <: List<T>` has always been free because
+`MutableList<T>` *is* a Kotlin `List<T>`. A `StringBuilder` is not a
+`String`, so this is the first `Mut` whose removal costs an instruction.
+Rule [str-drop-mut]:
+
+- **The checker records the drop** (`Coercion::DropMut`), rather than each
+  emitter guessing from types — the standing checker/emitter agreement. The
+  record carries the qualified type, so a backend decides from its base:
+  Kotlin renders `.toString()` for `Str` and nothing for `List`, Rust
+  nothing at all (there `Mut` erases, and `coercion_of` unwraps a `DropMut`
+  so even the "is this argument a fresh temporary?" tests see that nothing
+  happens).
+- **It fires at every drop site**, which is the part worth testing rather
+  than believing: call arguments (intrinsic lowerings included — a
+  `StringBuilder` must not reach `String.getOrNull`), returns, `let`
+  annotations, struct fields, union arms, interpolation, and operator
+  operands. Operators are *coerced, not rejected*: Kotlin's `StringBuilder
+  == String` is `false` and `sb1 == sb2` is reference equality, against
+  Rust's structural `String == String` — a live parity divergence, and
+  rejecting `Mut` there (the [op-no-none] treatment) would surprise, since
+  `Mut List` is accepted everywhere else.
+- **A drop carries the coercion it displaces.** One expression has one
+  coercion slot, and a `Mut Str` flowing into a `Str | Int` needs both the
+  conversion *and* the union wrap, so `DropMut` has a `then` field. Found by
+  writing the union-arm test, not by design.
+- **`copy` had to learn about it**: a `Mut Str`'s copy is
+  `StringBuilder(sb)` on Kotlin [kt-copy]. Identity would alias the buffer —
+  the S1 transitive-mutability trap, and `ty_immutable` already answered
+  correctly (`Mut` anywhere means mutable), so this was one arm in the
+  copy lowering rather than an analysis change.
+
+**Two things fell out of implementation.** First, the surface is
+*char-indexed* on both targets, which Rust needs conversions for (`find`
+answers in bytes) — and Kotlin still counts UTF-16 code units, the
+divergence `size`/`char_at` already had, now shared by `substr`/`index_of`/
+`set`. Astral-plane text is where the two differ; a `Char`-exact `Str` is a
+decision, not a patch. Second, **`set` needed a generated support module on
+Rust** (`strings.rs`, mounted and imported like `iter.rs`): replacing a
+character reads *and* writes the string, and an inline `let s: &mut String =
+&mut place;` does not compile for a `&mut String` parameter (E0596 — the
+binding is not `mut`). A trait method auto-refs an owned local, a `&mut`
+parameter and a field projection alike, and mentions the receiver once, so a
+call argument is never evaluated twice.
+
+**And a pre-existing hazard surfaced: `...spread` into a variadic
+intrinsic.** `mutable_str(...parts)` spliced the array as one argument,
+which Kotlin's `StringBuilder.append(Any?)` cheerfully accepted — printing
+`[Ljava.lang.String;@37bba400`, i.e. silently wrong output
+[backend-never-wrong]. The same shape in `list(...arr)` was merely a
+kotlinc/rustc error, which is why it had gone unnoticed. Fixed for all of
+them [fn-variadic]: Kotlin uses its own spread operator (`listOf(*arr)`),
+Rust takes the vector itself (cloned — Salvo does not track a variadic
+position, so the array stays usable), and `mutable_str` *borrows* its parts,
+since it reads them rather than storing them.
+
+Verified end to end by compiling and running one 40-line program covering
+the whole surface under both `kotlinc` and `rustc` with byte-identical
+stdout, plus a second one for `set` through a parameter and a field.
+
+**S-Seq landed the same day too — `map`/`filter`/`reduce` over anything with
+an `iter`** — and it is the answer to "what did Salvo get instead of traits"
+applied to collections: `params Iterable<It, T>` is a bundle of implicit
+parameters, so a customer type becomes iterable by declaring one function.
+The design was decided in advance and needed **four mechanisms that did not
+exist** — implicit resolution feeding back into type inference
+[implicit-infer], a *lead* candidate for expected types
+[fn-overload-specific], intrinsics passed as adapter closures
+[implicit-intrinsic], and parameter contravariance in implicit resolution —
+plus generated Rust helpers, because Rust closure inference rules out every
+inline shape. Details under "Roadmap: standard library surface".
+
+**O1 (overload specificity) landed the same day** and is recorded under
+"Roadmap: overload resolution": a concrete parameter type now beats a type
+variable, which is what the `List` fast path of S-Seq needed.
+
 **Qualifier refinements (`refn`) landed 2026-09-06 (user design), closing
 roadmap D3.** D1 made deductions sound by forbidding a mutating function
 from promising a qualifier it never declared, and accepted the
@@ -2414,8 +2497,59 @@ by faithful emission. Rule [fn-contract]:
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation.
 
-*(None open. The last entry — `use Handler<T>()`'s type arguments going
-nowhere — was fixed 2026-09-06; see the decision-log entry at the top.)*
+### An own-module fn does not beat an identically shaped std one
+
+Found 2026-09-06 while testing S-Seq. A program that declares a function
+whose name *and shape* match an implicitly visible `core.*` one does not get
+its own:
+
+```
+fn size<T>(list: List<T>) -> [list] Int {
+    return 99
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3)
+    println("own size: ${size(xs)}")   // prints 3 — std's, silently
+}
+```
+
+and with the sequence functions the same shape produces a *diagnostic*
+instead, because neither candidate can type the lambda:
+
+```
+fn map<S, T>(list: List<S>, mapper: (S) -> T) -> [list, mapper] List<T> { ... }
+let ys = map(xs, n -> n + 1)
+// error: cannot infer type argument `U` of `map`  ← std's generic parameter
+```
+
+**Root cause.** For *functions*, resolution deliberately merges same-name
+declarations into one overload set rather than shadowing — that is what
+overloading by argument type means, and [mod-collision]'s "own declarations
+override implicit `core.*` visibility" applies to the *other* name kinds.
+Two candidates with the same shape are then indistinguishable: specificity
+[fn-overload-specific] finds them *indifferent* (nothing to rank on the
+genericity axis) and the winner is declaration order — which is std's,
+since std files are collected first.
+
+**Pre-existing**, not caused by S-Seq: the `size` case above behaves the
+same way before it. What S-Seq changed is the *surface*, since std now
+declares the names a customer is most likely to want (`map`, `filter`,
+`reduce`).
+
+**Not fixed here, because the fix is a language decision** (see the
+overload-resolution roadmap): should an own-module declaration *outrank* an
+implicitly visible std one when neither is more specific? A precedence rule
+would settle both cases, and it has precedent — own-module refinements
+replace imported ones [qual-refn-reconcile], and imports override `core.*`
+for every other name kind. The alternative is to report the tie as an
+ambiguity, which is honest but forces a rename on code that has every right
+to define its own `map`.
+
+Documentation is already clear of it: LANGUAGE.md's lambda example and the
+parser corpus were renamed to `transform` so nothing in the repository
+shadows a std function.
 
 ## Roadmap: toward full linear types
 
@@ -4104,7 +4238,225 @@ spec rule; consolidated here for findability):
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
-## Test inventory (all green: 602)
+## Roadmap: overload resolution
+
+Salvo overloads by argument type, and that decision reaches further than
+any other single rule: `size(Str)`/`size(List)`/`size([])` are three
+declarations, qualifiers make `full_name(Surname Person)` a distinct
+overload, mangling exists to keep the target from re-resolving them
+[kt-fn-mangling], and the checker's choice is authoritative everywhere
+downstream. What has never been *designed* is the ranking.
+
+**Finding (2026-09-06), and it was a bug rather than a gap.** With
+
+```
+fn describe<T>(value: T) -> Str { return "generic" }
+fn describe(value: Int) -> Str { return "concrete" }
+```
+
+`describe(3)` resolved to the **generic** overload and printed `generic`.
+Both candidates match — an unconstrained `T` unifies with anything — and
+nothing preferred the more specific one. It went unnoticed because every
+existing overload set has *disjoint* parameter types, so no two candidates
+ever both matched. Fixed by O1 below.
+
+- **O1 — specificity: landed 2026-09-06** (user decision the same day: a
+  concrete parameter type beats a type variable). Taken as part of the std
+  sequence functions (`map`/`filter`/`reduce`), which need a generic body
+  *and* a `List` fast path: without a ranking the two overloads are decided
+  by declaration order. Rule [fn-overload-specific], implementation
+  `types::spec_cmp`/`spec_dominates`/`spec_indifferent` +
+  `check_named_call`'s selection step:
+  * The score still runs first (exact match, qualified params). Specificity
+    only ranks the candidates it leaves tied, and it ranks the *declared*
+    patterns — after substitution `T` **is** `Int`, so the two candidates
+    look identical, which is exactly why the bug existed.
+  * A partial order, as recommended: the best set is the *undominated*
+    candidates, one winner is picked, and no winner is an "ambiguous call"
+    error naming both candidates. `mix<T>(T, Int)` vs `mix<T>(Int, T)` on
+    `mix(1, 2)` is the shape.
+  * **Two guards keep it from over-firing**, both found by running the
+    suite rather than by thinking:
+    - An *un-inferred* argument fits every candidate, so it suppresses the
+      ambiguity error [type-unknown-lenient]. Without this, a local
+      poisoned by a fate error reported that error *and* an ambiguity
+      between std's three `size` overloads — one mistake, two diagnostics.
+    - A pair the genericity axis finds **indifferent** (differing only in
+      qualifiers, unions, variadics, optionality) keeps declaration order
+      rather than erroring, because ranking those axes is the open design
+      below. The error fires only where the ranking was genuinely
+      attempted and failed.
+  * Verified end to end on both backends with one program (generic
+    overload declared first): `concrete` / `generic` under both `kotlinc`
+    and `rustc`. No backend change — the winner is a `call_fn` entry, and
+    mangling already keeps the target from re-resolving it
+    [kt-fn-mangling].
+- **Still to design (user request 2026-09-06): the full ranking.** The
+  rule above is the case in front of us, not a theory. Open questions,
+  each of which the current implementation answers by accident — where
+  "by accident" now means *by score, or by declaration order under the
+  indifference guard*:
+  * How do qualifier counts rank against base-type specificity — does
+    `f(Mut NonEmpty List<T>)` beat `f(List<Int>)`? (Today: score, +4 per
+    qualifier, which outranks any genericity difference.)
+  * Where do union parameters sit (`f(Int | Str)` vs `f(Int)`), given
+    arm-wise subtyping already prefers the arm? (Today: score, exact
+    match > subtype.)
+  * Optionals: `f(T?)` vs `f(T)` for a non-`None` argument. (Today: score.)
+  * Variadics: a fixed-arity candidate against a variadic one at the same
+    arity. (Today: declaration order — the patterns compare equal.)
+  * Implicit parameters: does a candidate needing fewer resolvable
+    implicits rank higher, and what happens when one of them is
+    unresolvable — a resolution failure or a demotion? (Today: implicits
+    take no part in scoring at all.)
+  * Whether the ranking is a partial order with a documented "no winner is
+    an error" rule (recommended — and what O1 shipped), or a total one
+    that always picks.
+  * Whether the *diagnostic* for an ambiguity names the tie-break that
+    failed, which is what makes any of this teachable. (Today it names the
+    candidates and the genericity rule; it cannot name a tie-break that
+    does not exist yet.)
+  * **Does an own-module declaration outrank an implicitly visible `core.*`
+    one when neither is more specific?** Today it does not, and declaration
+    order picks std's — see "Open defects". This is the one open question
+    with a *user-visible* consequence today, since std now declares `map`,
+    `filter` and `reduce`.
+  Precedent to follow: this is the same shape as [deduce-syntax]'s
+  polarity table — a small lattice, written down, with the error path
+  stated. Precedent to avoid: leaving it implicit in `unify`'s match-arm
+  order, which is what the gotchas already record as having bitten twice.
+
+## Roadmap: standard library surface
+
+Decisions taken 2026-09-06 (user), unbuilt. Recorded here so the design
+survives a session boundary; each item is independently shippable, in the
+order given, because each feeds the next.
+
+### S-Str — a mutable string, and the string function surface — **LANDED 2026-09-06**
+
+See the entry at the top of this file for what the drop coercion turned out
+to need. The surface as built, all in `std/core/string.sv` with lowerings in
+each backend's `intrinsics.rs`:
+
+- `intrinsic type Str canbe Mut`; `intrinsic fn mutable_str(...parts: Str[])
+  [] -> [parts] Mut Str` (the parts are *kept*, since they are read rather
+  than stored — which is what makes the Rust lowering borrow them).
+- On `Str`: `size`, `char_at`, `iter` (→ `Iter<Char>`, which is what makes
+  the S-Seq functions work over strings for nothing), `split`, `index_of`
+  (`Int?`, no `-1` sentinel), `contains`, `starts_with`, `ends_with`,
+  `trim`, `trim_prefix`, `trim_suffix` (unchanged when the affix is absent),
+  `substr` (`Str?`), `to_upper`, `to_lower`, `join(List<Str>, Str)`,
+  `parse_int` (`Int?`).
+- On `Mut Str`: `append`, `set` (out of range does nothing — growing here
+  would make a `set` an `append`), `clear`.
+- Rule [str-drop-mut] in LANGUAGE_SPEC.md, with [kt-mut-str] and
+  [rs-mut-str] in the backend specs.
+
+Deferred deliberately, because nothing needs them yet: a `Char` → `Str`
+conversion (so `set` is the only way to place a character), `replace`,
+`repeat`, `pad`, and a `Char`-exact `Str` on Kotlin (see the UTF-16 note
+above).
+
+### S-Seq — `map`, `filter`, `reduce` over anything iterable — **LANDED 2026-09-06**
+
+Built as decided (`std/core/iterable.sv` + `std/core/seq.sv`), rule
+[seq-iterable]:
+
+```
+params Iterable<It, T> { fn iter(it: It) -> Iter<T> }
+
+fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> [xs, f] Mut List<U>
+fn filter<It, T>(xs: It, keep: (T) -> Bool, ?Iterable<It, T>) -> [xs, keep] Mut List<T>
+fn reduce<It, T, A>(xs: It, init: A, f: (A, T) -> A, ?Iterable<It, T>) -> [xs, f] A
+
+intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>   // + filter, reduce
+```
+
+Verified on both backends with one program covering a `List` (the fast
+path), an array, a `Str`, an `Iter` from an iterator function, a chain, a
+named fn as the callback, non-`Copy` elements, and a customer struct made
+iterable by declaring `fn iter` — byte-identical stdout under `kotlinc` and
+`rustc`.
+
+**The decided design needed four mechanisms that did not exist**, and the
+memo's claim that "the generic half needs no new mechanism" was wrong on
+every one of them:
+
+- **[implicit-infer] — implicit resolution has to feed back into the call's
+  type arguments.** `T` appears *only* in the implicit's type, so nothing
+  bound it: the lambda was typed against an unbound `T` and `U` came out
+  undeterminable [call-type-args]. Resolution now runs *between* the
+  arguments, two-sided: the candidate's generics bind from the known part of
+  the pattern, then the caller's variables bind from the instantiated
+  candidate. This is also what fixed the recorded array gap — the `List`
+  case only ever worked because `List<T>`'s own `T` did the binding.
+- **[fn-overload-specific] — a *lead* candidate, re-narrowed per argument.**
+  With a `List` fast path beside the generic overload, a bare lambda had no
+  expected type at all (multiple candidates kept the untyped probe), which
+  is the second gap the memo recorded. Expected types now come from the most
+  specific candidate *still compatible with the arguments typed so far* —
+  and the per-argument re-narrowing is what makes `map(arr, …)` work: the
+  `List` candidate leads until `arr` turns out to be an array, and it has to
+  be dropped before the lambda is typed. The lead is a hint only; the
+  scoring still re-derives everything.
+- **[implicit-intrinsic] — an intrinsic cannot be passed by name.** std's
+  `iter` overloads *are* lowerings, so `::iter` (Kotlin) and `iter(__i0)`
+  (Rust, where `iter` is the generated *module* — E0423) were both
+  nonsense. The adapter closure's body is now the intrinsic's own lowering.
+  While there: a resolved *declared* fn's adapter forwards each argument in
+  that fn's parameter mode, or a kept struct parameter is passed by value
+  (E0308) — reachable as soon as a customer type declares `fn iter`.
+- **Parameter contravariance in implicit resolution.** `filter(map(xs, …),
+  …)` wants `(Mut List<Int>) -> Iter<Int>` and std has `(List<Int>) ->
+  Iter<Int>`; `is_subtype` compares fn parameters *invariantly*, so it did
+  not fit. [implicit-resolve] already documented contravariance — the
+  implementation just did not do it. Fixed there rather than in `is_subtype`,
+  deliberately: a backend renders a parameter's convention from its declared
+  type, so general fn-value contravariance would let a `&Vec` callback reach
+  a `&mut Vec` position.
+
+**And the Rust `List` fast path could not be an inline expression.** Every
+shape that splices the callback into an expression hits Rust closure
+inference: a closure bound to a `let` cannot infer its parameter types, and
+neither can one nested inside another closure's argument
+(`filter(|__x| (|n| *n > 1)(*__x))` — E0282). The fast paths therefore lower
+to generated helpers in `seq.rs` ([rs-seq], gated and mounted exactly like
+`iter.rs` and `strings.rs`): a generic parameter *is* an expected type, and
+it also pins the callback convention `FnMut(&T)` that a declared `(T) -> U`
+renders as. `salvo_reduce` is a loop rather than `Iterator::fold`, because
+that convention borrows the accumulator and `fold` passes it by value.
+
+Everything else landed as decided: eager `Mut List` results, the group in
+its own implicitly visible `core.iterable`, and the identity
+`intrinsic fn iter<T>(it: Iter<T>)` that makes an `Iter` iterable and chains
+compose.
+
+Deferred (nothing needs them yet): `any`/`all`/`find`/`count`/`zip`/`flat_map`
+— the same shape, one more overload pair each — and a lazy `map` for the
+effect-free case, which would need a way to say "this callback performs
+nothing" at the type level rather than by convention.
+
+### S-IO — streams, then the filesystem (deferred by decision)
+
+An `Fs` effect was designed in outline (effect + `intrinsic handler
+DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
+`intrinsic type … canbe Linear`, errors in the return type because
+[effect-member-no-effects] forbids a member from declaring `[Throw<M>]`).
+**Deferred by the user 2026-09-06**: IO *streams* should be designed
+properly first, with the filesystem as their first customer, rather than
+the other way round. Two findings from the outline worth keeping for when
+it resumes:
+
+- Errors cannot use `Throw` at all — an effect member may not declare
+  effects — so every fallible member returns `Ok T | Err Str`. That makes
+  `Ok InputStream | Err Str` the normal shape, and a **linear value inside
+  a union arm** the interaction to verify first ([linear-composite] says
+  composites are contagious, but nothing exercises it).
+- Whether stream operations are *members* of the effect or free
+  `intrinsic fn`s is a testability question, not a plumbing one: only
+  members can be faked by a double.
+
+## Test inventory (all green: 651)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -4112,7 +4464,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 213 - 15 unit tests (file classification, including the
+- `salvo-core`: 246 - 17 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -4335,6 +4687,36 @@ and `cargo nextest run` when you want to see which tests cost what.
   refined qualifier (with the no-refinement control rejected by
   [deduce-infer]), and a *conditional* refined call **not** reaching the
   contract).
+- **10 overload-specificity tests** (`tests/overload_tests.rs`
+  [fn-overload-specific]: a concrete parameter beating a type variable in
+  *both* declaration orders — the return type of the selected overload is
+  the proof, so the wrong winner is a type error; the generic overload
+  still taking what the concrete one cannot; structural specificity
+  (`List<Int>` over `List<T>`, the S-Seq fast-path shape); a partially
+  generic candidate ranking between; an unrankable pair reported as an
+  ambiguity naming both candidates, and resolved by narrowing an argument;
+  an un-inferred argument producing no ambiguity [type-unknown-lenient];
+  qualifier-only differences left to the score; and a single candidate
+  never ranked at all) — plus the two `types.rs` unit tests for
+  `spec_cmp`/`spec_dominates`/`spec_indifferent` counted above.
+- **12 `Mut Str` tests** (`tests/str_tests.rs` [str-drop-mut]
+  [type-canbe-mut]: `Str canbe Mut` while `Mut Int` is still an error, and a
+  literal is not a builder; a recorded drop at every site — call argument
+  (a declared fn and an intrinsic), `let` annotation, `return`, struct
+  field, union arm (with the displaced `WrapUnion` asserted to survive as
+  the drop's continuation), interpolation, `==` and `+`; and no drop where
+  the target keeps `Mut` — a `Mut Str` parameter, an optional `Mut Str?`, a
+  generic position (which is what makes `copy(builder)` a builder) — nor
+  for a plain `Str`).
+- **9 sequence-function tests** (`tests/seq_tests.rs` [seq-iterable]
+  [implicit-infer] [fn-overload-specific]: everything inferred for a `List`,
+  an **array** (the recorded gap) and a `Str` subject — with a `Char`
+  element proved by rejecting a `Str` operation on it; iterators and chains
+  composing through the identity `iter`; a customer struct made iterable by
+  declaring `fn iter`; a subject with no `iter` reported as the missing
+  implicit; and the *selection* facts — a `List` subject resolving to the
+  intrinsic fast path, every other subject to the generic body, and the lead
+  candidate narrowing before the lambda is typed).
 - `salvo-cli`: 80 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -4503,7 +4885,8 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 65 (three refinement parser tests were added [qual-refn]:
+- `salvo-syntax`: 67 (two std snapshots added for `core.iterable` and
+  `core.seq` [implicit-group]; three refinement parser tests [qual-refn]:
   a refinement in a qualifier body with its docs and its `+`/`-` entries, a
   top-level `refn` as an item of its own, and the four things a refinement
   may not say — effects, a return type, an unsigned qualifier, a missing
@@ -4561,7 +4944,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 109 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 116 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -4700,8 +5083,23 @@ and `cargo nextest run` when you want to see which tests cost what.
   proves the skeleton is right everywhere else — whose stdout matches the
   Rust run byte for byte. The `run_kotlin_entry` helper exists because
   `run_kotlin_files` hardcodes `salvo.main.MainKt`, and the entry here is
-  the host's `salvo.platform.main.MainKt`).
-- `salvo-backend-rust`: 81 - golden snapshots of the same five demos
+  the host's `salvo.platform.main.MainKt`); and 1 overload-specificity test
+  ([fn-overload-specific]: `kotlinc_runs_the_most_specific_overload` —
+  `concrete` then `generic`, with the generic overload declared first); and
+  4 string tests ([kt-mut-str] [str-drop-mut] [fn-variadic]:
+  `mut_str_lowers_to_a_string_builder` asserting the `StringBuilder`
+  construction, `.toString()` at a call argument, in interpolation and at
+  `==`, `StringBuilder(b)` for `copy`, and `set`'s guarded `setCharAt`;
+  `a_spread_into_a_variadic_intrinsic_spreads` asserting Kotlin's own spread
+  operator — the case that printed `[Ljava.lang.String;@…` before; plus
+  kotlinc runs of the whole string surface and of `set` through a parameter
+  and a field, both asserting the stdout the Rust backend asserts); and 2
+  sequence tests ([kt-seq] [implicit-group] [implicit-intrinsic]:
+  `sequence_functions_lower_to_collection_operations` asserting
+  `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
+  the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
+  `Iterable`; plus the kotlinc run of the seven-subject demo).
+- `salvo-backend-rust`: 88 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -4844,13 +5242,87 @@ and `cargo nextest run` when you want to see which tests cost what.
   `a_missing_host_file_names_the_command` asserting that a platform program
   without a host does not emit and that the error carries both the path and
   the command; plus the rustc compile+run of the *generated* skeleton with
-  only its `todo!` body replaced, asserting the same stdout Kotlin does).
+  only its `todo!` body replaced, asserting the same stdout Kotlin does);
+  and 1 overload-specificity test ([fn-overload-specific]:
+  `rustc_runs_the_most_specific_overload`, the generic overload declared
+  first and the concrete one still chosen — same source and stdout as the
+  Kotlin backend's `kotlinc_runs_the_most_specific_overload`, since the
+  winner is the *checker's* choice and the two targets must agree on it);
+  and 4 string tests ([rs-mut-str] [str-drop-mut] [fn-variadic]:
+  `mut_str_is_a_plain_string` asserting that a drop renders *nothing*, that
+  `mutable_str` borrows its parts rather than moving them, the
+  byte-to-character correction in `index_of`, `set` reaching the generated
+  trait, the `strings.rs` mount and import, and that the support file is
+  absent when nothing needs it;
+  `a_spread_into_a_variadic_intrinsic_is_the_collection`; plus rustc runs of
+  the whole string surface and of `set` through a `&mut String` parameter
+  and a field projection — the case the trait exists for — each asserting
+  the stdout Kotlin asserts); and 2 sequence tests ([rs-seq]
+  [implicit-intrinsic]: `sequence_functions_lower_to_helpers` asserting the
+  `salvo_map`/`salvo_filter`/`salvo_reduce` calls with their `&place[..]`
+  receivers, the adapter a *named fn* callback wraps in, the intrinsic
+  lowering inside the implicit's adapter closure, and `seq.rs` present only
+  when something needs it; plus the rustc run of the same seven-subject demo,
+  asserting the stdout Kotlin asserts).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A "free" widening can stop being free when a backend disagrees.**
+  `Mut T <: T` had been one line in `is_subtype` because the only
+  `canbe Mut` type mapped to a Kotlin *subtype*. `Str canbe Mut` broke that
+  in the direction that shows least: equality. `sb1 == sb2` compiles, runs,
+  and answers `false` where Rust answers `true`. When adding a `canbe Mut`
+  type, ask what the *drop* costs on each backend before asking what the
+  mutators cost [str-drop-mut].
+- **One expression, one coercion slot — so a new coercion has to say what
+  it displaces.** `DropMut` was first recorded by *removing* whatever was
+  already at that span, which quietly discarded the union wrap a `Mut Str`
+  needs on its way into a `Str | Int`. The `then` field is not extra
+  generality: without it the emitters would have to re-derive the wrap.
+- **Rust closure inference decides the shape of a lowering.** A closure
+  bound to a `let` cannot infer its parameter types, and neither can one
+  nested inside another closure's argument — so of all the ways to splice a
+  callback into an expression, *none* works without an annotation the
+  emitter does not have. A generic function parameter is an expected type,
+  which is why the sequence fast paths are generated helpers [rs-seq]. The
+  general rule: when a lowering has to *call* a value the program supplied,
+  give it a typed home rather than an inline one.
+- **"No new mechanism needed" is a hypothesis, not a finding.** The S-Seq
+  memo said the generic half worked with today's machinery, having probed
+  the shape by hand; building it needed four new mechanisms (see the
+  roadmap entry). What the probe had actually shown was that the *syntax*
+  parsed and one hand-written case checked. Probe with the case you intend
+  to ship — here, a bare lambda over a non-`List` subject with the fast
+  path present.
+- **A generated support module beats a clever inline lowering.** Rust's
+  `set` wants the string read and written; every inline form either
+  splices the receiver twice (evaluating a call argument twice) or fails
+  for one place shape — `&mut place` is E0596 when the place is a `&mut
+  String` parameter, since that binding is not `mut`. A trait method in a
+  generated file (`strings.rs`, gated like `iter.rs`) auto-refs every
+  shape and mentions the receiver once. The precedent is worth reusing:
+  when a lowering needs a *statement*, generate a helper instead of
+  building an expression that pretends otherwise.
+- **A new tie-break needs a leniency audit before it needs tests.**
+  Overload specificity [fn-overload-specific] was correct on the case it
+  was written for and immediately wrong on `size(xs)` where `xs` had *no
+  inferred type*: an un-inferred argument fits every candidate, so a
+  perfectly ordinary fate error grew a second, bogus "ambiguous call"
+  beside it. Any rule that turns "several candidates match" into an error
+  has to ask first whether they match *because the checker knows nothing*
+  [type-unknown-lenient]. The suite caught it — the two CLI `analyze`
+  tests that assert whole stderr text — which is the argument for keeping
+  full-output assertions somewhere.
+- **Rank the declared patterns, not the substituted ones.** The reason
+  `describe<T>(T)` beat `describe(Int)` for `describe(3)` is that by the
+  time the candidates are scored, `T` has been substituted to `Int` and
+  the two candidates look *identical* (both "exact match", both zero
+  qualifiers). Specificity is a property of the signature as written, so
+  it must be read from `patterns`, before `substitute_vars`.
 
 - **A remedy the user names has to be *checked* against the mechanism.**
   Refinements were designed with "reconcile it in a top-level `refn`" as

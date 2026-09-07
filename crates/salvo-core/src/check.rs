@@ -31,6 +31,20 @@ use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
 
+/// [fn-overload-specific] One candidate of an overload set as a possible
+/// *lead*: the source of the expected types its arguments are checked
+/// against. Carries the candidate's own generic names and the substitution
+/// the arguments typed so far have determined
+/// [call-generic-progressive].
+struct LeadCandidate {
+    /// Index into the call's candidate list.
+    index: usize,
+    /// The declared (un-substituted) parameter patterns, per argument slot.
+    patterns: Vec<Ty>,
+    generics: HashSet<String>,
+    subst: HashMap<String, Ty>,
+}
+
 /// How an `is` check (or `when` branch check) lowers at runtime against the
 /// subject's *declared* representation.
 #[derive(Clone, Debug)]
@@ -61,6 +75,23 @@ pub enum Coercion {
     /// (`Some(...)` in Rust); backends with transparent nullability
     /// (Kotlin) treat this as a no-op.
     WrapOption { target: Ty },
+    /// [str-drop-mut] A `Mut` qualifier is dropped here: the value is used
+    /// where the plain type is required. Every other qualifier erases, so
+    /// widening is free — but `Mut` is the one qualifier a backend may
+    /// render as a *different type* [type-canbe-mut], and where it does
+    /// (Kotlin's `Mut Str` = `StringBuilder`, which is not a `String`) the
+    /// drop is a real conversion. `from` is the qualified type being
+    /// dropped, so the backend can decide from its base; a backend where
+    /// `Mut` erases (Rust, and Kotlin's `MutableList`) renders nothing.
+    ///
+    /// `then` carries the representation change that would have been
+    /// recorded here anyway (a union wrap, say), because one expression has
+    /// one coercion slot and both have to happen — the drop first, since
+    /// the wrap is about the *plain* type.
+    DropMut {
+        from: Ty,
+        then: Option<Box<Coercion>>,
+    },
 }
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
@@ -1839,7 +1870,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // position, and a concrete sibling would win by default.
             let candidate = self.fn_value_ty(entry.key, decl);
             let candidate = substitute_vars(&candidate, &binding, &generics);
-            if is_subtype(&candidate, want) {
+            if fn_value_fits(&candidate, want) {
                 hits.push(entry.key);
             } else {
                 let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
@@ -1855,6 +1886,200 @@ impl<'p, 'r> Checker<'p, 'r> {
             }),
             1 => Ok(hits[0]),
             n => Err(ImplicitMiss::Ambiguous(n)),
+        }
+    }
+
+    /// [fn-overload-specific] The pool of candidates that may *lead* a
+    /// call — provide the expected types its arguments are checked against.
+    ///
+    /// A single candidate always leads, variadic or not (its fixed
+    /// parameters are the patterns). With several, only the fixed-arity
+    /// candidates that could take this call at all enter the pool: a
+    /// variadic candidate's patterns are per-argument rather than
+    /// per-parameter, so it would need the argument types it is supposed to
+    /// help produce.
+    fn lead_pool(
+        &mut self,
+        candidates: &[(Option<FnKey>, &'p FnDecl)],
+        arity: usize,
+        type_args: &'p [ast::Type],
+    ) -> Vec<LeadCandidate> {
+        let mut pool: Vec<LeadCandidate> = Vec::new();
+        for (i, (_, decl)) in candidates.iter().enumerate() {
+            let fixed: Vec<&Param> = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .collect();
+            if candidates.len() > 1
+                && (decl.params.iter().any(|p| p.variadic) || fixed.len() != arity)
+            {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let patterns: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
+            // Explicit type arguments pin the substitution from the start.
+            let mut subst: HashMap<String, Ty> = HashMap::new();
+            for (g, ta) in decl.generics.iter().zip(type_args) {
+                let lowered = self.lower_type(ta);
+                subst.insert(g.name.clone(), lowered);
+            }
+            self.generics = saved;
+            pool.push(LeadCandidate {
+                index: i,
+                patterns,
+                generics: decl.generics.iter().map(|g| g.name.clone()).collect(),
+                subst,
+            });
+        }
+        pool
+    }
+
+    /// [fn-overload-specific] Which pool entry leads: the only one, or the
+    /// one whose parameter patterns dominate every other's on the
+    /// specificity axis. `None` when none dominates — expected types from an
+    /// arbitrary candidate really would be a bias, so the arguments keep the
+    /// untyped probe.
+    fn dominant_lead(pool: &[LeadCandidate]) -> Option<usize> {
+        match pool.len() {
+            0 => None,
+            1 => Some(0),
+            n => {
+                let dominant: Vec<usize> = (0..n)
+                    .filter(|&a| {
+                        (0..n).all(|b| {
+                            a == b
+                                || crate::types::spec_dominates(
+                                    &pool[a].patterns,
+                                    &pool[b].patterns,
+                                )
+                        })
+                    })
+                    .collect();
+                match dominant.len() {
+                    1 => Some(dominant[0]),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    /// [implicit-infer] Extends a call's progressive substitution with what
+    /// its callee's **implicit parameters** determine (user design 2026-09-06,
+    /// built with S-Seq).
+    ///
+    /// `params Iterable<It, T> { fn iter(it: It) -> Iter<T> }` is how Salvo
+    /// says "anything iterable": `map<It, T, U>(xs: It, f: (T) -> U,
+    /// ?Iterable<It, T>)` binds `It` from its first argument, and `T` is
+    /// determined by *which `iter` fills the implicit* — resolving it at
+    /// `(List<Int>) -> Iter<T>` finds std's `iter(List<T'>) -> Iter<T'>` and
+    /// reads `T = Int` back off it. Without this step the lambda would be
+    /// typed against an unbound `T`, and `U` would be undeterminable
+    /// [call-type-args] — the generic half of a sequence function would only
+    /// ever work with a written type-argument list.
+    ///
+    /// Two-sided, which is why it cannot reuse `resolve_implicit_fn`: the
+    /// candidate's own generics bind from the *known* part of the pattern,
+    /// and then the caller's variables bind from the instantiated candidate.
+    /// Anything ambiguous or absent is left alone: [implicit-resolve] reports
+    /// it at the end of the call, and one mistake gets one diagnostic.
+    fn extend_subst_from_implicits(
+        &mut self,
+        key: Option<FnKey>,
+        callee_generics: &HashSet<String>,
+        progressive: &mut HashMap<String, Ty>,
+    ) {
+        let Some(key) = key else { return };
+        let implicits = match self.out.implicit_params.get(&key) {
+            Some(list) if !list.is_empty() => list.clone(),
+            _ => return,
+        };
+        for imp in &implicits {
+            // The implicit's type as far as this call knows it, with the
+            // *unknown* parts left as variables (`substitute_vars` would
+            // erase them to `Unknown`, and then there would be nothing to
+            // bind).
+            let pattern = substitute_known(&imp.ty, progressive, callee_generics);
+            if !ty_mentions_vars(&pattern, callee_generics) {
+                continue; // nothing left to learn from this one
+            }
+            let Ty::Fn {
+                params: want_params,
+                ret: want_ret,
+                ..
+            } = pattern.strip_quals().clone()
+            else {
+                continue;
+            };
+            let entries: Vec<crate::resolve::FnEntry<'p>> = match self.scope.fns.get(imp.name.as_str())
+            {
+                Some(list) => list.clone(),
+                None => continue,
+            };
+            let mut found: Option<Ty> = None;
+            let mut hits = 0usize;
+            for entry in entries {
+                let decl = entry.decl;
+                if decl.params.iter().any(|p| p.implicit || p.variadic) {
+                    continue;
+                }
+                if decl.params.len() != want_params.len() {
+                    continue;
+                }
+                let saved = self.enter_generics(&decl.generics);
+                let have_params: Vec<Ty> =
+                    decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+                let have_ret = decl
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.lower_type(t))
+                    .unwrap_or_else(Ty::none);
+                self.generics = saved;
+                // Bind the candidate's own generics from the parts the call
+                // already knows. A part that is still one of *our* variables
+                // teaches nothing and must not match everything.
+                let mut binding: HashMap<String, Ty> = HashMap::new();
+                let matched = have_params.iter().zip(&want_params).all(|(have, want)| {
+                    ty_mentions_vars(want, callee_generics)
+                        || unify(have, want, &mut binding)
+                });
+                if !matched {
+                    continue;
+                }
+                let generics: HashSet<String> =
+                    decl.generics.iter().map(|g| g.name.clone()).collect();
+                hits += 1;
+                found = Some(Ty::Fn {
+                    params: have_params
+                        .iter()
+                        .map(|p| substitute_vars(p, &binding, &generics))
+                        .collect(),
+                    ret: Box::new(substitute_vars(&have_ret, &binding, &generics)),
+                    contract: None,
+                    effects: Vec::new(),
+                });
+            }
+            if hits != 1 {
+                continue;
+            }
+            let Some(Ty::Fn {
+                params: have_params,
+                ret: have_ret,
+                ..
+            }) = found
+            else {
+                continue;
+            };
+            // Read our own variables back off the instantiated candidate.
+            let mut extended = progressive.clone();
+            let ok = want_params
+                .iter()
+                .zip(&have_params)
+                .all(|(want, have)| unify(want, have, &mut extended))
+                && unify(&want_ret, &have_ret, &mut extended);
+            if ok {
+                *progressive = extended;
+            }
         }
     }
 
@@ -6488,6 +6713,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for part in parts {
                     if let StrExprPart::Interp(e) = part {
                         let ty = self.check_expr(e, None);
+                        // [str-drop-mut] Interpolation reads the *text* of
+                        // a value, so a builder is converted first.
+                        self.drop_mut_operand(e, &ty);
                         // [interp-no-none] Interpolating a possibly-absent
                         // value is an error (user decision 2026-09-02):
                         // Kotlin would print `null` while Rust rejects the
@@ -6867,6 +7095,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // possibly-absent value.
                         self.reject_optional_operand(*op, lhs, &l);
                         self.reject_optional_operand(*op, rhs, &r);
+                        // [str-drop-mut] An operator works on plain values.
+                        self.drop_mut_operand(lhs, &l);
+                        self.drop_mut_operand(rhs, &r);
                         if l.is_unknown() {
                             Ty::Unknown
                         } else {
@@ -6886,6 +7117,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // likewise: nullability is tested with `is None`.
                         self.reject_optional_operand(*op, lhs, &l);
                         self.reject_optional_operand(*op, rhs, &r);
+                        // [str-drop-mut] Equality especially: a builder
+                        // compares by identity where a string compares by
+                        // content.
+                        self.drop_mut_operand(lhs, &l);
+                        self.drop_mut_operand(rhs, &r);
                         Ty::named("Bool")
                     }
                 }
@@ -8341,7 +8577,77 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// positional over the declared type's non-`None` arms
     /// [union-arm-identity]; a qualified union group tries wrapping as
     /// a whole arm before stripping its qualifiers [qual-group].
+    ///
+    /// [str-drop-mut] A `Mut` qualifier dropped on the way is recorded too,
+    /// wrapping whatever the representation math decided.
     fn maybe_coerce(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
+        self.coerce_repr(span, logical, repr, expected);
+        if expected.is_unknown() || logical.is_unknown() {
+            return;
+        }
+        // A `Mut` arm anywhere in the expected type means the value may
+        // stay a builder: `Mut Str`, `Mut Str?`, and a generic position
+        // (whose pattern is substituted to the argument's own type) all
+        // keep it.
+        if expected.arms().iter().any(|a| Self::carries_mut(a)) {
+            return;
+        }
+        if matches!(expected.strip_quals(), Ty::Var(_) | Ty::Any | Ty::Nothing) {
+            return;
+        }
+        let from = if Self::carries_mut(logical) {
+            logical.clone()
+        } else if Self::carries_mut(repr) {
+            repr.clone()
+        } else {
+            return;
+        };
+        self.record_mut_drop(span, from);
+    }
+
+    /// Whether a type carries the `Mut` qualifier at its top level.
+    fn carries_mut(ty: &Ty) -> bool {
+        ty.quals().iter().any(|q| q.name == "Mut")
+    }
+
+    /// [str-drop-mut] Records a `Mut` drop at `span`, keeping any
+    /// representation change already recorded there as the drop's
+    /// continuation. Used by the positions that have no *expected type* to
+    /// compare against — operator operands and string interpolation — as
+    /// well as by `maybe_coerce`.
+    fn record_mut_drop(&mut self, span: Span, from: Ty) {
+        if !Self::carries_mut(&from) {
+            return;
+        }
+        let key = self.key(span);
+        let then = match self.out.coerce.remove(&key) {
+            // Already recorded: keep it, but do not nest a drop in a drop.
+            Some(Coercion::DropMut { from, then }) => {
+                self.out.coerce.insert(key, Coercion::DropMut { from, then });
+                return;
+            }
+            other => other.map(Box::new),
+        };
+        self.out.coerce.insert(key, Coercion::DropMut { from, then });
+    }
+
+    /// [str-drop-mut] The `Mut`-dropping conversion an *operand* needs: an
+    /// operator compares or concatenates plain values, and on a backend
+    /// where a builder is its own type the two are not comparable at all
+    /// (Kotlin's `StringBuilder == String` is `false`, and `sb1 == sb2` is
+    /// *reference* equality against Rust's structural `String == String`).
+    /// Rejecting `Mut` operands the way [op-no-none] rejects optionals was
+    /// declined: `Mut List` is accepted everywhere else, so a rejection
+    /// here would surprise.
+    fn drop_mut_operand(&mut self, expr: &'p Expr, ty: &Ty) {
+        if Self::carries_mut(ty) {
+            self.record_mut_drop(expr.span(), ty.clone());
+        }
+    }
+
+    /// Records the representation change (if any) needed to use a value of
+    /// (`logical`, `repr`) where `expected` is required.
+    fn coerce_repr(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
         if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Nothing) {
             return;
         }
@@ -8467,6 +8773,45 @@ impl<'p, 'r> Checker<'p, 'r> {
                 },
             );
         }
+    }
+}
+
+/// [implicit-resolve] Whether a function *value* of type `candidate` fits a
+/// position that wants `want`: **parameters contravariant, result
+/// covariant**, plus the contract and effect variance [fn-contract]
+/// [fn-effects].
+///
+/// `is_subtype` compares fn parameters *invariantly* — deliberately
+/// conservative, since a backend renders a parameter's convention from its
+/// declared type and two conventions are two different target types. Here
+/// the rule the spec states applies, because the value is only ever *called*
+/// by the callee that declared the position: std's
+/// `iter(list: List<T>) -> Iter<T>` has to fill an `?Iterable<It, T>` whose
+/// `It` turned out to be a `Mut List<Int>`, and reading a list that happens
+/// to be mutable is exactly what it does.
+fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
+    match (candidate.strip_quals(), want.strip_quals()) {
+        (
+            Ty::Fn {
+                params: cp,
+                ret: cr,
+                contract: cc,
+                effects: ce,
+            },
+            Ty::Fn {
+                params: wp,
+                ret: wr,
+                contract: wc,
+                effects: we,
+            },
+        ) => {
+            cp.len() == wp.len()
+                && cp.iter().zip(wp).all(|(c, w)| is_subtype(w, c))
+                && is_subtype(cr, wr)
+                && crate::types::contract_fits(cc.as_deref(), wc.as_deref(), cp.len())
+                && ce.iter().all(|e| we.contains(e))
+        }
+        _ => is_subtype(candidate, want),
     }
 }
 
@@ -8605,7 +8950,97 @@ fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
     vars.iter().any(|v| ty_mentions_var(ty, v))
 }
 
-fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {    match ty {
+/// Does `ty` contain an un-inferred part? [type-unknown-lenient] An
+/// argument like this fits *every* candidate, so overload ranking must not
+/// turn one un-inferred value into a second diagnostic
+/// [fn-overload-specific].
+fn ty_mentions_unknown(ty: &Ty) -> bool {
+    match ty {
+        Ty::Unknown => true,
+        Ty::Named { args, .. } => args.iter().any(ty_mentions_unknown),
+        Ty::Qualified { quals, base } => {
+            ty_mentions_unknown(base)
+                || quals.iter().any(|q| q.args.iter().any(ty_mentions_unknown))
+        }
+        Ty::Union(arms) => arms.iter().any(ty_mentions_unknown),
+        Ty::Tuple(elems) => elems.iter().any(ty_mentions_unknown),
+        Ty::Array(elem) => ty_mentions_unknown(elem),
+        Ty::Fn { params, ret, .. } => {
+            params.iter().any(ty_mentions_unknown) || ty_mentions_unknown(ret)
+        }
+        _ => false,
+    }
+}
+
+/// [implicit-infer] Like [`substitute_vars`], but a variable the
+/// substitution does not mention stays a **variable** instead of becoming
+/// `Unknown` — which is what lets a partially known pattern still bind
+/// something (`(List<Int>) -> Iter<T>` teaches `T`; `(?) -> ?` teaches
+/// nothing).
+fn substitute_known(
+    ty: &Ty,
+    subst: &HashMap<String, Ty>,
+    callee_generics: &HashSet<String>,
+) -> Ty {
+    match ty {
+        Ty::Var(g) if callee_generics.contains(g) => {
+            subst.get(g).cloned().unwrap_or_else(|| ty.clone())
+        }
+        Ty::Named { name, args } => Ty::Named {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| substitute_known(a, subst, callee_generics))
+                .collect(),
+        },
+        Ty::Qualified { quals, base } => {
+            let new_base = substitute_known(base, subst, callee_generics);
+            new_base.qualify(
+                quals
+                    .iter()
+                    .map(|q| Qual {
+                        name: q.name.clone(),
+                        args: q
+                            .args
+                            .iter()
+                            .map(|a| substitute_known(a, subst, callee_generics))
+                            .collect(),
+                    })
+                    .collect(),
+            )
+        }
+        Ty::Union(arms) => Ty::union_of(
+            arms.iter()
+                .map(|a| substitute_known(a, subst, callee_generics))
+                .collect(),
+        ),
+        Ty::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|e| substitute_known(e, subst, callee_generics))
+                .collect(),
+        ),
+        Ty::Array(elem) => Ty::Array(Box::new(substitute_known(elem, subst, callee_generics))),
+        Ty::Fn {
+            params,
+            ret,
+            contract,
+            effects,
+        } => Ty::Fn {
+            params: params
+                .iter()
+                .map(|p| substitute_known(p, subst, callee_generics))
+                .collect(),
+            ret: Box::new(substitute_known(ret, subst, callee_generics)),
+            contract: contract.clone(),
+            effects: effects.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
+    match ty {
         Ty::Var(g) if callee_generics.contains(g) => {
             subst.get(g).cloned().unwrap_or(Ty::Unknown)
         }
@@ -8893,36 +9328,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         // Type the arguments once, then match candidates against them.
-        // With a *single* candidate its parameter types flow into the
-        // arguments as expected types — which is what lets lambda
-        // literals infer their parameter types and inherit fn-type
-        // contracts [fn-contract]. (Multiple candidates keep the
-        // untyped probe: expected types could bias overload choice.)
-        let single_params: Option<Vec<Ty>> = if candidates.len() == 1 {
-            let decl = candidates[0].1;
-            let saved = self.enter_generics(&decl.generics);
-            let tys = decl
-                .params
-                .iter()
-                .filter(|p| !p.variadic && !p.implicit)
-                .map(|p| self.lower_type(&p.ty))
-                .collect();
-            self.generics = saved;
-            Some(tys)
-        } else {
-            None
-        };
-        let single_generics: HashSet<String> = if candidates.len() == 1 {
-            candidates[0]
-                .1
-                .generics
-                .iter()
-                .map(|g| g.name.clone())
-                .collect()
-        } else {
-            HashSet::new()
-        };
-        // [call-generic-progressive] The callee's type variables bind
+        // The **lead** candidate's parameter types flow into the arguments
+        // as expected types — which is what lets lambda literals infer
+        // their parameter types and inherit fn-type contracts
+        // [fn-contract].
+        //
+        // [fn-overload-specific] The lead is the single candidate, or — when
+        // a name is overloaded — the most specific of those still compatible
+        // with the arguments typed *so far*. Both halves matter: specificity
+        // picks the candidate the ranking will pick anyway (so a bare lambda
+        // has an expected type even for an overloaded name, which is what
+        // std's `map(xs, n -> n * 2)` needs once a `List` fast path joins the
+        // generic overload), and re-narrowing per argument is what keeps the
+        // *subject* deciding — `map(arr, n -> n + 1)` drops the `List`
+        // candidate when `arr` turns out to be an array, before the lambda
+        // is typed against it.
+        //
+        // Expected types are only a hint: the scoring loop below re-derives
+        // everything from the argument types it ends up with.
+        //
+        // [call-generic-progressive] Within the lead, its type variables bind
         // *progressively*, left to right: each argument's expected type is
         // the parameter pattern with everything the earlier arguments (and
         // any explicit type arguments) already determined substituted in.
@@ -8934,22 +9359,34 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`map(xs.iter(), n -> n * 2)` reported as
         // `map(Iter<Int>, (T) -> T)`). The same progressive rule effect
         // member generics already use [effect-member-generics].
-        let mut progressive: HashMap<String, Ty> = HashMap::new();
-        if candidates.len() == 1 {
-            for (g, ta) in candidates[0].1.generics.iter().zip(type_args) {
-                let lowered = self.lower_type(ta);
-                progressive.insert(g.name.clone(), lowered);
-            }
-        }
+        let mut pool: Vec<LeadCandidate> = self.lead_pool(&candidates, args.len(), type_args);
         let mut arg_tys: Vec<Ty> = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            let exp: Option<Ty> = single_params.as_ref().and_then(|ps| ps.get(i)).map(|p| {
-                if progressive.is_empty() {
-                    p.clone()
-                } else {
-                    substitute_vars(p, &progressive, &single_generics)
+            let lead = Self::dominant_lead(&pool);
+            let exp: Option<Ty> = match lead {
+                Some(pi) => {
+                    // [implicit-infer] What the *implicit* parameters
+                    // determine counts as progress too, and it has to happen
+                    // between the arguments: `map(xs, n -> n * 2)` learns `T`
+                    // from resolving `iter` at `(It) -> Iter<T>` with `It`
+                    // already bound by `xs`, and without it the lambda is
+                    // typed against an unbound `T`.
+                    let key = candidates[pool[pi].index].0;
+                    let mut subst = std::mem::take(&mut pool[pi].subst);
+                    let generics = pool[pi].generics.clone();
+                    self.extend_subst_from_implicits(key, &generics, &mut subst);
+                    pool[pi].subst = subst;
+                    pool[pi]
+                        .patterns
+                        .get(i)
+                        .map(|p| substitute_vars(p, &pool[pi].subst, &pool[pi].generics))
                 }
-            });
+                None => None,
+            };
+            let lead_generics: HashSet<String> = match lead {
+                Some(pi) => pool[pi].generics.clone(),
+                None => HashSet::new(),
+            };
             // Only lambda literals benefit; other expressions keep
             // the historical untyped probe (expected types can
             // trigger coercion recording).
@@ -8962,7 +9399,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // mentioning the callee's generics must not: coercion
                 // would be recorded against an unsubstituted `T`.
                 Expr::Call { .. } => {
-                    let concrete = exp.filter(|t| !ty_mentions_vars(t, &single_generics));
+                    let concrete = exp.filter(|t| !ty_mentions_vars(t, &lead_generics));
                     self.check_expr(a, concrete.as_ref())
                 }
                 // [fn-effects] A *named fn* passed by value needs the
@@ -8977,16 +9414,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 _ => self.check_expr(a, None),
             };
-            // Extend the bindings with what this argument determined, so
-            // the *next* argument's expected type sees them. Committed
-            // only on a successful match: a mismatch is reported by the
-            // candidate loop below, with the un-substituted pattern.
-            if let Some(pattern) = single_params.as_ref().and_then(|ps| ps.get(i)) {
-                let mut extended = progressive.clone();
-                if unify(pattern, &ty, &mut extended) {
-                    progressive = extended;
+            // Extend each pool candidate's bindings with what this argument
+            // determined, and drop the ones it rules out — the narrowing
+            // that keeps the lead honest. A candidate that no longer fits is
+            // not an error here: the scoring loop below reports the call as
+            // a whole, against the *un-substituted* patterns.
+            pool.retain_mut(|c| match c.patterns.get(i) {
+                Some(pattern) => {
+                    let mut extended = c.subst.clone();
+                    if unify(pattern, &ty, &mut extended) {
+                        c.subst = extended;
+                        true
+                    } else {
+                        false
+                    }
                 }
-            }
+                None => true,
+            });
             arg_tys.push(ty);
         }
 
@@ -8995,6 +9439,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             decl: &'p FnDecl,
             subst: HashMap<String, Ty>,
             pairings: Vec<(usize, Ty)>, // (arg index, substituted param type)
+            /// The *un-substituted* parameter patterns, one per argument
+            /// slot — what the specificity ranking compares
+            /// [fn-overload-specific].
+            patterns: Vec<Ty>,
             score: i64,
         }
         let mut viable: Vec<Viable<'p>> = Vec::new();
@@ -9072,6 +9520,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 decl,
                 subst,
                 pairings,
+                patterns,
                 score,
             });
         }
@@ -9085,7 +9534,82 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
         viable.sort_by_key(|v| -v.score);
-        let best = &viable[0];
+        // [fn-overload-specific] O1 (user decision 2026-09-06): among the
+        // candidates the score cannot separate, a **concrete** parameter
+        // type beats a type variable — `describe(Int)` wins over
+        // `describe<T>(T)` for `describe(3)` instead of the winner being
+        // whichever was declared first. The comparison is a partial order
+        // (`spec_cmp`), so when no candidate dominates the rest the call is
+        // *ambiguous* and says so; a pair that the genericity axis cannot
+        // distinguish at all (`spec_indifferent` — differing only in
+        // qualifiers, unions, variadics, …) keeps declaration order,
+        // because ranking those axes is still undesigned.
+        let mut best_idx = 0usize;
+        let top_score = viable[0].score;
+        let top: Vec<usize> = (0..viable.len())
+            .filter(|&i| viable[i].score == top_score)
+            .collect();
+        if top.len() > 1 {
+            let undominated: Vec<usize> = top
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    !top.iter().copied().any(|j| {
+                        j != i
+                            && crate::types::spec_dominates(
+                                &viable[j].patterns,
+                                &viable[i].patterns,
+                            )
+                    })
+                })
+                .collect();
+            best_idx = undominated[0];
+            if undominated.len() > 1 {
+                let ranked_pair = undominated.iter().any(|&i| {
+                    undominated.iter().any(|&j| {
+                        i != j
+                            && !crate::types::spec_indifferent(
+                                &viable[i].patterns,
+                                &viable[j].patterns,
+                            )
+                    })
+                });
+                // [type-unknown-lenient] An un-inferred argument fits every
+                // candidate, so it must not also produce an ambiguity: one
+                // mistake, one diagnostic.
+                let lenient = arg_tys.iter().any(ty_mentions_unknown);
+                if ranked_pair && !lenient {
+                    let shown_args: Vec<String> =
+                        arg_tys.iter().map(|t| t.to_string()).collect();
+                    let mut shown: Vec<String> = undominated
+                        .iter()
+                        .map(|&i| {
+                            let ps: Vec<String> = viable[i]
+                                .patterns
+                                .iter()
+                                .map(|p| p.to_string())
+                                .collect();
+                            format!("`{name}({})`", ps.join(", "))
+                        })
+                        .collect();
+                    shown.dedup();
+                    self.error(
+                        span,
+                        format!(
+                            "ambiguous call to `{name}({})`: {} match, and neither \
+                             is more specific than the other (a concrete parameter \
+                             type beats a type variable, but these disagree about \
+                             which parameter); write the type arguments or annotate \
+                             the arguments to pick one",
+                            shown_args.join(", "),
+                            shown.join(" and ")
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+            }
+        }
+        let best = &viable[best_idx];
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
             // The callee name resolves to this declaration [fn-ref-table].

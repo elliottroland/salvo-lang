@@ -637,11 +637,12 @@ fn main() [use] -> [] None {
 }
 
 // [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
+// (`Str` does say so [kt-mut-str]; `Int` is the primitive that never can.)
 #[test]
 fn mut_requires_a_with_mut_declaration() {
-    let errors = expect_errors("fn f(x: Mut Str) -> None {\n}\n");
+    let errors = expect_errors("fn f(x: Mut Int) -> None {\n}\n");
     assert!(
-        errors.iter().any(|e| e.contains("`Mut` does not apply to `Str`")),
+        errors.iter().any(|e| e.contains("`Mut` does not apply to `Int`")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -4720,4 +4721,350 @@ fn a_refinement_conflict_warns_without_stopping_emission() {
         "a rendered warning with its location: {}",
         warnings[0]
     );
+}
+
+// ===== [fn-overload-specific] O1: concrete beats generic =====
+
+/// Two matching overloads, the generic one declared first. Before O1 the
+/// checker picked by declaration order, so this program printed `generic`
+/// for `describe(3)` — with correct-looking output on both backends, which
+/// is what made it a ranking bug rather than a codegen one.
+const OVERLOAD_SPECIFICITY: &str = r#"
+fn describe<T>(value: T) -> Str {
+    return "generic"
+}
+
+fn describe(value: Int) -> Str {
+    return "concrete"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(describe(3))
+    println(describe("text"))
+}
+"#;
+
+#[test]
+fn kotlinc_runs_the_most_specific_overload() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", OVERLOAD_SPECIFICITY)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "overload-specificity", "concrete\ngeneric\n");
+}
+
+// ===== [str-drop-mut] [kt-mut-str] `Mut Str` is a `StringBuilder` =====
+
+/// The whole string surface in one program, shared with the Rust backend's
+/// `rustc_compiles_and_runs_strings` — same source, same expected stdout,
+/// because a `Mut Str` is a *different type* on this backend and the same
+/// one on that, so the parity is the thing worth asserting.
+const STRING_DEMO: &str = r#"
+fn shout(text: Str) -> Str {
+    return to_upper(text)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // A builder, and the drop that lets it reach the `Str` surface.
+    let b = mutable_str("he", "llo")
+    append(b, " world")
+    set(b, 0, 'H')
+    println(shout(b))
+    println("size: ${size(b)}")
+    // `copy` of a builder is a new builder, not an alias.
+    let dup = copy(b)
+    append(dup, "!")
+    println("${b} / ${dup}")
+    clear(dup)
+    println("cleared: [${dup}]")
+
+    let sep = ","
+    let dash = "-"
+    let parts = split("a,b,,c", sep)
+    let joined = join(parts, dash)
+    println("${size(parts)} ${joined}")
+
+    let trimmed = trim("  pad  ")
+    let pa = "pa"
+    let ad = "ad"
+    println("[${trimmed}] ${starts_with(trimmed, pa)} ${ends_with(trimmed, ad)} ${contains(trimmed, ad)}")
+    println(to_lower(shout(trimmed)))
+
+    let hay = "hello"
+    let ll = "ll"
+    let lo = "lo"
+    let at = index_of(hay, ll)
+    let nowhere = index_of(hay, pa)
+    println("${at!} ${nowhere is None}")
+    let sub = substr(hay, 1, 3)
+    let oob = substr(hay, 1, 9)
+    println("${sub!} ${oob is None}")
+    let n = parse_int("42")
+    let bad = parse_int(pa)
+    println("${n!} ${bad is None}")
+    println("${trim_prefix(hay, hay)}${trim_suffix(hay, lo)}|")
+
+    let count = mutable_list<Int>()
+    for c in iter(hay) {
+        add(count, 1)
+    }
+    println("chars: ${size(count)}")
+
+    // Operators drop `Mut` too, so equality is by content on both targets.
+    let x = mutable_str(pa)
+    let y = mutable_str(pa)
+    println("equal: ${x == y}")
+}
+"#;
+
+/// The stdout both backends must produce, byte for byte.
+const STRING_DEMO_OUTPUT: &str = "HELLO WORLD\nsize: 11\nHello world / Hello world!\n\
+                                  cleared: []\n4 a-b--c\n[pad] true true true\npad\n\
+                                  2 true\nel true\n42 true\nhel|\nchars: 5\nequal: true\n";
+
+/// [kt-mut-str] `Mut Str` maps to `StringBuilder` through the same
+/// `mut_type_name` hook `Mut List<T>` uses, and every *drop* of the `Mut`
+/// renders the conversion — which is what `MutableList` never needed, since
+/// it really is a `List`.
+#[test]
+fn mut_str_lowers_to_a_string_builder() {
+    let program = build_program(&[("main.sv", STRING_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    // Construction is asked for; the parts are joined, which is also what
+    // makes a `...spread` work [fn-variadic].
+    assert!(
+        main.contains(r#"val b = StringBuilder(listOf("he", "llo").joinToString(""))"#),
+        "unexpected:\n{main}"
+    );
+    // [str-drop-mut] The conversion at a call argument, in interpolation,
+    // and at an operator — a bare name takes the suffix without parens.
+    assert!(main.contains("shout(b.toString())"), "unexpected:\n{main}");
+    assert!(main.contains("\"size: ${b.toString().length}\""), "unexpected:\n{main}");
+    assert!(
+        main.contains("\"equal: ${x.toString() == y.toString()}\""),
+        "unexpected:\n{main}"
+    );
+    // [kt-copy] A builder's copy is a new builder: identity would alias the
+    // buffer.
+    assert!(main.contains("val dup = StringBuilder(b)"), "unexpected:\n{main}");
+    // `setCharAt` throws out of range, so `set` guards — and binds its
+    // arguments, so a call argument is evaluated once.
+    assert!(
+        main.contains("if (__i >= 0 && __i < __s.length) __s.setCharAt(__i, 'H')"),
+        "unexpected:\n{main}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_strings() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", STRING_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "strings", STRING_DEMO_OUTPUT);
+}
+
+/// [fn-variadic] A `...spread` into a variadic intrinsic uses Kotlin's own
+/// spread operator: splicing the array as one argument builds a collection
+/// of one array — which kotlinc catches for `listOf`, but *not* for
+/// `StringBuilder(...)`, where `append(Any?)` accepts it and prints
+/// `[Ljava.lang.String;@…` [backend-never-wrong].
+#[test]
+fn a_spread_into_a_variadic_intrinsic_spreads() {
+    let src = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let parts = ["a", "b"]
+    let sb = mutable_str(...parts)
+    let xs = list(...parts)
+    println("${sb} ${size(xs)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    assert!(
+        main.contains(r#"StringBuilder(listOf(*parts).joinToString(""))"#)
+            && main.contains("listOf<String>(*parts)"),
+        "unexpected:\n{main}"
+    );
+    if !kotlin_toolchain() {
+        return;
+    }
+    run_kotlin_files(&files, "strings-spread", "ab 2\n");
+}
+
+/// A `Mut Str` reached through a *parameter* and through a **field**, which
+/// is what the generated trait exists for on the Rust side: `set`'s receiver
+/// is both read and written, and its lowering has to auto-ref an owned
+/// local, a `&mut String` parameter and a field projection alike. Same
+/// source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_mut_str_places`.
+const MUT_STR_PLACES: &str = r#"
+struct Buf canbe Mut {
+    text: Mut Str
+}
+
+fn grow(s: Mut Str) -> [s: Mut] None {
+    append(s, "!")
+    set(s, 0, 'G')
+    clear(s)
+    append(s, "grown")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = mutable_str("seed")
+    grow(b)
+    println("${b} ${size(b)}")
+    let buf = Mut Buf {text: mutable_str("in-struct")}
+    append(buf.text, "!")
+    set(buf.text, 0, 'I')
+    println("${buf.text}")
+}
+"#;
+
+const MUT_STR_PLACES_OUTPUT: &str = "grown 5\nIn-struct!\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_mut_str_places() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", MUT_STR_PLACES)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "mut-str-places", MUT_STR_PLACES_OUTPUT);
+}
+
+// ===== [implicit-group] [rs-seq]-equivalent: the sequence functions =====
+
+/// `map`/`filter`/`reduce` over a `List` (the intrinsic fast path), an
+/// array, a `Str`, an `Iter` from an iterator function, a chain, and a
+/// struct of the program's own with nothing but an `iter` declared. Shared
+/// with the Rust backend's `rustc_compiles_and_runs_sequences`: the
+/// *checker* picks the overloads, so the two targets must agree element for
+/// element.
+const SEQ_DEMO: &str = r#"
+struct Bag {
+    items: List<Int>
+}
+
+fn iter(bag: Bag) -> [bag] Iter<Int> {
+    return iter(bag.items)
+}
+
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn naturals(from: Int) -> Iter<Int> {
+    let i = from
+    while i < from + 4 {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3, 4)
+    let doubled = map(xs, n -> n * 2)
+    let sum = reduce(xs, 0, (a, b) -> a + b)
+    let big = filter(xs, n -> n > 2)
+    println("list: ${size(doubled)} ${sum} ${size(big)}")
+    let named = map(xs, double)
+    println("named: ${size(named)}")
+    let arr = [10, 20, 30]
+    let arr_sum = reduce(arr, 0, (a, b) -> a + b)
+    let arr_mapped = map(arr, n -> n + 1)
+    println("array: ${arr_sum} ${size(arr_mapped)}")
+    let letters = filter("hello", c -> c == 'l')
+    println("chars: ${size(letters)}")
+    let lazy_sum = reduce(naturals(1), 0, (a, b) -> a + b)
+    let chained = filter(map(xs, n -> n * 3), n -> n > 6)
+    println("iter: ${lazy_sum} ${size(chained)}")
+    let names = list("ann", "bob", "carol")
+    let lens = map(names, n -> size(n))
+    let long = filter(names, n -> size(n) > 3)
+    println("names: ${size(lens)} ${size(long)}")
+    let bag = Bag {items: list(5, 6)}
+    println("bag: ${reduce(bag, 0, (a, b) -> a + b)}")
+}
+"#;
+
+const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
+                               iter: 10 2\nnames: 3 1\nbag: 11\n";
+
+/// [kt-seq] [seq-iterable] A `params` group emits nothing, and the `List` fast
+/// paths lower to Kotlin's own collection operations; the generic body is a
+/// plain generic function whose implicit parameter arrives as a trailing
+/// argument — an *adapter lambda* when the resolved `iter` is an intrinsic,
+/// since an intrinsic has no Kotlin name to reference [implicit-intrinsic].
+#[test]
+fn sequence_functions_lower_to_collection_operations() {
+    let program = build_program(&[("main.sv", SEQ_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt emitted")
+        .content;
+    assert!(
+        main.contains("xs.map({ n -> n * 2 }).toMutableList()")
+            && main.contains("xs.filter({ n -> n > 2 }).toMutableList()")
+            && main.contains("xs.fold(0, { a, b -> a + b })"),
+        "unexpected:\n{main}"
+    );
+    // The generic overload for an array subject, with the `iter` intrinsic
+    // passed as an adapter lambda rather than an unrenderable `::iter`.
+    assert!(
+        main.contains("{ __i0 -> __i0.asIterable() }"),
+        "unexpected:\n{main}"
+    );
+    // A `params` group is not a value: nothing *declares* `Iterable`
+    // (Kotlin's own `Iterable<T>` is what `Iter<T>` maps to, and appears
+    // all over the output — the group itself does not).
+    assert!(
+        !files.iter().any(|f| f.content.contains("class Iterable")
+            || f.content.contains("interface Iterable")
+            || f.content.contains("object Iterable")),
+        "a `params` group must emit nothing"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_sequences() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", SEQ_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "sequences", SEQ_DEMO_OUTPUT);
 }

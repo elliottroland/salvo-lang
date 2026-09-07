@@ -41,6 +41,10 @@ pub fn fn_call(
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from
         // [backend-intrinsic].
+        // [fn-variadic] A `...spread` argument arrives as one `Array<T>`,
+        // which Kotlin passes on with its own spread operator — the
+        // alternative (`listOf(arr)`) is a *list of one array*, and kotlinc
+        // says so, but only after the fact [backend-never-wrong].
         ("list", Some("[]")) => format!("listOf<{}>({})", elem(), args.join(", ")),
         ("mutable_list", Some("[]")) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
@@ -53,6 +57,20 @@ pub fn fn_call(
         // to, so iterating a list is the identity.
         ("iter", Some("List")) => a(0).to_string(),
 
+        // core.seq -------------------------------------------------------
+        // [kt-seq] The `List` fast paths [fn-overload-specific]: Kotlin's own
+        // collection operations, with the eager result made mutable because
+        // `map`/`filter` return `Mut List<U>`.
+        ("map", Some("List")) => format!("{}.map({}).toMutableList()", a(0), a(1)),
+        ("filter", Some("List")) => {
+            format!("{}.filter({}).toMutableList()", a(0), a(1))
+        }
+        ("reduce", Some("List")) => format!("{}.fold({}, {})", a(0), a(1), a(2)),
+        // core.iterable --------------------------------------------------
+        // An `Iter<T>` is already an `Iterable<T>`, so the identity that
+        // makes it satisfy `Iterable` is the identity here too.
+        ("iter", Some("Iter")) => a(0).to_string(),
+
         // core.array -----------------------------------------------------
         // `T[]` maps to `Array<T>`, which is *not* `Iterable`, hence the
         // `asIterable()` the list case does not need [type-array].
@@ -62,8 +80,56 @@ pub fn fn_call(
         ("iter", Some("[]")) => format!("{}.asIterable()", a(0)),
 
         // core.string ----------------------------------------------------
+        // [kt-mut-str] `Mut Str` is a `StringBuilder`, so construction is
+        // asked for explicitly and a literal stays a `String`.
+        ("mutable_str", Some("[]")) if args.is_empty() => "StringBuilder()".to_string(),
+        // The parts are joined rather than appended one by one, so the same
+        // lowering serves a `...spread` (which arrives as `*arr`).
+        ("mutable_str", Some("[]")) => {
+            format!("StringBuilder(listOf({}).joinToString(\"\"))", args.join(", "))
+        }
         ("size", Some("Str")) => format!("{}.length", a(0)),
         ("char_at", Some("Str")) => format!("{}.getOrNull({})", a(0), a(1)),
+        // A `CharSequence` is not `Iterable<Char>` by itself.
+        ("iter", Some("Str")) => format!("{}.asIterable()", a(0)),
+        ("split", Some("Str")) => format!("{}.split({})", a(0), a(1)),
+        // No `-1` sentinel: absence is `null` [type-nullable].
+        ("index_of", Some("Str")) => {
+            format!("{}.indexOf({}).takeIf {{ it >= 0 }}", a(0), a(1))
+        }
+        ("contains", Some("Str")) => format!("{}.contains({})", a(0), a(1)),
+        ("starts_with", Some("Str")) => format!("{}.startsWith({})", a(0), a(1)),
+        ("ends_with", Some("Str")) => format!("{}.endsWith({})", a(0), a(1)),
+        ("trim", Some("Str")) => format!("{}.trim()", a(0)),
+        // `removePrefix`/`removeSuffix` are already the unchanged-when-absent
+        // shape Salvo declares.
+        ("trim_prefix", Some("Str")) => format!("{}.removePrefix({})", a(0), a(1)),
+        ("trim_suffix", Some("Str")) => format!("{}.removeSuffix({})", a(0), a(1)),
+        // Out of range is `null`, not an exception — and the arguments are
+        // bound first so a call argument is evaluated once.
+        ("substr", Some("Str")) => format!(
+            "run {{ val __s = {}; val __i = {}; val __j = {}; \
+             if (__i >= 0 && __j >= __i && __j <= __s.length) __s.substring(__i, __j) \
+             else null }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("to_upper", Some("Str")) => format!("{}.uppercase()", a(0)),
+        ("to_lower", Some("Str")) => format!("{}.lowercase()", a(0)),
+        ("join", Some("List")) => format!("{}.joinToString({})", a(0), a(1)),
+        ("parse_int", Some("Str")) => format!("{}.toIntOrNull()", a(0)),
+        // [kt-mut-str] The mutators take a `StringBuilder`.
+        ("append", Some("Str")) => format!("{}.append({})", a(0), a(1)),
+        // `setCharAt` throws out of range; Salvo's `set` does nothing.
+        ("set", Some("Str")) => format!(
+            "run {{ val __s = {}; val __i = {}; \
+             if (__i >= 0 && __i < __s.length) __s.setCharAt(__i, {}) }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("clear", Some("Str")) => format!("{}.clear()", a(0)),
 
         _ => return None,
     })
@@ -97,6 +163,26 @@ pub fn type_name(name: &str) -> Option<&'static str> {
 pub fn mut_type_name(name: &str) -> Option<&'static str> {
     match name {
         "List" => Some("MutableList"),
+        // [kt-mut-str] A string under construction. Unlike `MutableList`,
+        // this is *not* a subtype of its immutable form, which is what
+        // makes dropping `Mut` a conversion [str-drop-mut].
+        "Str" => Some("StringBuilder"),
+        _ => None,
+    }
+}
+
+/// [str-drop-mut] [kt-mut-str] The conversion a value needs when its `Mut`
+/// qualifier is dropped — i.e. when a `Mut T` is used where `T` is
+/// required. `None` means none is needed: `MutableList<T>` *is* a
+/// `List<T>`, so that drop is free, and every qualifier other than `Mut`
+/// erases entirely [qual-erasure]. `StringBuilder` is the exception the
+/// mechanism exists for: it is not a `String`.
+///
+/// Suffix rather than a wrapper call, so the caller appends it to the
+/// already-emitted code.
+pub fn drop_mut_suffix(name: &str) -> Option<&'static str> {
+    match name {
+        "Str" => Some(".toString()"),
         _ => None,
     }
 }

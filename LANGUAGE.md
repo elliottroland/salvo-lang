@@ -39,6 +39,17 @@ let str: Str = "hello, world!"
 
 There is no equivalent to Rust's string literal type `str`.
 
+A string being immutable does not mean building one has to be quadratic: `Str` opts into the `Mut` auto-qualifier (see below), so `Mut Str` is *a string under construction*. It is asked for explicitly — a literal is never a `Mut Str` — and it is the only place the string functions come in a mutating flavour:
+
+```
+let text: Mut Str = mutable_str("hello")
+append(text, ", world")
+set(text, 0, 'H')
+println(text)              // Hello, world
+```
+
+Everything else in `core.string` takes a plain `Str`, and a `Mut Str` reaches all of it by *dropping* its `Mut` like any other qualifier — `size(text)`, `trim(text)`, `text == other` all work. The difference from every other qualifier is invisible in Salvo and matters to the backends: `Mut` is the one qualifier a target may render as a different type (a `StringBuilder` on the JVM), so dropping it there is a real conversion rather than a widening. The compiler records the drop and each backend renders what it needs, which is what keeps `text == other` a comparison of *characters* on both targets.
+
 The behavior of Strings are governed by the module `core.string`.
 
 ### Tuples and Unions
@@ -311,13 +322,16 @@ let mutable_person = Mut Person {...person}
 mutable_person.name = "Someone else" // No problem
 ```
 
-`Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `canbe Mut` syntax — for example, the standard library's list type is declared as:
+`Mut` is a general language feature, not something a library defines: it composes with every other qualifier, and backends give it meaning (mutable fields in Kotlin, `mut` bindings and `&mut` references in Rust). Besides structs, other type declarations can opt into it with the same `canbe Mut` syntax — for example, the standard library's list and string types are declared as:
 
 ```
 intrinsic type List<T> canbe Mut
+intrinsic type Str canbe Mut
 ```
 
 Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section.
+
+`Mut` is also the one qualifier whose *removal* can cost something. Dropping a qualifier is ordinarily free — it only forgets a claim — and a `Mut List<T>` used as a `List<T>` really is the same value. But a backend may render `Mut T` as a *different type* than `T` (Kotlin's `Mut Str` is a `StringBuilder`, which is not a `String`), and there the drop is a conversion. Salvo hides that: the compiler records where a `Mut` is dropped and the backend supplies whatever conversion it needs, at every such place — arguments, returns, annotations, struct fields, union arms, interpolation and operators. Nothing in the source changes, and a `Mut Str` behaves like the `Str` it is being used as.
 
 ### Generic types
 
@@ -620,6 +634,18 @@ fn fresh() -> [] Mut List<Int> {
 
 Salvo does not look *forward* to a later use to decide a type argument, even where a target language would: what the compiler knows must be visible at the call itself. A type argument that never reaches the result type needs no context — nothing downstream could observe it.
 
+**When more than one overload matches a call, the most specific one wins**, and a parameter type that names a concrete type is more specific than one that names only "some type":
+
+```
+fn describe<T>(value: T) -> Str { return "generic" }
+fn describe(value: Int) -> Str { return "concrete" }
+
+describe(3)        // "concrete" — both match, the concrete parameter wins
+describe("text")   // "generic"  — only one candidate matches at all
+```
+
+The comparison is per parameter and structural, so `List<Int>` is more specific than `List<T>`, and a candidate wins only if it is at least as specific in *every* parameter and strictly more specific in one. Two candidates that disagree about which parameter is the concrete one — `mix<T>(a: T, b: Int)` against `mix<T>(a: Int, b: T)`, called as `mix(1, 2)` — rank neither way, and the call is an error rather than a coin flip; annotating an argument so only one candidate matches resolves it. Declaration order never decides.
+
 We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
 
 ### Implicit parameters
@@ -706,6 +732,57 @@ Details worth knowing:
   type prints, so a function that *consumes* an argument where the position
   keeps it is reported in words: which argument, which direction, and the two
   ways to fix it.
+- **What the implicit resolves to can determine the call's type arguments.**
+  Resolution runs *between* the arguments, not after them, so a variable that
+  appears only in the implicit's type is still inferred — see
+  `Iterable` below, where the element type comes from *which* `iter` filled
+  the parameter.
+
+### Iterating anything: `Iterable`
+
+`params` groups are how Salvo says what a Rust programmer would say with a
+trait bound. The standard library's own example is iteration:
+
+```
+params Iterable<It, T> {
+    fn iter(it: It) -> Iter<T>
+}
+
+fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> Mut List<U> {
+    let out = mutable_list<U>()
+    for x in iter(xs) {
+        add(out, f(x))
+    }
+    return out
+}
+```
+
+There is no `Iterable` *type* and nothing implements it: `map` needs an
+`iter` for whatever `xs` is, and the call site supplies one. So `map` works
+on a list, an array, a string (its characters), an `Iter<T>` from an iterator
+function — and on a type of your own the moment you declare `fn iter` for it:
+
+```
+struct Bag {
+    items: List<Int>
+}
+
+fn iter(bag: Bag) -> [bag] Iter<Int> {
+    return iter(bag.items)
+}
+
+let total = reduce(bag, 0, (acc, n) -> acc + n)   // Bag is iterable now
+```
+
+Inference runs *through* the group: `It` comes from the subject, and `T` — the
+element type — comes from which `iter` fills the implicit. That is what lets
+the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
+
+`map` and `filter` are **eager**: they return a `Mut List<U>`, not a lazy
+`Iter<U>`. A lazy one would have to store the callback, and a stored callback
+cannot perform effects (the same restriction iterator functions have), which
+would rule out a `println` inside a `map` — the thing people actually write.
+Chaining still works, because a list is iterable like anything else.
 
 ### Variadic arguments
 
@@ -741,10 +818,10 @@ fn max(first: Int, ...rest: Int[]) -> Int {
 
 ### Lambdas
 
-Functions can take lambdas as arguments, as `mapper` in the following example:
+Functions can take lambdas as arguments, as `mapper` in the following example (this is what the standard library's `map` does, spelled out):
 
 ```
-fn map<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
+fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
     let result: Mut List<T> = mutable_list()
     for s in list {
         // Call `mapper` like a normal function
@@ -766,9 +843,9 @@ fn do_something() {
     let list: List<Int> = list(1, 2, 3)
 
     // The following are all equivalent
-    map(list, to_string) // Pass the function by name
-    map(list, i -> "${i}") // Use an anonymous lambda without {}, doesn't require a return
-    map(list, i -> { return "#{it}"}) // Use an anonymous lambda with {}, does require a return
+    transform(list, to_string) // Pass the function by name
+    transform(list, i -> "${i}") // Use an anonymous lambda without {}, doesn't require a return
+    transform(list, i -> { return "${i}"}) // Use an anonymous lambda with {}, does require a return
 }
 ```
 
@@ -1665,11 +1742,11 @@ intrinsic fn copy<T>(value: T) -> [value] T
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
-The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, `char_at`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
+The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, and the string functions from `char_at` to `split`, `trim`, `join` and `parse_int`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
 
 Handlers can be intrinsic as well: `intrinsic handler StdOutConsole of Console` is bodyless in Salvo, and each backend emits a real class or trait impl for it.
 
-The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each backend decides what `Mut` means. Kotlin maps `Mut List<T>` to `MutableList<T>` — the one place a qualifier survives erasure — while Rust maps both `List<T>` and `Mut List<T>` to `Vec<T>`, because there mutability shows up in bindings and references instead.
+The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each backend decides what `Mut` means. Kotlin maps `Mut List<T>` to `MutableList<T>` and `Mut Str` to `StringBuilder` — the one place a qualifier survives erasure — while Rust maps both `List<T>` and `Mut List<T>` to `Vec<T>`, and both `Str` and `Mut Str` to `String`, because there mutability shows up in bindings and references instead. Where the two types really differ, a *drop* of the `Mut` is a conversion (`.toString()` for a Kotlin builder) and the compiler records the drop for the backend to render; where they do not — `MutableList<T>` is a `List<T>` — it renders nothing.
 
 ### Platform
 
@@ -1749,6 +1826,7 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
 * The `Iter<T>` type should map to the `Iterable<T>` type in Kotlin, since this is what can be looped over in for-loops. A custom iterable type can be defined for dynamic `iterator {}` blocks in Kotlin.
+* `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
 
 ### Rust
 
@@ -1756,5 +1834,6 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * `T?` maps to a physical `Option<T>`; union types map to generated enums (`Union2<T1, T2>` with one variant per non-`None` arm).
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
 * Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
+* `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
 * The `Iter<T>` type maps to a generated factory type: iterator functions are lazy and repeatable, as on Kotlin. Stable Rust has no generators, so the body becomes an `async` block — a state machine rustc builds — driven one element at a time. This is why an iterator function may perform no effects: its captured state has to outlive the call.
 * See BACKEND_SPEC.rust.md for the full rules.

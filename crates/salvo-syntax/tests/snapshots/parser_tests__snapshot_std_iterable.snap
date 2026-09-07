@@ -1,0 +1,207 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"iterable.sv\"))"
+---
+Module {
+    items: [
+        Params(
+            ParamsDecl {
+                docs: [
+                    "[seq-iterable] [implicit-group] What \"iterable\" means in Salvo: not a trait a type",
+                    "implements, but a *function* the call site can find. `Iterable<It, T>` is",
+                    "a `params` group with one member — `iter` — so a function that wants to",
+                    "walk anything writes `?Iterable<It, T>` and every call fills it with the",
+                    "`iter` overload that fits: std's own for `List<T>`, `T[]`, `Str` and",
+                    "`Iter<T>`, or one the caller declared for a type of their own.",
+                    "",
+                    "A group emits nothing on any backend [implicit-group]: it is a",
+                    "declaration-side shorthand, resolved at each call site by name and type",
+                    "[implicit-resolve]. Its own module so that a program mentioning none of",
+                    "this emits nothing for it [mod-used-only] — `core.*` is implicitly",
+                    "visible, so no import is needed either way.",
+                ],
+                name: Ident {
+                    name: "Iterable",
+                    span: 801..809,
+                },
+                generics: [
+                    Ident {
+                        name: "It",
+                        span: 810..812,
+                    },
+                    Ident {
+                        name: "T",
+                        span: 814..815,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        intrinsic: false,
+                        name: Ident {
+                            name: "iter",
+                            span: 826..830,
+                        },
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "it",
+                                    span: 831..833,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "It",
+                                            span: 835..837,
+                                        },
+                                        args: [],
+                                        span: 835..837,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 831..837,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Iter",
+                                        span: 842..846,
+                                    },
+                                    args: [
+                                        Named {
+                                            qualifiers: [],
+                                            base: TypeRef {
+                                                name: Ident {
+                                                    name: "T",
+                                                    span: 847..848,
+                                                },
+                                                args: [],
+                                                span: 847..848,
+                                            },
+                                        },
+                                    ],
+                                    span: 842..849,
+                                },
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 823..849,
+                    },
+                ],
+                span: 794..851,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "An `Iter<T>` is itself iterable — the identity that lets a chain compose",
+                    "(`filter(map(xs, f), keep)`) and lets an iterator function's result reach",
+                    "the sequence functions.",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "iter",
+                    span: 1048..1052,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1053..1054,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "it",
+                            span: 1056..1058,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Iter",
+                                    span: 1060..1064,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 1065..1066,
+                                            },
+                                            args: [],
+                                            span: 1065..1066,
+                                        },
+                                    },
+                                ],
+                                span: 1060..1067,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1056..1067,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            param: Ident {
+                                name: "it",
+                                span: 1076..1078,
+                            },
+                            kind: KeepAll,
+                            span: 1076..1078,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Iter",
+                                span: 1080..1084,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 1085..1086,
+                                        },
+                                        args: [],
+                                        span: 1085..1086,
+                                    },
+                                },
+                            ],
+                            span: 1080..1087,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1045..1087,
+            },
+        ),
+    ],
+}

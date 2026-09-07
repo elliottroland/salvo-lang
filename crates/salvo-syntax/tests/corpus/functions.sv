@@ -16,7 +16,7 @@ fn max(first: Int, ...rest: Int[]) -> Int {
     return first
 }
 
-fn map<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
+fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
     let result: Mut List<T> = mutable_list()
     for s in list {
         add(result, mapper(s))
@@ -30,9 +30,9 @@ fn to_string(int: Int) -> Str {
 
 fn do_something() {
     let list: List<Int> = list(1, 2, 3)
-    map(list, to_string)
-    map(list, i -> "${i}")
-    map(list, i -> { return "${i}" })
+    transform(list, to_string)
+    transform(list, i -> "${i}")
+    transform(list, i -> { return "${i}" })
 }
 
 fn range(start: Int, end: Int) -> Iter<Int> {

@@ -2424,10 +2424,36 @@ impl<'p> Emitter<'p> {
         let Some(coercion) = self.coercion_of(span) else {
             return code;
         };
-        match coercion.clone() {
+        self.apply_coercion_value(coercion.clone(), code)
+    }
+
+    /// The same, for a coercion already in hand — which is what lets a
+    /// `DropMut` carry the change that would have been recorded in its
+    /// place [str-drop-mut].
+    fn apply_coercion_value(&mut self, coercion: Coercion, code: String) -> String {
+        match coercion {
             // Kotlin nullability is transparent: a bare value is already a
             // valid `T?` [type-nullable].
             Coercion::WrapOption { .. } => code,
+            // [str-drop-mut] [kt-mut-str] `StringBuilder` is not a
+            // `String`; `MutableList<T>` *is* a `List<T>`, so that drop
+            // renders nothing.
+            Coercion::DropMut { from, then } => {
+                let code = match ty_base_name(&from)
+                    .and_then(crate::intrinsics::drop_mut_suffix)
+                {
+                    // A bare name takes the suffix directly; anything else
+                    // is parenthesized, since the suffix binds tighter than
+                    // whatever the expression ends with.
+                    Some(suffix) if is_plain_name(&code) => format!("{code}{suffix}"),
+                    Some(suffix) => format!("({code}){suffix}"),
+                    None => code,
+                };
+                match then {
+                    Some(inner) => self.apply_coercion_value(*inner, code),
+                    None => code,
+                }
+            }
             Coercion::WrapUnion { target, arm } => {
                 let value_arms = target.value_arms();
                 let n = value_arms.len();
@@ -3649,6 +3675,12 @@ impl<'p> Emitter<'p> {
         // Real copies for the mutable shapes Kotlin can copy correctly.
         let has_mut = ty.quals().iter().any(|q| q.name == "Mut");
         match ty.strip_quals() {
+            // [kt-mut-str] A `Mut Str` is a `StringBuilder`, whose copy is
+            // a new builder over the same characters — identity here would
+            // alias the buffer, which is the whole point of [kt-copy].
+            Ty::Named { name, .. } if has_mut && name == "Str" => {
+                return format!("StringBuilder({code})");
+            }
             Ty::Named { name, args: targs } if has_mut && name == "List" => {
                 if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
                     return format!("{code}.toMutableList()");
@@ -3692,13 +3724,15 @@ impl<'p> Emitter<'p> {
     /// The rendered arguments of an `intrinsic fn` call, in declaration
     /// order. Kotlin renders every argument the ordinary way — there is no
     /// place/owned distinction to preserve, unlike the Rust backend
-    /// [rs-borrows] — so the only shaping is that a `...` spread splices
-    /// its operand.
+    /// [rs-borrows] — so the only shaping is that a `...` spread becomes
+    /// Kotlin's own spread (`*arr`): a variadic lowering that splices the
+    /// array *as one argument* builds a collection of one array
+    /// [fn-variadic].
     fn intrinsic_arg_code(&mut self, f: &FnDecl, args: &[&Expr]) -> Vec<String> {
         let _ = f;
         args.iter()
             .map(|arg| match arg {
-                Expr::Spread { operand, .. } => self.emit_expr(operand),
+                Expr::Spread { operand, .. } => format!("*{}", self.emit_expr(operand)),
                 other => self.emit_expr(other),
             })
             .collect()
@@ -3918,8 +3952,17 @@ impl<'p> Emitter<'p> {
                 salvo_core::ImplicitArg::Resolved { name, key } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
-                            let target = self.kotlin_fn_name(decl);
-                            out.push(format!("::{target}"));
+                            // [implicit-intrinsic] An `intrinsic fn` has no
+                            // Kotlin name to reference: it *is* a lowering.
+                            // So the value passed is an adapter lambda whose
+                            // body is that lowering — which is what makes
+                            // std's `iter` fill an `?Iterable<It, T>`.
+                            if decl.intrinsic {
+                                out.push(self.intrinsic_fn_value(decl));
+                            } else {
+                                let target = self.kotlin_fn_name(decl);
+                                out.push(format!("::{target}"));
+                            }
                         }
                         None => {
                             self.error(format!(
@@ -3932,6 +3975,33 @@ impl<'p> Emitter<'p> {
             }
         }
         out
+    }
+
+    /// [implicit-intrinsic] An `intrinsic fn` passed as a *value*: there is
+    /// no Kotlin function to reference, so the value is an adapter lambda
+    /// whose body is the intrinsic's own lowering, applied to the adapter's
+    /// parameters. Reached from implicit resolution [implicit-resolve],
+    /// where std's `iter` overloads are what fill an `?Iterable<It, T>`.
+    ///
+    /// A lowering that needs the call's *type arguments* has none here (a
+    /// fn value's are the caller's), so an intrinsic like `list` would not
+    /// render correctly as a value; it is a codegen error rather than a
+    /// guess [backend-never-wrong].
+    fn intrinsic_fn_value(&mut self, decl: &FnDecl) -> String {
+        let params: Vec<String> = (0..decl.params.iter().filter(|p| !p.implicit).count())
+            .map(|i| format!("__i{i}"))
+            .collect();
+        let recv = decl.params.first().and_then(|p| type_base_name(&p.ty));
+        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[]) {
+            Some(body) => format!("{{ {} -> {body} }}", params.join(", ")),
+            None => {
+                self.error(format!(
+                    "intrinsic fn `{}` is not supported by the kotlin backend",
+                    decl.name.name
+                ));
+                "TODO()".to_string()
+            }
+        }
     }
 
     fn emit_fn_call(
@@ -4087,6 +4157,14 @@ fn type_base_name(ty: &Type) -> Option<&str> {
         Type::Array { .. } => Some("[]"),
         _ => None,
     }
+}
+
+/// Whether emitted code is a bare Kotlin name — the case where a suffix
+/// (`.toString()` [str-drop-mut]) needs no parentheses around it.
+fn is_plain_name(code: &str) -> bool {
+    !code.is_empty()
+        && !code.starts_with(|c: char| c.is_ascii_digit())
+        && code.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// The base type name of a *checker* type, aligned with

@@ -50,6 +50,28 @@ Conventions:
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Byte`/`Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Nothing`→`Nothing` (`emit_named_parts`).
+* [kt-mut-str] `Mut Str` maps to `StringBuilder`, through the same
+  `intrinsics::mut_type_name` hook `Mut List<T>` → `MutableList<T>` uses
+  [type-canbe-mut] — and it is the case that hook was *not* enough for:
+  * `MutableList<T>` **is** a `List<T>`, so dropping `Mut` there is free.
+    `StringBuilder` is not a `String`, so a drop emits `.toString()`
+    ([str-drop-mut], `intrinsics::drop_mut_suffix`, applied to the
+    checker's `Coercion::DropMut` — a bare name takes the suffix directly,
+    anything else is parenthesized first).
+  * `mutable_str(...parts)` emits
+    `StringBuilder(listOf(parts).joinToString(""))` — joined rather than
+    appended one part at a time, so a `...spread` works through Kotlin's
+    own spread operator [fn-variadic]. No parts at all is `StringBuilder()`.
+  * The mutators are native: `append` → `.append(..)`, `clear` →
+    `.clear()`, and `set` → a guarded `setCharAt` (which throws out of
+    range, where Salvo's `set` does nothing), binding its arguments in a
+    `run { }` so a call argument is evaluated once.
+  * `copy` of a `Mut Str` is `StringBuilder(sb)` [kt-copy]: identity would
+    alias the buffer.
+  * String indexes are UTF-16 code units here (`.length`, `substring`) and
+    characters in Rust — the divergence `size`/`char_at` already had, now
+    shared by `substr`/`index_of`/`set`. Astral-plane text is where the two
+    differ; a `Char`-exact `Str` is a future decision, not a patch.
 * [kt-none-unit] `None` as a return type is `Unit`; `None` as a union arm
   is nullability ([kt-union-nullable]).
 * [type-str] Interpolation emits native Kotlin templates, using the short
@@ -74,6 +96,17 @@ Conventions:
   the Rust backend, where `T[]` maps to native arrays anyway).
 * [kt-iter-iterable] `Iter<T>` maps to `Iterable<T>` (what Kotlin
   `for`-loops accept).
+* [kt-seq] std's sequence functions [seq-iterable]: the `List` fast paths
+  lower to Kotlin's own operations — `map`/`filter` with
+  `.toMutableList()`, since the result is a `Mut List<U>`, and `reduce` to
+  `.fold(init, op)`. The generic bodies are ordinary generic functions whose
+  implicit `iter` arrives as a trailing argument.
+* [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter
+  cannot be `::name`d — there is no Kotlin function — so it is passed as an
+  adapter lambda whose body is the intrinsic's lowering
+  (`{ __i0 -> __i0.asIterable() }` for `iter(T[])`). A lowering that needs
+  the call's *type arguments* has none as a value, so it is a codegen error
+  rather than a guess [backend-never-wrong].
 * [type-alias] Aliases expand structurally in the emitter too
   (`subst_ast_type`), matching the checker's expansion.
 
@@ -87,8 +120,9 @@ Conventions:
   [deduce-consume].
 * [kt-mutability] `let` emits `val`, or `var` when the name is assigned or
   `++`-incremented anywhere in the fn (mutation pre-scan);
-  `Mut List<T>` emits `MutableList<T>` via `intrinsics::mut_type_name`
-  [type-canbe-mut]; `Mut` struct fields emit `var`.
+  `Mut List<T>` emits `MutableList<T>` and `Mut Str` a `StringBuilder`
+  via `intrinsics::mut_type_name` [type-canbe-mut] [kt-mut-str]; `Mut`
+  struct fields emit `var`.
 * [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
 * [is-binding] `is T name` bindings emit `val name = subj as T` at the top
@@ -492,6 +526,7 @@ same programs running ([rs-effect-fusion]).
     [struct-mut]. Duplicating a reference to immutable data *is* a
     copy on the JVM.
   * `Mut List<E>` with immutable `E` → `.toMutableList()`;
+  * `Mut Str` → `StringBuilder(sb)` [kt-mut-str];
   * a `Mut` struct whose fields are all transitively immutable →
     `.copy()` (the data class's shallow copy is exact there);
   * `T[]` with immutable `T` → `.copyOf()` (arrays are index-assignable

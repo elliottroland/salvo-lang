@@ -430,6 +430,116 @@ pub fn compatible(a: &Ty, b: &Ty) -> bool {
     is_subtype(a, b) && is_subtype(b, a)
 }
 
+/// [fn-overload-specific] How two parameter *patterns* (un-substituted
+/// declared parameter types of two overload candidates) compare on the
+/// **genericity axis**: `Greater` means `a` is more specific — it says
+/// something concrete where `b` says only "some type".
+///
+/// This is the whole of decision O1 and no more: a concrete type beats a
+/// type variable, structurally (`List<Int>` beats `List<T>`), and every
+/// other axis of specificity — qualifier counts, unions, optionals,
+/// variadics — deliberately compares `Equal` or `None` here, because
+/// ranking them is still undesigned. `None` is "these two cannot be
+/// ranked", which is what makes the relation a partial order and an
+/// un-rankable set of best candidates an error rather than a coin flip.
+pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering::*;
+    if a == b {
+        return Some(Equal);
+    }
+    match (a, b) {
+        // A type variable knows nothing; anything else knows something.
+        (Ty::Var(_), Ty::Var(_)) => Some(Equal),
+        (Ty::Var(_), _) => Some(Less),
+        (_, Ty::Var(_)) => Some(Greater),
+        (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab })
+            if na == nb && aa.len() == ab.len() =>
+        {
+            combine(aa.iter().zip(ab).map(|(x, y)| spec_cmp(x, y)))
+        }
+        (Ty::Array(x), Ty::Array(y)) => spec_cmp(x, y),
+        (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => {
+            combine(xs.iter().zip(ys).map(|(x, y)| spec_cmp(x, y)))
+        }
+        (Ty::Union(xs), Ty::Union(ys)) if xs.len() == ys.len() => {
+            combine(xs.iter().zip(ys).map(|(x, y)| spec_cmp(x, y)))
+        }
+        (
+            Ty::Fn {
+                params: pa,
+                ret: ra,
+                ..
+            },
+            Ty::Fn {
+                params: pb,
+                ret: rb,
+                ..
+            },
+        ) if pa.len() == pb.len() => combine(
+            pa.iter()
+                .zip(pb)
+                .map(|(x, y)| spec_cmp(x, y))
+                .chain(std::iter::once(spec_cmp(ra, rb))),
+        ),
+        // Equal qualifier sets: the genericity of the bases decides. A
+        // *difference* in qualifiers is the open question, so it does not
+        // rank here.
+        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb })
+            if qa == qb =>
+        {
+            spec_cmp(ba, bb)
+        }
+        _ => None,
+    }
+}
+
+/// Folds child comparisons into one: all `Equal` is `Equal`, a consistent
+/// direction wins, and a disagreement (or any unrankable child) is `None`.
+fn combine(items: impl Iterator<Item = Option<std::cmp::Ordering>>) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering::*;
+    let mut acc = Equal;
+    for item in items {
+        match item? {
+            Equal => {}
+            dir if acc == Equal => acc = dir,
+            dir if dir == acc => {}
+            _ => return None,
+        }
+    }
+    Some(acc)
+}
+
+/// [fn-overload-specific] Whether candidate `a`'s parameter patterns are at
+/// least as specific as `b`'s in every position and strictly more specific
+/// in at least one — i.e. whether `a` *dominates* `b` and should win.
+pub fn spec_dominates(a: &[Ty], b: &[Ty]) -> bool {
+    use std::cmp::Ordering::*;
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut strict = false;
+    for (x, y) in a.iter().zip(b) {
+        match spec_cmp(x, y) {
+            Some(Greater) => strict = true,
+            Some(Equal) => {}
+            _ => return false,
+        }
+    }
+    strict
+}
+
+/// [fn-overload-specific] Whether two candidates' patterns are
+/// indistinguishable on the genericity axis — no position ranks either way.
+/// True means O1 has nothing to say about the pair (the difference between
+/// them lies on an axis that is still undesigned), which is what keeps the
+/// ambiguity error to genuine specificity ties.
+pub fn spec_indifferent(a: &[Ty], b: &[Ty]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| spec_cmp(x, y) == Some(std::cmp::Ordering::Equal))
+}
+
 impl fmt::Display for Qual {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
@@ -587,5 +697,51 @@ mod tests {
         assert!(res.is_wrapper_union());
         assert!(res.has_none_arm());
         assert_eq!(res.value_arms().len(), 2);
+    }
+
+    /// [fn-overload-specific] O1: a concrete parameter type beats a type
+    /// variable, structurally — and nothing else ranks.
+    #[test]
+    fn specificity_ranks_concrete_over_variables() {
+        use std::cmp::Ordering::*;
+        let var = Ty::Var("T".into());
+        let int = Ty::named("Int");
+        assert_eq!(spec_cmp(&int, &var), Some(Greater));
+        assert_eq!(spec_cmp(&var, &int), Some(Less));
+        assert_eq!(spec_cmp(&var, &Ty::Var("U".into())), Some(Equal));
+        // Structural: `List<Int>` is more specific than `List<T>`.
+        let list = |arg: Ty| Ty::Named {
+            name: "List".into(),
+            args: vec![arg],
+        };
+        assert_eq!(spec_cmp(&list(int.clone()), &list(var.clone())), Some(Greater));
+        // Different constructors do not rank (nor do differing qualifiers).
+        assert_eq!(spec_cmp(&int, &Ty::named("Str")), None);
+        assert_eq!(spec_cmp(&ok(int.clone()), &int), None);
+        // A disagreement between positions is unrankable.
+        let f = |a: Ty, b: Ty| Ty::Tuple(vec![a, b]);
+        assert_eq!(
+            spec_cmp(&f(int.clone(), var.clone()), &f(var.clone(), int.clone())),
+            None
+        );
+    }
+
+    /// [fn-overload-specific] Dominance is per-position, needs one strict
+    /// win, and "indifferent" is the pair O1 has nothing to say about.
+    #[test]
+    fn specificity_dominance() {
+        let var = Ty::Var("T".into());
+        let int = Ty::named("Int");
+        assert!(spec_dominates(&[int.clone(), int.clone()], &[var.clone(), int.clone()]));
+        assert!(!spec_dominates(&[var.clone(), int.clone()], &[int.clone(), int.clone()]));
+        // No strict win anywhere: dominance needs one.
+        assert!(!spec_dominates(&[int.clone()], &[int.clone()]));
+        assert!(spec_indifferent(&[int.clone()], &[int.clone()]));
+        // Mutually unrankable: neither dominates, and they are not
+        // indifferent either — that pair is an ambiguity.
+        let a = [int.clone(), var.clone()];
+        let b = [var.clone(), int.clone()];
+        assert!(!spec_dominates(&a, &b) && !spec_dominates(&b, &a));
+        assert!(!spec_indifferent(&a, &b));
     }
 }

@@ -216,9 +216,42 @@ Conventions:
   * Validated at declaration sites (`validate_quals` in the checker)
     against struct and opaque-type `auto_qualifiers`.
   * Backends decide what `Mut` means, as an intrinsic lowering
-    [backend-intrinsic]: Kotlin maps `Mut List<T>` to `MutableList<T>`
-    (through `mut_type_name`), while Rust erases `Mut` — mutability lives
-    in the binding (`mut` bindings and `&mut` references) instead.
+    [backend-intrinsic]: Kotlin maps `Mut List<T>` to `MutableList<T>` and
+    `Mut Str` to `StringBuilder` (through `mut_type_name`), while Rust
+    erases `Mut` — mutability lives in the binding (`mut` bindings and
+    `&mut` references) instead.
+* [str-drop-mut] **Dropping `Mut` may be a conversion.** Every other
+  qualifier erases [qual-erasure], so widening is free; `Mut` is the one a
+  backend may render as a *different type* [type-canbe-mut], and where it
+  does, `Mut T` used as `T` needs a real conversion (Kotlin's
+  `StringBuilder` is not a `String` — `MutableList<T>` *is* a `List<T>`,
+  which is why this never came up before `Str canbe Mut`).
+  * A **checker-recorded coercion** (`Coercion::DropMut`), not an emitter
+    guess: the two sides cannot disagree about where a conversion happens
+    (the standing checker/emitter agreement invariant). The record carries
+    the qualified type, so the backend decides from its base — Kotlin
+    renders `.toString()` for `Str` and nothing for `List`, Rust nothing at
+    all.
+  * It fires at **every** drop site: call arguments (intrinsic lowerings
+    included — `char_at(builder, 0)` must not reach a `String` method with
+    a builder), returns, `let` annotations, struct fields, union arms,
+    string interpolation, and **operator operands**. Operators are included
+    rather than rejected: Kotlin's `StringBuilder == String` is `false` and
+    `sb1 == sb2` is *reference* equality, against Rust's structural
+    `String == String` — a live parity divergence — and rejecting `Mut` at
+    operators the way [op-no-none] rejects optionals would surprise, since
+    `Mut List` is accepted everywhere else.
+  * A drop **keeps** whatever representation change the site would have
+    recorded anyway (a union wrap, say) as the record's continuation: one
+    expression has one coercion slot, and both have to happen — the drop
+    first, since the wrap is about the plain type.
+  * Nothing is dropped where the target *keeps* `Mut`: a `Mut T`
+    parameter, an optional `Mut T?`, or a generic position (whose pattern
+    substitutes to the argument's own type, which is what makes
+    `copy(builder)` a builder).
+  * `copy` has to know too: on a backend where `Mut T` is its own mutable
+    type, the copy of a builder is a *new* builder ([kt-copy] renders
+    `StringBuilder(sb)`), never the identity.
 
 ## Qualifiers
 
@@ -733,7 +766,8 @@ Conventions:
 * [fn-overload] Functions overload by parameter types (including
   qualifiers: `full_name(Person)` vs `full_name(Surname Person)`).
   * The checker scores viable candidates (exact type match > subtype;
-    qualified params more specific) and records the winner per call site
+    qualified params more specific), breaks a remaining tie by specificity
+    [fn-overload-specific], and records the winner per call site
     (`call_fn`). In unchecked contexts (no recorded winner) emitters
     narrow same-arity candidates by the checked argument types' base
     names; an ambiguous dispatch is a
@@ -745,6 +779,43 @@ Conventions:
     deliberately: `Ty::Var` identity is name-scoped per side, so a
     callee's `T` never appears inside argument types (a caller's
     same-named `T` is a different variable).
+* [fn-overload-specific] **A concrete parameter type beats a type
+  variable** (decision O1, user 2026-09-06). When the score leaves several
+  candidates standing, they are ranked on the *genericity* axis:
+  `describe(Int)` wins over `describe<T>(T)` for `describe(3)`, and
+  declaration order never decides.
+  * Structural and per parameter: `List<Int>` > `List<T>`, and likewise
+    inside arrays, tuples, fn types, equal-arity unions and equally
+    qualified types. A candidate **dominates** another when it is at least
+    as specific in every position and strictly more specific in one.
+  * A **partial** order, deliberately: when no candidate dominates the
+    rest the call is *ambiguous* and says so, naming the candidates and
+    both remedies (write the type arguments, or annotate an argument so
+    only one matches). `mix<T>(T, Int)` against `mix<T>(Int, T)` called as
+    `mix(1, 2)` is the shape.
+  * Only the genericity axis ranks. A pair the relation finds
+    *indifferent* — differing only in qualifiers, union shape, arity
+    source (variadic vs fixed) or optionality — keeps declaration order,
+    since ranking those axes is still undesigned (see PROGRESS.md's
+    overload roadmap). Qualifier specificity is already expressed as
+    score, not as this ranking.
+  * [type-unknown-lenient] An argument the checker could not infer fits
+    every candidate, so an un-inferred argument anywhere in the call
+    suppresses the ambiguity error: one mistake, one diagnostic.
+  * The ranking compares the **declared** parameter patterns, not the
+    substituted ones — after substitution `T` *is* `Int` and the two
+    candidates would look identical, which is exactly why the bug existed.
+  * The ranking also decides which candidate **leads**: expected types flow
+    into the arguments from the most specific candidate still compatible with
+    the arguments typed *so far*. That is what gives a bare lambda an
+    expected type when the name is overloaded (`map(xs, n -> n * 2)` with a
+    `List` fast path beside the generic overload), and the *per-argument
+    re-narrowing* is what keeps the subject deciding: `map(arr, n -> n + 1)`
+    drops the `List` candidate when `arr` turns out to be an array, before
+    the lambda is typed. With no dominant candidate the arguments keep the
+    untyped probe — expected types from an arbitrary candidate would be a
+    bias — and the lead is only ever a *hint*: the scoring re-derives
+    everything from the argument types it ends up with.
 * [call-type-args] A generic call's type arguments must be **determined**.
   In order: an explicit list (`mutable_list<Int>()`) pins them; otherwise
   the arguments bind them by unification; otherwise the **expected type**
@@ -815,9 +886,32 @@ Conventions:
 * [iter-resolve] A `for` subject must be an array, an `Iter<T>`, or a value
   some declared `iter` overload accepts (the implicit `iter(subject)`
   call); anything else is an error.
+* [seq-iterable] std's sequence functions (`map`, `filter`, `reduce`) take
+  their subject through `?Iterable<It, T>` — the one `params` group std
+  declares — so anything with a visible `iter` is a subject: a `List<T>`, an
+  array, a `Str` (its characters), an `Iter<T>` (an identity overload), or a
+  customer type that declares `fn iter`. There is no `Iterable` type and
+  nothing implements it [implicit-group].
+  * **Eager**: `map`/`filter` return `Mut List<U>`, not a lazy `Iter<U>`. A
+    lazy one would have to store the callback, and a stored callback cannot
+    perform effects [iter-effect-free] — which would rule out a `println`
+    inside a `map`. Chaining still works: a list is iterable.
+  * Each also has an `intrinsic` **`List` fast path**, which
+    [fn-overload-specific] selects when the subject really is a list; the
+    generic Salvo body is what every other subject reaches.
 * [fn-variadic] `...xs: T[]` collects remaining arguments as an array;
   a spread argument `...xs` forwards an array whole; variadics bind after
   fixed params.
+  * A spread into a **variadic intrinsic** is passed on as the collection,
+    not as one element: Kotlin uses its own spread (`listOf(*arr)`) and
+    Rust takes the vector itself (cloned, since Salvo does not track a
+    variadic position, so the array stays usable). Splicing it as one
+    argument built a collection *of one array* — which kotlinc catches for
+    `listOf` but not for `StringBuilder`, where `append(Any?)` accepts it
+    and prints `[Ljava.lang.String;@…` [backend-never-wrong].
+  * A variadic position is otherwise untracked by the flow analysis, so an
+    intrinsic that merely *reads* its parts must borrow them in Rust: an
+    owned splice would move a variable the checker still considers live.
 * [implicit-param] `?cmp: (T, T) -> Int` declares an **implicit parameter**:
   one the caller need not pass (user decisions 2026-09-05). Its type must be
   a fn type — what fills it is a function — and implicit parameters trail the
@@ -889,6 +983,36 @@ Conventions:
   * Two implicits of the same name in one signature are an error: with no
     binder nothing tells them apart, and [var-no-shadow] would refuse them
     in the body. The remedy is to write the clashing ones out individually.
+* [implicit-infer] **What fills an implicit can determine the call's type
+  arguments** (user design 2026-09-06, built with the sequence functions).
+  Resolution feeds back into the substitution *between* the arguments, so a
+  variable that appears only in an implicit's type is still inferred:
+  `map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>)` binds `It` from its
+  subject, then resolves `iter` at `(List<Int>) -> Iter<T>` and reads
+  `T = Int` off the `iter` that fits.
+  * Two-sided unification: the *candidate's* generics bind from the known
+    part of the pattern, and then the *caller's* variables bind from the
+    instantiated candidate. A part that is still one of the caller's
+    variables teaches nothing and must not match everything.
+  * Silent when the resolution is ambiguous or absent — [implicit-resolve]
+    reports that at the end of the call, so one mistake stays one
+    diagnostic.
+  * Without it the generic half of a sequence function would only work with
+    a written type-argument list: the lambda would be checked against an
+    unbound `T`, and `U` would then be undeterminable [call-type-args].
+* [implicit-resolve]'s candidate test is **parameter-contravariant**: a
+  visible `iter(list: List<T>) -> Iter<T>` fills a position wanting
+  `(Mut List<Int>) -> Iter<Int>`, because reading a list that happens to be
+  mutable is what it does. (`is_subtype` compares fn parameters invariantly
+  — deliberately, since a backend renders a parameter's convention from its
+  declared type — so this is a rule of implicit resolution, where the value
+  is only ever called by the callee that declared the position.)
+* [implicit-intrinsic] An `intrinsic fn` that fills an implicit is passed as
+  an **adapter closure whose body is its lowering**: an intrinsic has no
+  target-language function to reference (`::iter` does not exist in Kotlin,
+  and `iter` names the generated *module* in Rust — E0423). The adapter's
+  arguments follow the resolved declaration's own parameter modes, which on
+  Rust means a kept struct parameter is borrowed.
 * [implicit-override] `sort(xs, cmp = my_cmp)` supplies one implicit
   parameter by name. Named arguments exist for exactly this — Salvo has no
   general named-argument form — so a name matching no implicit parameter of

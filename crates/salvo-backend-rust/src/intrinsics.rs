@@ -33,6 +33,7 @@ pub fn fn_call(
     recv: Option<&str>,
     args: &[String],
     type_args: &[String],
+    spread: bool,
 ) -> Option<String> {
     // Unlike Kotlin, rustc infers a `vec![]`'s element type from later
     // use, so pinning it here would churn the output for nothing.
@@ -43,6 +44,16 @@ pub fn fn_call(
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a
         // second type [type-canbe-mut].
+        // [fn-variadic] A `...spread` argument arrives as the whole
+        // `Vec<T>`, so the constructor *is* that vector — wrapping it in a
+        // `vec![]` would build a vector of one vector (which rustc rejects,
+        // but only after the fact [backend-never-wrong]).
+        // Cloned, not moved: Salvo does not track a variadic position, so
+        // the spread array stays usable afterwards — which is what Kotlin's
+        // `listOf(*arr)` does too.
+        ("list", Some("[]")) | ("mutable_list", Some("[]")) if spread => {
+            format!("{}.clone()", a(0))
+        }
         ("list", Some("[]")) | ("mutable_list", Some("[]")) => {
             format!("vec![{}]", args.join(", "))
         }
@@ -67,13 +78,103 @@ pub fn fn_call(
             format!("SalvoIter::from_vec({}.clone())", a(0))
         }
 
+        // core.seq -------------------------------------------------------
+        // The `List` fast paths [fn-overload-specific] go through the
+        // generated helpers [rs-seq]: a generic parameter is what gives the
+        // callback an expected type, which is what closure inference needs
+        // and what no inline shape could supply. `&{}[..]` reaches an owned
+        // `Vec`, a `&Vec` and a `&mut Vec` alike.
+        ("map", Some("List")) => format!("salvo_map(&{}[..], {})", a(0), a(1)),
+        ("filter", Some("List")) => format!("salvo_filter(&{}[..], {})", a(0), a(1)),
+        ("reduce", Some("List")) => {
+            format!("salvo_reduce(&{}[..], {}, {})", a(0), a(1), a(2))
+        }
+        // core.iterable --------------------------------------------------
+        // [rs-iter-lazy] `Iter<T>` is a factory of passes, and the identity
+        // that makes it satisfy `Iterable` clones the factory (a borrowed
+        // one cannot be returned).
+        ("iter", Some("Iter")) => format!("{}.clone()", a(0)),
+
         // core.string ----------------------------------------------------
+        // [rs-mut-str] `Mut Str` and `Str` are both `String`: mutability
+        // lives in the binding and the reference [type-canbe-mut], so
+        // dropping `Mut` renders nothing at all [str-drop-mut].
+        ("mutable_str", Some("[]")) if spread => format!("{}.concat()", a(0)),
+        ("mutable_str", Some("[]")) if args.is_empty() => "String::new()".to_string(),
+        // The parts are *read*, not stored, so they are borrowed: an
+        // owned `vec![parts].concat()` would move a `Str` variable the
+        // caller can still use (a variadic position is not tracked by the
+        // flow analysis, so nothing would have warned).
+        ("mutable_str", Some("[]")) => {
+            let parts: Vec<String> = args.iter().map(|p| format!("&{p}[..]")).collect();
+            format!("[{}].concat()", parts.join(", "))
+        }
         // Characters, not bytes: `Str` is a `String`, whose `len()` counts
         // UTF-8 bytes, which is not what Salvo's `size` means.
         ("size", Some("Str")) => format!("({}.chars().count() as i32)", a(0)),
         ("char_at", Some("Str")) => {
             format!("{}.chars().nth(({}) as usize)", a(0), a(1))
         }
+        // [rs-iter-lazy] The characters are already there, so a pass is a
+        // walk over a copy of them.
+        ("iter", Some("Str")) => {
+            format!("SalvoIter::from_vec({}.chars().collect::<Vec<char>>())", a(0))
+        }
+        ("split", Some("Str")) => format!(
+            "{}.split(&{}[..]).map(|__p| __p.to_string()).collect::<Vec<String>>()",
+            a(0),
+            a(1)
+        ),
+        // In *characters*, like every other index here — `find` answers in
+        // bytes, so the prefix is re-counted.
+        ("index_of", Some("Str")) => format!(
+            "{{ let __s = &{}[..]; __s.find(&{}[..]).map(|__b| __s[..__b].chars().count() as i32) }}",
+            a(0),
+            a(1)
+        ),
+        ("contains", Some("Str")) => format!("{}.contains(&{}[..])", a(0), a(1)),
+        ("starts_with", Some("Str")) => format!("{}.starts_with(&{}[..])", a(0), a(1)),
+        ("ends_with", Some("Str")) => format!("{}.ends_with(&{}[..])", a(0), a(1)),
+        ("trim", Some("Str")) => format!("{}.trim().to_string()", a(0)),
+        // `strip_prefix` answers `None` when the affix is absent, where
+        // Salvo's `trim_prefix` answers the string unchanged. The receiver
+        // is bound once so a call argument is evaluated once.
+        ("trim_prefix", Some("Str")) => format!(
+            "{{ let __s = &{}[..]; __s.strip_prefix(&{}[..]).unwrap_or(__s).to_string() }}",
+            a(0),
+            a(1)
+        ),
+        ("trim_suffix", Some("Str")) => format!(
+            "{{ let __s = &{}[..]; __s.strip_suffix(&{}[..]).unwrap_or(__s).to_string() }}",
+            a(0),
+            a(1)
+        ),
+        // Out of range is `None`, not a panic — and the bounds are compared
+        // as `i32` first, since a negative index cast to `usize` is huge.
+        ("substr", Some("Str")) => format!(
+            "{{ let __s = &{}[..]; let __i = {}; let __j = {}; \
+             let __n = __s.chars().count() as i32; \
+             if __i >= 0 && __j >= __i && __j <= __n {{ \
+             Some(__s.chars().skip(__i as usize).take((__j - __i) as usize)\
+             .collect::<String>()) }} else {{ None }} }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("to_upper", Some("Str")) => format!("{}.to_uppercase()", a(0)),
+        ("to_lower", Some("Str")) => format!("{}.to_lowercase()", a(0)),
+        ("join", Some("List")) => format!("{}.join(&{}[..])", a(0), a(1)),
+        ("parse_int", Some("Str")) => format!("{}.parse::<i32>().ok()", a(0)),
+        ("append", Some("Str")) => format!("{}.push_str(&{}[..])", a(0), a(1)),
+        // [rs-mut-str] A method on a generated trait, not an inline block:
+        // replacing a character needs the string both read and written, and
+        // a `&mut String` *parameter* cannot be re-borrowed by an inline
+        // `&mut` (it is not a `mut` binding). Method syntax auto-refs both
+        // shapes and splices the receiver once.
+        ("set", Some("Str")) => {
+            format!("{}.salvo_set({}, {})", a(0), a(1), a(2))
+        }
+        ("clear", Some("Str")) => format!("{}.clear()", a(0)),
 
         _ => return None,
     })

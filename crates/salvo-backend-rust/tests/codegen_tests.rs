@@ -4124,3 +4124,338 @@ fn a_refinement_conflict_warns_without_stopping_emission() {
         warnings[0]
     );
 }
+
+// ===== [fn-overload-specific] O1: concrete beats generic =====
+
+/// The same source and the same expected stdout as the Kotlin backend's
+/// `kotlinc_runs_the_most_specific_overload`: the winner is the checker's
+/// choice, so the two targets must agree on it.
+const OVERLOAD_SPECIFICITY: &str = r#"
+fn describe<T>(value: T) -> Str {
+    return "generic"
+}
+
+fn describe(value: Int) -> Str {
+    return "concrete"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println(describe(3))
+    println(describe("text"))
+}
+"#;
+
+#[test]
+fn rustc_runs_the_most_specific_overload() {
+    let files = generate(&[("main.sv", OVERLOAD_SPECIFICITY)]);
+    run_rust_files(&files, "overload-specificity", "concrete\ngeneric\n");
+}
+
+// ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
+
+/// The same source and the same expected stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_strings`: `Mut Str` is a *different type*
+/// there (`StringBuilder`) and the same one here, so what the pair asserts
+/// is that dropping `Mut` costs the program nothing on either target.
+const STRING_DEMO: &str = r#"
+fn shout(text: Str) -> Str {
+    return to_upper(text)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // A builder, and the drop that lets it reach the `Str` surface.
+    let b = mutable_str("he", "llo")
+    append(b, " world")
+    set(b, 0, 'H')
+    println(shout(b))
+    println("size: ${size(b)}")
+    // `copy` of a builder is a new builder, not an alias.
+    let dup = copy(b)
+    append(dup, "!")
+    println("${b} / ${dup}")
+    clear(dup)
+    println("cleared: [${dup}]")
+
+    let sep = ","
+    let dash = "-"
+    let parts = split("a,b,,c", sep)
+    let joined = join(parts, dash)
+    println("${size(parts)} ${joined}")
+
+    let trimmed = trim("  pad  ")
+    let pa = "pa"
+    let ad = "ad"
+    println("[${trimmed}] ${starts_with(trimmed, pa)} ${ends_with(trimmed, ad)} ${contains(trimmed, ad)}")
+    println(to_lower(shout(trimmed)))
+
+    let hay = "hello"
+    let ll = "ll"
+    let lo = "lo"
+    let at = index_of(hay, ll)
+    let nowhere = index_of(hay, pa)
+    println("${at!} ${nowhere is None}")
+    let sub = substr(hay, 1, 3)
+    let oob = substr(hay, 1, 9)
+    println("${sub!} ${oob is None}")
+    let n = parse_int("42")
+    let bad = parse_int(pa)
+    println("${n!} ${bad is None}")
+    println("${trim_prefix(hay, hay)}${trim_suffix(hay, lo)}|")
+
+    let count = mutable_list<Int>()
+    for c in iter(hay) {
+        add(count, 1)
+    }
+    println("chars: ${size(count)}")
+
+    // Operators drop `Mut` too, so equality is by content on both targets.
+    let x = mutable_str(pa)
+    let y = mutable_str(pa)
+    println("equal: ${x == y}")
+}
+"#;
+
+/// The stdout both backends must produce, byte for byte.
+const STRING_DEMO_OUTPUT: &str = "HELLO WORLD\nsize: 11\nHello world / Hello world!\n\
+                                  cleared: []\n4 a-b--c\n[pad] true true true\npad\n\
+                                  2 true\nel true\n42 true\nhel|\nchars: 5\nequal: true\n";
+
+/// [rs-mut-str] `Mut` erases here — `Mut Str` and `Str` are both `String` —
+/// so a drop renders *nothing*, and the string surface is a set of `&str`
+/// methods with the char-vs-byte corrections Salvo's semantics need.
+#[test]
+fn mut_str_is_a_plain_string() {
+    let files = generate(&[("main.sv", STRING_DEMO)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // [str-drop-mut] No conversion anywhere: the argument is borrowed as it
+    // stands, and interpolation prints the `String` itself.
+    assert!(main.contains("shout(&b)"), "unexpected:\n{main}");
+    assert!(main.contains(r#"format!("{} / {}", b, dup)"#), "unexpected:\n{main}");
+    // The parts are borrowed, not moved: a variadic position is untracked by
+    // the flow analysis, so an owned `vec![pa]` would move a variable the
+    // checker still considers live.
+    assert!(main.contains(r#"let mut x = [&pa[..]].concat();"#), "unexpected:\n{main}");
+    // Characters, not bytes — `find` answers in bytes, so the prefix is
+    // re-counted.
+    assert!(
+        main.contains("__s.find(&ll[..]).map(|__b| __s[..__b].chars().count() as i32)"),
+        "unexpected:\n{main}"
+    );
+    // [rs-mut-str] `set` goes through the generated trait: method syntax
+    // auto-refs an owned local and a `&mut String` parameter alike.
+    assert!(main.contains("b.salvo_set(0, 'H')"), "unexpected:\n{main}");
+    assert!(main.contains("use crate::strings::*;"), "unexpected:\n{main}");
+    let support = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "strings.rs")
+        .expect("strings.rs emitted");
+    assert!(
+        support.content.contains("pub trait SalvoStr")
+            && support.content.contains("impl SalvoStr for String"),
+        "unexpected:\n{}",
+        support.content
+    );
+    // The support file is only generated when something needs it.
+    let plain = generate(&[("main.sv", "fn main() {\n}\n")]);
+    assert!(
+        !plain
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "strings.rs"),
+        "the string helpers must not be emitted for a program that never mutates a string"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_strings() {
+    let files = generate(&[("main.sv", STRING_DEMO)]);
+    run_rust_files(&files, "strings", STRING_DEMO_OUTPUT);
+}
+
+/// [fn-variadic] A `...spread` into a variadic intrinsic *is* the whole
+/// collection: `vec![parts]` would be a vector of one vector. Cloned rather
+/// than moved, matching Kotlin's `listOf(*arr)` — and the string parts are
+/// borrowed, since `mutable_str` reads them.
+#[test]
+fn a_spread_into_a_variadic_intrinsic_is_the_collection() {
+    let src = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let parts = ["a", "b"]
+    let sb = mutable_str(...parts)
+    let xs = list(...parts)
+    println("${sb} ${size(xs)}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    assert!(
+        main.contains("let mut sb = parts.concat();")
+            && main.contains("let mut xs = parts.clone();"),
+        "unexpected:\n{main}"
+    );
+    run_rust_files(&files, "strings-spread", "ab 2\n");
+}
+
+/// The case the generated trait exists for: `set` through a `&mut String`
+/// *parameter* and through a **field** projection, next to an owned local.
+/// An inline `&mut` re-borrow fails on the parameter (E0596), and method
+/// syntax works for all three. Same source and stdout as the Kotlin
+/// backend's `kotlinc_compiles_and_runs_mut_str_places`.
+const MUT_STR_PLACES: &str = r#"
+struct Buf canbe Mut {
+    text: Mut Str
+}
+
+fn grow(s: Mut Str) -> [s: Mut] None {
+    append(s, "!")
+    set(s, 0, 'G')
+    clear(s)
+    append(s, "grown")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = mutable_str("seed")
+    grow(b)
+    println("${b} ${size(b)}")
+    let buf = Mut Buf {text: mutable_str("in-struct")}
+    append(buf.text, "!")
+    set(buf.text, 0, 'I')
+    println("${buf.text}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_mut_str_places() {
+    let files = generate(&[("main.sv", MUT_STR_PLACES)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // A `Mut Str` parameter is a `&mut String`, and the helper is reached by
+    // method syntax on it.
+    assert!(
+        main.contains("pub fn grow(s: &mut String)") && main.contains("s.salvo_set(0, 'G')"),
+        "unexpected:\n{main}"
+    );
+    assert!(main.contains("buf.text.salvo_set(0, 'I')"), "unexpected:\n{main}");
+    run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
+}
+
+// ===== [rs-seq] [seq-iterable] [implicit-group] the sequence functions =====
+
+/// The same source and stdout as the Kotlin backend's
+/// `kotlinc_compiles_and_runs_sequences`: `map`/`filter`/`reduce` over a
+/// `List` (the intrinsic fast path), an array, a `Str`, an `Iter` from an
+/// iterator function, a chain, and a struct of the program's own with
+/// nothing but an `iter` declared.
+const SEQ_DEMO: &str = r#"
+struct Bag {
+    items: List<Int>
+}
+
+fn iter(bag: Bag) -> [bag] Iter<Int> {
+    return iter(bag.items)
+}
+
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn naturals(from: Int) -> Iter<Int> {
+    let i = from
+    while i < from + 4 {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3, 4)
+    let doubled = map(xs, n -> n * 2)
+    let sum = reduce(xs, 0, (a, b) -> a + b)
+    let big = filter(xs, n -> n > 2)
+    println("list: ${size(doubled)} ${sum} ${size(big)}")
+    let named = map(xs, double)
+    println("named: ${size(named)}")
+    let arr = [10, 20, 30]
+    let arr_sum = reduce(arr, 0, (a, b) -> a + b)
+    let arr_mapped = map(arr, n -> n + 1)
+    println("array: ${arr_sum} ${size(arr_mapped)}")
+    let letters = filter("hello", c -> c == 'l')
+    println("chars: ${size(letters)}")
+    let lazy_sum = reduce(naturals(1), 0, (a, b) -> a + b)
+    let chained = filter(map(xs, n -> n * 3), n -> n > 6)
+    println("iter: ${lazy_sum} ${size(chained)}")
+    let names = list("ann", "bob", "carol")
+    let lens = map(names, n -> size(n))
+    let long = filter(names, n -> size(n) > 3)
+    println("names: ${size(lens)} ${size(long)}")
+    let bag = Bag {items: list(5, 6)}
+    println("bag: ${reduce(bag, 0, (a, b) -> a + b)}")
+}
+"#;
+
+const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
+                               iter: 10 2\nnames: 3 1\nbag: 11\n";
+
+/// [rs-seq] The `List` fast paths go through the generated helpers, whose
+/// generic parameters are what give a callback its expected type — the whole
+/// reason they are functions rather than inline expressions.
+/// [implicit-intrinsic] The generic overload's implicit `iter` arrives as an
+/// adapter closure whose body is the *intrinsic's own lowering*: emitting
+/// `iter(__i0)` would name the generated `iter` **module** (E0423).
+#[test]
+fn sequence_functions_lower_to_helpers() {
+    let files = generate(&[("main.sv", SEQ_DEMO)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    assert!(
+        main.contains("salvo_map(&xs[..], |n| *n * 2)")
+            && main.contains("salvo_reduce(&xs[..], 0,")
+            && main.contains("salvo_filter(&xs[..],"),
+        "unexpected:\n{main}"
+    );
+    // A named fn as the callback wraps in an adapter: a fn item's own
+    // convention is by value, and the helper hands it `&T` [fn-contract].
+    assert!(main.contains("let mut named = salvo_map(&xs[..], |"), "unexpected:\n{main}");
+    // [implicit-intrinsic] The array subject's `iter` is the intrinsic
+    // lowering, not a call to a function named `iter`.
+    assert!(
+        main.contains("SalvoIter::from_vec(__i0.clone())"),
+        "unexpected:\n{main}"
+    );
+    // The support file is there, and only because something needed it.
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
+        "seq.rs should be emitted"
+    );
+    let plain = generate(&[("main.sv", "fn main() {\n}\n")]);
+    assert!(
+        !plain.iter().any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
+        "the sequence helpers must not be emitted for a program that never uses them"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_sequences() {
+    let files = generate(&[("main.sv", SEQ_DEMO)]);
+    run_rust_files(&files, "sequences", SEQ_DEMO_OUTPUT);
+}

@@ -51,7 +51,7 @@ fn std_parses_without_errors() {
             }
         }
     }
-    assert!(count >= 7, "expected at least 7 std files, found {count}");
+    assert!(count >= 9, "expected at least 9 std files, found {count}");
 }
 
 // --- Std snapshots ---
@@ -79,6 +79,19 @@ fn snapshot_std_list() {
 #[test]
 fn snapshot_std_console() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("console.sv")));
+}
+
+/// [implicit-group] The `params` group and the sequence functions that spread
+/// it: the one place std declares a group, and the one place a fn signature
+/// carries `?Group<...>`.
+#[test]
+fn snapshot_std_iterable() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("iterable.sv")));
+}
+
+#[test]
+fn snapshot_std_seq() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("seq.sv")));
 }
 
 // --- LANGUAGE.md example corpus ---

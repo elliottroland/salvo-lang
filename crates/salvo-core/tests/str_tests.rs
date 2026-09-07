@@ -1,0 +1,234 @@
+//! [str-drop-mut] [type-canbe-mut] `Str canbe Mut`, and the coercion that
+//! makes a `Mut Str` usable as a `Str`.
+//!
+//! `Mut` is the one qualifier a backend may render as a *different type*
+//! (Kotlin's `Mut Str` is a `StringBuilder`, which is not a `String`), so
+//! dropping it is a real conversion rather than the free widening every
+//! other qualifier gets [qual-erasure]. The checker therefore *records* the
+//! drop instead of leaving the emitters to guess — the standing
+//! checker/emitter agreement invariant — and it has to record it at every
+//! site where a value flows into a plain-`Str` position.
+
+use std::path::Path;
+
+use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, SourceSet, Symbols};
+
+/// [intrinsic-std-only] The declarations these sources rely on, loaded as a
+/// *std* file (only std may write `intrinsic`). Module `core.prelude`:
+/// `core.*` is implicitly imported, so the test source sees these names.
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mutable_str(...parts: Str[]) [] -> [parts] Mut Str\nintrinsic fn size(str: Str) [] -> [str] Int\nintrinsic fn append(str: Mut Str, text: Str) [] -> [str: Mut, text] None\n";
+
+fn checked(src: &str) -> (Program, salvo_core::Checked) {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let out = check_program(&program, &resolution, &symbols);
+    (program, out)
+}
+
+fn errors(src: &str) -> Vec<FileDiagnostic> {
+    checked(src).1.errors
+}
+
+fn messages(src: &str) -> Vec<String> {
+    errors(src).iter().map(|d| d.message.clone()).collect()
+}
+
+/// How many `Mut` drops the checker recorded in the user file, and what they
+/// were dropped *from*.
+fn drops(src: &str) -> Vec<String> {
+    let (_, out) = checked(src);
+    assert!(out.errors.is_empty(), "unexpected errors: {:?}", out.errors);
+    let mut found: Vec<String> = out
+        .coerce
+        .values()
+        .filter_map(|c| match c {
+            Coercion::DropMut { from, .. } => Some(from.to_string()),
+            _ => None,
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// The coercion a `DropMut` carries with it, if any — one expression has one
+/// coercion slot, and both changes have to happen.
+fn drop_continuations(src: &str) -> Vec<String> {
+    let (_, out) = checked(src);
+    assert!(out.errors.is_empty(), "unexpected errors: {:?}", out.errors);
+    out.coerce
+        .values()
+        .filter_map(|c| match c {
+            Coercion::DropMut { then, .. } => {
+                Some(then.as_ref().map(|t| format!("{t:?}")).unwrap_or_default())
+            }
+            _ => None,
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn body(stmts: &str) -> String {
+    format!("fn takes(text: Str) -> [text] Int {{\n    return size(text)\n}}\n\nfn probe() -> [] None {{\n{stmts}\n}}\n")
+}
+
+// ===== the type =====
+
+/// [type-canbe-mut] `Str canbe Mut`, so `Mut Str` is a type — where `Mut
+/// Int` still is not.
+#[test]
+fn str_opts_into_mut() {
+    assert!(messages(&body("    let b: Mut Str = mutable_str()")).is_empty());
+    let msgs = messages(&body("    let n: Mut Int = 1"));
+    assert!(
+        msgs.iter().any(|m| m.contains("`Mut` does not apply to `Int`")),
+        "{msgs:?}"
+    );
+}
+
+/// A `Str` literal is not a `Mut Str`: mutability is asked for, which is
+/// what makes `mutable_str` mirror `mutable_list`.
+#[test]
+fn a_literal_is_not_a_builder() {
+    let msgs = messages(&body("    let b: Mut Str = \"plain\""));
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(msgs[0].contains("Mut Str"), "{}", msgs[0]);
+}
+
+// ===== every drop site =====
+
+/// A call argument — including one that reaches an intrinsic lowering, where
+/// a missed conversion would hand `StringBuilder` to a `String` method.
+#[test]
+fn a_call_argument_drops_mut() {
+    assert_eq!(
+        drops(&body("    let b = mutable_str()\n    let n = takes(b)")),
+        vec!["Mut Str"]
+    );
+    assert_eq!(
+        drops(&body("    let b = mutable_str()\n    let n = size(b)")),
+        vec!["Mut Str"]
+    );
+}
+
+/// A `let` annotation, and a `return` — the two places a value leaves its
+/// expression for a declared type.
+#[test]
+fn annotations_and_returns_drop_mut() {
+    assert_eq!(
+        drops(&body("    let plain: Str = mutable_str()")),
+        vec!["Mut Str"]
+    );
+    let src = "fn made() -> [] Str {\n    return mutable_str()\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+}
+
+/// A struct field.
+#[test]
+fn a_struct_field_drops_mut() {
+    let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> [] None {\n    \
+               let l = Label {text: mutable_str()}\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+}
+
+/// A union arm: the value is wrapped as a *plain* `Str`, so the drop has to
+/// happen first — and the wrap has to happen too, which is why a `DropMut`
+/// carries a continuation.
+#[test]
+fn a_union_arm_drops_mut_and_keeps_the_wrap() {
+    let src = "fn probe() -> [] None {\n    let u: Str | Int = mutable_str()\n}\n";
+    assert_eq!(drops(src), vec!["Mut Str"]);
+    let carried = drop_continuations(src);
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    assert!(
+        carried[0].contains("WrapUnion"),
+        "the union wrap must survive the drop: {}",
+        carried[0]
+    );
+}
+
+/// Interpolation reads a value's *text*.
+#[test]
+fn interpolation_drops_mut() {
+    assert_eq!(
+        drops(&body("    let b = mutable_str()\n    let s = \"${b}\"")),
+        vec!["Mut Str"]
+    );
+}
+
+/// Operators: equality especially, since a builder compares by identity
+/// where a string compares by content — a live divergence between the two
+/// targets if the drop were skipped.
+#[test]
+fn operators_drop_mut() {
+    let src = body(
+        "    let x = mutable_str()\n    let y = mutable_str()\n    let same = x == y",
+    );
+    assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
+    let src = body("    let x = mutable_str()\n    let joined = x + x");
+    assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
+}
+
+// ===== where nothing is dropped =====
+
+/// A `Mut Str` parameter keeps it: the position asked for a builder.
+#[test]
+fn a_mut_position_keeps_mut() {
+    let src = body("    let b = mutable_str()\n    append(b, \"x\")");
+    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
+}
+
+/// An *optional* `Mut Str` keeps it too — a `Mut` arm anywhere in the
+/// expected type means the value may stay a builder.
+#[test]
+fn an_optional_mut_position_keeps_mut() {
+    let src = "fn probe() -> [] None {\n    let maybe: Mut Str? = mutable_str()\n}\n";
+    assert!(drops(src).is_empty(), "{:?}", drops(src));
+}
+
+/// A generic parameter keeps it: `T` binds to the argument's own type, so
+/// nothing was widened. (`copy(b)` is the case that matters — a copy of a
+/// builder is a builder.)
+#[test]
+fn a_generic_position_keeps_mut() {
+    let src = format!(
+        "fn keep<T>(value: T) [] -> [value] None {{}}\n\n{}",
+        body("    let b = mutable_str()\n    keep(b)")
+    );
+    assert!(drops(&src).is_empty(), "{:?}", drops(&src));
+}
+
+/// A plain `Str` never records a drop — the coercion exists for the one
+/// qualifier that is not erased.
+#[test]
+fn a_plain_str_records_nothing() {
+    assert!(drops(&body("    let n = takes(\"plain\")")).is_empty());
+}
