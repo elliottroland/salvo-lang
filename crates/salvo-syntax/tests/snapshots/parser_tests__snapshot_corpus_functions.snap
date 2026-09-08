@@ -8,6 +8,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "max",
                     span: 3..6,
@@ -209,6 +210,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "max",
                     span: 171..174,
@@ -413,6 +415,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "transform",
                     span: 345..354,
@@ -676,6 +679,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "to_string",
                     span: 533..542,
@@ -754,6 +758,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "do_something",
                     span: 588..600,
@@ -978,6 +983,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "range",
                     span: 759..764,
@@ -1125,6 +1131,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "rangeIncl",
                     span: 870..879,
@@ -1312,6 +1319,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "arrays",
                     span: 1034..1040,
@@ -1517,6 +1525,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "remove_first",
                     span: 1193..1205,
@@ -1666,6 +1675,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "consume",
                     span: 1286..1293,
@@ -1744,6 +1754,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "maybe_remove_first",
                     span: 1331..1349,
@@ -1937,6 +1948,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "generic_calls",
                     span: 1492..1505,
@@ -2128,6 +2140,7 @@ Module {
                     "performs; the function taking it inherits them.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "run_it",
                     span: 1783..1789,
@@ -2293,6 +2306,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "use_it",
                     span: 1879..1885,
@@ -2484,6 +2498,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "add",
                             span: 2137..2140,
@@ -2556,6 +2571,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "zero",
                             span: 2165..2169,
@@ -2597,6 +2613,7 @@ Module {
                     "their own names at the call.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "total",
                     span: 2442..2447,
@@ -2796,6 +2813,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "ordered",
                     span: 2579..2586,
@@ -2963,6 +2981,7 @@ Module {
                     "still resolve.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "totals",
                     span: 2760..2766,

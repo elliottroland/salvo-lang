@@ -225,6 +225,7 @@ Module {
                     "types, a real copy for Mut-capable ones; Rust: `.clone()`).",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "copy",
                     span: 666..670,
@@ -302,6 +303,7 @@ Module {
                     "and ignore; Rust: `drop`).",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "discard",
                     span: 963..970,

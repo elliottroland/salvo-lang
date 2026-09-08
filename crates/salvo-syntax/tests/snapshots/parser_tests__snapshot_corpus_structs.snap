@@ -166,6 +166,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "build",
                     span: 137..142,
@@ -674,6 +675,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "mutate",
                     span: 601..607,
@@ -755,6 +757,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "interpolate",
                     span: 669..680,

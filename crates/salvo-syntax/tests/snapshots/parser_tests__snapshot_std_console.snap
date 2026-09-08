@@ -19,6 +19,7 @@ Module {
                             "Prints to the console without emitting a newline",
                         ],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "print",
                             span: 80..85,
@@ -113,6 +114,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "println",
                     span: 168..175,

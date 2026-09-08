@@ -1249,6 +1249,48 @@ Leave the clause off `Zip` and the `for` reports it:
 ``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
 `: Yield<(A, B)>` on it to make it a pass) ```.
 
+**Or let the compiler write the state for you.** Writing `next` by hand means
+writing the position out as fields. A `yield fn` says the same thing as a
+body, and the state machine stays the compiler's:
+
+```
+struct Counter : Yield<Int> {
+    start: Int
+}
+
+// `yield` says this is doing more work. The subject is the *origin* — the
+// starting data — and the return type is what it yields.
+yield fn next(c: Counter) [Console] -> Int {
+    println("counting down from ${c.start}")
+    defer { println("done counting") }
+    let num = copy(c.start)
+    while num >= 0 {
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+for n in counter(2) { ... }   // 2, 1, 0
+```
+
+Both forms discharge the same obligation, and a type declares one of them, not
+both — the sugar *generates* the struct a hand-written `next` would be. What
+differs is what you can hold:
+
+- **The origin is ordinary data.** `Counter` is yours: you construct it, read
+  its fields, pass it around. Driving it neither consumes nor mutates it —
+  every `for` builds a *fresh* machine from it, so looping twice over the same
+  origin runs from the beginning both times.
+- **The machine is nobody's.** It has no name, so no variable can hold one, no
+  field can store one, and `next` itself cannot be called (the error says to
+  iterate the origin instead). If you need to hold an iteration in progress —
+  to write `zip`, or to hand one to a function — that is what the raw form is
+  for: there, the state struct is yours too.
+- **Effects go where they always go.** `[Console]` on the `yield fn` means
+  driving performs it, since nothing calls the function; the `for` is what
+  needs the handler. A `defer` inside runs when the loop ends *however* it
+  ends, including a `break` — the machine is closed on every path out.
+
 **Where two iterators meet, the compiler boxes.** Each iterator function
 gets its *own* state type. A position that must hold either of two
 different producers therefore has nothing concrete to be, and the compiler

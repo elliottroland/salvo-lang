@@ -4317,6 +4317,92 @@ fn rustc_compiles_and_runs_a_generator_with_defers() {
     run_rust_files(&files, "generator-defers", GENERATOR_DEFER_OUTPUT);
 }
 
+/// [yield-fn-origin] The origin-struct sugar, end to end. One program and one
+/// expected stdout shared with the Kotlin backend — the parity claim.
+///
+/// It is the R0 prototype's awkward shape: the producer performs `Console`
+/// *while* the consumer drives it (so the interleaving is observable), holds a
+/// `defer` that itself prints (so the release path is observable), and the
+/// first loop **abandons** it after two elements — then a second `for` over
+/// the *same origin* replays from the beginning, which is the point of the
+/// origin model: driving mints a fresh machine and consumes nothing.
+pub const YIELD_ORIGIN_DEMO: &str = r#"
+struct Counter : Yield<Int> {
+    start: Int
+}
+
+yield fn next(c: Counter) [Console] -> Int {
+    println("open")
+    defer { println("close") }
+    let num = copy(c.start)
+    while num >= 0 {
+        println("make ${num}")
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+fn counter(start: Int) -> Counter {
+    return Counter { start: start }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let c = counter(2)
+    let seen = 0
+    for n in c {
+        println("got ${n}")
+        seen = seen + 1
+        if seen == 2 {
+            break
+        }
+    }
+    for n in c {
+        println("again ${n}")
+    }
+    println("done")
+}
+"#;
+
+pub const YIELD_ORIGIN_OUTPUT: &str = "open\nmake 2\ngot 2\nmake 1\ngot 1\nclose\n\
+                                       open\nmake 2\nagain 2\nmake 1\nagain 1\nmake 0\n\
+                                       again 0\nclose\ndone\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_yield_origin() {
+    let files = generate(&[("main.sv", YIELD_ORIGIN_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    // The machine is named after the **origin**, because every `yield fn` is
+    // called `next` — and it is `pub`, since the drive site names it directly.
+    assert!(
+        src.contains("pub struct __Pass_Counter {"),
+        "expected the origin machine in:\n{src}"
+    );
+    // What the origin form does *not* emit: no factory, no `SalvoIter`, no
+    // boxing, and no callable `next`.
+    assert!(
+        !src.contains("SalvoIter") && !src.contains("from_factory"),
+        "the factory should be gone from:\n{src}"
+    );
+    assert!(
+        !src.contains("pub fn next("),
+        "a `yield fn` must not be emitted as a function in:\n{src}"
+    );
+    // The drive site constructs the machine and closes it after the loop; the
+    // origin is *cloned*, which is what lets the second loop replay.
+    assert!(
+        src.contains("__Pass_Counter::new(c.clone());")
+            && src.contains(".__advance(&mut console)")
+            && src.contains(".__close(&mut console);"),
+        "expected construct/advance/close in:\n{src}"
+    );
+    run_rust_files(&files, "yield-origin", YIELD_ORIGIN_OUTPUT);
+}
+
 /// Under rustc: an unbounded producer that terminates, and a second pass
 /// that starts over. Before the change the first `for` never finished
 /// building its `Vec`.

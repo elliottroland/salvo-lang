@@ -48,6 +48,7 @@ Module {
                     "mirroring [mutable_list].",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "mutable_str",
                     span: 980..991,
@@ -129,6 +130,7 @@ Module {
                     "Returns the number of characters in the string",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "size",
                     span: 1095..1099,
@@ -199,6 +201,7 @@ Module {
                     "of the string.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "char_at",
                     span: 1238..1245,
@@ -300,6 +303,7 @@ Module {
                     "function over `Iter<T>` work on strings.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "iter",
                     span: 1427..1431,
@@ -382,6 +386,7 @@ Module {
                     "(empty) part; a [sep] that never occurs yields [str] whole.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "split",
                     span: 1618..1623,
@@ -492,6 +497,7 @@ Module {
                     "does not occur. No `-1` sentinel: absence is `None` [type-nullable].",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "index_of",
                     span: 1834..1842,
@@ -592,6 +598,7 @@ Module {
                     "Whether [needle] occurs anywhere in [str]",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "contains",
                     span: 1950..1958,
@@ -689,6 +696,7 @@ Module {
                     "Whether [str] begins with [prefix]",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "starts_with",
                     span: 2059..2070,
@@ -786,6 +794,7 @@ Module {
                     "Whether [str] ends with [suffix]",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "ends_with",
                     span: 2169..2178,
@@ -883,6 +892,7 @@ Module {
                     "[str] without leading and trailing whitespace",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "trim",
                     span: 2290..2294,
@@ -953,6 +963,7 @@ Module {
                     "one, so the caller needs no `starts_with` test first.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "trim_prefix",
                     span: 2470..2481,
@@ -1051,6 +1062,7 @@ Module {
                     "one.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "trim_suffix",
                     span: 2628..2639,
@@ -1149,6 +1161,7 @@ Module {
                     "`None` when that range does not lie within the string.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "substr",
                     span: 2836..2842,
@@ -1277,6 +1290,7 @@ Module {
                     "[str] with every character in upper case",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "to_upper",
                     span: 2962..2970,
@@ -1346,6 +1360,7 @@ Module {
                     "[str] with every character in lower case",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "to_lower",
                     span: 3055..3063,
@@ -1415,6 +1430,7 @@ Module {
                     "[parts] concatenated with [sep] between them",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "join",
                     span: 3152..3156,
@@ -1524,6 +1540,7 @@ Module {
                     "The integer [str] spells, or `None` when it does not spell one",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "parse_int",
                     span: 3288..3297,
@@ -1597,6 +1614,7 @@ Module {
                     "surviving qualifiers are listed exhaustively [deduce-syntax].",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "append",
                     span: 3472..3478,
@@ -1716,6 +1734,7 @@ Module {
                     "`set` an `append`.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "set",
                     span: 3715..3718,
@@ -1861,6 +1880,7 @@ Module {
                     "Removes every character from [str]",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "clear",
                     span: 3842..3847,

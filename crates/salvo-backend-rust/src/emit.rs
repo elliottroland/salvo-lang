@@ -1370,6 +1370,64 @@ impl<'p> Emitter<'p> {
         )
     }
 
+    /// [yield-fn-origin] The loop header for a `for` over an **origin**, and
+    /// the `close` that ends it:
+    ///
+    /// ```text
+    /// let mut __loop0_pass = __Pass_Counter::new(c.clone());
+    /// while let Some(n) = __loop0_pass.__advance(console) {
+    /// ```
+    ///
+    /// The machine is constructed here — that is what "getting a fresh pass is
+    /// constructing one" means once the state struct is hidden — so the origin
+    /// is *cloned* from a place and a second `for` over it starts over. No
+    /// factory, no boxing, and no trait: the drive site knows the concrete
+    /// machine type.
+    ///
+    /// Handlers come from the `yield fn`'s own effect list, in the checker's
+    /// order — the same list the machine's `__advance` declares, so the two
+    /// cannot disagree.
+    fn emit_origin_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> (String, String) {
+        let pad = "    ".repeat(indent);
+        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+            self.error("the `yield fn` this `for` resolved to is not available");
+            return (String::new(), String::new());
+        };
+        let machine = self.origin_machine_name(decl);
+        let effects: Vec<Ty> = self
+            .checked
+            .fn_effects
+            .get(&driver.next_fn)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| !is_throw_effect_ty(t))
+            .collect();
+        let args: Vec<String> = effects
+            .iter()
+            .map(|ty| self.thread_effect_by_ty(ty))
+            .collect();
+        let args = args.join(", ");
+        let place = format!("{}_pass", self.fresh_loop_var());
+        let origin = self.emit_origin_value(iterable);
+        let var = self.for_pattern_var(pattern, false);
+        let close = format!("{place}.__close({args});");
+        self.defers.push(close.clone());
+        (
+            format!(
+                "{pad}let mut {place} = {machine}::new({origin});\n\
+                 {pad}while let Some({var}) = {place}.__advance({args}) {{\n"
+            ),
+            close,
+        )
+    }
+
     /// [iter-effects] [iter-generator] [rs-pass-effects] The loop header for a
     /// `for` over a **producer**, and the `close` that ends it:
     ///
@@ -1489,6 +1547,13 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
+                // [yield-fn-origin] A `yield fn` is not a function in the
+                // output: it *is* the hidden state machine, which the `for`
+                // sugar constructs. Nothing may call it, so nothing is
+                // emitted for it beyond the machine itself.
+                Item::Fn(f) if f.is_yield && f.body.is_some() => {
+                    self.emit_origin_machine(f);
+                }
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
@@ -2240,7 +2305,73 @@ impl<'p> Emitter<'p> {
     /// lets `next` take the effect handlers as parameters later (roadmap I4).
     /// The representation split (`Once Iter<T>` *being* this struct) is
     /// roadmap I2c's second half.
-    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> String {
+    /// [yield-fn-origin] [rs-generator] The hidden state machine a `yield fn`
+    /// stands for. Named after the **origin** type rather than the function,
+    /// because every `yield fn` is called `next`: `__Pass_Counter`.
+    ///
+    /// The difference from the `Iter<T>` form is what is *absent*: no factory,
+    /// no `SalvoIter`, no `Box<dyn SalvoPass<T>>`, no trait impl. The machine
+    /// is a plain struct the drive site names directly, so an element costs an
+    /// inlined call and no allocation. It is `pub` because the `for` that
+    /// drives it may be in another module — the same module the origin type
+    /// came from, so the glob import is already there.
+    fn emit_origin_machine(&mut self, f: &FnDecl) {
+        let elem = match f.return_type.as_ref() {
+            Some(t) => self.emit_type(t),
+            None => "()".to_string(),
+        };
+        let machine = self.origin_machine_name(f);
+        let item = self.emit_generator_machine(f, &elem, &machine, true);
+        self.generated_items.push(item);
+    }
+
+    /// The machine type name for a `yield fn`, from its origin parameter.
+    fn origin_machine_name(&mut self, f: &FnDecl) -> String {
+        let origin = f
+            .params
+            .first()
+            .map(|p| {
+                let rendered = self.emit_type(&p.ty);
+                rendered
+                    .split(['<', ':'])
+                    .next()
+                    .unwrap_or("Origin")
+                    .trim()
+                    .trim_start_matches('&')
+                    .trim_start_matches("mut ")
+                    .trim()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "Origin".to_string());
+        format!("__Pass_{origin}")
+    }
+
+    /// The origin value handed to a machine's constructor. A *place* is
+    /// cloned: driving does not consume the origin, so a second `for` over
+    /// the same value mints a fresh machine from it [yield-fn-origin]. A
+    /// temporary is moved, since nothing else can be looking at it.
+    fn emit_origin_value(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
+                let place = self.emit_place(expr);
+                format!("{place}.clone()")
+            }
+            other => self.emit_owned(other),
+        }
+    }
+
+    /// [rs-generator] The machine a `yield` body becomes: the plan, rendered.
+    /// Shared by both forms — the `Iter<T>` factory form and the
+    /// [yield-fn-origin] origin form — because the *machine* is identical;
+    /// what differs is what wraps it (`is_origin`: nothing at all).
+    fn emit_generator_machine(
+        &mut self,
+        f: &FnDecl,
+        elem: &str,
+        pass: &str,
+        is_origin: bool,
+    ) -> String {
+        let indent = 0usize;
         let pad = "    ".repeat(indent);
         // [implicit-param] The implicits are fields of the pass like any other
         // parameter: the body calls them on every turn, long after the call
@@ -2263,11 +2394,25 @@ impl<'p> Emitter<'p> {
         // read of the written type: the handler *order* has to be the same in
         // the generated trait, in this machine and at every drive site, so it
         // is derived once, by the checker.
-        let claimed: Vec<Ty> = self
-            .key_of_fn(f)
-            .and_then(|k| self.checked.producer_effects.get(&k))
-            .cloned()
-            .unwrap_or_default();
+        // [yield-fn-origin] The origin form declares its effects on the fn,
+        // normally: nothing calls it, so there is no call site to burden, and
+        // `fn_effects` is the same list an ordinary fn's leading handler
+        // parameters come from. The `Iter<T>` form keeps the claim-on-the-type
+        // table [iter-effects].
+        let claimed: Vec<Ty> = if is_origin {
+            self.key_of_fn(f)
+                .and_then(|k| self.checked.fn_effects.get(&k))
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|t| !is_throw_effect_ty(t))
+                .collect()
+        } else {
+            self.key_of_fn(f)
+                .and_then(|k| self.checked.producer_effects.get(&k))
+                .cloned()
+                .unwrap_or_default()
+        };
         let claim_names = self.claim_names(&claimed);
         // `(handler_params, handler_args)`: the leading parameters of
         // `advance`/`close`/`__run_dN`, and the arguments forwarding them on.
@@ -2294,7 +2439,7 @@ impl<'p> Emitter<'p> {
             }
         };
         let handler_sig = lead(&handler_params);
-        let pass = format!("__Pass_{}", self.rust_fn_name(f));
+        let pass = pass.to_string();
         let generics: Vec<String> = f
             .generics
             .iter()
@@ -2496,7 +2641,11 @@ impl<'p> Emitter<'p> {
             .map(|i| format!("            __d{i}: false,\n"))
             .collect();
 
-        let mut item = format!("\nstruct {pass}{generic_decl} {{\n");
+        // The origin machine is named by the drive site, which may be in
+        // another module, so it is `pub`; the factory form is reached only
+        // through its own fn and stays private.
+        let vis = if is_origin { "pub " } else { "" };
+        let mut item = format!("\n{vis}struct {pass}{generic_decl} {{\n");
         for d in &decls {
             item.push_str(d);
         }
@@ -2506,7 +2655,7 @@ impl<'p> Emitter<'p> {
         item.push_str("}\n");
         item.push_str(&format!("\nimpl{generic_decl} {pass}{generic_args} {{\n"));
         item.push_str(&format!(
-            "    fn new({}) -> Self {{\n        Self {{\n",
+            "    {vis}fn new({}) -> Self {{\n        Self {{\n",
             ctor.join(", ")
         ));
         for i in &inits {
@@ -2517,16 +2666,20 @@ impl<'p> Emitter<'p> {
         item.push_str(&flag_inits);
         item.push_str("        }\n    }\n");
         item.push_str(&format!(
-            "\n    fn __advance(&mut self{handler_sig}) -> Option<{elem}> {{\n        loop {{\n            \
+            "\n    {vis}fn __advance(&mut self{handler_sig}) -> Option<{elem}> {{\n        loop {{\n            \
              match self.__state {{\n{machine}                _ => return None,\n            \
              }}\n        }}\n    }}\n"
         ));
         item.push_str(&format!(
-            "\n    fn __close(&mut self{handler_sig}) {{\n{close}        self.__state = {fin};\n    }}\n"
+            "\n    {vis}fn __close(&mut self{handler_sig}) {{\n{close}        self.__state = {fin};\n    }}\n"
         ));
         item.push_str(&runners);
         item.push_str("}\n");
-        if claim_names.is_empty() {
+        // [yield-fn-origin] The origin machine implements nothing: the
+        // drive site knows its concrete type, so there is no trait to go
+        // through and no boxing.
+        if is_origin {
+        } else if claim_names.is_empty() {
             // [iter-generator] A pass, not a `std::iter::Iterator`: an
             // iterator has nowhere to put `close`, and a producer's deferred
             // blocks have to run on the path the consumer abandoned.
@@ -2549,7 +2702,23 @@ impl<'p> Emitter<'p> {
                  self.__close({args})\n    }}\n}}\n"
             ));
         }
+        item
+    }
+
+    /// [rs-iter-lazy] [fn-iterator] The `Iter<T>`-returning form: the
+    /// machine plus the factory that mints one per `for`.
+    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> String {
+        let pass = format!("__Pass_{}", self.rust_fn_name(f));
+        let item = self.emit_generator_machine(f, elem, &pass, false);
         self.generated_items.push(item);
+        let pad = "    ".repeat(indent);
+        let implicits = self.implicits_of(f);
+        let claimed: Vec<Ty> = self
+            .key_of_fn(f)
+            .and_then(|k| self.checked.producer_effects.get(&k))
+            .cloned()
+            .unwrap_or_default();
+        let claim_names = self.claim_names(&claimed);
 
         // The fn itself: a factory. Every parameter is captured once and
         // cloned per pass, so each pass starts from the beginning.
@@ -4936,10 +5105,18 @@ impl<'p> Emitter<'p> {
                 let is_producer = self
                     .ty_of(iterable.span())
                     .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
-                let producer = if is_producer {
-                    Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
-                } else {
-                    None
+                // [yield-fn-origin] An origin comes first: its machine is
+                // constructed here rather than minted from a factory, and it
+                // closes like a producer does.
+                let origin_driver = self.pass_driver_of(iterable).filter(|d| d.origin);
+                let producer = match origin_driver {
+                    Some(driver) => {
+                        Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
+                    }
+                    None if is_producer => {
+                        Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
+                    }
+                    None => None,
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
@@ -4948,9 +5125,11 @@ impl<'p> Emitter<'p> {
                 let pass = if producer.is_some() {
                     None
                 } else {
-                    self.pass_driver_of(iterable).map(|driver| {
-                        self.emit_pass_loop_header(driver, pattern, iterable, indent)
-                    })
+                    self.pass_driver_of(iterable)
+                        .filter(|d| !d.origin)
+                        .map(|driver| {
+                            self.emit_pass_loop_header(driver, pattern, iterable, indent)
+                        })
                 };
                 // [rs-borrow-locals] S3: a borrow-mode loop (not made
                 // by-value by a move-mode event [fate-move-mode])
@@ -6637,6 +6816,17 @@ impl<'p> Emitter<'p> {
             // arm. Value-position loops otherwise keep owned iteration (no
             // borrow refinement yet [rs-borrow-locals]).
             if let Some(driver) = self.pass_driver_of(cond_or_iter) {
+                // [yield-fn-origin] [backend-never-wrong] An origin's machine
+                // has to be closed after the loop, which a value-position
+                // loop has nowhere to put — the same cut a claiming producer
+                // takes just above.
+                if driver.origin {
+                    self.error(
+                        "a `for` over an origin in value position is not supported yet: \
+                         its state machine has to be closed after the loop, so write \
+                         the loop as a statement",
+                    );
+                }
                 let header =
                     self.emit_pass_loop_header(driver, pattern.unwrap(), cond_or_iter, 0);
                 out.push_str(&header);

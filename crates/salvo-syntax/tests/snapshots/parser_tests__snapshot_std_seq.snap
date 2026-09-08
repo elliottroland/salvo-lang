@@ -10,6 +10,7 @@ Module {
                     "Applies [f] to every element of [xs], in order.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "map",
                     span: 1088..1091,
@@ -321,6 +322,7 @@ Module {
                     "The elements of [xs] that [keep] accepts, in order.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "filter",
                     span: 1330..1336,
@@ -650,6 +652,7 @@ Module {
                     "[f] — the accumulator first, the element second.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "reduce",
                     span: 1687..1693,
@@ -949,6 +952,7 @@ Module {
                     "backend lowers these to its own collection operation.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "map",
                     span: 2009..2012,
@@ -1107,6 +1111,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "filter",
                     span: 2088..2094,
@@ -1261,6 +1266,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "reduce",
                     span: 2176..2182,
@@ -1433,6 +1439,7 @@ Module {
                     "pulls. Chain freely — the result is iterable like anything else.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "map_lazy",
                     span: 2832..2840,
@@ -1670,6 +1677,7 @@ Module {
                     "The elements of [xs] that [keep] accepts, lazily.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "filter_lazy",
                     span: 3019..3030,
@@ -1930,6 +1938,7 @@ Module {
                     "move `?Iterable` makes for the subject [implicit-group].",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "map_to",
                     span: 3690..3696,
@@ -2320,6 +2329,7 @@ Module {
                     "The same, keeping the elements [keep] accepts rather than mapping them.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "filter_to",
                     span: 4004..4013,

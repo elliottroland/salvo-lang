@@ -372,6 +372,22 @@ impl<'s> Parser<'s> {
                 }
                 Some(Item::Type(t))
             }
+            // [yield-fn-origin] `yield fn next(c: Counter) -> Int` — the
+            // origin-struct sugar. Only `fn` may follow `yield` at item
+            // level.
+            TokenKind::KwYield => {
+                self.bump();
+                if !self.at(&TokenKind::KwFn) {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(
+                        format!("expected `fn` after `yield`, found {found}"),
+                        span,
+                    );
+                    return None;
+                }
+                self.parse_fn_flavored(false, true).map(Item::Fn)
+            }
             TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
             TokenKind::KwQualifier => self
                 .parse_qualifier(false, QualSubject::State)
@@ -1032,6 +1048,12 @@ impl<'s> Parser<'s> {
     // --- Functions ---
 
     fn parse_fn(&mut self, intrinsic: bool) -> Option<FnDecl> {
+        self.parse_fn_flavored(intrinsic, false)
+    }
+
+    /// [yield-fn-origin] `yield fn` is the origin-struct sugar; the flag is
+    /// carried on the declaration rather than inferred from the body.
+    fn parse_fn_flavored(&mut self, intrinsic: bool, is_yield: bool) -> Option<FnDecl> {
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
@@ -1083,6 +1105,7 @@ impl<'s> Parser<'s> {
         Some(FnDecl {
             docs,
             intrinsic,
+            is_yield,
             name,
             generics,
             generic_canbe,

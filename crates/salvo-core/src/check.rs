@@ -100,10 +100,19 @@ pub struct PassDriver {
     pub next_fn: FnKey,
     /// Index of the `Emitted` arm among the result's non-`None` arms
     /// [union-arm-identity] — positional over the *declared* type, so
-    /// `Finished | Emitted T` is as valid as the usual order.
+    /// `Finished | Emitted T` is as valid as the usual order. Unused when
+    /// `origin` is set: a hidden machine reports absence directly.
     pub emitted_arm: usize,
-    /// Number of non-`None` arms, i.e. the union wrapper size.
+    /// Number of non-`None` arms, i.e. the union wrapper size. Unused when
+    /// `origin` is set.
     pub arms: usize,
+    /// [yield-fn-origin] The resolved `next` is a **`yield fn`**: the subject
+    /// is an *origin* struct, so the loop constructs the hidden state machine
+    /// from it and drives that. `next_fn` is the `yield fn`'s key — what the
+    /// emitters name the machine after and read the handler order from — and
+    /// the subject is *not* consumed, since a fresh machine is minted per
+    /// loop.
+    pub origin: bool,
 }
 
 /// A representation change the emitter must apply to an expression.
@@ -1353,6 +1362,119 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [yield-fn-origin] A `yield fn`'s own shape. It is the sugared member
+    /// of a `: Yield<T>` obligation, so it is not free-standing: the subject
+    /// names the *origin* struct whose declaration carries the clause, and
+    /// the return type is the element type. Everything about it is checked
+    /// here, at the declaration.
+    fn check_yield_fn_decl(&mut self, f: &'p FnDecl) {
+        // The member's name, because that is what the obligation names and
+        // what `for` reads. A free-standing `yield fn` would reintroduce an
+        // anonymous generator type, which is what the origin-struct model
+        // removes.
+        if f.name.name != "next" {
+            self.error(
+                f.name.span,
+                format!(
+                    "a `yield fn` must be called `next`: it is the sugared member of \
+                     a `: Yield<T>` obligation, and `{}` answers to nothing",
+                    f.name.name
+                ),
+            );
+            return;
+        }
+        if f.params.len() != 1 {
+            self.error(
+                f.name.span,
+                format!(
+                    "a `yield fn` takes exactly one parameter — the origin struct it \
+                     iterates (found {})",
+                    f.params.len()
+                ),
+            );
+            return;
+        }
+        let origin = &f.params[0];
+        let origin_ty = self.lower_type(&origin.ty);
+        // Driving does not consume the origin and does not mutate it: the
+        // machine is initialized *from* it, per loop. So a `Mut` one would
+        // promise something the sugar never does.
+        if origin_ty.quals().iter().any(|q| q.name == "Mut") {
+            self.error(
+                origin.span,
+                format!(
+                    "a `yield fn`'s origin is read, not advanced: drop the `Mut` from \
+                     `{}` — the hidden state machine holds the position, and each \
+                     `for` mints a fresh one",
+                    origin.name.name
+                ),
+            );
+        }
+        let bare = origin_ty.strip_quals().clone();
+        if bare.is_unknown() || matches!(bare, Ty::Var(_)) {
+            return;
+        }
+        let Some((_, ob)) = self.yield_obligation(&bare) else {
+            self.error(
+                origin.span,
+                format!(
+                    "`{bare}` is not a pass: a `yield fn next` is how a type declaring \
+                     `: Yield<T>` satisfies it, so declare the clause on `{bare}`"
+                ),
+            );
+            return;
+        };
+        // The element type is the return type, plainly — no `Emitted`, no
+        // `Finished`, no machine — and it has to be what the clause says.
+        let declared = {
+            let saved = self.enter_generics(&f.generics);
+            let t = ob.args.first().map(|a| self.lower_type(a));
+            self.generics = saved;
+            t
+        };
+        let ret = match &f.return_type {
+            Some(t) => self.lower_type(t),
+            None => Ty::none(),
+        };
+        if let Some(declared) = declared {
+            let mut fwd = HashMap::new();
+            let mut rev = HashMap::new();
+            if !tys_match_renamed(&declared, &ret, &mut fwd, &mut rev)
+                && !ret.is_unknown()
+                && !declared.is_unknown()
+            {
+                self.error(
+                    f.return_type
+                        .as_ref()
+                        .map(|t| t.span())
+                        .unwrap_or(f.name.span),
+                    format!(
+                        "`{bare}` declares `: Yield<{declared}>`, so its `yield fn next` \
+                         has to return `{declared}` (found `{ret}`)"
+                    ),
+                );
+            }
+        }
+        match &f.body {
+            Some(body) => {
+                if !block_contains_yield(body) {
+                    self.error(
+                        f.name.span,
+                        "a `yield fn` has to `yield`: without one it produces no \
+                         elements, and a plain `fn` is what it means"
+                            .to_string(),
+                    );
+                }
+            }
+            None => self.error(
+                f.name.span,
+                "a `yield fn` needs a body: it is the sugar that generates the state \
+                 machine"
+                    .to_string(),
+            ),
+        }
+    }
+
     /// [group-obligation] `struct X<G> : Group<Args> …` — every obligation
     /// names a visible `params` group with the right arity, and every
     /// member of that group must be satisfied by a visible fn overload with
@@ -1442,6 +1564,44 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut bound: HashSet<String> =
                 group.generics.iter().map(|p| p.name.clone()).collect();
             bound.insert("Self".to_string());
+            // [yield-fn-origin] `Yield<T>` has a second, sugared way to be
+            // discharged: a `yield fn next(origin) -> T`, whose signature is
+            // deliberately *not* the member's — the machine it stands for is
+            // hidden. Checked here so the promise still fails at the struct.
+            if ob.name.name == "Yield" {
+                let self_named = Ty::Named {
+                    name: s.name.name.clone(),
+                    args: s
+                        .generics
+                        .iter()
+                        .map(|g| Ty::Var(g.name.clone()))
+                        .collect(),
+                };
+                if let Some((_, decl, _)) = self.yield_fn_for(&self_named) {
+                    // The element type is compared in `check_yield_fn_decl`,
+                    // at the `yield fn`'s return type — the site that can name
+                    // the remedy. Reporting it here too would be one mistake
+                    // twice.
+                    //
+                    // Both forms at once would give `for` two machines to
+                    // choose between; the sugar exists so the state struct
+                    // stays hidden, and a hand-written `next` *is* that
+                    // struct's.
+                    if self.find_next_driver(&self_named).is_some() {
+                        self.error(
+                            decl.name.span,
+                            format!(
+                                "`{}` has both a `yield fn next` and a plain `next`: \
+                                 the sugar generates the state machine a hand-written \
+                                 `next` would be, so one type may have only one of \
+                                 them",
+                                s.name.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
+            }
             for member in &group.fns {
                 let outer = self.enter_generics(&group.generics);
                 self.generics.insert("Self".to_string());
@@ -2998,7 +3158,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // something calling it never does: they belong on the **return
         // type**, in qualifier position (user decision 2026-09-07), where
         // they are the claim whoever drives the pass inherits.
-        if block_contains_yield(body) {
+        if f.is_yield {
+            self.check_yield_fn_decl(f);
+        }
+        // [fn-iterator] The `Iter<T>`-returning form, whose effects live on
+        // its return type. A `yield fn` [yield-fn-origin] declares them
+        // normally — nothing calls it, so there is no call site to burden —
+        // so it is exempt from this block.
+        if block_contains_yield(body) && !f.is_yield {
             for eff in f.effects.iter().flatten() {
                 match eff {
                     EffectRef::Effect(r) => self.error(
@@ -8280,8 +8447,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // derived from a value that is still alive. A plain
                 // `Iter<T>` is a factory: `for` mints a pass from it and
                 // leaves it usable, exactly as before.
-                let drives_pass = iter_ty.quals().iter().any(|q| q.name == "Once")
-                    || self.yield_obligation(iter_ty.strip_quals()).is_some();
+                // [yield-fn-origin] An *origin* is not a pass: each `for`
+                // mints a fresh hidden machine from it, so driving neither
+                // consumes nor mutates it and the binding stays an ordinary
+                // projection. Only a real pass — the value that *holds* the
+                // position — is moved into the loop.
+                let drives_origin = self
+                    .out
+                    .for_drivers
+                    .get(&self.key(iterable.span()))
+                    .is_some_and(|d| d.origin);
+                let drives_pass = !drives_origin
+                    && (iter_ty.quals().iter().any(|q| q.name == "Once")
+                        || self.yield_obligation(iter_ty.strip_quals()).is_some());
                 let links = if drives_pass {
                     self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
                     Vec::new()
@@ -8515,6 +8693,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some((decl, ob))
     }
 
+    /// [yield-fn-origin] The `yield fn next(origin) -> T` that discharges
+    /// this type's `: Yield<T>`, if the sugar is what satisfies it: the
+    /// overload, its declaration, and the element type it yields (with the
+    /// subject's type arguments substituted in).
+    ///
+    /// The subject is the **origin** — the starting data — and the state
+    /// machine the compiler builds from the body is hidden, so there is no
+    /// second type to name and nothing half-owned.
+    fn yield_fn_for(&mut self, stripped: &Ty) -> Option<(FnKey, &'p FnDecl, Ty)> {
+        if !matches!(stripped, Ty::Named { .. }) {
+            return None;
+        }
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("next")?.clone();
+        for entry in entries {
+            let decl = entry.decl;
+            if !decl.is_yield || decl.params.len() != 1 {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pt = self.lower_type(&decl.params[0].ty);
+            let ret = decl
+                .return_type
+                .as_ref()
+                .map(|t| self.lower_type(t))
+                .unwrap_or_else(Ty::none);
+            self.generics = saved;
+            let mut subst = HashMap::new();
+            if !unify(pt.strip_quals(), stripped, &mut subst) {
+                continue;
+            }
+            let callee_generics: HashSet<String> =
+                decl.generics.iter().map(|g| g.name.clone()).collect();
+            let ret = substitute_vars(&ret, &subst, &callee_generics);
+            return Some((entry.key, decl, ret));
+        }
+        None
+    }
+
     /// The `next` overload a subject drives, found by unifying the protocol
     /// shape against the subject's bare type: the overload, the element
     /// type, the arm identity, and the (unsubstituted) state parameter
@@ -8566,6 +8782,36 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// cascade [type-unknown-lenient].
     fn pass_elem_ty(&mut self, stripped: &Ty, span: Span) -> Option<Ty> {
         let (decl, ob) = self.yield_obligation(stripped)?;
+        // [yield-fn-origin] Satisfied by the sugar: the subject is an origin,
+        // and the loop drives the hidden machine minted from it. The `yield
+        // fn`'s declared effects are performed *while driving*, so they have
+        // to be in scope here — the same check a fn value's call makes, and
+        // recorded at this span so the emitters thread the handlers.
+        if let Some((key, yf, elem)) = self.yield_fn_for(stripped) {
+            let effects: Vec<Ty> = self
+                .out
+                .fn_effects
+                .get(&key)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|e| !matches!(e, Ty::Named { name, .. } if name == THROW_EFFECT))
+                .collect();
+            let _ = yf;
+            if !effects.is_empty() {
+                self.check_fn_value_effects(&effects, span);
+            }
+            self.out.for_drivers.insert(
+                self.key(span),
+                PassDriver {
+                    next_fn: key,
+                    emitted_arm: 0,
+                    arms: 0,
+                    origin: true,
+                },
+            );
+            return Some(elem);
+        }
         if let Some((key, elem, emitted_arm, arms, pt)) = self.find_next_driver(stripped) {
             // [iter-protocol] The state is taken as `Mut`: advancing a pass
             // mutates its position, and the backends pass a mutable place.
@@ -8588,6 +8834,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     next_fn: key,
                     emitted_arm,
                     arms,
+                    origin: false,
                 },
             );
             return Some(elem);
@@ -10914,6 +11161,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let best = &viable[best_idx];
+        // [yield-fn-origin] A `yield fn` is not callable: it names the machine
+        // a `for` mints, and none of its body runs at a call. Calling it would
+        // have to hand back the hidden state struct, which is exactly what the
+        // origin-struct model keeps unnameable.
+        if best.decl.is_yield {
+            let origin_ty = best.decl.params.first().map(|p| p.ty.clone());
+            let origin = match origin_ty {
+                Some(t) => self.lower_type(&t).strip_quals().to_string(),
+                None => "origin".to_string(),
+            };
+            self.error(
+                span,
+                format!(
+                    "`{name}` is a `yield fn`, so it cannot be called: iterate the \
+                     origin instead (`for x in <{origin} value>`), which mints the \
+                     state machine and drives it"
+                ),
+            );
+        }
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
             // The callee name resolves to this declaration [fn-ref-table].

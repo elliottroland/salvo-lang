@@ -124,10 +124,14 @@ machine hidden and unnameable); **R1**, obligation groups as a mechanism
 ([group-obligation] [group-self] [group-not-a-value]: `: Group<Args>` checked
 at the struct, `Self` bound to the declaring type, and *no value may have a
 group as its type* — the rule that keeps this a where-clause, not a trait);
-and **R2**, `Yield<T>` designated in std and `for` reading the declaration —
+**R2**, `Yield<T>` designated in std and `for` reading the declaration —
 the `Once`-on-passes requirement is gone, a matching `next` without the
 clause gets a remedy hint, and driving still consumes (drive-in-place waits
-for R5). Decisions taken along the way, all the user's: a `close` never
+for R5); and **R3**, the origin-struct sugar [yield-fn-origin] on both
+backends — `yield fn next(c: Counter) [Console] -> Int` discharges the
+obligation, the machine is hidden and uncallable, driving mints a fresh one
+per loop so an origin replays, and one program plus one stdout proves the
+parity. Decisions taken along the way, all the user's: a `close` never
 implies `Linear` (roadmap L8 records the composition casualty), `canbe
 Linear` keeps its spelling beside `: Linear`, the Rust fn-typed-field refusal
 lifts in R5 as `Rc<dyn Fn…>` fields. See "Roadmap: iterators — the reduction
@@ -3876,7 +3880,7 @@ preserves Kotlin's repeatable semantics exactly. It is back on the table
 under the next section, which supersedes this one's *implementation*
 (the semantics it chose — lazy, both backends — are kept).
 
-## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0–R2 done, R3 next)
+## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0–R3 done, R4 next)
 
 **Standing back from what was built.** After I4/I5 landed, the user asked for an
 evaluation of the whole iterator design rather than the next increment, and the
@@ -4304,6 +4308,65 @@ when the body has deferred work. The generated struct is not nameable;
 unchanged — this changes what the emitters *render around* it and what the
 checker accepts as a group member. `Iter<T>`-returning `yield` fns stop being
 legal here, so this is where the corpus and most tests move.
+
+#### R3 as built (2026-09-08): the origin-struct sugar, both backends
+
+Done, green. `yield fn next(c: Counter) [Console] -> Int` is the second way to
+discharge a `: Yield<Int>` obligation [yield-fn-origin], and the state machine
+is **hidden**: not nameable, not constructible, not callable.
+
+- **Syntax**: `FnDecl.is_yield`, a `yield fn` item form (`parse_fn_flavored`).
+  Declared, not inferred — which is what lets the compiler tell this form from
+  the `Iter<T>` one, and the reason the old form stays legal until R5.
+- **Checker**: `yield_fn_for` finds the sugar member; `check_obligations`
+  accepts it for `Yield` and refuses **both** forms on one type (the sugar
+  generates the struct a hand-written `next` would be);
+  `check_yield_fn_decl` validates the six declaration rules (named `next`, one
+  parameter, origin not `Mut`, origin carries the clause, return type is the
+  clause's `T`, body yields); `pass_elem_ty` records an *origin* `PassDriver`
+  and checks the drive-site effects through `check_fn_value_effects` — which
+  also records `call_effects` at the subject span, so the emitters thread the
+  same handlers; `Expr::For` skips the `fate_move` for an origin, so driving
+  consumes nothing and a second loop replays; and a **direct call** is refused,
+  naming the remedy.
+- **Emitters, both**: `emit_generator` split into a shared machine builder
+  plus the factory tail, so the origin form is the *same* machine with nothing
+  around it — no factory, no `SalvoIter`, no boxing, no trait. Named after the
+  **origin** type (`__Pass_Counter`), because every `yield fn` is `next`. Rust:
+  `pub struct` + `pub fn new/__advance/__close`, `for` constructing and
+  splicing `__close` (plus the deferred entry, so a `return` releases it), a
+  *place* subject **cloned**. Kotlin: a public class with no supertype and its
+  own `__current`, `try`/`finally` for the close, and the origin shared by
+  reference — the two agree because [iter-mut-param] refuses a transitively
+  mutable origin, so there is nothing a copy could hide. Value-position origin
+  loops are refused on both [backend-never-wrong], the same cut a claiming
+  producer already takes.
+- **Effects arrive by the ordinary route**: the `yield fn` declares them, and
+  they are performed while driving — so `fn_effects` (minus `Throw`) is the
+  handler list for the machine *and* the drive site, and [iter-effects]'
+  claim-on-the-type apparatus is not involved. That is R0's unknown 4 answered
+  by construction.
+- **What the origin model bought, beyond the ownership cleanup**: a generated
+  pass **cannot be abandoned**, because only the `for` sugar can hold one and
+  the sugar always closes. The accepted "hand-written `while` driver abandons a
+  `close`-bearing pass unchecked" cost now applies to *raw* passes only.
+- **Tests**: `salvo-core/tests/yield_origin_tests.rs` (11) plus one e2e per
+  backend over **one** source and **one** expected stdout — the R0 prototype's
+  awkward shape (`Console` performed while the consumer drives, a `defer` that
+  prints, the first loop abandoning after two elements, a second loop over the
+  *same origin* replaying) — and a Kotlin emission-shape test. Both toolchains
+  agree byte for byte.
+- **Two fixture gotchas worth keeping**: an effect member is declared
+  `fn println(message: Str) [Console]`, *not* taking the effect as a data
+  parameter ([effect-not-data] catches it, but the message is about the
+  parameter, so it reads like a different mistake); and a **struct literal
+  cannot be a `for` subject** (`for n in Counter { start: 2 }` — the brace is
+  read as the loop body), so a builder fn is needed. The second is a
+  pre-existing grammar limitation, first hit in R0.
+- **One standing rule to be aware of, unchanged**: `yield num` *moves* `num`
+  [deduce-consume], so a body that decrements after yielding writes
+  `yield copy(num)` — the same idiom the `Iter<T>` form has always used. Worth
+  a decision at some point (a `Copy`-like exemption), but not R3's to take.
 
 **R4 — designate `Linear`.** `: Linear` with its `close`; `discard` refused for a
 linear value, naming `close`; storing a linear value in a composite refused
@@ -7118,7 +7181,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 767)
+## Test inventory (all green: 781)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -7369,6 +7432,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   `?`-spreading a `Self`-using group refused while a `Self`-less group
   still spreads; `Self` outside a group unknown; and the six-position
   not-a-value sweep, each with exactly one diagnostic).
+- **11 yield-origin tests** (`tests/yield_origin_tests.rs` [yield-fn-origin],
+  roadmap R3: the sugar discharging the obligation; **driving an origin twice**
+  clean, which is the model's whole point; drive-site effects required at the
+  loop and clean when declared; the six declaration rules (named `next`, one
+  parameter, non-`Mut` origin, origin carries the clause, return type is the
+  clause's `T` reported *once* at the return type, body must yield); both forms
+  on one type refused; and a direct call refused, naming the remedy).
 - **22 overload-resolution tests** (`tests/overload_tests.rs` [fn-overload]
   [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous]
   [fn-overload-at] [fn-rename] [fn-overload-duplicate] [fn-value-select]:

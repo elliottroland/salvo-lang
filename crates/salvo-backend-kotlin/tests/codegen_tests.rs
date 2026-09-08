@@ -628,6 +628,101 @@ fn kotlinc_compiles_and_runs_a_hand_written_pass() {
     run_kotlin_files(&files, "hand-written-pass", PASS_OUTPUT);
 }
 
+/// [yield-fn-origin] The origin-struct sugar, end to end — the same source and
+/// the same expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_yield_origin`, which is the parity claim.
+const YIELD_ORIGIN_DEMO: &str = r#"
+struct Counter : Yield<Int> {
+    start: Int
+}
+
+yield fn next(c: Counter) [Console] -> Int {
+    println("open")
+    defer { println("close") }
+    let num = copy(c.start)
+    while num >= 0 {
+        println("make ${num}")
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+fn counter(start: Int) -> Counter {
+    return Counter { start: start }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let c = counter(2)
+    let seen = 0
+    for n in c {
+        println("got ${n}")
+        seen = seen + 1
+        if seen == 2 {
+            break
+        }
+    }
+    for n in c {
+        println("again ${n}")
+    }
+    println("done")
+}
+"#;
+
+const YIELD_ORIGIN_OUTPUT: &str = "open\nmake 2\ngot 2\nmake 1\ngot 1\nclose\n\
+                                   open\nmake 2\nagain 2\nmake 1\nagain 1\nmake 0\n\
+                                   again 0\nclose\ndone\n";
+
+/// The emission shape: the machine is named after the **origin**, is not
+/// `private` (the drive site names it), has no supertype — there is nothing to
+/// dispatch through, so no `SalvoPass` lookahead is inherited — and the `yield
+/// fn` itself is not emitted as a function at all.
+#[test]
+fn a_yield_origin_emits_a_public_machine_and_no_function() {
+    let program = build_program(&[("main.sv", YIELD_ORIGIN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("class __Pass_Counter(private var c: Counter) {"),
+        "expected a public origin machine in:\n{src}"
+    );
+    assert!(
+        !src.contains("private class __Pass_Counter"),
+        "the origin machine must not be private in:\n{src}"
+    );
+    assert!(
+        !src.contains("fun next(") && !src.contains("Iterable<Int>"),
+        "a `yield fn` must not be emitted as a function or a factory in:\n{src}"
+    );
+    // Construct, drive, and close in a `finally` — how `defer` is lowered here
+    // anyway, so `break` and exhaustion both reach it [kt-defer-finally].
+    assert!(
+        src.contains("__Pass_Counter(c)")
+            && src.contains(".__advance(console)")
+            && src.contains(".__close(console)")
+            && src.contains("finally {"),
+        "expected construct/advance/close-in-finally in:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_yield_origin() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", YIELD_ORIGIN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "yield-origin", YIELD_ORIGIN_OUTPUT);
+}
+
 // [qual-no-dup]
 #[test]
 fn duplicate_qualifier_is_rejected() {

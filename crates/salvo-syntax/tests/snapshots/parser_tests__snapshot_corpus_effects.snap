@@ -22,6 +22,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "next_random",
                             span: 26..37,
@@ -69,6 +70,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "println",
                             span: 75..82,
@@ -227,6 +229,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "next_random",
                             span: 193..204,
@@ -358,6 +361,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "println",
                             span: 326..333,
@@ -420,6 +424,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "main",
                     span: 370..374,
@@ -530,6 +535,7 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "age_prediction",
                     span: 465..479,
@@ -765,6 +771,7 @@ Module {
                     "return type; `throw` returns `Nothing`, so nothing after it runs.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "parse_length",
                     span: 816..828,
@@ -943,6 +950,7 @@ Module {
                     "union: `Ok Int | Thrown Str`.",
                 ],
                 intrinsic: false,
+                is_yield: false,
                 name: Ident {
                     name: "describe_length",
                     span: 1059..1074,

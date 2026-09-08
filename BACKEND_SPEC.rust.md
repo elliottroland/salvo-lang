@@ -170,6 +170,27 @@ Conventions:
       machine readable.
     * The body becomes `SalvoIter::from_factory(Rc::new(move ||
       Box::new(__Pass_f::new(<captures>.clone(), …))))`.
+    * [yield-fn-origin] **The origin form renders the same machine with
+      nothing around it.** A `yield fn next(c: Counter) -> Int` emits
+      `pub struct __Pass_Counter { c: Counter, <locals>, __state, __d<i> }`
+      with `pub fn new`/`__advance`/`__close` and **no** `impl SalvoPass`,
+      no factory and no `Box` — the drive site knows the concrete type, so
+      an element costs an inlined call and no allocation. Named after the
+      *origin* because every `yield fn` is called `next`, and `pub` because
+      the `for` that drives it may be in another module (the same module the
+      origin type came from, so the glob import is already there). The fn
+      itself emits nothing: it is not callable.
+      * `for` becomes `let mut p = __Pass_Counter::new(<origin>.clone());`
+        then `while let Some(v) = p.__advance(<handlers>)`, with
+        `p.__close(<handlers>);` spliced after the loop *and* registered as
+        a deferred entry so a `return` out of the body releases it too. A
+        **place** subject is cloned — driving mints a fresh machine, so a
+        second `for` over the same origin replays — while a temporary is
+        moved.
+      * Handlers come from the `yield fn`'s own `fn_effects` (minus
+        `Throw`), which is the list an ordinary fn's leading parameters come
+        from: the origin form declares its effects normally, so
+        [rs-pass-effects]' per-effect-set traits are not involved.
   * Every parameter is captured once into the factory and cloned per
     pass, so each pass starts from the beginning and the captured state is
     `'static`. Nothing else is captured — a handler is a *parameter* of

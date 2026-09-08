@@ -506,6 +506,25 @@ same programs running ([rs-effect-fusion]).
       resume* — it could only capture one at creation, and when a handler
       is bound is observable (the backend-parity principle). One lowering on both
       backends is the point [iter-generator].
+  * [yield-fn-origin] **The origin form renders the same machine as a public
+    class with nothing around it.** A `yield fn next(c: Counter) -> Int`
+    emits `class __Pass_Counter(private var c: Counter)` — no supertype, so
+    no `SalvoPass<T>` lookahead is inherited and the class holds its own
+    `__current: Any?` with a `__current()` accessor (`Any?` for the reason
+    the protocol tags its end: a null element is an element). `fun
+    __advance(<handlers>): Boolean` and `fun __close(<handlers>)` are public;
+    the `yield fn` emits no function and no `Iterable` factory. Named after
+    the *origin*, since every `yield fn` is called `next`, and not `private`
+    because the drive site names it.
+    * `for` becomes `val p = __Pass_Counter(<origin>)`, then
+      `try { while (p.__advance(<handlers>)) { val v = p.__current() … } }
+      finally { p.__close(<handlers>) }` — the `close` in a `finally`, which
+      is how `defer` is lowered here anyway [kt-defer-finally], so `break`,
+      `return` and exhaustion all reach it.
+    * The origin needs **no copy**, where Rust clones: it is non-`Mut` and
+      [iter-mut-param] refuses a transitively mutable one, so sharing the
+      reference with every machine is unobservable — the two backends reach
+      the same behaviour by different means, as [backend-parity] allows.
   * [iter-effects] A captured handler is what the parity principle rules
     out here: Kotlin could happily perform an effect from inside the builder
     long after the call returned, and Rust could not, so the program would

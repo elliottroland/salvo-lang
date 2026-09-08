@@ -1261,6 +1261,64 @@ Conventions:
     the beginning, each re-running the producer — which is what Kotlin's
     `Iterable` already did, and what keeps `for` from consuming its
     subject.
+* [yield-fn-origin] A **`yield fn`** is the sugared way to discharge a
+  `: Yield<T>` obligation [group-obligation] (user direction 2026-09-08,
+  roadmap R3): the subject is the **origin** struct, the return type is the
+  **element** type, and the state machine the compiler builds from the body is
+  *hidden*.
+
+  ```
+  struct Counter : Yield<Int> { start: Int }
+
+  yield fn next(c: Counter) [Console] -> Int {
+      let num = copy(c.start)
+      while num >= 0 { yield copy(num); num = num - 1 }
+  }
+  ```
+
+  * **The machine is not nameable**, not constructible and not readable —
+    there is no second type to declare, so nothing is half-owned: `Counter`
+    is wholly the author's and the machine wholly the compiler's. Whoever
+    wants the state struct writes the raw `next` instead [iter-protocol],
+    which *is* that struct's.
+  * **Declared, not inferred**: the keyword marks it, so a `yield` fn is
+    recognized from its signature rather than by scanning its body — which
+    is what lets the compiler tell this form from the `Iter<T>` one.
+  * **The declaration rules**, all reported at the `yield fn`: it must be
+    named `next` (it is a member of an obligation, so a free-standing one
+    would reintroduce an anonymous generator type); exactly one parameter;
+    the origin **not `Mut`** (it is read, not advanced — the machine holds
+    the position); the origin's declaration must carry the `: Yield<T>`
+    clause; the return type must be that clause's `T`; and the body must
+    contain a `yield`. A type may declare **one** form, not both: the sugar
+    generates the state struct a hand-written `next` would be.
+  * **It is not callable.** A call is an error naming the remedy (iterate the
+    origin), because a call would have to hand back the hidden machine. One
+    consequence worth stating: since only the `for` sugar can hold a
+    generated pass, and the sugar always closes, a generated pass **cannot
+    be abandoned** — the unchecked-`while`-driver hole applies to raw passes
+    only.
+  * **Driving does not consume the origin.** Each `for` mints a *fresh*
+    machine from it, so a second loop replays from the beginning and the loop
+    binding stays an ordinary projection. Only a real pass — the value that
+    holds the position — is moved into the loop [iter-resolve].
+  * **Effects are declared normally** (`yield fn next(c: Counter) [Console]
+    -> Int`) and performed **while driving**: nothing calls the fn, so no
+    call site is burdened, and the `for` is what needs the handler in scope.
+    This is why [iter-effects]' claim-on-the-type apparatus is not needed
+    here — [fn-effects] already says it.
+  * **Emission**: the machine is `generator.rs`'s plan unchanged
+    [iter-generator], rendered as a plain struct/class named after the
+    *origin* type (`__Pass_Counter`, since every `yield fn` is `next`), with
+    no factory, no `SalvoIter`, no boxing and no trait — the drive site knows
+    the concrete type. `for` constructs it, calls `__advance` per turn and
+    `__close` on every exit (Rust splices the call and registers a deferred
+    entry; Kotlin uses `finally` [kt-defer-finally]). Rust *clones* a place
+    subject, Kotlin shares the reference, and the two agree because the
+    origin is non-`Mut` and [iter-mut-param] refuses a transitively mutable
+    one. Refused for now [backend-never-wrong]: a `for` over an origin in
+    **value position**, whose machine would have to be closed inside a block
+    that is also producing a value.
 * [iter-mut-param] An iterator function may **not take a mutable parameter**
   — transitively, by the same test [fate-move-mode] uses, so `Mut` reachable
   through a type argument, an array/tuple/union component or a struct field

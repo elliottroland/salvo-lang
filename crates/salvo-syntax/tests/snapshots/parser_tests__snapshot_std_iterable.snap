@@ -38,6 +38,7 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
+                        is_yield: false,
                         name: Ident {
                             name: "iter",
                             span: 826..830,
@@ -111,6 +112,7 @@ Module {
                     "the sequence functions.",
                 ],
                 intrinsic: true,
+                is_yield: false,
                 name: Ident {
                     name: "iter",
                     span: 1048..1052,

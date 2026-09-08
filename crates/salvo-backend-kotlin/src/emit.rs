@@ -845,6 +845,68 @@ impl<'p> Emitter<'p> {
     }
 
     /// Looks up a checker-resolved fn declaration by its stable key.
+    /// [yield-fn-origin] The loop header for a `for` over an **origin**, and
+    /// the trailer that ends it:
+    ///
+    /// ```text
+    /// val __loop0_pass = __Pass_Counter(c)
+    /// try {
+    /// while (__loop0_pass.__advance(console)) {
+    ///     val n = __loop0_pass.__current()
+    /// ```
+    ///
+    /// The machine is constructed here — "getting a fresh pass is constructing
+    /// one", with the state struct hidden — so a second `for` over the same
+    /// origin starts over. The `close` goes in a `finally`, which is how
+    /// `defer` is lowered here anyway [kt-defer-finally], so `break`, `return`
+    /// and exhaustion all reach it.
+    ///
+    /// The origin needs no copy: it is non-`Mut` and transitively immutable
+    /// ([iter-mut-param] refuses a mutable one), so sharing the reference with
+    /// every machine is unobservable — which is what keeps this parity-equal
+    /// with Rust's clone.
+    fn emit_origin_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> (String, String) {
+        let pad = "    ".repeat(indent);
+        let inner_pad = "    ".repeat(indent + 1);
+        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+            self.error("the `yield fn` this `for` resolved to is not available");
+            return (String::new(), String::new());
+        };
+        let machine = self.origin_machine_name(decl);
+        let effects: Vec<Ty> = self
+            .checked
+            .fn_effects
+            .get(&driver.next_fn)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| !is_throw_effect_ty(t))
+            .collect();
+        let args: Vec<String> = effects
+            .iter()
+            .map(|ty| self.lookup_effect_handler_by_ty(ty))
+            .collect();
+        let args = args.join(", ");
+        let place = format!("{}_pass", self.fresh_loop_var());
+        let subject = self.emit_expr(iterable);
+        let var = self.for_pattern_var(pattern);
+        (
+            format!(
+                "{pad}val {place} = {machine}({subject})\n\
+                 {pad}try {{\n\
+                 {pad}while ({place}.__advance({args})) {{\n\
+                 {inner_pad}val {var} = {place}.__current()\n"
+            ),
+            format!("{pad}}} finally {{\n{inner_pad}{place}.__close({args})\n{pad}}}\n"),
+        )
+    }
+
     /// [iter-effects] [iter-generator] [kt-pass-effects] The loop header for a
     /// `for` over a **producer**, and the trailer that ends it:
     ///
@@ -957,6 +1019,13 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
+                // [yield-fn-origin] A `yield fn` is not a function in the
+                // output: it *is* the hidden state machine the `for` sugar
+                // constructs, so nothing callable is emitted for it.
+                Item::Fn(f) if f.is_yield && f.body.is_some() => {
+                    let item = self.emit_origin_machine(f);
+                    body.push_str(&item);
+                }
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
@@ -1552,7 +1621,18 @@ impl<'p> Emitter<'p> {
     /// I4). Kotlin *could* have kept the builder and captured the handlers at
     /// creation; it must not, because when a handler is bound is observable —
     /// the backend-parity principle.
-    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> (String, String) {
+    /// [rs-generator] [kt-generator] The machine a `yield` body becomes.
+    /// Shared by both forms — the `Iter<T>` factory form and the
+    /// [yield-fn-origin] origin form — since the machine is identical; the
+    /// returned body is empty for an origin, which has no function at all.
+    fn emit_generator_flavored(
+        &mut self,
+        f: &FnDecl,
+        elem: &str,
+        pass_name: Option<&str>,
+        indent: usize,
+    ) -> (String, String) {
+        let is_origin = pass_name.is_some();
         let pad = "    ".repeat(indent);
         // [implicit-param] The implicits are properties of the pass like any
         // other parameter: the body calls them on every turn, long after the
@@ -1580,13 +1660,26 @@ impl<'p> Emitter<'p> {
         // The claim comes from `Checked::producer_effects`, the same table the
         // Rust backend reads: the handler *order* has to be the same in the
         // generated interface, in this machine and at every drive site.
-        let claimed: Vec<Ty> = self
-            .checked
-            .fn_refs
-            .get(&(self.file_idx, f.name.span))
-            .and_then(|k| self.checked.producer_effects.get(k))
-            .cloned()
-            .unwrap_or_default();
+        // [yield-fn-origin] The origin form declares its effects on the fn,
+        // normally — nothing calls it, so there is no call site to burden.
+        let claimed: Vec<Ty> = if is_origin {
+            self.checked
+                .fn_refs
+                .get(&(self.file_idx, f.name.span))
+                .and_then(|k| self.checked.fn_effects.get(k))
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|t| !is_throw_effect_ty(t))
+                .collect()
+        } else {
+            self.checked
+                .fn_refs
+                .get(&(self.file_idx, f.name.span))
+                .and_then(|k| self.checked.producer_effects.get(k))
+                .cloned()
+                .unwrap_or_default()
+        };
         let claim_names = self.claim_names(&claimed);
         let mut handler_params: Vec<String> = Vec::new();
         let mut handler_args: Vec<String> = Vec::new();
@@ -1604,7 +1697,10 @@ impl<'p> Emitter<'p> {
         }
         let handler_sig = handler_params.join(", ");
         let handler_call = handler_args.join(", ");
-        let pass = format!("__Pass_{}", self.kotlin_fn_name(f));
+        let pass = match pass_name {
+            Some(name) => name.to_string(),
+            None => format!("__Pass_{}", self.kotlin_fn_name(f)),
+        };
         let generic_decl = if f.generics.is_empty() {
             String::new()
         } else {
@@ -1688,7 +1784,7 @@ impl<'p> Emitter<'p> {
         // is not a Kotlin `Iterator` at all — so it holds the element itself.
         // `Any?` rather than `T`, for the reason the protocol tags its end: a
         // null element is an element like any other.
-        if !claim_names.is_empty() {
+        if !claim_names.is_empty() || is_origin {
             props.push_str("    private var __current: Any? = null\n");
         }
 
@@ -1736,7 +1832,16 @@ impl<'p> Emitter<'p> {
         self.gen_handler_args = saved_handler_args;
 
         let suffix = pass_suffix(&claim_names);
-        let (supertype, advance_kw, close_kw) = if claim_names.is_empty() {
+        let (supertype, advance_kw, close_kw) = if is_origin {
+            // [yield-fn-origin] No supertype: the drive site knows the
+            // concrete machine, so there is nothing to dispatch through and
+            // no `SalvoPass` lookahead to inherit.
+            (
+                String::new(),
+                format!("fun __advance({handler_sig})"),
+                format!("fun __close({handler_sig})"),
+            )
+        } else if claim_names.is_empty() {
             (
                 format!("SalvoPass<{elem}>()"),
                 "override fun __advance()".to_string(),
@@ -1751,10 +1856,16 @@ impl<'p> Emitter<'p> {
                 format!("private fun __close({handler_sig})"),
             )
         };
-        let mut item = format!(
-            "\nprivate class {pass}{generic_decl}({}) : {supertype} {{\n",
-            ctor.join(", ")
-        );
+        // The origin machine is named by the drive site, which may be in
+        // another module, so it is not `private`.
+        let mut item = if is_origin {
+            format!("\nclass {pass}{generic_decl}({}) {{\n", ctor.join(", "))
+        } else {
+            format!(
+                "\nprivate class {pass}{generic_decl}({}) : {supertype} {{\n",
+                ctor.join(", ")
+            )
+        };
         item.push_str(&props);
         item.push_str(&format!(
             "\n    {advance_kw}: Boolean {{\n        while (true) {{\n            \
@@ -1765,7 +1876,15 @@ impl<'p> Emitter<'p> {
             "\n    {close_kw} {{\n{close}        __state = {fin}\n    }}\n"
         ));
         item.push_str(&runners);
-        if !claim_names.is_empty() {
+        if is_origin {
+            // The element accessor: `__advance` reports and this hands over,
+            // because a `T?` return could not tell "no more" from "the element
+            // is null" — the reason the protocol tags its end [iter-protocol].
+            item.push_str(&format!(
+                "\n    @Suppress(\"UNCHECKED_CAST\")\n    fun __current(): {elem} = \
+                 __current as {elem}\n"
+            ));
+        } else if !claim_names.is_empty() {
             // The interface side: `advance` reports and `current()` hands over,
             // because a `T?` return could not tell "no more" from "the element
             // is null".
@@ -1792,7 +1911,9 @@ impl<'p> Emitter<'p> {
             }
             args.push(kt_ident(&imp.name));
         }
-        let body = if claim_names.is_empty() {
+        let body = if is_origin {
+            String::new()
+        } else if claim_names.is_empty() {
             self.needs_iter = true;
             format!(
                 "{pad}    return Iterable<{elem}> {{ {pass}({}) }}\n",
@@ -1809,6 +1930,41 @@ impl<'p> Emitter<'p> {
             )
         };
         (body, item)
+    }
+
+    /// [kt-generator] [fn-iterator] The `Iter<T>`-returning form.
+    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> (String, String) {
+        self.emit_generator_flavored(f, elem, None, indent)
+    }
+
+    /// [yield-fn-origin] The hidden state machine a `yield fn` stands for,
+    /// named after the **origin** type because every `yield fn` is `next`.
+    fn emit_origin_machine(&mut self, f: &FnDecl) -> String {
+        let elem = match f.return_type.as_ref() {
+            Some(t) => self.emit_type(t),
+            None => "Unit".to_string(),
+        };
+        let machine = self.origin_machine_name(f);
+        let (_, item) = self.emit_generator_flavored(f, &elem, Some(&machine), 0);
+        item
+    }
+
+    /// The machine type name for a `yield fn`, from its origin parameter.
+    fn origin_machine_name(&mut self, f: &FnDecl) -> String {
+        let origin = f
+            .params
+            .first()
+            .map(|p| {
+                let rendered = self.emit_type(&p.ty);
+                rendered
+                    .split(['<', '?'])
+                    .next()
+                    .unwrap_or("Origin")
+                    .trim()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "Origin".to_string());
+        format!("__Pass_{origin}")
     }
 
     /// One property of a generated pass: at its type's zero where there is
@@ -2947,10 +3103,18 @@ impl<'p> Emitter<'p> {
                 let is_producer = self
                     .ty_of(iterable.span())
                     .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
-                let claiming = if is_producer {
-                    Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
-                } else {
-                    None
+                // [yield-fn-origin] An origin comes first: its machine is
+                // constructed rather than minted, and it closes in the same
+                // `finally`.
+                let origin_driver = self.pass_driver_of(iterable).filter(|d| d.origin);
+                let claiming = match origin_driver {
+                    Some(driver) => {
+                        Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
+                    }
+                    None if is_producer => {
+                        Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
+                    }
+                    None => None,
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
@@ -2958,9 +3122,11 @@ impl<'p> Emitter<'p> {
                 let pass = if claiming.is_some() {
                     None
                 } else {
-                    self.pass_driver_of(iterable).map(|driver| {
-                        self.emit_pass_loop_header(driver, pattern, iterable, indent)
-                    })
+                    self.pass_driver_of(iterable)
+                        .filter(|d| !d.origin)
+                        .map(|driver| {
+                            self.emit_pass_loop_header(driver, pattern, iterable, indent)
+                        })
                 };
                 let var = if claiming.is_some() {
                     String::new()
@@ -4262,6 +4428,16 @@ impl<'p> Emitter<'p> {
                     self.error(
                         "a `for` over a producer that performs effects is not supported in \
                          value position yet: write the loop as a statement",
+                    );
+                }
+                // [yield-fn-origin] [backend-never-wrong] Same cut for an
+                // origin: its machine has to be closed after the loop, which a
+                // value-position loop has nowhere to put.
+                if self.pass_driver_of(iterable).is_some_and(|d| d.origin) {
+                    self.error(
+                        "a `for` over an origin in value position is not supported yet: \
+                         its state machine has to be closed after the loop, so write \
+                         the loop as a statement",
                     );
                 }
                 // [iter-protocol] A pass is driven; see the statement arm.

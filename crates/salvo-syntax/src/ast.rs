@@ -307,6 +307,13 @@ pub struct FnDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
+    /// [yield-fn-origin] `yield fn next(c: Counter) -> Int`: the sugar form
+    /// of a `: Yield<T>` obligation's member. The subject is the *origin*
+    /// struct, the return type is the **element** type, and the compiler
+    /// generates a hidden state machine the `for` sugar drives — the fn
+    /// itself is never callable. Declared with the keyword, not inferred
+    /// from the body (user direction 2026-09-08).
+    pub is_yield: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
