@@ -141,9 +141,9 @@ Conventions:
     * The `async` borrowing is **gone** (2026-09-07), and with it
       `SalvoGen`, `SalvoYield`, `Pin`, `Future` and `Waker`: rustc used to
       build the state machine, and the price was that the machine captured
-      its environment `'static`, which is what forces [iter-effects].
-      A struct's `__advance` can take the handlers as parameters (roadmap
-      I4).
+      its environment `'static`, which is what forced the old
+      effect-free rule. A struct's `__advance` takes the handlers as
+      parameters [rs-pass-effects].
     * A field whose type has **no zero value** — a generic element, a
       struct, a union — is held in an `Option` instead
       (`BindKind::SelfSlot`): reads clone out of it, `&`/`&mut` borrow
@@ -154,9 +154,10 @@ Conventions:
       Box::new(__Pass_f::new(<captures>.clone(), …))))`.
   * Every parameter is captured once into the factory and cloned per
     pass, so each pass starts from the beginning and the captured state is
-    `'static`. That is sound only because an iterator fn performs no
-    effects [iter-effects]: a handler arrives as `&mut dyn E`
-    borrowed for the call and could not live this long.
+    `'static`. Nothing else is captured — a handler is a *parameter* of
+    `advance`, never a field [rs-pass-effects] — which is what lets a pass
+    perform effects at all while a `&mut dyn E` borrowed for the call could
+    never have lived this long.
   * A fn-typed parameter of an iterator fn is the one convention
     exception to [rs-fn-param-convention]: it arrives **owned** as
     `impl Fn(…) + 'static` (wrapped in an `Rc` internally, so it is shared
@@ -168,6 +169,45 @@ Conventions:
     a captured element type has to outlive the call.
   * The support code is generated once per program into `iter.rs` and
     mounted like `unions.rs`, only when the program touches `Iter<T>`.
+* [rs-pass-effects] A **claiming** producer (`Console Iter<T>`
+  [iter-effects]) has a representation of its own, because a pass whose
+  `advance` takes a handler cannot be a `std::iter::Iterator`. Generated
+  into `iter_effects.rs`, one set of items per effect *set* the program
+  needs — the way `unions.rs` gets one `UnionN` per arity — and mounted the
+  same way:
+  * `pub trait SalvoPass<Suffix><T>` with `advance(&mut self, <handlers>) ->
+    Option<T>` and `close(&mut self, <handlers>)`; the suffix is the effect
+    names concatenated, and the **handler order is the checker's**
+    (`Checked::producer_effects` / `pass_effect_sets`), shared by the trait,
+    the machine and every drive site.
+  * `pub struct SalvoIter<Suffix><T>(Rc<dyn Fn() -> Box<dyn
+    SalvoPass<Suffix><T>>>)` — still a **factory**, so the claim costs no
+    replayability — with `mint()`, `Clone` and `Debug` like `SalvoIter<T>`.
+  * `SalvoPureAs<Suffix><T>` plus `SalvoIter<Suffix>::from_pure`: the
+    **variance adapter**, an `advance` that ignores the handler. Inserted
+    where the checker recorded `Coercion::WidenProducer`, which is every
+    position `maybe_coerce` sees.
+  * The generated file names effect traits by **absolute path**
+    (`crate::core_console::Console`) and imports nothing: it sits at the
+    crate root and mentions traits from arbitrary modules, and the pure
+    runtime files beside it have no cross-module reference to copy from.
+  * The machine renders as it does for a pure producer, with the handlers
+    prepended to `__advance`, `__close` and each `__run_d<i>` — a deferred
+    block may itself perform effects — and an `impl SalvoPass<Suffix><T>`
+    forwarding to them in place of the `impl Iterator`. The producer fn
+    itself takes **no** effect parameter: none of the body runs when it is
+    called.
+  * A `for` over a claiming subject is `let mut p = <subject>.mint();`,
+    `while let Some(v) = p.advance(<handlers>) { … }`, then
+    `p.close(<handlers>)`. The `close` is *also* registered as a deferred
+    entry of the loop, so a `return` out of the body releases the producer;
+    it is idempotent, so landing there twice costs nothing.
+  * Refused rather than mis-rendered [backend-never-wrong]: a claiming
+    producer nested inside another producer (its handlers would have to
+    thread through the outer machine), a generic effect claim (the set
+    identity would be this backend's rendering of the arguments while the
+    checker's is Salvo's), a `for` over one in value position, and a
+    widening between two *non-empty* claim sets (only `from_pure` exists).
 * [type-tuple] Tuples map to native Rust tuples (any size).
 * [backend-never-wrong] A **function in a struct field** is a codegen error,
   not output: Rust allows `impl Trait` nowhere but argument and return

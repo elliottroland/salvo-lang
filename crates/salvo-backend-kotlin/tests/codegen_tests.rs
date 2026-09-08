@@ -4593,26 +4593,269 @@ fn an_iterator_fn_lowers_to_a_lazy_iterable() {
     }
 }
 
-/// [iter-effects] The same refusal as the Rust backend: an effectful producer
-/// needs its handlers per resume, which is I4's emission half
-/// [backend-never-wrong].
+/// [iter-effects] The **effectful producer**, end to end — the same source and
+/// the same expected stdout as the Rust backend's
+/// `rustc_compiles_and_runs_an_effectful_producer`. That the two agree byte
+/// for byte on *this* program is the parity claim of I4's emission half: the
+/// handler order, when a handler is bound, the interleaving of producer and
+/// consumer, and the release path all show up in the output.
+const EFFECTFUL_DEMO: &str = r#"
+fn chatty(limit: Int) -> Console Iter<Int> {
+    println("open")
+    defer { println("close") }
+    let i = 0
+    while i < limit {
+        println("make ${i}")
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn plain(limit: Int) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn total(xs: Console Iter<Int>) -> Int {
+    let sum = 0
+    for v in xs {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for v in chatty(3) {
+        println("got ${v}")
+        if v == 1 {
+            break
+        }
+    }
+    println("sum ${total(chatty(2))}")
+    println("plain ${total(plain(4))}")
+}
+"#;
+
+const EFFECTFUL_OUTPUT: &str =
+    "open\nmake 0\ngot 0\nmake 1\ngot 1\nclose\nopen\nmake 0\nmake 1\nclose\nsum 1\nplain 6\n";
+
 #[test]
-fn an_effectful_producer_is_refused() {
-    let src = r#"
-fn noisy(n: Int) -> Console Iter<Int> {
+fn kotlinc_compiles_and_runs_an_effectful_producer() {
+    let program = build_program(&[("main.sv", EFFECTFUL_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .expect("main.kt emitted")
+        .content;
+    // The handler is a *parameter* of the machine, not captured state: Kotlin
+    // could have kept the `iterator { … }` builder and captured it, and must
+    // not, because when a handler is bound is observable.
+    assert!(
+        main.contains("private fun __advance(console: Console): Boolean"),
+        "expected the handler as a leading parameter in:\n{main}"
+    );
+    // A claiming pass is not a Kotlin `Iterator`: it implements the generated
+    // interface, holding its element for `current()`.
+    assert!(
+        main.contains("private class __Pass_chatty(private var limit: Int) : SalvoPassConsole<Int>")
+            && main.contains("override fun current(): Int = __current as Int"),
+        "expected the pass-interface implementation in:\n{main}"
+    );
+    // The factory stays a factory, and takes no handler.
+    assert!(
+        main.contains("fun chatty(limit: Int): SalvoIterConsole<Int>")
+            && main.contains("return SalvoIterConsole<Int> { __Pass_chatty(limit) }"),
+        "expected a handler-free factory in:\n{main}"
+    );
+    // Mint / advance / close, with the close in a `finally` so `break`,
+    // `return` and exhaustion all reach it [kt-defer-finally].
+    assert!(
+        main.contains(".mint()")
+            && main.contains("while (__loop2_pass.advance(console))")
+            && main.contains("} finally {\n        __loop2_pass.close(console)"),
+        "expected the drive sequence in:\n{main}"
+    );
+    // The variance adapter, at the one boundary that needs it.
+    assert!(
+        main.contains("SalvoPureAsConsole(plain(4))"),
+        "expected the variance adapter in:\n{main}"
+    );
+    // A deferred block may itself perform effects, so the runner takes the
+    // handlers too.
+    assert!(
+        main.contains("private fun __run_d0(console: Console)"),
+        "expected the defer runner to take the handler in:\n{main}"
+    );
+    let traits = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("iter_effects.kt"))
+        .expect("iter_effects.kt emitted")
+        .content;
+    // The generated file names effect interfaces in full: it lives in the root
+    // `salvo` package and imports nothing [kt-pass-effects].
+    assert!(
+        traits.contains("interface SalvoPassConsole<T>")
+            && traits.contains("console: salvo.core.console.Console")
+            && !traits.contains("import salvo.core.console"),
+        "expected an import-free pass interface in:\n{traits}"
+    );
+    run_kotlin_files(&files, "effectful-producer", EFFECTFUL_OUTPUT);
+}
+
+/// [iter-effects] The injected `close` on the *`return`* path, with the same
+/// source and stdout as the Rust backend's
+/// `rustc_releases_a_claiming_producer_on_a_return`. Here it comes free from
+/// the `finally`, where Rust splices the call at each exit — two mechanisms,
+/// one observable behaviour.
+#[test]
+fn kotlinc_releases_a_claiming_producer_on_a_return() {
+    let program = build_program(&[(
+        "main.sv",
+        r#"
+fn noisy(limit: Int) -> Console Iter<Int> {
+    defer { println("released") }
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn first_odd(xs: Console Iter<Int>) -> Int {
+    for v in xs {
+        if v % 2 == 1 {
+            return v
+        }
+    }
+    return 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("odd ${first_odd(noisy(5))}")
+}
+"#,
+    )]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "claiming-return", "released\nodd 1\n");
+}
+
+/// [iter-effects] A claiming producer **held in a struct field** — the case that
+/// decided D8 — with the same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_claiming_producer_in_a_field`.
+#[test]
+fn kotlinc_compiles_and_runs_a_claiming_producer_in_a_field() {
+    let program = build_program(&[("main.sv", CLAIMING_FIELD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .expect("main.kt emitted")
+        .content;
+    assert!(
+        main.contains("val items: SalvoIterConsole<Int>"),
+        "expected the claiming factory as a property type in:\n{main}"
+    );
+    run_kotlin_files(&files, "claiming-field", CLAIMING_FIELD_OUTPUT);
+}
+
+const CLAIMING_FIELD_DEMO: &str = r#"
+struct Source {
+    name: Str,
+    items: Console Iter<Int>
+}
+
+fn chatty(limit: Int) -> Console Iter<Int> {
+    let i = 0
+    while i < limit {
+        println("make ${i}")
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn drain(s: Source) [Console] -> Int {
+    let sum = 0
+    for v in s.items {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s = Source {name: "two", items: chatty(2)}
+    println("${s.name} ${drain(s)}")
+}
+"#;
+
+const CLAIMING_FIELD_OUTPUT: &str = "make 0\nmake 1\ntwo 1\n";
+
+/// [iter-effects] [backend-never-wrong] The shapes the prototype did not fix,
+/// refused on this backend too and with the same wording: a *claiming*
+/// producer nested inside another producer, and a `for` over one in value
+/// position.
+#[test]
+fn unsupported_claiming_producer_shapes_are_refused() {
+    let errors_for = |src: &str| -> Vec<String> {
+        let program = build_program(&[("bad.sv", src)]);
+        salvo_backend_kotlin::emit_program(&program)
+            .err()
+            .expect("expected codegen errors")
+    };
+    let nested = errors_for(
+        r#"
+fn inner(n: Int) -> Console Iter<Int> {
     println("one")
     yield n
 }
-"#;
-    let program = build_program(&[("bad.sv", src)]);
-    let errors = salvo_backend_kotlin::emit_program(&program)
-        .err()
-        .expect("expected codegen errors");
+
+fn outer(n: Int) -> Console Iter<Int> {
+    for v in inner(n) {
+        yield v
+    }
+}
+"#,
+    );
     assert!(
-        errors
+        nested
             .iter()
-            .any(|e| e.contains("producer that performs effects")),
-        "expected the refusal, got: {errors:?}"
+            .any(|e| e.contains("nested inside another producer")),
+        "expected the nested refusal, got: {nested:?}"
+    );
+    let value_position = errors_for(
+        r#"
+fn chatty(n: Int) -> Console Iter<Int> {
+    println("one")
+    yield n
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let last = for v in chatty(2) { copy(v) }
+    when last {
+        is Int { println("${last}") }
+        is None { println("none") }
+    }
+}
+"#,
+    );
+    assert!(
+        value_position
+            .iter()
+            .any(|e| e.contains("not supported in value position")),
+        "expected the value-position refusal, got: {value_position:?}"
     );
 }
 

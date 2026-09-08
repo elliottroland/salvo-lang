@@ -3768,23 +3768,298 @@ fn a_for_loop_borrows_an_iter_subject() {
     );
 }
 
-/// [iter-effects] A producer that performs effects is *refused*, not emitted
-/// without its handlers: threading them into a generated pass is I4's second
-/// half, and the pass has to stop being a `dyn Iterator` first
-/// [backend-never-wrong].
+/// [iter-effects] The **effectful producer**, end to end: the I4 prototype
+/// (`experiments/pull-iterators/effectful.sv`) as the emitter produces it.
+///
+/// One source and one expected stdout, shared with the Kotlin backend's
+/// `kotlinc_compiles_and_runs_an_effectful_producer` — the parity claim. What
+/// it covers, in the order it matters: a producer performing `Console` while
+/// the consumer drives it; a `defer` inside the producer that itself performs
+/// an effect (which is what makes the injected `close` *observable*); a
+/// consumer that `break`s after two elements and one that drains, so `close`
+/// is proved idempotent; a fn inheriting the claim from a producer parameter;
+/// and a *pure* producer passed where a claiming one is expected, which is the
+/// variance adapter's only site here.
+pub const EFFECTFUL_DEMO: &str = r#"
+fn chatty(limit: Int) -> Console Iter<Int> {
+    println("open")
+    defer { println("close") }
+    let i = 0
+    while i < limit {
+        println("make ${i}")
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn plain(limit: Int) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn total(xs: Console Iter<Int>) -> Int {
+    let sum = 0
+    for v in xs {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for v in chatty(3) {
+        println("got ${v}")
+        if v == 1 {
+            break
+        }
+    }
+    println("sum ${total(chatty(2))}")
+    println("plain ${total(plain(4))}")
+}
+"#;
+
+/// The interleaving is the point: the producer's work happens *while* the
+/// consumer drives it, and the deferred `close` runs on the abandoned path as
+/// well as the drained one.
+pub const EFFECTFUL_OUTPUT: &str =
+    "open\nmake 0\ngot 0\nmake 1\ngot 1\nclose\nopen\nmake 0\nmake 1\nclose\nsum 1\nplain 6\n";
+
 #[test]
-fn an_effectful_producer_is_refused() {
-    let errors = expect_errors(
-        "fn noisy(n: Int) -> Console Iter<Int> {\n\
+fn rustc_compiles_and_runs_an_effectful_producer() {
+    let files = generate(&[("main.sv", EFFECTFUL_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    // The handlers are *parameters* of the machine, not captured state — the
+    // whole reason a pass may perform effects [iter-effects].
+    assert!(
+        src.contains("fn __advance(&mut self, console: &mut dyn crate::core_console::Console)"),
+        "expected the handler as a leading parameter in:\n{src}"
+    );
+    // A claiming pass is not a `dyn Iterator`: it implements the trait
+    // generated for its effect set.
+    assert!(
+        src.contains("impl SalvoPassConsole<i32> for __Pass_chatty"),
+        "expected the pass-trait impl in:\n{src}"
+    );
+    // The producer's factory takes no handler: calling it runs none of the
+    // body.
+    assert!(
+        src.contains("pub fn chatty(limit: i32) -> SalvoIterConsole<i32>"),
+        "expected a handler-free factory in:\n{src}"
+    );
+    // Mint / advance / close — and the close is what waited for this phase.
+    assert!(
+        src.contains(".mint();")
+            && src.contains(".advance(&mut console)")
+            && src.contains("__loop2_pass.close(&mut console);"),
+        "expected the drive sequence in:\n{src}"
+    );
+    // The variance adapter, at the one boundary that needs it.
+    assert!(
+        src.contains("SalvoIterConsole::from_pure(plain(4))"),
+        "expected the variance adapter in:\n{src}"
+    );
+    // A deferred block may itself perform effects, so the runner takes the
+    // handlers too.
+    assert!(
+        src.contains("fn __run_d0(&mut self, console: &mut dyn crate::core_console::Console)"),
+        "expected the defer runner to take the handler in:\n{src}"
+    );
+    let traits = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("iter_effects.rs"))
+        .expect("iter_effects.rs emitted")
+        .content;
+    // The generated file names effect traits by absolute path: it sits at the
+    // crate root and imports nothing [rs-pass-effects].
+    assert!(
+        traits.contains("pub trait SalvoPassConsole<T>")
+            && traits.contains("&mut dyn crate::core_console::Console")
+            && !traits.contains("use crate::core_console"),
+        "expected an import-free pass trait in:\n{traits}"
+    );
+    run_rust_files(&files, "effectful-producer", EFFECTFUL_OUTPUT);
+}
+
+/// [iter-effects] The injected `close` on the *`return`* path: it is a
+/// deferred entry of the driving loop, so leaving the body early releases the
+/// producer exactly as `break` and exhaustion do — and the flags make landing
+/// there twice harmless.
+#[test]
+fn rustc_releases_a_claiming_producer_on_a_return() {
+    let files = generate(&[(
+        "main.sv",
+        r#"
+fn noisy(limit: Int) -> Console Iter<Int> {
+    defer { println("released") }
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn first_odd(xs: Console Iter<Int>) -> Int {
+    for v in xs {
+        if v % 2 == 1 {
+            return v
+        }
+    }
+    return 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("odd ${first_odd(noisy(5))}")
+}
+"#,
+    )]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.matches("__loop1_pass.close(console);").count() == 2,
+        "expected the close on the return path and after the loop in:\n{src}"
+    );
+    run_rust_files(&files, "claiming-return", "released\nodd 1\n");
+}
+
+/// [iter-effects] A claiming producer **held in a struct field** — the case
+/// that decided D8 (with the effects in the *type*, a field is fine; the
+/// alternative would have had to forbid it). What it exercises that the demo
+/// does not is the generated factory's `Clone` and `Debug` impls, which is what
+/// lets it sit in a `#[derive(Clone, Debug)]` struct [rs-pass-effects].
+///
+/// Note the explicit `[Console]` on `drain`: inheritance is from a producer
+/// *parameter*, and a struct field is not one, so the fn says what driving its
+/// field performs.
+#[test]
+fn rustc_compiles_and_runs_a_claiming_producer_in_a_field() {
+    let files = generate(&[("main.sv", CLAIMING_FIELD_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("items: SalvoIterConsole<i32>"),
+        "expected the claiming factory as a field type in:\n{src}"
+    );
+    run_rust_files(&files, "claiming-field", CLAIMING_FIELD_OUTPUT);
+}
+
+pub const CLAIMING_FIELD_DEMO: &str = r#"
+struct Source {
+    name: Str,
+    items: Console Iter<Int>
+}
+
+fn chatty(limit: Int) -> Console Iter<Int> {
+    let i = 0
+    while i < limit {
+        println("make ${i}")
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn drain(s: Source) [Console] -> Int {
+    let sum = 0
+    for v in s.items {
+        sum = sum + v
+    }
+    return sum
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s = Source {name: "two", items: chatty(2)}
+    println("${s.name} ${drain(s)}")
+}
+"#;
+
+pub const CLAIMING_FIELD_OUTPUT: &str = "make 0\nmake 1\ntwo 1\n";
+
+/// [iter-effects] [backend-never-wrong] The shapes the prototype did not fix,
+/// refused rather than emitted without their handlers: a *claiming* producer
+/// nested inside another producer, a generic effect claim, and a `for` over a
+/// claiming producer in value position.
+#[test]
+fn unsupported_claiming_producer_shapes_are_refused() {
+    let nested = expect_errors(
+        "fn inner(n: Int) -> Console Iter<Int> {\n\
          println(\"one\")\n\
          yield n\n\
+         }\n\
+         fn outer(n: Int) -> Console Iter<Int> {\n\
+         for v in inner(n) {\n\
+         yield v\n\
+         }\n\
          }\n",
     );
     assert!(
-        errors
+        nested
             .iter()
-            .any(|e| e.contains("producer that performs effects")),
-        "expected the refusal, got: {errors:?}"
+            .any(|e| e.contains("nested inside another producer")),
+        "expected the nested refusal, got: {nested:?}"
+    );
+    let value_position = expect_errors(
+        "fn chatty(n: Int) -> Console Iter<Int> {\n\
+         println(\"one\")\n\
+         yield n\n\
+         }\n\
+         fn main() [use] -> None {\n\
+         use StdOutConsole()\n\
+         let last = for v in chatty(2) { copy(v) }\n\
+         when last {\n\
+         is Int { println(\"${last}\") }\n\
+         is None { println(\"none\") }\n\
+         }\n\
+         }\n",
+    );
+    assert!(
+        value_position
+            .iter()
+            .any(|e| e.contains("not supported in value position")),
+        "expected the value-position refusal, got: {value_position:?}"
+    );
+    let generic = expect_errors(
+        "effect Bucket<T> {\n\
+         fn take() -> [] T\n\
+         }\n\
+         handler IntBucket of Bucket<Int> {\n\
+         fn take() -> Int {\n\
+         return 7\n\
+         }\n\
+         }\n\
+         fn gen(limit: Int) -> Bucket<Int> Iter<Int> {\n\
+         let i = 0\n\
+         while i < limit {\n\
+         yield take()\n\
+         i = i + 1\n\
+         }\n\
+         }\n\
+         fn main() [use] -> None {\n\
+         use IntBucket()\n\
+         use StdOutConsole()\n\
+         for v in gen(2) {\n\
+         println(\"v ${v}\")\n\
+         }\n\
+         }\n",
+    );
+    assert!(
+        generic
+            .iter()
+            .any(|e| e.contains("claiming a *generic* effect")),
+        "expected the generic-claim refusal, got: {generic:?}"
     );
 }
 

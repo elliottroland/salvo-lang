@@ -1031,10 +1031,13 @@ Conventions:
   array, a `Str` (its characters), an `Iter<T>` (an identity overload), or a
   customer type that declares `fn iter`. There is no `Iterable` type and
   nothing implements it [implicit-group].
-  * **Eager**: `map`/`filter` return `Mut List<U>`, not a lazy `Iter<U>`. A
-    lazy one would have to store the callback, and a stored callback cannot
-    perform effects [iter-effects] — which would rule out a `println`
-    inside a `map`. Chaining still works: a list is iterable.
+  * **Eager**: `map`/`filter` return `Mut List<U>`, not a lazy `Iter<U>`. The
+    original reason was that a lazy one would have to store the callback and
+    a stored callback could not perform effects — which would have ruled out
+    a `println` inside a `map`. That reason **expired** when a producer's
+    handlers became parameters of its machine [iter-effects]: making these
+    lazy is roadmap I5, not a rule. Chaining works either way: a list is
+    iterable.
   * Each also has an `intrinsic` **`List` fast path**, which
     [fn-overload-rank] selects when the subject really is a list; the
     generic Salvo body is what every other subject reaches.
@@ -1224,15 +1227,40 @@ Conventions:
     fallible producer yields a result (`Emitted (Ok T | Err E) | Finished`)
     and the consumer throws; verified end to end on both backends before the
     rule was taken.
-  * **Emission is I4's second half**: threading the handlers into a generated
-    pass needs the pass to stop being a target-language iterator, so both
-    backends currently *refuse* an effectful producer
-    [backend-never-wrong]. A callback with mutable state of its own is the
-    same story from the other side: an iterator fn's fn-typed parameter is
-    called once per element in *every* pass, so accumulating state would
-    depend on how many times the iterator was consumed. Rust enforces it
-    (`impl Fn`, not `FnMut` [rs-iter-lazy]); the checker does not reject it
-    up front — known gap.
+  * **Emission is a representation split** (built 2026-09-07): a claiming
+    producer is not a target-language iterator, because its `advance` takes
+    the handlers as *parameters* — one generated trait/interface per effect
+    **set** ([rs-pass-effects] / [kt-pass-effects]), the way `UnionN` is
+    generated per arity. Three consequences worth stating at this level:
+    * The **handler order is derived once, by the checker**
+      (`Checked::producer_effects` per producer, `pass_effect_sets` for the
+      distinct sets) and *sorted*, because two spellings of one set are the
+      same type — the generated trait, the machine and every drive site must
+      agree or none of them fits.
+    * A producer performing *fewer* effects fits where more are expected,
+      and that fit is **not free**: the two have different representations,
+      so the checker records a `Coercion::WidenProducer` and the backend
+      inserts a **variance adapter** whose `advance` ignores the handler.
+      Which positions need it is not a separate question — it is every
+      position the coercion funnel sees (call arguments, returns, `let`
+      annotations, struct fields, union arms, branch joins).
+    * The injected `close` becomes **observable** here for the first time,
+      which is why the release path waited for this phase: a producer's
+      deferred blocks can only be *seen* to run once it can perform effects.
+      A `for` over a claiming producer mints, advances and closes; `break`,
+      `return` and exhaustion all reach the `close`, and the per-site flags
+      make landing there twice harmless.
+    * Verified end to end on both backends with one program and one expected
+      stdout (`experiments/pull-iterators/effectful.sv`), which is the parity
+      claim. What is still refused [backend-never-wrong]: a claiming producer
+      nested inside another producer, a generic effect claim, a `for` over one
+      in value position, and a widening between two non-empty claim sets.
+  * A callback with mutable state of its own is the effect-free story from
+    the other side: an iterator fn's fn-typed parameter is called once per
+    element in *every* pass, so accumulating state would depend on how many
+    times the iterator was consumed. Rust enforces it (`impl Fn`, not
+    `FnMut` [rs-iter-lazy]); the checker does not reject it up front — known
+    gap.
 * [iter-generator] A `yield` fn's body is planned as a **state machine
   once**, in `salvo-core`'s `generator.rs`, and *rendered* by each backend:
   neither emitter re-derives control flow (roadmap I2c/I3). The plan is a
@@ -1242,9 +1270,8 @@ Conventions:
   * **The body's locals become fields** of the generated pass, together with
     the parameters, each flattened `for`'s element binding, and a slot per
     nested pass (which must survive the outer body's suspensions). Nothing
-    is captured, which is what lets `next` take the effect handlers as
-    parameters, which is what [iter-effects] now declares (its emission is
-    roadmap I4's second half).
+    is captured, which is what lets `advance` take the effect handlers as
+    parameters — the mechanism [iter-effects] rests on.
   * **Only control flow that crosses a suspension is flattened.** A
     statement that neither yields nor jumps out of itself stays one
     statement to the emitter, brace to brace — a `while` with no `yield` in
@@ -1267,7 +1294,8 @@ Conventions:
     suspending loop over anything but an array, a `List<T>` or an `Iter<T>`;
     and a local **shadowing** another local or a parameter — the body's
     locals become fields of one struct, so two of a name would collide.
-  * Each backend *renders* the plan: `[rs-generator]`, `[kt-generator]`.
+  * Each backend *renders* the plan: `[rs-generator]`, `[kt-generator]`, and
+    for a claiming producer `[rs-pass-effects]` / `[kt-pass-effects]`.
     Both keep `Iter<T>`'s existing representation — a factory that mints a
     pass per `for` — so the semantics [fn-iterator] fixed do not move; the
     representation split (`Once Iter<T>` **being** the pass) is roadmap

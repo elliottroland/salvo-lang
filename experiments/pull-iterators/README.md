@@ -171,16 +171,26 @@ designed.
 
 # The effectful prototype (I4)
 
-`effectful.sv` is the program I4's emission half has to produce: a producer that
+`effectful.sv` is the program I4's emission half had to produce: a producer that
 **performs effects while the consumer drives it**. The language part landed
-2026-09-07 ([iter-effects]: the claim is written on the producer's type); this is
-the shape the emitters need in order to stop refusing it.
+2026-09-07 ([iter-effects]: the claim is written on the producer's type), and the
+emission half landed the same day, built against these files — so `effectful.sv`
+now compiles and runs on both backends, and is a test on each side
+(`rustc_compiles_and_runs_an_effectful_producer`,
+`kotlinc_compiles_and_runs_an_effectful_producer`: one source, one expected
+stdout, which is the parity claim).
 
 | file | what it is |
 |---|---|
-| `effectful.sv` | the Salvo source, in the planned language (the checker accepts it today; both backends refuse it) |
-| `effectful.rs` | the state machine plus the per-effect-set runtime, Rust |
+| `effectful.sv` | the Salvo source — compiles and runs today, on both backends |
+| `effectful.rs` | the state machine plus the per-effect-set runtime, Rust — the shape the emitter was aimed at |
 | `effectful.kt` | the same, Kotlin |
+
+The emitters' output differs from the hand-written files only in naming and
+scaffolding: `SalvoPureAsConsole` where the sketch wrote `PureAsConsole`,
+`__advance`/`__close` as inherent methods with the interface forwarding to them,
+and — Kotlin — the `close` in a `finally` rather than a statement after the
+loop, which is how `defer` is lowered there anyway.
 
 ```bash
 rustc --edition 2021 effectful.rs -o ../../tmp/eff/eff_rs && ../../tmp/eff/eff_rs

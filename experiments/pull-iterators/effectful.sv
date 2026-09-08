@@ -1,8 +1,13 @@
-// I4 prototype — an **effectful** producer, in the planned language.
+// I4 prototype — an **effectful** producer.
 //
-// Not compilable today: the checker accepts all of this ([iter-effects] landed
-// 2026-09-07), and both backends *refuse* it, because threading handlers into a
-// generated pass is what this prototype is fixing the shape of.
+// This compiles and runs on both backends as of 2026-09-07: the language half
+// landed first ([iter-effects]) and the emission half was built against *this
+// file*, which is now also a test on both sides
+// (`rustc_compiles_and_runs_an_effectful_producer` /
+// `kotlinc_compiles_and_runs_an_effectful_producer`, same source, same stdout).
+// The hand-written `.rs` and `.kt` beside it are the shape the emitters were
+// aimed at, kept because the findings recorded in PROGRESS.md are only as good
+// as the code they came from.
 //
 // What it is chosen to exercise, in the order it matters:
 //   * a producer that performs effects while the consumer drives it, declared

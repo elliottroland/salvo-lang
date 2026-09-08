@@ -219,6 +219,25 @@ impl Ty {
         }
     }
 
+    /// [iter-effects] The effect claims this producer type carries, as
+    /// effect types, in the **canonical order**: sorted, because the
+    /// generated trait is per effect *set* and `qualify` normalizes
+    /// qualifier order anyway, so two producers written the two ways must
+    /// agree on their machine's parameter order.
+    pub fn effect_claims(&self) -> Vec<Ty> {
+        let mut out: Vec<Ty> = self
+            .quals()
+            .iter()
+            .filter(|q| q.effect)
+            .map(|q| Ty::Named {
+                name: q.name.clone(),
+                args: q.args.clone(),
+            })
+            .collect();
+        out.sort_by_key(|t| t.to_string());
+        out
+    }
+
     /// Applies additional qualifiers to a type (merging and re-sorting).
     pub fn qualify(self, mut new_quals: Vec<Qual>) -> Ty {
         if new_quals.is_empty() {

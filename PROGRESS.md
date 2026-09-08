@@ -1,3 +1,19 @@
+**I4 is complete (2026-09-07): an effectful producer compiles and runs on both
+backends.** The language half landed earlier the same day — a producer's effects
+live on its type, `FileSystem Iter<Str>` [iter-effects] — and the emission half
+is now built: a **generated trait/interface per effect set**
+(`iter_effects.rs` / `iter_effects.kt`, one per set the way `UnionN` is one per
+arity), the handlers threaded into the machine's `advance`/`close`/`__run_dN` as
+*parameters* in the checker's canonical order, a `for` over a claiming producer
+lowered to **mint/advance/close** — which is what finally gives the injected
+`close` a caller — and the **variance adapter** the prototype turned up, at the
+positions the checker records it. Verified with `experiments/pull-iterators/
+effectful.sv` compiled and run by `rustc` *and* `kotlinc`: byte-identical
+stdout, no warnings from either toolchain, and the same source in both backends'
+test suites (the parity claim). The two "producer that performs effects"
+refusals are gone; four narrower ones took their place
+[backend-never-wrong]. Details under "I4 emission as built".
+
 **D8 decided and I4's language half built (2026-09-07): a producer's effects
 live on its type.** `FileSystem Iter<Str>` is a producer whose *driving*
 performs `FileSystem` [iter-effects] — the effect written in **qualifier
@@ -10,14 +26,13 @@ for something calling it never does), and legal exactly where `Once` is legal
 from [fn-effects]: a fn **inherits** a producer parameter's claim, *fewer*
 effects fit where more are expected, the claim never drops, and **holding** a
 producer needs nothing — only driving it does. [iter-effect-free] is gone as a
-rule. Emission is the remaining half, and its **shape is now fixed by a
+rule. Emission followed the same day, and its **shape was fixed by a
 prototype** (`experiments/pull-iterators/effectful.{sv,rs,kt}`, byte-identical
 output on both toolchains, no warnings): a trait/interface per effect set, the
 factory still a factory, and — the finding worth having early — a *variance
 adapter*, because a pure producer used where a claiming one is expected has a
-different representation. Both backends refuse an effectful producer until that
-lands [backend-never-wrong]. Details under "D8 decided" and "I4 emission
-prototyped".
+different representation. Details under "D8 decided", "I4 emission prototyped"
+and "I4 emission as built".
 
 # Salvo Compiler — Progress & Plan
 
@@ -3787,6 +3802,28 @@ Consequences recorded with it:
 - ~~**D8**~~ — **decided 2026-09-07** (option B, the qualifier spelling): see
   "D8 decided" below.
 
+**Leftovers from I4's emission half** (all *refused* today, none silently
+wrong — see "I4 emission as built" for the reasons):
+
+- a **claiming producer nested inside another producer**: the inner pass's
+  handlers would have to thread through the outer machine's own parameters, and
+  its plan slot be typed as the generated trait rather than a plain iterator.
+  The nested *pure* case works, so this is the plan's `FieldKind::Pass` and
+  `Step::Drive` learning about handlers.
+- a **generic effect claim** (`Bucket<Int> Iter<Int>`): the trait is named per
+  effect set, and the set identity would have to include the arguments — in
+  *Salvo's* rendering, since the checker's is what both backends must agree
+  with, which means `pass_effect_sets` carrying `Ty`s rather than strings.
+- a **`for` over a claiming producer in value position**.
+- a **widening between two non-empty claim sets** (`Console Iter<T>` into
+  `Console Logger Iter<T>`): only `from_pure` is generated. Doing it properly
+  means an adapter per (source, target) *pair*, which wants the pairs recorded
+  by the checker the way the sets are.
+- an **effectful `next` on a hand-written pass** (I2b's path, not a generated
+  producer's): still a codegen error on both backends. Different mechanism —
+  the handlers would thread into every turn of a `for_drivers` loop — and it
+  did not fall out of I4's work.
+
 ### D8 decided (user, 2026-09-07): a producer's effects live on its type
 
 **The decision: option B, spelled as a qualifier.** `FileSystem Iter<Str>` is a
@@ -3956,6 +3993,8 @@ Consequences of the decision, whichever way it goes:
   effect-free nothing it does is *observable*: a producer's deferred blocks can
   only touch its own state, which dies with the pass. A test for it could not
   fail today, so it waits for the release path to have something to release.
+  *(It landed with I4's emission half the same day — the `for` over a claiming
+  producer is its caller, and the abandoned-consumer `close` prints.)*
 - **I2c's representation split follows from the same choice**: what
   `Once Iter<T>` renders as (a concrete pass, a boxed one, or a generic
   parameter) is exactly what D8 decides.
@@ -4048,8 +4087,12 @@ no state machine, no compiler support beyond the loop.
 - **`next` must take its state as `Mut`**, checked: the right result shape
   with a non-`Mut` state gets a diagnostic saying so, rather than falling
   through to a puzzling "not iterable".
-- **An effectful `next` is a codegen error** on both backends: threading
-  handlers into every turn is phase I4 [backend-never-wrong].
+- **An effectful `next` is a codegen error** on both backends. This is the
+  *hand-written* pass path (a `Once` type with its own `next` fn, I2b), which is
+  a different mechanism from a generated producer's claim: I4's emission half
+  threads handlers into a machine the compiler wrote, and has nothing to say
+  about a `next` the author wrote. Threading them into every turn of a
+  `for_drivers` loop is still open [backend-never-wrong] — see the leftovers.
 
 **Defect found and fixed: an empty struct emitted invalid Kotlin.**
 `struct Finished {}` became `data class Finished()`, which kotlinc rejects
@@ -4155,9 +4198,10 @@ the same in three places — the generated trait per effect set, the pass's own
 `advance`/`close`, and every `for` that drives one — so it is derived once, by
 the checker: `Checked::producer_effects` (per producer `FnKey`) and
 `Checked::pass_effect_sets` (the distinct sets, one generated trait each, the
-way `union_sizes` drives one `UnionN` per arity). Both backends' refusal now
-reads that table instead of re-reading the written type, which is what proves it
-is wired.
+way `union_sizes` drives one `UnionN` per arity). Both backends read that table
+rather than re-reading the written type — first for the refusal, now for the
+emission itself, which is what keeps the handler order one decision instead of
+three.
 
 Writing it turned up the ordering trap: `Ty::qualify` **normalizes** qualifier
 order, so `Counter Logger Iter<Int>` and `Logger Counter Iter<Int>` are the same
@@ -4172,6 +4216,92 @@ handlers as leading parameters in the recorded order (the emitters already
 thread handlers this way for declared effects); lower a `for` over a claiming
 subject to mint/advance/close; insert the variance adapter at a pure→claiming
 boundary; and drop the two refusals.
+
+### I4 emission as built (2026-09-07): both backends, one program, one stdout
+
+All five steps landed, in that order, Rust end to end first and Kotlin after.
+The acceptance test is the prototype itself: `effectful.sv` is now a test source
+in *both* backends' suites, with the same expected stdout, compiled and run by
+`rustc` and `kotlinc` (`rustc_compiles_and_runs_an_effectful_producer`,
+`kotlinc_compiles_and_runs_an_effectful_producer`). Byte-identical, no warnings
+from either toolchain, and it worked on the first run on each side — which is
+what a fixed shape buys.
+
+**The two unknowns, answered before writing much.**
+
+- **Where the generated trait file lives, and how it names effect traits across
+  modules.** The pure runtime files (`iter.rs`, `iter.kt`) have no cross-module
+  reference at all, so there was no import machinery to reuse. There is now
+  still none: the file is `iter_effects.rs` at the crate root (mounted like
+  `unions.rs`) / `iter_effects.kt` in the root `salvo` package, and it names
+  effect traits by **absolute path** — `crate::core_console::Console`,
+  `salvo.core.console.Console`. Both languages accept a fully-qualified type
+  anywhere a name goes, so the file imports nothing and cannot collide with
+  anything. Modules that *mention* a pass trait pick it up through the glob they
+  already have (`use crate::iter_effects::*;`, `import salvo.*`), gated on a
+  per-file flag exactly like `union_sizes`.
+- **Which expression positions need the variance adapter.** Not a separate
+  question, as it turned out: it is exactly what `maybe_coerce` sees. The
+  widening is recorded as `Coercion::WidenProducer { from, to, then }` beside
+  [str-drop-mut]'s `DropMut` — same funnel, same `then` chaining for the change
+  it displaces — so call arguments, returns, `let` annotations, struct fields,
+  union arms and branch joins are all covered by one insertion, and the emitters
+  do not guess from types. `a_producer_widening_is_recorded_as_a_coercion` pins
+  it: two widenings in a program with three producer positions, and *not* at the
+  argument whose value already claims the set.
+
+**What the checker's own tables forced on the emitters** — both of them, and
+neither obvious from the prototype:
+
+- **A producer fn's `fn_effects` contains its claim**, because that is the
+  environment its *body* is checked in. Read naively for the signature, that
+  gives the factory a leading `console` parameter no call site passes. So a
+  `yield` fn takes **no** effect parameters — which is [iter-effects] restated:
+  none of the body runs when it is called.
+- **`call_effects` at a `for` subject's span holds the drive site's handlers**
+  (the checker records the claim there, since a synthesized driving loop has no
+  call node of its own). When the subject *is* a call, that is the same span the
+  call-argument logic reads, so `chatty(3)` was handed a handler it does not
+  take. Fixed by skipping effect arguments for a producer call: the entry
+  belongs to the drive site, and the drive site is where it is read.
+
+**The release path, at last observable.** The `for` lowering is where the
+injected `close` finally gets a caller, and the two backends reach the same
+behaviour by different mechanisms — which is worth recording, because it is the
+first time the parity principle was satisfied by *different* code rather than
+the same shape twice:
+
+- **Rust** splices `p.close(h);` after the loop *and* registers it as a deferred
+  entry of the driving loop, pushed **before** `loop_defer_floors.push` so a
+  `return` out of the body runs it while `break`/`continue` do not (they land on
+  the call after the loop anyway).
+- **Kotlin** wraps the loop in `try { … } finally { p.close(h) }`, which is how
+  `defer` is lowered there already [kt-defer-finally] — so `break`, `return` and
+  exhaustion all reach it for free.
+
+Both are idempotent, so landing twice costs nothing; `rustc_releases_a_claiming
+_producer_on_a_return` and its Kotlin twin assert the same stdout for a `return`
+out of the middle of a driving loop.
+
+**What is still refused** [backend-never-wrong], on both backends with the same
+wording:
+
+- a **claiming producer nested inside another producer** — its handlers would
+  have to thread through the outer machine, and its slot be typed as the
+  generated trait rather than a plain iterator;
+- a **generic effect claim** (`Bucket<Int> Iter<Int>`) — the set identity would
+  be the backend's rendering of the arguments while the checker's is Salvo's,
+  and two spellings of one set would generate two traits that fit neither;
+- a **`for` over a claiming producer in value position** — the `close` would
+  have to sit in a block that is also producing a value;
+- a **widening between two non-empty claim sets** — only a `from_pure` adapter
+  is generated, and an adapter per *pair* is work nothing asks for yet.
+
+**Naming, for whoever reads the output next.** `pass_suffix(set)` is the effect
+names sanitized and concatenated in the canonical order, giving
+`SalvoPassConsole` / `SalvoIterConsole` / `SalvoPureAsConsole`. It is a function
+of the *set*, so the trait a machine implements and the trait a drive site calls
+are the same trait by construction rather than by agreement.
 
 ### The `Throw` question, answered without new machinery (2026-09-07)
 
@@ -4472,18 +4602,19 @@ site plus a diagnostic, with the LSP surfacing the same message.
   as built"), then both emitters rendering it with the `async`/`iterator { … }`
   machinery deleted ("I3 steps 2–3 as built"). What is left of the `yield`
   half belongs to I2c (the representation split) and I4 (effects).
-- **I4** — ✅ *first half* done 2026-09-07: the **language surface**
+- **I4** — ✅ **Done 2026-09-07**, both halves. The **language surface**
   [iter-effects] — the claim on a producer type, the relocation to the return
   type, position rule 2, inverted variance, never-drop, inheritance, and
-  "driving is what needs the handler". [iter-effect-free] is gone as a rule.
-  Both backends *refuse* an effectful producer for now
-  [backend-never-wrong], which is the same sequencing I2a/I2b used. Remaining:
-  emission — the handlers threaded into `__advance` per resume, which needs a
-  pass to stop being a target-language iterator (one generated interface per
-  effect set, like `UnionN` per arity), and with it the injected `close` (a
-  producer's deferred blocks only become *observable* once it can perform
-  effects, which is why the release path waited). I2c's representation split
-  and I5 follow.
+  "driving is what needs the handler"; [iter-effect-free] is gone as a rule.
+  Then **emission**: a generated trait/interface per effect set
+  ([rs-pass-effects] / [kt-pass-effects]), the handlers as parameters of
+  `advance`/`close`/`__run_dN` in the checker's order, a `for` over a claiming
+  producer lowered to mint/advance/close — which gives the injected `close` its
+  first caller — and the variance adapter at every position the checker records
+  a `Coercion::WidenProducer`. Verified by compiling and running
+  `experiments/pull-iterators/effectful.sv` under both toolchains with identical
+  stdout. See "I4 emission as built" for the two unknowns it had to answer and
+  the four shapes still refused. I2c's representation split and I5 follow.
 - **I5** — Lazy `map`/`filter` in `seq.sv` (the eager-because-of-callbacks
   justification disappears); std surface sweep.
 - **I6** — Sweep: ~48 test fns and 10 of 23 insta snapshots mention
@@ -5706,7 +5837,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 733)
+## Test inventory (all green: 740)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -5714,7 +5845,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 295 - 19 unit tests (file classification, including the
+- `salvo-core`: 296 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -5983,14 +6114,17 @@ and `cargo nextest run` when you want to see which tests cost what.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
-- **12 producer-effect tests** (`tests/iter_effect_tests.rs` [iter-effects]:
+- **13 producer-effect tests** (`tests/iter_effect_tests.rs` [iter-effects]:
   the claim recorded per producer in *canonical* order with one entry per
   distinct effect set (the table both emitters read);
   the claim accepted on `Iter<T>` and on a `canbe Once` type, refused on an
   ordinary type and redirected to the bracket form on a fn type; fewer effects
   fitting where more are expected and the reverse rejected; `^` refused; a fn
   inheriting a producer parameter's claim and its caller having to supply it;
-  and driving needing the handler where *holding* needs nothing).
+  driving needing the handler where *holding* needs nothing;
+  and the **variance adapter recorded as a coercion** at exactly the positions
+  `maybe_coerce` sees — a call argument and an annotated `let`, and not at an
+  argument whose value already claims the set).
 - `salvo-cli`: 80 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -6222,7 +6356,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 137 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 140 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -6329,6 +6463,21 @@ and `cargo nextest run` when you want to see which tests cost what.
   already lazy; plus the kotlinc run of the *same source* the Rust backend
   runs, asserting the *same stdout* — which is the parity claim itself, not
   a Kotlin property)
+  and 4 claiming-producer tests ([iter-effects] [kt-pass-effects]:
+  `kotlinc_compiles_and_runs_an_effectful_producer` — the I4 prototype's own
+  source, asserting the handler as a leading parameter of `__advance`, the
+  `SalvoPassConsole` implementation with `current()` in place of a Kotlin
+  `Iterator`, a handler-free factory, mint/advance/close with the close in a
+  `finally`, the variance adapter, a defer runner taking the handler, and an
+  `iter_effects.kt` that names the effect interface in full and imports
+  nothing — then compiling and running it for the *same stdout the Rust
+  backend asserts*, which is I4's parity claim;
+  `kotlinc_releases_a_claiming_producer_on_a_return`, the same program and
+  stdout as the Rust twin, reached through the `finally` rather than a
+  splice; `kotlinc_compiles_and_runs_a_claiming_producer_in_a_field`, the
+  case that decided D8, same source and stdout as the Rust twin;
+  `unsupported_claiming_producer_shapes_are_refused`, the same wording as the
+  Rust backend's)
   and 2 subject-less `when` tests ([when-condition] [kt-when-cond]:
   `a_subjectless_when_emits_a_subjectless_kotlin_when` asserting the
   Kotlin `when {` with `cond ->` arms, a plain `else ->` with no optional
@@ -6382,7 +6531,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
   `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 110 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 113 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -6499,14 +6648,29 @@ and `cargo nextest run` when you want to see which tests cost what.
   method, its implementation and the call site rendered from one helper, with
   `dyn` for object safety; plus the rustc run of the shared demo); and 3
   lazy-iterator
-  tests ([rs-iter-lazy] [fn-iterator] [iter-effect-free]:
-  `an_iterator_fn_lowers_to_a_lazy_factory` asserting the factory, the
-  `async` body, the slot-and-suspend `yield`, the absence of the old
-  `__yielded` collection and the generated-and-mounted `iter.rs`;
+  tests ([rs-iter-lazy] [fn-iterator] [rs-generator]:
+  `an_iterator_fn_lowers_to_a_state_machine` asserting the factory, the
+  generated pass struct, the flat state dispatch and the
+  generated-and-mounted `iter.rs`;
   `a_for_loop_borrows_an_iter_subject`, the pairing that makes a second pass
   possible; plus the rustc run of an *unbounded* producer that terminates
   because the consumer `break`s and a factory consumed twice — the same
-  source and stdout the Kotlin backend asserts); and 2 refinement tests
+  source and stdout the Kotlin backend asserts);
+  and 4 claiming-producer tests ([iter-effects] [rs-pass-effects]:
+  `rustc_compiles_and_runs_an_effectful_producer` — the I4 prototype's own
+  source, asserting the handler as a leading parameter of `__advance`, the
+  `impl SalvoPassConsole` in place of `impl Iterator`, a handler-free
+  factory, mint/advance/close, the variance adapter at its one boundary, a
+  defer runner taking the handler, and an `iter_effects.rs` that names the
+  effect trait by absolute path and imports nothing — then compiling and
+  running it for the stdout the Kotlin backend asserts byte for byte;
+  `rustc_releases_a_claiming_producer_on_a_return`, the close spliced on the
+  return path *and* after the loop;
+  `rustc_compiles_and_runs_a_claiming_producer_in_a_field`, the case that
+  decided D8 — and the only test that exercises the generated factory's
+  `Clone`/`Debug` impls;
+  `unsupported_claiming_producer_shapes_are_refused` — nested claiming
+  producer, value-position `for`, generic effect claim); and 2 refinement tests
   ([qual-refn] [qual-erasure] [qual-refn-conflict]:
   `rustc_compiles_and_runs_a_refined_program`, the same source and stdout the
   Kotlin backend asserts, with no `qualifies` call in the emitted `main`; and
@@ -6558,6 +6722,42 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A checker table's *purpose* is not its shape.** Two tables I4's emission
+  read said what they were for and had to be read against the grain anyway.
+  `fn_effects` of a producer contains its claim — because that is the
+  environment its *body* is checked in — so rendering the signature from it
+  gave the factory a handler parameter no call site passes. And `call_effects`
+  at a `for` subject's span holds the *drive* site's handlers (a synthesized
+  loop has no call node of its own), which is the same span the argument logic
+  reads when the subject is a call, so a producer call was handed a handler it
+  does not take. Both cost one guard, and both looked like the emitter's bug
+  until the table's comment was read. When a table is keyed by a span that two
+  constructs share, say which construct owns it.
+- **When a claim is a representation, it is not a qualifier any more.** Every
+  qualifier before this one *erased* on both backends, so both emitters had one
+  line each saying so (`let _ = quals;`). An effect claim on a producer is
+  written where a qualifier goes and behaves like one everywhere except the one
+  place that matters: `Console Iter<Int>` is a different type from `Iter<Int>`.
+  The tell that this was going to cost something was in the prototype, in the
+  form of the variance adapter — a "widening" that has to emit code is a
+  representation change wearing a qualifier's clothes.
+- **Two backends reaching one behaviour by different mechanisms is a feature,
+  not a smell.** The injected `close` had to run on `break`, `return` and
+  exhaustion. Rust splices the call at each exit and registers it as a deferred
+  entry so a `return` picks it up; Kotlin wraps the loop in `try`/`finally` and
+  gets all three for free — because that is how `defer` is already lowered
+  there. Forcing one shape would have meant either a `finally` Rust does not
+  have or a splice list Kotlin does not need. What must match is the *output*,
+  which is what the shared program and shared expected stdout test.
+- **A generated support file that mentions other modules wants no imports at
+  all.** `iter_effects.rs`/`iter_effects.kt` are the first generated files with
+  cross-module references, and the question "how do they import the effect
+  traits" had an answer that removed the question: name them in full
+  (`crate::core_console::Console`, `salvo.core.console.Console`). Both
+  languages accept a fully-qualified type anywhere, so there is no import
+  ordering, no alias collision, and nothing to keep in sync with the module
+  emitter.
 
 - **Adding a file to `std/` does not always reach the CLI.** The embedded
   standard library is `include_dir!("$CARGO_MANIFEST_DIR/../../std")` in

@@ -256,8 +256,59 @@ fn main() [use] -> None {
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-/// And never the reverse: a producer that performs `Logger` may not be driven
-/// where no handler can be supplied.
+/// [iter-effects] And the fit is **recorded**, because it is not free: a
+/// claiming producer has a different representation on both backends (its
+/// `advance` takes a handler), so the checker marks the boundary with
+/// `Coercion::WidenProducer` and the emitters render the adapter there. Which
+/// positions need it is therefore not a separate question — it is every
+/// position `maybe_coerce` sees, and here that is a call argument and a `let`
+/// annotation.
+#[test]
+fn a_producer_widening_is_recorded_as_a_coercion() {
+    let (checked, _program) = checked_of(
+        "fn pure_producer(n: Int) -> Iter<Int> {
+    yield n
+}
+
+fn drive(xs: Logger Iter<Int>) -> None {
+    for v in xs {
+        log(\"got\")
+    }
+    return None
+}
+
+fn main() [use] -> None {
+    use QuietLogger()
+    drive(pure_producer(1))
+    let widened: Logger Iter<Int> = pure_producer(2)
+    drive(widened)
+}
+",
+    );
+    let widenings: Vec<(String, String)> = checked
+        .coerce
+        .values()
+        .filter_map(|c| match c {
+            salvo_core::check::Coercion::WidenProducer { from, to, .. } => {
+                Some((from.to_string(), to.to_string()))
+            }
+            _ => None,
+        })
+        .collect();
+    // The argument and the annotated `let` — and *not* `drive(widened)`, whose
+    // value already claims the set.
+    assert_eq!(widenings.len(), 2, "{widenings:?}");
+    assert!(
+        widenings
+            .iter()
+            .all(|(from, to)| from == "Iter<Int>" && to == "Logger Iter<Int>"),
+        "{widenings:?}"
+    );
+    // The target set needs its generated trait even though no producer in this
+    // program *claims* it: the adapter implements it.
+    let sets: Vec<Vec<String>> = checked.pass_effect_sets.iter().cloned().collect();
+    assert_eq!(sets, vec![vec!["Logger".to_string()]]);
+}
 #[test]
 fn more_effects_do_not_fit_where_fewer_are_expected() {
     let errs = errors(

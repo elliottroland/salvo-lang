@@ -497,10 +497,52 @@ same programs running ([rs-effect-fusion]).
       resume* — it could only capture one at creation, and when a handler
       is bound is observable (the backend-parity principle). One lowering on both
       backends is the point [iter-generator].
-  * [iter-effects] The captured handler that made the JVM side *work*
-    here is what the restriction protects against: Kotlin could happily
-    perform an effect from inside the builder long after the call returned,
-    and Rust could not, so the program would mean two different things.
+  * [iter-effects] A captured handler is what the parity principle rules
+    out here: Kotlin could happily perform an effect from inside the builder
+    long after the call returned, and Rust could not, so the program would
+    mean two different things. The handlers are parameters instead
+    [kt-pass-effects].
+* [kt-pass-effects] A **claiming** producer (`Console Iter<T>`
+  [iter-effects]) has a representation of its own, because a pass whose
+  `advance` takes a handler cannot be a Kotlin `Iterator<T>`. Generated into
+  `iter_effects.kt` in the root `salvo` package, one set of declarations per
+  effect *set* the program needs — the way `unions.kt` gets one wrapper per
+  arity:
+  * `interface SalvoPass<Suffix><T>` with `advance(<handlers>): Boolean`,
+    `current(): T` and `close(<handlers>)`; the suffix is the effect names
+    concatenated, and the **handler order is the checker's**
+    (`Checked::producer_effects` / `pass_effect_sets`), shared by the
+    interface, the machine and every drive site.
+  * **Advance-and-report, not `next()`**: `advance` says whether there is an
+    element and leaves it in `current()`, because a `T?` return could not
+    tell "no more" from "the element is null" — the same reason
+    `SalvoPass<T>` holds `Any?` and the protocol tags its end.
+  * `fun interface SalvoIter<Suffix><T> { fun mint(): SalvoPass<Suffix><T> }`
+    — still a **factory**, so the claim costs no replayability.
+  * `class SalvoPureAs<Suffix><T>(source: Iterable<T>)`: the **variance
+    adapter**, whose `advance` ignores the handler. Inserted where the
+    checker recorded `Coercion::WidenProducer`, which is every position
+    `maybe_coerce` sees.
+  * The generated file names effect interfaces in **full**
+    (`salvo.core.console.Console`) and imports nothing: it lives in the root
+    package and mentions interfaces from arbitrary module packages.
+  * The pass class implements the interface instead of extending
+    `SalvoPass<T>`, holding `__current` itself; the handlers are prepended to
+    `__advance`, `__close` and each `__run_d<i>` — a deferred block may
+    itself perform effects — and `advance`/`current`/`close` forward to
+    them. The producer fn itself takes **no** effect parameter: none of the
+    body runs when it is called.
+  * A `for` over a claiming subject is `val p = <subject>.mint()`, then
+    `try { while (p.advance(<handlers>)) { val v = p.current(); … } } finally
+    { p.close(<handlers>) }`. The `finally` is what makes `break`, `return`
+    and exhaustion all release the producer — the same mechanism `defer` uses
+    here [kt-defer-finally], where the Rust backend splices the call at each
+    exit. `close` is idempotent, so the release happens exactly once either
+    way.
+  * Refused rather than mis-rendered [backend-never-wrong], with the same
+    wording as the Rust backend: a claiming producer nested inside another
+    producer, a generic effect claim, a `for` over one in value position, and
+    a widening between two *non-empty* claim sets.
 * [fn-dot] Dot-notation calls resolve to a declared fn or effect
   member and normalize to `f(base, args)`. There is no method-call
   fallback: an unresolved name here is a *codegen error* naming an internal

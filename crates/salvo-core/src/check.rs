@@ -137,6 +137,24 @@ pub enum Coercion {
         from: Ty,
         then: Option<Box<Coercion>>,
     },
+    /// [iter-effects] The **variance adapter**: a producer performing
+    /// *fewer* effects is used where more are expected. Nothing in the type
+    /// rules hints at a conversion — fewer effects simply fit — but on both
+    /// backends a claiming producer has a *different representation* from a
+    /// pure one (its `advance` takes a handler), so the widening is a real
+    /// wrapper. Recorded here rather than guessed at from types by each
+    /// emitter, the standing checker/emitter agreement, and for the same
+    /// reason [str-drop-mut] is recorded: one side deciding is one place to
+    /// fix.
+    ///
+    /// `from`/`to` are the two producer types, so a backend reads both
+    /// effect sets off them; `then` carries the representation change this
+    /// displaced, exactly as `DropMut` does.
+    WidenProducer {
+        from: Ty,
+        to: Ty,
+        then: Option<Box<Coercion>>,
+    },
 }
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
@@ -9447,11 +9465,19 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// [str-drop-mut] A `Mut` qualifier dropped on the way is recorded too,
     /// wrapping whatever the representation math decided.
+    ///
+    /// [iter-effects] So is a producer *widening* — a pure producer used
+    /// where a claiming one is expected — for the same reason: the two have
+    /// different representations on both backends. Which positions need the
+    /// adapter is therefore not a separate question: it is every position
+    /// that funnels through here (call arguments, returns, `let`
+    /// annotations, struct fields, union arms, branch joins).
     fn maybe_coerce(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
         self.coerce_repr(span, logical, repr, expected);
         if expected.is_unknown() || logical.is_unknown() {
             return;
         }
+        self.maybe_widen_producer(span, logical, repr, expected);
         // A `Mut` arm anywhere in the expected type means the value may
         // stay a builder: `Mut Str`, `Mut Str?`, and a generic position
         // (whose pattern is substituted to the argument's own type) all
@@ -9470,6 +9496,72 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         self.record_mut_drop(span, from);
+    }
+
+    /// [iter-effects] Whether the value at `span` needs the **variance
+    /// adapter**: it is a producer claiming *fewer* effects than the
+    /// position expects, which fits by the rule and yet is a different
+    /// representation on both backends.
+    ///
+    /// Only a top-level claim is recorded. A producer nested inside a union
+    /// arm or an optional would need the adapter one level down, which no
+    /// backend can render yet — the emitters refuse that shape rather than
+    /// widening the wrong value [backend-never-wrong].
+    fn maybe_widen_producer(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
+        let want = expected.effect_claims();
+        if want.is_empty() {
+            return;
+        }
+        // The value's own type, preferring the logical one: a narrowing
+        // never removes a claim (it never drops [iter-effects]).
+        let from = if matches!(logical, Ty::Nothing | Ty::Unknown | Ty::Any | Ty::Var(_)) {
+            return;
+        } else if matches!(logical.strip_quals(), Ty::Named { .. }) {
+            logical
+        } else if matches!(repr.strip_quals(), Ty::Named { .. }) {
+            repr
+        } else {
+            return;
+        };
+        // Same base type, or this is not a producer flowing into a producer
+        // position at all.
+        let (Ty::Named { name: have_base, .. }, Ty::Named { name: want_base, .. }) =
+            (from.strip_quals(), expected.strip_quals())
+        else {
+            return;
+        };
+        if have_base != want_base {
+            return;
+        }
+        let have = from.effect_claims();
+        if have == want {
+            return;
+        }
+        let key = self.key(span);
+        let then = match self.out.coerce.remove(&key) {
+            // Already recorded: keep it, and do not nest a widening in a
+            // widening.
+            Some(Coercion::WidenProducer { from, to, then }) => {
+                self.out
+                    .coerce
+                    .insert(key, Coercion::WidenProducer { from, to, then });
+                return;
+            }
+            other => other.map(Box::new),
+        };
+        self.out.coerce.insert(
+            key,
+            Coercion::WidenProducer {
+                from: from.clone(),
+                to: expected.clone(),
+                then,
+            },
+        );
+        // The target set needs its generated trait even when no producer in
+        // the program *claims* it — an adapter's `advance` implements it.
+        self.out
+            .pass_effect_sets
+            .insert(want.iter().map(|t| t.to_string()).collect());
     }
 
     /// Whether a type carries the `Mut` qualifier at its top level.
