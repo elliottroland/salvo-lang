@@ -970,12 +970,14 @@ Conventions:
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
 * [iter-resolve] A `for` subject must be an array, an `Iter<T>`, a **pass**
-  [iter-protocol], or a value some declared `iter` overload accepts (the
-  implicit `iter(subject)` call); anything else is an error.
-  * Resolution order: `Iter<T>` and arrays natively, then `next`
-    [iter-protocol], then `iter`. `next` comes before `iter` because a type
-    with both is *already* a position in a sequence, so minting a second
-    pass from it would be wrong.
+  — a type declaring `: Yield<T>` [iter-protocol] [group-obligation] — or a
+  value some declared `iter` overload accepts (the implicit `iter(subject)`
+  call); anything else is an error. When the subject has a protocol-shaped
+  `next` but no declaration, the error names the `: Yield<T>` remedy.
+  * Resolution order: `Iter<T>` and arrays natively, then the declared pass
+    [iter-protocol], then `iter`. The pass comes before `iter` because a
+    type with both is *already* a position in a sequence, so minting a
+    second pass from it would be wrong.
 * [iter-protocol] The pull iteration protocol is declared in std
   (`std/core/iterator.sv`), not built into the compiler: a **pass** is a
   value some `next` accepts, and `next` reports
@@ -989,17 +991,27 @@ Conventions:
     `None | None` would have one. `Finished` is a fieldless struct — it has
     nothing to qualify, and `None` would say "absent" where the claim is
     "the sequence ended".
-  * `params Iterator<St, T> { fn next(st: Mut St) -> [st: Mut] Emitted T |
-    Finished }` [implicit-group]: a type of your own becomes drivable by
-    declaring one `next`. The state is `Mut` because advancing a pass
-    mutates its position.
+  * `params Yield<T> { fn next(s: Mut Self) -> [s: Mut] Emitted T |
+    Finished }` [group-obligation] [group-self]: a type of your own becomes
+    drivable by declaring `: Yield<T>` and supplying the `next` — checked at
+    the struct, where a misspelled member is caught, rather than surfacing
+    as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
+    this replaced `params Iterator<St, T>` and the `Once` requirement). The
+    state is `Mut` because advancing a pass mutates its position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
-  * **A pass must declare itself `Once`** [once-fn]: a value with a `next`
-    and no `Once` is an error at the `for`, naming the remedy (`canbe Once`
-    on the type, `Once T` on the builder's return). `next` says the value
-    can be advanced; `Once` says advancing uses it up, and only the author
-    knows the second.
+  * **`for` reads the declaration** — the `: Yield<T>` clause is the one
+    fact that makes a value a pass, and the element type is the clause's
+    argument. The overload scan only resolves *which* `next` (and the arm
+    identity); when the obligation is declared but unsatisfied, the error
+    has already landed at the struct and the loop stays lenient, answering
+    the declared element type [type-unknown-lenient]. A matching `next`
+    without the clause is not a pass ([iter-resolve] names the remedy) —
+    the tie is declared, never inferred from a method name.
+  * Driving consumes the subject: it is moved into the loop, exactly as the
+    `Once` passes it replaced were. Drive-in-place (`Mut` borrow — "a
+    second drive continues") is recorded as the eventual semantics and
+    deferred with `Once`-on-producers\' deletion (R5).
   * `next` takes its state as `Mut St`: advancing a pass mutates its
     position, and the backends pass a mutable place. A `next` with the right
     *result* shape and a non-`Mut` state is an error saying so, rather than
@@ -1011,7 +1023,7 @@ Conventions:
     from the declaration is exactly the checker/emitter disagreement the
     invariants forbid.
   * **Lowering** (both backends, phase I2c): the subject is moved into a
-    local — driving consumes a pass [once-fn], so nothing else is looking at
+    local — driving consumes a pass, so nothing else is looking at
     it — and each turn calls `next` on a mutable place.
     * Rust: `while let Union2::U1(mut n) = next(&mut __loop1_pass) {`. A
       `while let` re-evaluates its condition per turn, so `Finished` needs
@@ -1138,6 +1150,52 @@ Conventions:
   * Two implicits of the same name in one signature are an error: with no
     binder nothing tells them apart, and [var-no-shadow] would refuse them
     in the body. The remedy is to write the clashing ones out individually.
+* [group-obligation] A `params` group may be stated as an **obligation** on
+  a struct declaration: `struct Lines : Linear, Yield<Str> canbe Mut { … }`
+  — a `:` clause between the generics and `canbe`, comma-separated, each
+  entry a group name with type arguments (user decisions 2026-09-08,
+  roadmap R1). Where `?Group<T>` asks the *call site* to supply the members,
+  `: Group<T>` promises they exist for this type, and the promise is checked
+  **at the struct**:
+  * the name must be a visible `params` group (a type or qualifier there is
+    a position mistake with its own hint), with the group's arity;
+  * the same group twice is an error;
+  * every member must be satisfied by a **visible fn overload**: parameter
+    types and return type equal, positionally, up to a *bijective* renaming
+    of type variables — so a generic struct satisfies a group through its
+    own type parameters, and `(A, A)` never matches `(A, B)`. The member's
+    parameter *names* belong to the group and are not required of the
+    implementation (unlike [qual-refn-match], which picks an overload
+    someone already declared). Effects are deliberately not compared: the
+    group declares none, each implementation declares its own. A failure is
+    an error at the declaration naming the missing signature with `Self`
+    substituted.
+  * The obligation adds no scope and no dispatch: the satisfying fn is an
+    ordinary overload, and calls to it resolve as ever [fn-overload]. The
+    clause moves the *check* to the declaration; nothing is designated in
+    the mechanism itself (`Yield<T>`/`Linear` designation is roadmap
+    R2/R4).
+* [group-self] `Self` inside a `params` group's member signatures stands for
+  the **declaring type** of whichever struct states the obligation — scoped
+  like a generic, bound at the obligation (`Self := Countdown`, with the
+  struct's own generics as variables). Consequences:
+  * a group whose members mention `Self` cannot be spread as `?Group<...>`:
+    nothing binds `Self` in a signature, and the error names the obligation
+    form as the remedy;
+  * `Self` outside a `params` group is an unknown type, as ever.
+* [group-not-a-value] **No value may have a group as its type** (user
+  decision 2026-09-08). `items: Yield<Int>` is an error in every type
+  position — parameter, return, field, `let` annotation, type argument,
+  union arm, array element. There is no `dyn`, no erasure, no interface
+  value: a group constrains a *named* type and is resolved statically. This
+  is the single restriction that keeps the mechanism a where-clause rather
+  than a trait, so it is a rule in its own right and not a consequence of
+  one.
+  * One mistake, one diagnostic: the refusal is reported by validation
+    (`reject_group_as_data`), the unknown-type error is suppressed for
+    group names, and the *lowering* of a group-typed annotation is
+    `Ty::Unknown` so no type-mismatch cascade follows
+    [type-unknown-lenient].
 * [implicit-infer] **What fills an implicit can determine the call's type
   arguments** (user design 2026-09-06, built with the sequence functions).
   Resolution feeds back into the substitution *between* the arguments, so a

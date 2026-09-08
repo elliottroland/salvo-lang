@@ -111,6 +111,28 @@ and "I4 emission as built".
 
 # Salvo Compiler — Progress & Plan
 
+**The iterator reduction is under way (2026-09-08): R0–R2 of six phases are
+done, R3 is next.** The user decided a wholesale simplification — a pass is a
+user struct, `for` is sugar for `next` until `Finished`, `Iter<T>` goes away —
+and the day's work landed, in order: **R0**, the hand-written prototype on
+both backends (`experiments/next-reduction/`, six shapes, one byte-identical
+stdout), which settled unknown 2 (composition renders the group member as an
+*implicit*, not a bound — an effectful `next` cannot implement a fixed trait
+method) and reshaped unknown 1 into the **origin-struct model** (the user's:
+`struct Counter : Yield<Int>` + `yield fn next(c: Counter) -> Int`, the state
+machine hidden and unnameable); **R1**, obligation groups as a mechanism
+([group-obligation] [group-self] [group-not-a-value]: `: Group<Args>` checked
+at the struct, `Self` bound to the declaring type, and *no value may have a
+group as its type* — the rule that keeps this a where-clause, not a trait);
+and **R2**, `Yield<T>` designated in std and `for` reading the declaration —
+the `Once`-on-passes requirement is gone, a matching `next` without the
+clause gets a remedy hint, and driving still consumes (drive-in-place waits
+for R5). Decisions taken along the way, all the user's: a `close` never
+implies `Linear` (roadmap L8 records the composition casualty), `canbe
+Linear` keeps its spelling beside `: Linear`, the Rust fn-typed-field refusal
+lifts in R5 as `Rc<dyn Fn…>` fields. See "Roadmap: iterators — the reduction
+to `next`" for the phase notes and the three R3 sub-answers already settled.
+
 **The `yield` lowering is built (2026-09-07): one state machine, planned in
 `salvo-core`, rendered by both backends.** `generator.rs` turns a `yield` fn
 body into a `GeneratorPlan` [iter-generator] — numbered states of steps, the
@@ -3275,6 +3297,35 @@ L6 landed 2026-09-02 with its own LANGUAGE.md section and the
 [linear-*] rule family. Per AGENTS.md, each phase lands with
 LANGUAGE_SPEC.md rules and tests at every affected layer.
 
+### L8 — Composition and conditional linearity (opened 2026-09-08)
+
+Deferred deliberately, and the iterator reduction is what makes it concrete.
+`Linear` becomes a designated obligation group in R4 (see "Decided (user,
+2026-09-08): `Linear` becomes a compiler-known obligation group"), and with it
+comes an **interim refusal**: storing a linear value in a composite — struct
+field, type argument, array/tuple/union component — is an error rather than
+making the composite linear, which is what `[linear-composite]` says today.
+
+Two things to consider together when this is picked up, both recorded from the
+decisions and the R0 prototype rather than guessed:
+
+- **A linear pass cannot be composed.** `map_lazy(open_lines("a.txt"), f)` is
+  refused, because a composed pass stores its source. So "can you `map` over a
+  file's lines?" is currently *no*, and it is the test case to design against:
+  it is the canonical reason to want lazy sequences at all. The user accepted
+  the interim uncomposability (2026-09-08) rather than widening the rule early.
+- **The fallible-open shape.** S-IO settled on `Ok InputStream | Err Str`, and a
+  linear value in a union arm is exactly what the interim rule refuses — so
+  S-IO needs either an exception for union arms or a different result shape.
+
+And two spellings that must stay distinct, decided with the group
+(2026-09-08): `: Linear` on a *type declaration* is the obligation ("provides a
+`close`"), while `canbe Linear` on a *type parameter* is permission ("may be
+instantiated with a linear type"). Conditional linearity is where the second
+grows teeth — `Wrapper<T>` being linear exactly when `T` is — and it is also
+where the composite refusal can be lifted without making every container
+linear. The presence of a `close` function never implies either.
+
 ## Roadmap: effects
 
 ### E1 — Effect-to-effect dependencies (✅ complete 2026-09-04)
@@ -3825,7 +3876,7 @@ preserves Kotlin's repeatable semantics exactly. It is back on the table
 under the next section, which supersedes this one's *implementation*
 (the semantics it chose — lazy, both backends — are kept).
 
-## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0 done, R1 next)
+## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0–R2 done, R3 next)
 
 **Standing back from what was built.** After I4/I5 landed, the user asked for an
 evaluation of the whole iterator design rather than the next increment, and the
@@ -3871,6 +3922,11 @@ already the un-smuggled version of the same thing; keeping both was the mistake.
    native loop as a fast path. The language gets no special case; the emitters
    keep the one they have.
 4. **A `yield` fn is sugar** that generates the pass struct and its `next`.
+   *Refined 2026-09-08 (user): the generated struct is **hidden**.* The author
+   declares an *origin* struct carrying `: Yield<T>` and writes
+   `yield fn next(origin) -> T` — the return type is the element type, and the
+   machine is not nameable. Whoever wants the state struct writes the raw
+   `next`. See "Unknown 1: the origin-struct model".
 5. **The element type is declared, not encoded in a name**, so `for` resolves
    `next` nominally and the reader sees what a pass yields where it is declared.
    Now folded into the `params`-obligation proposal below.
@@ -3907,10 +3963,13 @@ answers:
   *convenience* … it can be relaxed to a plain obligation whenever we want the
   user to see it") and left one thing undecided — *whether a hand-written
   iterator's state must be `canbe Linear` by rule*. Under the reduction every
-  pass is a named struct, so that is now the only question. Proposed answer: a
-  pass type that declares a `close` must be linear; one that does not, need
-  not. `for` is not the only driver — a hand-written `while` around `next` has
-  no sugar to inject anything — so it has to be checked rather than injected.
+  pass is a named struct, so that is now the only question, and it is
+  **decided (user, 2026-09-08): a `close` does not make a pass linear.** Only
+  `: Linear` on the type does, and generic code that may carry one opts in with
+  `<T canbe Linear>`; R0's finding 4 is why (the alternative made most
+  generated passes uncomposable). So `for` calls a `close` when one exists,
+  while a hand-written `while` around `next` may abandon a non-linear pass
+  unchecked — accepted, since `for` covers the path people write.
 
 ### Open: declaring the tie between functions and structs (user proposal 2026-09-08)
 
@@ -3938,12 +3997,16 @@ restriction that makes the mechanism a where-clause rather than a trait, so it
 is a rule in its own right and not a consequence of one.
 
 **Open sub-questions**: how a per-type effect set reaches the group's members
-(`Lines`'s `next` performs `FileSystem`); whether `Self` unifies with today's
-`params Iterator<St, T>` shape (which already takes the state as its first
-parameter, making `: Iterator<Self, Str>` the un-sugared form); whether
-`canbe Linear` stays the marker with a separate release group, so the change is
-additive; and whether obligations may ever be conditional (`Wrapper<T> :
-Yield<T>` only when `T` yields) — recommended: unconditional only, to start.
+(`Lines`'s `next` performs `FileSystem`) — recommended and prototyped: each
+implementation declares its own, the group declares none. **Answered
+2026-09-08**: `Self` and today's `params Iterator<St, T>` shape are the two
+*renderings* of one group rather than rivals — `Self` is the **bound** form and
+state-as-parameter is the **implicit** form — and composition uses the implicit
+(user decision; see unknown 2). Both spellings therefore live. Also open:
+whether obligations may ever be conditional (`Wrapper<T> : Yield<T>` only when
+`T` yields) — recommended: unconditional only, to start; and `canbe Linear`
+stays the *type-parameter* opt-in beside `: Linear` as the *declaration*
+clause, which is what makes the change additive.
 
 ### Decided (user, 2026-09-08): `Linear` becomes a compiler-known obligation group
 
@@ -3982,10 +4045,36 @@ concern, user note 2026-09-08 "no-one is using this language yet"):
   (`canbe Mut`, `canbe Once`), while `:` means "must provide these".
 - `[linear-discard]` — `discard` stays for non-linear values; for a linear one it
   becomes a refusal naming `close`.
-- `[linear-generics]` — `<T canbe Linear>` needs a new spelling (`<T: Linear>`),
-  and it becomes a *bound on an obligation group*. Worth stating when it is
-  written: a bound is not an interface — there is still no value whose type is a
-  group, so no erasure and no `dyn`.
+- `[linear-generics]` — `<T canbe Linear>` **keeps its spelling** (user
+  decision 2026-09-08, superseding this plan's earlier `<T: Linear>`
+  suggestion). The two clauses say different things and should not be spelled
+  alike: `canbe Linear` on a *type parameter* is permission — "this generic may
+  be instantiated with a linear type, and its body is checked under that worst
+  case" — while `: Linear` on a *type declaration* is obligation — "this type
+  provides a `close`". A bound is still not an interface: there is no value
+  whose type is a group, so no erasure and no `dyn`.
+
+**Decided (user, 2026-09-08): a `close` does not make a type linear.** R0's
+finding 4 (below) forced this: the proposed answer to abandonment — *a pass
+declaring a `close` must be linear* — collides with the interim composite rule,
+because a composed pass stores its source and every `yield` fn with a `defer`
+gets a `close`. Together they would have made most generated passes
+unmappable. The rule instead:
+
+- **`: Linear` on the type is the only thing that makes a value linear.** A
+  bare `close` function is an ordinary function; the `for` sugar still calls it
+  as the release path, and nothing is obliged.
+- **Generic code opts in with `<T canbe Linear>`**, as it does today, and
+  **the concrete type must say `: Linear`** for the obligation to exist at all.
+  So both halves are explicit: the function admits it may carry a linear value,
+  and the type admits it is one. Neither is inferred from a member's presence —
+  attaching an obligation on the strength of a function name is what [qual-*]
+  keeps the compiler from doing, and it is the same argument that made
+  hand-written passes declare `Once` rather than have it inferred from `next`.
+- **What it costs**: a pass with a `defer` (so, most generated ones) is *not*
+  linear, so a hand-written `while` driver may abandon one without closing it
+  and the checker will not complain. Accepted — the `for` sugar covers the
+  path people write, and the alternative was worse.
 
 **Open, and the first thing a user will hit**: `[linear-composite]` says a
 composite containing a linear component is itself linear. **Interim decision
@@ -4008,6 +4097,19 @@ parameter or a return value, which is all the iterator use case needs (open a
   unavailable, so S-IO needs either an exception for union arms or a different
   result shape. Not a reason to change the interim rule, but it should not be a
   surprise when the filesystem work restarts.
+- **Second known casualty (user accepted 2026-09-08, recorded for
+  reconsideration): a linear pass cannot be composed.** `map_lazy(open_lines("a.txt"), f)`
+  is refused, because a composed pass stores its source and `Lines` is
+  `: Linear` — so mapping, filtering or zipping over a file's lines, which is
+  the canonical reason to want lazy sequences at all, is unavailable. The
+  interim shape that *is* available is to drive the linear pass by hand and
+  yield from inside a `yield` fn, which re-wraps it rather than composing it.
+  The user accepted the interim uncomposability rather than widening the rule
+  now; it should be first in the queue when composition and conditional
+  linearity are tackled together, and it is the concrete test case to design
+  against — "can you `map` over a file?" answers whether the composite rule
+  landed usefully.
+
 
 ### Implementation plan: the reduction, in six phases (written 2026-09-08)
 
@@ -4076,11 +4178,12 @@ shape proves; the findings, in the order they matter:
    passes uncomposable.** The proposed abandonment answer (*a pass declaring a
    `close` must be linear*) meets the interim rule (*storing a linear value in
    a composite is an error*), and a composed pass stores its source — so every
-   `yield` fn with a `defer` would be unmappable. The prototype keeps the two
-   independent (`Chatty` has a `close` and is not `Linear`; `Lines` declares
-   `: Linear`), which is what lets it run. **A decision, not a detail**, and
-   either way mapping over a *linear* pass — a file's lines — stays
-   unavailable until composition or conditional linearity lands.
+   `yield` fn with a `defer` would be unmappable. **Decided (user,
+   2026-09-08): the two are independent** — `: Linear` on the type is the only
+   thing that makes a value linear, generic code opts in with
+   `<T canbe Linear>`, and a `close` implies nothing. `Chatty` has a `close`
+   and is not `Linear`; `Lines` declares `: Linear`. Accepted cost and
+   casualty are recorded under the `Linear`-group decision and as roadmap L8.
 5. **Smaller, all verified.** `Mut` on a user struct is only reachable through
    a qualified struct literal (`Mut Countdown { at: 3 }`) — a plain literal
    cannot be coerced and `for x in Mut P { … }` is a parse error, so a pass
@@ -4105,6 +4208,46 @@ without a matching function is an error naming the missing signature); the
 no-value-of-group-type rule. Designate nothing yet — prove it with a group
 declared in a test. Nothing else in the language changes.
 
+#### R1 as built (2026-09-08): the mechanism, designating nothing
+
+Done, green (`cargo build` warning-free, full suite passing). The mechanism
+exists and is proven with groups declared in tests; the compiler designates
+nothing yet.
+
+- **Syntax**: `StructDecl.obligations`, parsed from `struct Name<G> : A,
+  B<Args> canbe … { … }` — obligations before `canbe`, because `:` states
+  what the type must *provide* while `canbe` states what it may be qualified
+  as. Two parser tests.
+- **`Self`** [group-self]: legal in a `params` group's member signatures,
+  scoped like a generic (one `HashSet` insertion — the modeling the user
+  offered a fallback for turned out to cost nothing). Bound only by an
+  obligation: spreading a `Self`-using group as `?Group` is refused naming
+  the obligation form, and `Self` elsewhere stays an unknown type.
+- **Declaration-site checking** [group-obligation] (`check_obligations`, in
+  the `Item::Struct` arm): unknown group (with is-a-type/is-a-qualifier
+  position hints), arity, duplicate obligation, and member satisfaction —
+  the expected signature is the member's `Ty::Fn` with group generics bound
+  to the written args and `Self` to the declaring type (its own generics as
+  variables), matched against every visible overload of the member's name
+  **up to a bijective variable renaming** (`tys_match_renamed`): a generic
+  `Zip<A, B>` satisfies through its own parameters, and `(A, A)` never
+  matches `(A, B)`. Parameter names are the group's own, deliberately
+  *unlike* [qual-refn-match]; effects are not compared (the group declares
+  none, each implementation declares its own — R0 unknown 4's answer).
+  Failures name the missing signature at the struct.
+- **[group-not-a-value]**: a group name is refused in every type position
+  (`reject_group_as_data`, mirroring [effect-not-data]'s shape). Two details
+  worth keeping: `require_name` *suppresses* its unknown-type error for
+  group names so one mistake gets one diagnostic, and the lowering of a
+  group-typed annotation is `Ty::Unknown` so no mismatch cascade follows
+  [type-unknown-lenient] — found by the return-position test, which saw
+  "expected return type `Pair<Int>`, found `Int`" trailing the refusal.
+- **Tests**: `salvo-core/tests/group_tests.rs` (12 — satisfaction incl.
+  `Mut Self` and the generic/bijective cases, wrong-shape, unknown/arity/
+  duplicate, both `Self` rules, and the six-position not-a-value sweep) plus
+  2 parser tests. One insta snapshot changed, by the new empty
+  `obligations: []` field only.
+
 **R2 — designate `Yield<T>`, and make `for` read the declaration.** A pass type
 declares `: Yield<T>`; `for` resolves `next` from that declaration instead of
 scanning overloads, and takes the element type from it. `Iter<T>` is untouched,
@@ -4113,24 +4256,73 @@ becomes read-the-declaration-then-`iter`. The driving *emission* already exists
 (the `for_drivers` `while let` loop from I2b/I2c), so this phase is checker work
 with almost no emitter work.
 
-**R3 — retarget the `yield` sugar.** A `yield` fn's return type *names* the pass
-struct it declares; the compiler generates `struct X : Yield<T> canbe Mut` with
-the plan's fields, a `next` that is the plan's `__advance`, and a `close` when
-the body has deferred work. `generator.rs`'s plan survives unchanged — this is a
-change to what the emitters *render around* it. `Iter<T>`-returning `yield` fns
-stop being legal here, so this is where the corpus and most tests move.
+#### R2 as built (2026-09-08): `for` reads the declaration
+
+Done, green (full suite 767, both toolchains' e2e recompiling the rewritten
+sources to the same stdout). `std/core/iterator.sv` now declares the
+designated group — `params Yield<T> { fn next(s: Mut Self) -> [s: Mut]
+Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
+**a type declaring `: Yield<T>`**, full stop.
+
+- **`pass_elem_ty` is gated on the declaration** (`yield_obligation`): no
+  clause, not a pass — the overload scan survives only to resolve *which*
+  `next` drives (`for_drivers` still hands the emitters the overload + arm
+  identity) and was extracted as `find_next_driver` so the not-iterable
+  error can use it for a remedy hint: a subject with a matching `next` and
+  no clause gets "declare `: Yield<Int>` on it to make it a pass".
+- **The `Once` requirement on hand-written passes is gone** (the I2b error
+  and its remedy), replaced by the clause; the *consume* behavior stays —
+  a declared-pass subject is `fate_move`d exactly as `Once` subjects were,
+  so driving twice is still the ordinary consumed-use error. Drive-in-place
+  ("a second drive continues", `Mut` carrying single-use-ness) is recorded
+  as the eventual semantics and deferred to R5 with `Once`-on-producers'
+  deletion — it changes deductions and emission, and nothing needs it yet.
+- **Unsatisfied-but-declared stays lenient**: the obligation error already
+  landed at the struct [group-obligation], so the loop answers the
+  *declared* element type and adds nothing [type-unknown-lenient].
+- **Builders return the plain type now** (`fn zip(…) -> Zip`), or `Mut` —
+  both drive; `Once Zip` returns are gone from every test. The sweep was
+  five failing tests: both backends' `PASS_DEMO`/`FALLIBLE_PASS_DEMO`
+  (structs gain the clause — including `Yield<Ok Str | Err Str>`, pinning
+  that a union element matches through the obligation checker — and
+  builders drop `Once`) and `once_tests`' hand-written-pass trio, plus a
+  new `Mut`-built-pass test. `iter_effect_tests`' `canbe Once` fixtures
+  are [iter-effects] position tests, untouched until R5 deletes that
+  apparatus.
+- LANGUAGE.md's hand-written-iterator section and [iter-resolve]/
+  [iter-protocol] in LANGUAGE_SPEC.md rewritten to the declaration form;
+  the full [iter-*] rewrite stays R6's.
+
+**R3 — retarget the `yield` sugar** (shape decided by the user 2026-09-08 —
+see "Unknown 1: the origin-struct model" below). A `yield fn next(c: Counter)
+-> Int` is the second way to satisfy a `: Yield<Int>` clause: the fn's subject
+is the *origin* struct, its return type is the **element** type, and the
+compiler generates a **hidden** state struct — the origin's captured fields
+plus the plan's fields, a `next` that is the plan's `__advance`, and a `close`
+when the body has deferred work. The generated struct is not nameable;
+`for` over the origin mints one and drives it. `generator.rs`'s plan survives
+unchanged — this changes what the emitters *render around* it and what the
+checker accepts as a group member. `Iter<T>`-returning `yield` fns stop being
+legal here, so this is where the corpus and most tests move.
 
 **R4 — designate `Linear`.** `: Linear` with its `close`; `discard` refused for a
 linear value, naming `close`; storing a linear value in a composite refused
-(interim); `<T: Linear>` as the generic bound spelling.
+(interim). `<T canbe Linear>` keeps its spelling (user decision 2026-09-08):
+permission on a parameter is not obligation on a declaration, and a `close`
+alone implies neither.
 
 **R5 — demolish `Iter<T>`.** Remove the type and everything that existed to
 support it: the `SalvoIter`/`Iterable` representations, `Once` on producers, the
 effect claim with `producer_effects`/`pass_effect_sets`/the per-effect-set
 traits/the variance adapter, and `params Iterable`. Rewrite std: a pass struct
 plus `next` per intrinsic container, `iter` returning a fresh pass, `seq.sv`'s
-combinators over passes (`map_lazy` becomes a generated composed pass). The
-emitters keep their native `for` for a list, array or `Str` subject.
+combinators over passes (`map_lazy` becomes a composed origin struct with its
+own `yield fn next`). **This is also where the Rust fn-typed-field refusal has
+to be lifted** (folded in from unknown 2's review note, 2026-09-08): a composed
+origin holds its callback as a field (`f: (T) -> U`), which Kotlin accepts and
+Rust refuses today — and the generated code already shows the lifting
+(`Rc<dyn Fn…>` fields). The emitters keep their native `for` for a list, array
+or `Str` subject.
 
 **R6 — sweep.** ~48 test fns and the `Iter`/`yield` snapshots; rewrite
 `[fn-iterator]`, `[iter-protocol]`, `[iter-generator]`, `[rs-iter-lazy]`,
@@ -4144,16 +4336,54 @@ history; update LANGUAGE.md and README.
 Each of these is cheaper to answer with a probe or a prototype than to discover
 mid-phase — R0 exists to answer the first two.
 
-1. **What does a `yield` fn's return type look like, and where does the element
-   type come from?** `fn naturals(from: Int) -> Naturals` makes the fn a
-   *declaration site for a type*, which is new. Is the `: Yield<Int>` clause on
-   the generated struct inferred from the `yield` expressions, or written by the
-   author somewhere? Decide before R3.
-2. **Composition.** `map_lazy` holds another pass, so its generated struct is
-   generic in the source pass type (`MapLazy<P, U>`), and the sugar has to
-   generate that parameter and thread the source's `next` — which is the
-   `?Yield`-style implicit. Prototype it in R0; it is the shape that decides
-   whether the sugar is expressive enough to replace the combinators.
+1. **What does a `yield` fn look like? — SHAPE DECIDED (user, 2026-09-08): the
+   origin-struct model.** The fn never names a state struct at all; see
+   "Unknown 1: the origin-struct model" below for the worked example, what it
+   dissolves, and the three sub-questions still open (consumption of the
+   origin, the `next` naming requirement, composition's fn-field dependency).
+   Settle those before R3.
+2. **Composition — DECIDED (user, 2026-09-08): rendering (B), the group's
+   member as an implicit parameter.** R0 prototyped both and they are not
+   equivalent (see "R0 as built", findings 1–2): a bound cannot carry the
+   source's effects, because an effectful `next` takes its handlers as
+   parameters and so cannot implement a fixed trait method — the "one generated
+   trait per effect set" problem [iter-effects] had, resurfacing at the bound —
+   while a stored fn's *type* carries them and [fn-effects] inheritance already
+   applies. A bound also cannot express an *optional* member, so one combinator
+   could not serve sources with and without a `close`.
+   * The rendering is **not new machinery**: the existing generated `map_lazy`
+     already stores its `?Iterable` member as a function value on both backends
+     (`iter: Rc<dyn Fn(It) -> SalvoIter<T>>` / a Kotlin function type).
+   * **`Self` and `params Iterator<St, T>` are therefore the two renderings of
+     one group**, which answers that open sub-question: `Self` is the bound
+     form, the state-as-parameter form is the implicit. The bound form is still
+     wanted for `canbe Linear` on type parameters, so both spellings live —
+     but composition uses the implicit.
+   * **The Rust limitation this rides on, recorded for future review.** A
+     *generated* pass struct may store a function; a **user-written** struct
+     may not, on the Rust backend only. The refusal is real today:
+     ```
+     struct Holder<T, U> canbe Mut {
+         src: List<T>,
+         f: (T) -> U,          // <-- refused
+         at: Int
+     }
+     ```
+     ```
+     main.sv: the rust backend cannot store a function in a struct field
+     (`Holder.f`): pass it as a parameter instead — an implicit parameter
+     (`?f: ...`) or a `params` group is how a bundle of functions travels
+     ```
+     **Kotlin accepts the same program**, so this is a live backend divergence
+     rather than a language rule — a program that builds on one target and not
+     the other. Two consequences: rendering (B) is available to *generated*
+     combinators only, so a customer cannot hand-write `map_lazy`'s equivalent
+     while std can have it; and lifting the refusal is known to be possible,
+     since the generated code shows what it takes (`Rc<dyn Fn…>` fields, which
+     the emitter already writes). Worth revisiting once the reduction has
+     landed: it is the difference between "std may compose passes" and "anyone
+     may".
+
 3. **`for x in list`.** Intrinsic containers reach iteration through an `iter`
    returning a pass, or through an intrinsic `next` on the container itself.
    Either way the emitters keep the native loop, so this is a std-surface choice.
@@ -4165,6 +4395,119 @@ mid-phase — R0 exists to answer the first two.
    today (the same gap I5 hit when a producer's implicits were not pass fields).
    The alternative — an effect parameter on the group (`params Yield<T> [E]`) —
    is bounded row polymorphism and is being held in reserve.
+
+### Unknown 1: the origin-struct model (user direction, 2026-09-08)
+
+Three spellings were worked out on `Countdown` and presented; the user replied
+with a fourth that supersedes them, and it is better than all three: **the
+`yield` fn never mentions the state struct at all.** The struct the author
+declares is the *origin* — the starting data — and the machine the compiler
+builds from the body is **hidden**: not nameable, not constructible, not
+readable. Whoever wants the state struct writes the raw `next` instead. In the
+user's words: `yield` indicates that this is doing more work; the return type
+is the yield type.
+
+```
+struct Counter : Yield<Int> {
+    start: Int
+}
+
+// The second way to satisfy `: Yield<Int>`. The subject is the origin; the
+// return type is the ELEMENT type — no `Emitted`, no `Finished`, no machine.
+yield fn next(c: Counter) [] -> Int {
+    let num = copy(c.start)
+    while num >= 0 {
+        yield num
+        num = num - 1
+    }
+}
+```
+
+So a `: Yield<T>` clause is dischargeable **two ways**, distinguished by the
+`yield` keyword on the fn:
+
+- **raw**: `fn next(c: Mut Counter) -> [c: Mut] Emitted Int | Finished` — the
+  subject *is* the state, `for` drives it in place, a second drive continues.
+  This is the form for `zip`, `merge`, holding an iteration in a variable,
+  passing one to a function.
+- **`yield`**: `yield fn next(c: Counter) -> Int` — the subject is consumed
+  into a hidden machine (origin fields + hoisted locals + `__state` + `defer`
+  flags), which only the `for` sugar ever holds. `generator.rs`'s plan is
+  unchanged; what moved is that its struct stopped having a name.
+
+**What this dissolves — the reason it wins.** The presented options all made
+the generated pass a *nameable* type with compiler-owned fields, which dragged
+in four rules (literal construction refused, field reads refused, name
+collisions, `copy` of a machine) and left "may the author add fields?"
+hanging. All four evaporate: `Counter` is fully the author's, the machine is
+fully the compiler's, nothing is half-owned. Two more things fall out:
+
+- **Abandonment outside `for` becomes impossible for generated passes.** No
+  expression can hold the hidden machine, so the only driver is the sugar, and
+  the sugar always closes. The accepted "hand-written `while` abandons a
+  `close`-bearing pass unchecked" cost now applies only to raw passes, whose
+  author wrote the state and can manage it.
+- **The effect list lands where the group rule already wanted it.**
+  `yield fn next(c: Counter) [Console] -> Int` is a member declaring its own
+  effects, and "driving performs them" stops being a relocation rule — nothing
+  ever calls this fn directly, so there is no call site to wrongly demand a
+  handler at. [iter-effects]'s claim-on-the-type apparatus stays deleted.
+- **`yield`-ness is declared, not inferred**: the keyword on the fn replaces
+  [fn-iterator]'s "returns `Iter<T>` and uses `yield`" test, and a `yield`
+  statement in a non-`yield` fn becomes a plain error naming the keyword.
+
+**Sub-questions, as settled (user, 2026-09-08):**
+
+1. **Driving does not consume the origin.** The origin is not a pass; it is
+   the data the hidden *state* struct is initialized from, per iteration —
+   each `for` mints a fresh machine, and only the machine is consumed. So a
+   `for` over an origin is repeatable by design, and "getting a new pass is
+   constructing a new instance" refers to the machine (which the sugar
+   constructs), not the origin. What replay-by-origin must not become is the
+   old factory ambiguity, and the standing capture rules cover it: the yield
+   fn's origin parameter is non-`Mut`, and an immutable capture is the case
+   both backends agree on ([iter-mut-param]'s parity argument). *R3 note:*
+   whether the machine holds the origin by clone or by reference is
+   observable only if the origin can be mutated while a pass is alive —
+   decide it deliberately, with a test, when the emission is built.
+2. **The fn is spelled `next` against the clause — yes.** The declaration
+   check is one rule with two accepted shapes (raw signature, or `yield fn`
+   whose return type matches the clause's `T`), and there is no free-standing
+   `yield fn`: one without an origin struct would reintroduce an anonymous
+   generator type.
+3. **The fn-field question is not about `yield` at all** — explored at the
+   user's request, and the user's own premise ("the yield form lowers to the
+   raw form") is what settles it. A customer writing a map-shaped combinator
+   with a **raw** `next` hits the identical refusal today, no `yield`
+   involved: between `map_lazy(xs, f)` returning and the `for` driving, the
+   callback has to live somewhere, and the origin value is the only carrier —
+   so `Mapped { src: P, f: (T) -> U }` needs a fn-typed field in the *raw*
+   form too. (The R0 probe that found the refusal was exactly this shape: a
+   plain struct with a `(T) -> U` field, refused by the Rust backend, accepted
+   by Kotlin.) It looked yield-specific only because the pre-origin shape had
+   the combinator *be* the yield fn, so the callback went straight from
+   parameter into the hidden machine, where the Rust emitter writes
+   `Rc<dyn Fn…>` freely. Callback-less composition (`zip`, `merge`, `chain`)
+   is untouched either way. The alternatives, presented 2026-09-08:
+   * **(a) lift the refusal as `Rc<dyn Fn…>`/function-object fields** — what
+     generated structs already do on both backends; uniform in every
+     position; costs an allocation at construction and dynamic dispatch per
+     call, which is what Kotlin pays for every function value anyway.
+     **DECIDED (user, 2026-09-08): this one.** Lands with R5, where std's
+     combinators become origin structs and need it.
+   * **(b) lift it by hidden monomorphization** — the field becomes a hidden
+     type parameter on Rust (`Mapped<P, T, U, F: Fn(&T) -> U>`, literally
+     `std::iter::Map<I, F>`); zero-cost but the Rust type becomes unnameable,
+     so such a struct cannot sit in another struct's field and a function
+     returning one is `impl Trait` (one concrete closure per fn — two return
+     sites with different lambdas are an error). Restrictions would mirror
+     the interim linear rule's "locals, params, returns only". Viable as a
+     later invisible optimization of (a); not worth its rule surface now.
+   * **(c) keep the refusal and make std's combinators intrinsic** —
+     permanent divergence, customers can never write their own combinator on
+     Rust, and it contradicts R5's plan of `map_lazy` as an ordinary origin
+     struct in `seq.sv`.
+   Decided: (a); (b) stays available as a later invisible optimization.
 
 ### Gotchas that will bite, from the work that just landed
 
@@ -6775,7 +7118,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 752)
+## Test inventory (all green: 767)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -7015,6 +7358,17 @@ and `cargo nextest run` when you want to see which tests cost what.
   refined qualifier (with the no-refinement control rejected by
   [deduce-infer]), and a *conditional* refined call **not** reaching the
   contract).
+- **12 obligation-group tests** (`tests/group_tests.rs` [group-obligation]
+  [group-self] [group-not-a-value], roadmap R1 — groups declared in the
+  tests, nothing designated: a satisfied `Mut Self` protocol clean; the
+  missing-member error at the *struct* naming the substituted signature; a
+  wrong shape (non-`Mut` state) not satisfying; a generic `Zip<A, B>`
+  satisfying through its own parameters and the bijectivity refusal
+  (`(A, A)` vs `(A, B)`); parameter names not part of matching; unknown
+  group with is-a-type hint; arity and duplicate as declaration errors;
+  `?`-spreading a `Self`-using group refused while a `Self`-less group
+  still spreads; `Self` outside a group unknown; and the six-position
+  not-a-value sweep, each with exactly one diagnostic).
 - **22 overload-resolution tests** (`tests/overload_tests.rs` [fn-overload]
   [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous]
   [fn-overload-at] [fn-rename] [fn-overload-duplicate] [fn-value-select]:

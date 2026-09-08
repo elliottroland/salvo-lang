@@ -161,7 +161,9 @@ pub struct TypeDecl {
     pub span: Span,
 }
 
-/// `struct Person canbe Mut { name: Str, ... }`
+/// `struct Person canbe Mut { name: Str, ... }`, optionally with an
+/// obligation clause: `struct Lines : Linear, Yield<Str> canbe Mut { ... }`
+/// [group-obligation].
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -169,6 +171,12 @@ pub struct StructDecl {
     pub docs: Vec<String>,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// Obligations [group-obligation]: `params` groups this type promises
+    /// to satisfy, written `: Group<Args>` after the generics and before
+    /// `canbe`. Each member of each named group must have a matching
+    /// visible fn with `Self` bound to this type — checked at this
+    /// declaration, not at a use site.
+    pub obligations: Vec<TypeRef>,
     /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,

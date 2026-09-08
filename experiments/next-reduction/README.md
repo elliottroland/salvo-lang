@@ -13,6 +13,19 @@ there are only as good as the code they came from.
 | `passes.kt` | what the Kotlin emitter would produce for it |
 | `expected.txt` | the stdout both print, byte for byte |
 
+**Superseded spelling, same machine (2026-09-08, after this prototype ran).**
+`passes.sv` writes the `yield` fn as
+`fn chatty(limit: Int) [Console] -> Chatty : Yield<Int>` — a return type that
+*names* the generated struct. The user replaced that surface with the
+**origin-struct model** (PROGRESS.md, "Unknown 1: the origin-struct model"):
+the author declares an origin struct with the `: Yield<T>` clause and writes
+`yield fn next(origin) -> T`; the state struct is hidden and never nameable.
+The *generated code* this prototype validates is unchanged by that — `Chatty`
+in `passes.rs`/`passes.kt` simply becomes an anonymous machine capturing the
+origin's fields, with the same states, the same flags and the same `close` —
+so the findings below stand. Only `passes.sv`'s spelling of section 2 (and the
+`map_a`/`map_b` signatures) is out of date.
+
 ## Running them
 
 ```bash
@@ -71,6 +84,10 @@ So "how is a composed pass generated" reduces to one question: **how does
 both in the running prototype.
 
 ### 2. (A) group-as-bound and (B) member-as-implicit are both viable, and they are not equivalent
+
+**Decided (user, 2026-09-08): (B).** Both are kept in this prototype anyway —
+it is the evidence the choice rests on, and (A)'s bound form is still wanted
+for `canbe Linear` on type parameters.
 
 **(A)** renders `params Yield<T>` as a trait/interface with one `impl` per
 declaring type, and the bound `P: SalvoYield<T>` justifies the call. Static
@@ -133,10 +150,15 @@ cannot be mapped over. That is most of them.
 
 The prototype resolves it by keeping the two independent — `Chatty` has a
 `close` and is **not** `Linear`; `Lines` declares `: Linear` and its `close`
-is the discharge — which is what lets section 4 run at all. **This is a
-decision, not a detail**, and either way one casualty stands: mapping over a
-*linear* pass (a file's lines — the canonical example) is unavailable until
-composition or conditional linearity lands.
+is the discharge — which is what lets section 4 run at all.
+
+**Decided (user, 2026-09-08): that is the rule.** A `close` never implies
+linearity; `: Linear` on the type is the only thing that does, and generic code
+that may carry one opts in with `<T canbe Linear>`. Both halves stay explicit.
+The accepted cost: a hand-written `while` driver may abandon a `close`-bearing
+pass unchecked, since most generated passes are not linear. The accepted
+casualty: mapping over a *linear* pass — a file's lines — stays unavailable
+until composition or conditional linearity lands (recorded as roadmap L8).
 
 ### 5. Smaller things, all verified
 

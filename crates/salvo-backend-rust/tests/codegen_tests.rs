@@ -4516,7 +4516,7 @@ fn a_function_in_a_struct_field_is_a_codegen_error() {
 /// express because it reads two sources at once. A struct, a `next`, and
 /// nothing else — no state machine, no compiler support beyond driving it.
 pub const PASS_DEMO: &str = r#"
-struct Zip canbe Mut, Once {
+struct Zip : Yield<(Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -4532,11 +4532,11 @@ fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
     return finished()
 }
 
-fn zip(left: List<Str>, right: List<Int>) -> [] Once Zip {
+fn zip(left: List<Str>, right: List<Int>) -> [] Zip {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown canbe Mut, Once {
+struct Countdown : Yield<Int> canbe Mut {
     at: Int
 }
 
@@ -4549,7 +4549,7 @@ fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
     return emitted(v)
 }
 
-fn countdown(from: Int) -> Once Countdown {
+fn countdown(from: Int) -> Countdown {
     return Countdown { at: from }
 }
 
@@ -4603,7 +4603,7 @@ fn a_pass_lowers_to_a_while_let_driving_loop() {
 /// (see the open defect about wrapping an inner arm under a qualifier: the
 /// intermediate `let` here is that workaround, not decoration).
 pub const FALLIBLE_PASS_DEMO: &str = r#"
-struct Reader canbe Mut, Once {
+struct Reader : Yield<Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }
@@ -4622,7 +4622,7 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
     return finished()
 }
 
-fn reader(lines: List<Str>) -> [] Once Reader {
+fn reader(lines: List<Str>) -> [] Reader {
     return Reader { lines: lines, at: 0 }
 }
 

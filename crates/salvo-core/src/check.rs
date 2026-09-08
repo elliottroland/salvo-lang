@@ -1155,6 +1155,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect's.
                 Item::Params(g) => {
                     let saved = self.enter_generics(&g.generics);
+                    // [group-self] `Self` is a valid type inside a group's
+                    // member signatures: it stands for the declaring type of
+                    // whichever struct states the obligation `: Group<...>`.
+                    // Scoped like a generic — which is what it is, bound at
+                    // the obligation rather than at a call.
+                    self.generics.insert("Self".to_string());
                     for f in &g.fns {
                         self.reject_implicits(f, "a `params` group member");
                         if f.body.is_some() {
@@ -1322,6 +1328,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
+                    self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
                         if let Some(default) = &field.default {
@@ -1342,6 +1349,139 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.generics = saved;
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// [group-obligation] `struct X<G> : Group<Args> …` — every obligation
+    /// names a visible `params` group with the right arity, and every
+    /// member of that group must be satisfied by a visible fn overload with
+    /// `Self` bound to this declaration [group-self]. Checked *here*, at
+    /// the struct, so a misspelled or missing member surfaces where the
+    /// promise is written instead of as a puzzling failure at a use site.
+    ///
+    /// Satisfaction is by **types, positionally** — parameter types and the
+    /// return type equal up to a bijective renaming of type variables. The
+    /// member's parameter *names* belong to the group and are not required
+    /// of the implementation (unlike [qual-refn-match], which names an
+    /// overload someone already declared). Effects are deliberately not
+    /// compared: the group declares none and each implementation declares
+    /// its own.
+    fn check_obligations(&mut self, s: &'p ast::StructDecl) {
+        let scope = self.scope;
+        for (i, ob) in s.obligations.iter().enumerate() {
+            // The same group twice is a mistake, not an emphasis.
+            if s.obligations[..i].iter().any(|p| p.name.name == ob.name.name) {
+                self.error(
+                    ob.span,
+                    format!(
+                        "obligation `{}` is declared more than once",
+                        ob.name.name
+                    ),
+                );
+                continue;
+            }
+            let Some(group) = scope.param_groups.get(ob.name.name.as_str()).copied() else {
+                // A name that exists as something else is a position
+                // mistake, not a missing declaration: say which.
+                let hint = if self.type_name_exists(&ob.name.name) {
+                    format!(
+                        " (`{}` is a type; an obligation names a `params` group)",
+                        ob.name.name
+                    )
+                } else if self.qual_name_exists(&ob.name.name) {
+                    format!(
+                        " (`{}` is a qualifier — `canbe` grants qualifiers, `:` \
+                         declares obligations)",
+                        ob.name.name
+                    )
+                } else {
+                    String::new()
+                };
+                let name = ob.name.name.clone();
+                self.error_unresolved(
+                    ob.span,
+                    format!("unknown `params` group `{name}`{hint}"),
+                    &name,
+                );
+                continue;
+            };
+            for a in &ob.args {
+                self.validate_type(a);
+            }
+            let args: Vec<Ty> = ob.args.iter().map(|a| self.lower_type(a)).collect();
+            if args.len() != group.generics.len() {
+                self.error(
+                    ob.span,
+                    format!(
+                        "`{}` takes {} type argument(s), found {}",
+                        group.name.name,
+                        group.generics.len(),
+                        args.len()
+                    ),
+                );
+                continue;
+            }
+            // `Self` is this declaration, with its own generics as
+            // variables [group-self].
+            let self_ty = Ty::Named {
+                name: s.name.name.clone(),
+                args: s
+                    .generics
+                    .iter()
+                    .map(|g| Ty::Var(g.name.clone()))
+                    .collect(),
+            };
+            let mut subst: HashMap<String, Ty> = group
+                .generics
+                .iter()
+                .map(|p| p.name.clone())
+                .zip(args)
+                .collect();
+            subst.insert("Self".to_string(), self_ty);
+            let mut bound: HashSet<String> =
+                group.generics.iter().map(|p| p.name.clone()).collect();
+            bound.insert("Self".to_string());
+            for member in &group.fns {
+                let outer = self.enter_generics(&group.generics);
+                self.generics.insert("Self".to_string());
+                let member_ty = self.member_fn_ty(member);
+                self.generics = outer;
+                let expected = substitute_vars(&member_ty, &subst, &bound);
+                let mut found = false;
+                if let Some(entries) = scope.fns.get(member.name.name.as_str()) {
+                    for e in entries {
+                        let inner = self.enter_generics(&e.decl.generics);
+                        let candidate = self.member_fn_ty(e.decl);
+                        self.generics = inner;
+                        let mut fwd = HashMap::new();
+                        let mut rev = HashMap::new();
+                        if tys_match_renamed(&expected, &candidate, &mut fwd, &mut rev) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if !found {
+                    let Ty::Fn { params, ret, .. } = &expected else {
+                        continue;
+                    };
+                    let shown: Vec<String> =
+                        params.iter().map(|p| p.to_string()).collect();
+                    self.error(
+                        ob.span,
+                        format!(
+                            "`{}` declares `: {}` but no visible `{}` matches \
+                             `fn {}({}) -> {}`",
+                            s.name.name,
+                            ob.name.name,
+                            member.name.name,
+                            member.name.name,
+                            shown.join(", "),
+                            ret
+                        ),
+                    );
+                }
             }
         }
     }
@@ -1660,6 +1800,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             };
+            // [group-self] A group whose members mention `Self` cannot be
+            // spread as implicits: only an obligation (`: Group<...>` on a
+            // type declaration) binds `Self`, so in a signature it would
+            // stand for nothing.
+            if group.fns.iter().any(|m| fn_decl_mentions_self(m)) {
+                self.error(
+                    g.span,
+                    format!(
+                        "`?{}` cannot spread `{}`: its members mention `Self`,                          which only an obligation binds — a type satisfies the                          group by declaring `: {}<...>` [group-self]",
+                        g.name.name, g.name.name, g.name.name
+                    ),
+                );
+                continue;
+            }
             // The spread's type arguments bind the group's generics.
             let args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
             if args.len() != group.generics.len() {
@@ -5875,6 +6029,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         if name == "Any" && base.args.is_empty() {
             return Ty::Any;
         }
+        // [group-not-a-value] A `params` group is not a type; the refusal is
+        // `reject_group_as_data`'s (validation), and the *lowering* is
+        // `Unknown` so the one mistake does not cascade into type-mismatch
+        // errors at every use of the annotated value [type-unknown-lenient].
+        if !self.type_name_exists(name) && self.scope.param_groups.contains_key(name) {
+            return Ty::Unknown;
+        }
         let args: Vec<Ty> = base
             .args
             .iter()
@@ -5951,6 +6112,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         if known {
             return;
         }
+        // A `params` group in type position is a *position* mistake with its
+        // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
+        // "unknown type" here would be a second report of the same error.
+        if !expect_qual && self.scope.param_groups.contains_key(name) {
+            return;
+        }
+        // A `params` group in type position is a *position* mistake with its
+        // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
+        // "unknown type" here would be a second report of the same error.
+        if !expect_qual && self.scope.param_groups.contains_key(name) {
+            return;
+        }
         let what = if expect_qual { "qualifier" } else { "type" };
         // A name that exists in the *other* namespace is a position
         // mistake, not a missing declaration: say so instead of
@@ -6010,6 +6183,33 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
+    /// [group-not-a-value] A `params` group names an *obligation*, not a
+    /// type of values: no value may ever have a group as its type. This is
+    /// the single restriction that keeps the mechanism a where-clause
+    /// rather than a trait — there is no `dyn`, no erasure, no interface
+    /// value; a group constrains a *named* type and is resolved statically
+    /// (user decision 2026-09-08). A rule in its own right, not a
+    /// consequence of one.
+    fn reject_group_as_data(&mut self, r: &TypeRef) {
+        let name = r.name.name.as_str();
+        if self.generics.contains(name)
+            || self.type_name_exists(name)
+            || !self.scope.param_groups.contains_key(name)
+        {
+            return;
+        }
+        let name = name.to_string();
+        self.error(
+            r.span,
+            format!(
+                "`{name}` is a `params` group, not a type: no value may have a \
+                 group as its type — a named type satisfies it with `: {name}<...>` \
+                 on its declaration, or a signature spreads its members with \
+                 `?{name}<...>`"
+            ),
+        );
+    }
+
     /// Validates a written type: every name resolves [name-resolve], and
     /// every qualifier application is well formed — duplicates,
     /// `of`-type applicability, pairwise `with` compatibility. Called at
@@ -6021,6 +6221,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Named { qualifiers, base } => {
                 self.require_name(base, false);
                 self.reject_effect_as_data(base);
+                self.reject_group_as_data(base);
                 for a in &base.args {
                     self.validate_type(a);
                 }
@@ -7835,6 +8036,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let empty = HashMap::new();
                 self.require_name(elem_type, false);
+                self.reject_group_as_data(elem_type);
                 let elem = self.lower_base_ref(elem_type, &empty, 0);
                 self.check_expr(size, Some(&Ty::named("Int")));
                 // [type-array] The initializer is inlined at the
@@ -8078,7 +8280,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // derived from a value that is still alive. A plain
                 // `Iter<T>` is a factory: `for` mints a pass from it and
                 // leaves it usable, exactly as before.
-                let drives_pass = iter_ty.quals().iter().any(|q| q.name == "Once");
+                let drives_pass = iter_ty.quals().iter().any(|q| q.name == "Once")
+                    || self.yield_obligation(iter_ty.strip_quals()).is_some();
                 let links = if drives_pass {
                     self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
                     Vec::new()
@@ -8298,16 +8501,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(self.lower_type_subst(&field.ty, &subst, 0))
     }
 
-    /// [iter-protocol] The element type of a **pass**: a value some `next`
-    /// accepts, returning `Emitted T | Finished`. Records the overload the
-    /// emitters have to drive (there is no call node in the AST for them to
-    /// resolve, since the driving loop is synthesized) and reports a value
-    /// that has a `next` but does not declare itself `Once`.
-    ///
-    /// `stripped` selects the overload — a subject's own `Once`/`Mut` say
-    /// nothing about which `next` fits — while `full` is what carries the
-    /// qualifiers the rule is about.
-    fn pass_elem_ty(&mut self, stripped: &Ty, full: &Ty, span: Span) -> Option<Ty> {
+    /// [iter-protocol] [group-obligation] Whether this type's declaration
+    /// states the designated `: Yield<T>` obligation — the one fact that
+    /// makes a value a **pass** (roadmap R2, user decisions 2026-09-08).
+    /// `for` reads the declaration; it does not scan overloads for a `next`
+    /// and guess.
+    fn yield_obligation(&self, stripped: &Ty) -> Option<(&'p StructDecl, &'p TypeRef)> {
+        let Ty::Named { name, .. } = stripped else {
+            return None;
+        };
+        let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
+        let ob = decl.obligations.iter().find(|o| o.name.name == "Yield")?;
+        Some((decl, ob))
+    }
+
+    /// The `next` overload a subject drives, found by unifying the protocol
+    /// shape against the subject's bare type: the overload, the element
+    /// type, the arm identity, and the (unsubstituted) state parameter
+    /// type. Extracted from `pass_elem_ty` so the not-iterable diagnostic
+    /// can use the same scan for its remedy hint.
+    fn find_next_driver(&mut self, stripped: &Ty) -> Option<(FnKey, Ty, usize, usize, Ty)> {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("next")?.clone();
         for entry in entries {
             let decl = entry.decl;
@@ -8336,6 +8549,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // looking, and let `iter` have its turn.
                 continue;
             };
+            return Some((entry.key, elem, emitted_arm, arms, pt));
+        }
+        None
+    }
+
+    /// [iter-protocol] The element type of a **pass**: a value whose type
+    /// declares `: Yield<T>` [group-obligation]. Records the overload the
+    /// emitters have to drive (there is no call node in the AST for them to
+    /// resolve, since the driving loop is synthesized).
+    ///
+    /// The declaration is the gate; the scan only resolves *which* overload
+    /// (and the arm identity). When the declaration is there but no overload
+    /// fits, the obligation check has already reported it at the struct —
+    /// the declared element type is returned so the one mistake does not
+    /// cascade [type-unknown-lenient].
+    fn pass_elem_ty(&mut self, stripped: &Ty, span: Span) -> Option<Ty> {
+        let (decl, ob) = self.yield_obligation(stripped)?;
+        if let Some((key, elem, emitted_arm, arms, pt)) = self.find_next_driver(stripped) {
             // [iter-protocol] The state is taken as `Mut`: advancing a pass
             // mutates its position, and the backends pass a mutable place.
             // A `next` of the right *result* shape whose state is not `Mut`
@@ -8351,32 +8582,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            // [once-fn] A pass must say it is one. `next` says the value can
-            // be advanced; `Once` says advancing uses it up, and only the
-            // author knows whether that is true — inferring it from a method
-            // name would attach an obligation to someone's type on the
-            // strength of a name (user decision 2026-09-07).
-            if !full.quals().iter().any(|q| q.name == "Once") {
-                self.error(
-                    span,
-                    format!(
-                        "`{stripped}` has a `next` but is not a pass: driving it \
-                         uses it up, so it has to be declared `Once {stripped}` — \
-                         annotate the return type of the function that builds it"
-                    ),
-                );
-            }
             self.out.for_drivers.insert(
                 self.key(span),
                 PassDriver {
-                    next_fn: entry.key,
+                    next_fn: key,
                     emitted_arm,
                     arms,
                 },
             );
             return Some(elem);
         }
-        None
+        // Declared but not satisfied: already an error at the struct
+        // [group-obligation]. Answer with the declared element type.
+        let subst: HashMap<String, Ty> = decl
+            .generics
+            .iter()
+            .map(|g| g.name.clone())
+            .zip(match stripped {
+                Ty::Named { args, .. } => args.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let saved = self.enter_generics(&decl.generics);
+        let elem = ob
+            .args
+            .first()
+            .map(|a| self.lower_type_subst(a, &subst, 0))
+            .unwrap_or(Ty::Unknown);
+        self.generics = saved;
+        Some(elem)
     }
 
     fn iter_elem_ty(&mut self, iter_ty: &Ty, span: Span) -> Ty {
@@ -8391,7 +8625,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // minting a second pass from it would be wrong. This is the
                 // manual half of the iterator story (`zip`, `merge`), which
                 // `yield` cannot express.
-                if let Some(elem) = self.pass_elem_ty(&other, iter_ty, span) {
+                if let Some(elem) = self.pass_elem_ty(&other, span) {
                     return elem;
                 }
                 // `for x in list` implicitly calls `iter(list)`.
@@ -8429,11 +8663,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [type-unknown-lenient]; everything else is an error
                 // (user decision 2026-09-03).
                 if !other.is_unknown() && !matches!(other, Ty::Nothing) {
+                    // A matching protocol-shaped `next` without the
+                    // declaration is the likeliest near-miss; name the
+                    // remedy [group-obligation] rather than leaving a
+                    // puzzling "not iterable".
+                    let hint = match self.find_next_driver(&other) {
+                        Some((_, elem, _, _, _)) => format!(
+                            " (`{other}` has a matching `next` — declare \
+                             `: Yield<{elem}>` on it to make it a pass)"
+                        ),
+                        None => String::new(),
+                    };
                     self.error(
                         span,
                         format!(
                             "`{other}` is not iterable: `for` takes an array, an \
-                             `Iter<T>`, or a value some `iter` function accepts"
+                             `Iter<T>`, a pass (a type declaring `: Yield<T>`), or \
+                             a value some `iter` function accepts{hint}"
                         ),
                     );
                 }
@@ -10048,6 +10294,82 @@ fn substitute_known(
             effects: effects.clone(),
         },
         other => other.clone(),
+    }
+}
+
+/// [group-self] Whether a group member's signature mentions `Self` — the
+/// test that decides whether the group can be spread as implicits (it
+/// cannot: nothing binds `Self` in a signature) or only stated as an
+/// obligation.
+fn fn_decl_mentions_self(f: &ast::FnDecl) -> bool {
+    f.params.iter().any(|p| ast_type_mentions_self(&p.ty))
+        || f.return_type.as_ref().is_some_and(ast_type_mentions_self)
+}
+
+fn ast_type_mentions_self(ty: &ast::Type) -> bool {
+    let ref_mentions = |r: &ast::TypeRef| {
+        r.name.name == "Self" || r.args.iter().any(ast_type_mentions_self)
+    };
+    match ty {
+        ast::Type::Named { qualifiers, base } => {
+            ref_mentions(base) || qualifiers.iter().any(ref_mentions)
+        }
+        ast::Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => ast_type_mentions_self(base) || qualifiers.iter().any(ref_mentions),
+        ast::Type::Union { arms, .. } => arms.iter().any(ast_type_mentions_self),
+        ast::Type::Tuple { elems, .. } => elems.iter().any(ast_type_mentions_self),
+        ast::Type::Array { elem, .. } => ast_type_mentions_self(elem),
+        ast::Type::Nullable { inner, .. } => ast_type_mentions_self(inner),
+        ast::Type::Fn { params, ret, .. } => {
+            params.iter().any(ast_type_mentions_self) || ast_type_mentions_self(ret)
+        }
+    }
+}
+
+/// [group-obligation] Structural equality of two types up to a *bijective*
+/// renaming of type variables — how an obligation's expected member
+/// signature (whose variables are the struct's generics) is matched against
+/// a candidate overload (whose variables are its own generics). Bijective,
+/// so `(A, A)` does not match `(A, B)` in either direction.
+fn tys_match_renamed(
+    a: &Ty,
+    b: &Ty,
+    fwd: &mut HashMap<String, String>,
+    rev: &mut HashMap<String, String>,
+) -> bool {
+    let all = |xs: &[Ty], ys: &[Ty], fwd: &mut HashMap<String, String>, rev: &mut HashMap<String, String>| {
+        xs.len() == ys.len()
+            && xs
+                .iter()
+                .zip(ys)
+                .all(|(x, y)| tys_match_renamed(x, y, fwd, rev))
+    };
+    match (a, b) {
+        (Ty::Var(x), Ty::Var(y)) => {
+            let f = fwd.entry(x.clone()).or_insert_with(|| y.clone());
+            let r = rev.entry(y.clone()).or_insert_with(|| x.clone());
+            f == y && r == x
+        }
+        (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
+            na == nb && all(aa, ab, fwd, rev)
+        }
+        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb }) => {
+            qa.len() == qb.len()
+                && qa.iter().zip(qb).all(|(x, y)| {
+                    x.name == y.name && x.effect == y.effect && all(&x.args, &y.args, fwd, rev)
+                })
+                && tys_match_renamed(ba, bb, fwd, rev)
+        }
+        (Ty::Union(aa), Ty::Union(ab)) => all(aa, ab, fwd, rev),
+        (Ty::Tuple(aa), Ty::Tuple(ab)) => all(aa, ab, fwd, rev),
+        (Ty::Array(ea), Ty::Array(eb)) => tys_match_renamed(ea, eb, fwd, rev),
+        (
+            Ty::Fn { params: pa, ret: ra, .. },
+            Ty::Fn { params: pb, ret: rb, .. },
+        ) => all(pa, pb, fwd, rev) && tys_match_renamed(ra, rb, fwd, rev),
+        (Ty::Any, Ty::Any) | (Ty::Nothing, Ty::Nothing) | (Ty::Unknown, Ty::Unknown) => true,
+        _ => false,
     }
 }
 

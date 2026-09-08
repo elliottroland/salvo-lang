@@ -1,12 +1,12 @@
 // [iter-protocol] The *pull* iteration protocol, written in Salvo rather than
-// built into the compiler: a **pass** is anything with a `next`, and `next`
-// reports either an element or the end of the sequence.
+// built into the compiler: a **pass** is a type declaring `: Yield<T>`, and
+// its `next` reports either an element or the end of the sequence.
 //
 // This is what makes the iterators `yield` cannot express writable by hand —
 // `zip`, `merge`, anything reading two sources at once, anything wanting
 // explicit control of its state. A `yield` function is the sugar; a struct
 // with a `next` is the manual form; `for` drives either, because both answer
-// the same group.
+// the same declaration.
 //
 // Own module so a program that never iterates by hand emits nothing for it
 // [mod-used-only]; `core.*` is implicitly visible, so no import is needed.
@@ -35,13 +35,15 @@ fn finished() [] -> [] Finished {
     return Finished {}
 }
 
-// [iter-protocol] [implicit-group] What "a pass" means: not a trait a type
-// implements, but a *function* `for` can find. A type of your own becomes
-// drivable by declaring one `next` — and the value has to be a pass
-// (`Once`, see [once-fn]), since driving it uses it up.
+// [iter-protocol] [group-obligation] What a **pass** is: a type that
+// declares `: Yield<T>`, tied to iteration by its `next`. The obligation is
+// checked at the declaring struct — a misspelled or missing `next` is an
+// error where the promise is written, not a puzzling "not iterable" at some
+// loop — and `for` reads the declaration rather than scanning overloads.
 //
 // The state is taken as `Mut`: advancing a pass is a mutation of its
-// position. A group emits nothing on any backend [implicit-group].
-params Iterator<St, T> {
-    fn next(st: Mut St) -> [st: Mut] Emitted T | Finished
+// position. `Self` is the declaring type [group-self]; a group emits
+// nothing on any backend [implicit-group].
+params Yield<T> {
+    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
 }

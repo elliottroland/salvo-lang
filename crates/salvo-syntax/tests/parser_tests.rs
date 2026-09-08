@@ -262,6 +262,53 @@ fn canbe_opts_declarations_into_auto_qualifiers() {
     assert_eq!(quals, vec!["Mut", "Mut"]);
 }
 
+// [group-obligation] `: Group<Args>` on a struct — obligations before the
+// `canbe` clause, comma-separated, with type arguments; `Self` in a `params`
+// group member parses as an ordinary type name [group-self].
+#[test]
+fn a_struct_declares_obligations_before_canbe() {
+    let source = "struct Lines : Linear, Yield<Str> canbe Mut {\n    name: Str\n}\n\n\
+                  params Yield<T> {\n    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Struct(s) = &module.items[0] else {
+        panic!("expected a struct item");
+    };
+    let names: Vec<&str> = s.obligations.iter().map(|o| o.name.name.as_str()).collect();
+    assert_eq!(names, vec!["Linear", "Yield"]);
+    assert!(s.obligations[0].args.is_empty());
+    assert_eq!(s.obligations[1].args.len(), 1);
+    let quals: Vec<&str> = s.auto_qualifiers.iter().map(|q| q.name.name.as_str()).collect();
+    assert_eq!(quals, vec!["Mut"]);
+    // The group member's `Self` is a plain named type to the parser.
+    let salvo_syntax::ast::Item::Params(g) = &module.items[1] else {
+        panic!("expected a params item");
+    };
+    assert_eq!(g.fns.len(), 1);
+}
+
+// [group-obligation] The clause is optional in both halves: obligations
+// without `canbe`, and neither.
+#[test]
+fn obligations_parse_without_canbe() {
+    let source = "struct Counter : Yield<Int> {\n    start: Int\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Struct(s) = &module.items[0] else {
+        panic!("expected a struct item");
+    };
+    assert_eq!(s.obligations.len(), 1);
+    assert!(s.auto_qualifiers.is_empty());
+}
+
 // [canbe-optin] [linear-generics] Per-type-parameter opt-in on fns.
 #[test]
 fn canbe_opts_a_type_parameter_in() {

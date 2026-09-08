@@ -12,6 +12,7 @@ Module {
                     span: 7..13,
                 },
                 generics: [],
+                obligations: [],
                 auto_qualifiers: [
                     TypeRef {
                         name: Ident {
@@ -114,6 +115,7 @@ Module {
                         span: 98..99,
                     },
                 ],
+                obligations: [],
                 auto_qualifiers: [],
                 fields: [
                     FieldDecl {

@@ -594,6 +594,19 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwStruct)?.span;
         let name = self.ident_decl_dotted("struct")?;
         let generics = self.parse_generics();
+        // `: Linear, Yield<Str>` — obligation groups this type satisfies
+        // [group-obligation]. Before `canbe`, because `:` states what the
+        // type must *provide* while `canbe` states what it may be qualified
+        // as.
+        let mut obligations = Vec::new();
+        if self.eat(&TokenKind::Colon).is_some() {
+            loop {
+                obligations.push(self.parse_type_ref()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
         // `canbe Mut` — auto-qualifiers the struct opts into
         // [struct-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
@@ -616,6 +629,7 @@ impl<'s> Parser<'s> {
             docs,
             name,
             generics,
+            obligations,
             auto_qualifiers,
             fields,
             span: start.to(end),

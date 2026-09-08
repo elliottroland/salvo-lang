@@ -223,7 +223,11 @@ struct Finished {}
 fn emitted<T>(value: T) [] -> [] T as Emitted { return value }
 fn finished() [] -> [] Finished { return Finished {} }
 
-struct Countdown canbe Mut, Once {
+params Yield<T> {
+    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+}
+
+struct Countdown : Yield<Int> canbe Mut {
     at: Int
 }
 
@@ -238,10 +242,10 @@ fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
 "#;
 
 /// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
-/// than through `iter` — but only if it says it is a pass. `next` says the
-/// value can be advanced; `Once` says advancing uses it up, and inferring the
-/// second from the first would attach an obligation on the strength of a name
-/// (user decision 2026-09-07).
+/// than through `iter` — but only if its declaration says it is a pass
+/// [group-obligation]: `for` reads the `: Yield<T>` clause rather than
+/// scanning overloads for a `next` and guessing (roadmap R2, user decisions
+/// 2026-09-08).
 /// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
 /// which is what makes `zip`/`merge` — the iterators `yield` cannot express —
 /// writable at all.
@@ -249,7 +253,19 @@ fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
 fn a_hand_written_pass_drives_a_for_loop() {
     let errs = errors(&format!(
         "{PROTOCOL}\n\
-         fn build(from: Int) -> Once Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// A builder may hand the pass over as `Mut` — the qualifier a mutating
+/// `next` wants — and the loop drives it the same way.
+#[test]
+fn a_mut_built_pass_drives_a_for_loop() {
+    let errs = errors(&format!(
+        "{PROTOCOL}\n\
+         fn build(from: Int) -> Mut Countdown {{ return Mut Countdown {{ at: from }} }}\n\
          fn go() -> [] None {{ for n in build(3) {{}} }}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -261,7 +277,7 @@ fn a_hand_written_pass_drives_a_for_loop() {
 fn driving_a_hand_written_pass_twice_is_an_error() {
     let errs = errors(&format!(
         "{PROTOCOL}\n\
-         fn build(from: Int) -> Once Countdown {{ return Countdown {{ at: from }} }}\n\
+         fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
          fn go() -> [] None {{\n\
          let p = build(3)\n\
          for n in p {{}}\n\
@@ -275,16 +291,28 @@ fn driving_a_hand_written_pass_twice_is_an_error() {
     );
 }
 
+/// [group-obligation] [iter-resolve] A matching `next` without the
+/// declaration is not a pass — the tie is the `: Yield<T>` clause, not the
+/// method name — and the not-iterable error names the clause as the remedy.
 #[test]
-fn a_next_without_once_is_not_a_pass() {
-    let errs = errors(&format!(
-        "{PROTOCOL}\n\
-         fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
-         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
-    ));
+fn a_next_without_a_yield_declaration_is_not_a_pass() {
+    let errs = errors(
+        "qualifier Emitted<T> of T\n\
+         struct Finished {}\n\
+         fn emitted<T>(value: T) [] -> [] T as Emitted { return value }\n\
+         fn finished() [] -> [] Finished { return Finished {} }\n\
+         params Yield<T> {\n    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished\n}\n\
+         struct Countdown canbe Mut {\n    at: Int\n}\n\
+         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
+             return finished()\n\
+         }\n\
+         fn build(from: Int) -> Countdown { return Countdown { at: from } }\n\
+         fn go() -> [] None { for n in build(3) {} }\n",
+    );
     assert!(
-        errs.iter().any(|e| e.contains("has a `next` but is not a pass")
-            && e.contains("`Once Countdown`")),
-        "expected the not-a-pass error naming the remedy, got {errs:?}"
+        errs.iter().any(|e| e.contains("is not iterable")
+            && e.contains("has a matching `next`")
+            && e.contains(": Yield<Int>")),
+        "expected the not-iterable error naming the declaration remedy, got {errs:?}"
     );
 }

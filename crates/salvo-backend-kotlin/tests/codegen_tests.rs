@@ -437,7 +437,7 @@ fn expect_errors(src: &str) -> Vec<String> {
 /// `rustc_compiles_and_runs_a_hand_written_pass`. `zip` is the point — it
 /// reads two sources at once, which `yield` cannot express.
 const PASS_DEMO: &str = r#"
-struct Zip canbe Mut, Once {
+struct Zip : Yield<(Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -453,11 +453,11 @@ fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
     return finished()
 }
 
-fn zip(left: List<Str>, right: List<Int>) -> [] Once Zip {
+fn zip(left: List<Str>, right: List<Int>) -> [] Zip {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown canbe Mut, Once {
+struct Countdown : Yield<Int> canbe Mut {
     at: Int
 }
 
@@ -470,7 +470,7 @@ fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
     return emitted(v)
 }
 
-fn countdown(from: Int) -> Once Countdown {
+fn countdown(from: Int) -> Countdown {
     return Countdown { at: from }
 }
 
@@ -548,7 +548,7 @@ fn a_fieldless_struct_is_a_plain_class() {
 /// (see the open defect about wrapping an inner arm under a qualifier: the
 /// intermediate `let` here is that workaround, not decoration).
 const FALLIBLE_PASS_DEMO: &str = r#"
-struct Reader canbe Mut, Once {
+struct Reader : Yield<Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }
@@ -567,7 +567,7 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
     return finished()
 }
 
-fn reader(lines: List<Str>) -> [] Once Reader {
+fn reader(lines: List<Str>) -> [] Reader {
     return Reader { lines: lines, at: 0 }
 }
 

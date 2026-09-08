@@ -885,6 +885,57 @@ The destination is moved in and returned, which is what makes the nested form
 work. If you want to keep hold of one across the call, rebind it:
 `let sink = map_to(sink, xs, double)`.
 
+### Obligations: `params` groups on a type
+
+A `params` group can also be stated as an **obligation** on a struct, with a
+`:` clause between the generics and `canbe`:
+
+```
+params Step<T> {
+    fn advance(s: Mut Self) -> [s: Mut] Emitted T | Finished
+}
+
+struct Countdown : Step<Int> canbe Mut {
+    at: Int
+}
+
+fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 { return finished() }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+```
+
+Where `?Step<Int>` in a signature asks the *call site* to supply the group's
+members, `: Step<Int>` on a declaration promises that the members exist for
+this type — and the promise is checked **at the struct**: declaring
+`: Step<Int>` without a visible `advance` matching
+`fn advance(s: Mut Countdown) -> Emitted Int | Finished` is an error naming
+that signature, where a misspelled member would otherwise surface as some
+puzzling failure at a distant use site.
+
+`Self` in a group member stands for the declaring type. It is what makes the
+obligation about *this* type: the checker substitutes `Countdown` for `Self`
+and looks for a matching overload — by parameter types and return type,
+positionally, up to a consistent renaming of type variables (a generic struct
+satisfies a group through its own type parameters). The member's parameter
+*names* belong to the group; an implementation picks its own. And because
+only an obligation binds `Self`, a group whose members mention it cannot be
+spread with `?` — there would be nothing for `Self` to mean.
+
+Two things keep this a where-clause rather than a trait:
+
+- **No value may have a group as its type.** `let p: Step<Int>` is an error
+  wherever a type can be written — parameter, return, field, `let`
+  annotation, type argument, union arm. There is no erasure and no interface
+  value; a group constrains a *named* type, and everything resolves
+  statically.
+- **A group is satisfied by functions, not by membership.** The obligation
+  adds no scope and no dispatch: `advance` is an ordinary function, found and
+  overloaded like any other. The clause only moves the check to the
+  declaration.
+
 ### Variadic arguments
 
 Functions support variadic arguments. These get interpreted as an Array of the relevant type:
@@ -1144,8 +1195,8 @@ express, like `zip` and `merge`, since they read two sources at once:
 qualifier Emitted<T> of T
 struct Finished {}
 
-params Iterator<St, T> {
-    fn next(st: Mut St) -> [st: Mut] Emitted T | Finished
+params Yield<T> {
+    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
 }
 ```
 
@@ -1174,30 +1225,29 @@ on every path that leaves the loop — exhaustion, `break`, `return`, a
 even when the consumer stops early. Nothing in the source says so, and
 nothing has to.
 
-A hand-written iterator says `Once` for itself. Declaring a `next` for a
+A hand-written iterator declares the tie itself. Declaring a `next` for a
 struct of your own is what makes `zip` and `merge` writable — this part
-*works today*, ahead of the rest of this subsection — but it does not by
-itself make the struct a pass: `next` says the value can be advanced,
-`Once` says advancing it uses it up, and only you know whether that is
-true. So the struct opts in with `canbe Once`, its builder applies the
-qualifier, and driving a value that has a `next` and neither is an error
-naming the remedy:
+*works today*, ahead of the rest of this subsection — but the method alone
+does not make the struct a pass: the tie is stated as an obligation,
+`: Yield<T>`, and checked at the struct (declaring it without a matching
+`next` is an error naming the missing signature). `for` reads the
+declaration — it does not scan overloads for a `next` and guess:
 
 ```
-struct Zip<A, B> canbe Mut, Once {
+struct Zip<A, B> : Yield<(A, B)> canbe Mut {
     ...
 }
 
 fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished { ... }
 
-fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Once Zip<A, B> { ... }
+fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
 
 for pair in zip(names, ages) { ... }   // drives the pass, consuming it
 ```
 
-Leave the `Once` off `zip`'s return type and the `for` reports it:
-``` `Zip<A, B>` has a `next` but is not a pass: driving it uses it up, so it
-has to be declared `Once Zip<A, B>` ```.
+Leave the clause off `Zip` and the `for` reports it:
+``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
+`: Yield<(A, B)>` on it to make it a pass) ```.
 
 **Where two iterators meet, the compiler boxes.** Each iterator function
 gets its *own* state type. A position that must hold either of two
