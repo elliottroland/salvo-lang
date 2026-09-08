@@ -20,7 +20,9 @@ pub use check::{
 };
 pub use deduce::ParamDeduction;
 pub use diag::FileDiagnostic;
-pub use generator::{plan_generator, GenError, GenField, GeneratorPlan, Step};
+pub use generator::{
+    plan_generator, plan_generator_with_implicits, GenError, GenField, GeneratorPlan, Step,
+};
 pub use place::{Place, Proj};
 pub use platform::{
     declares_platform_effect, host_file, host_rel_path, missing_host_error, platform_effects,

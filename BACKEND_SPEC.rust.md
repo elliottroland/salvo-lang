@@ -126,17 +126,35 @@ Conventions:
 * [rs-iter-lazy] `Iter<T>` maps to the generated `SalvoIter<T>`, and
   iterator functions (`yield`) are **lazy and repeatable**, matching
   Kotlin's `Iterable<T>` element for element [fn-iterator].
-  * `SalvoIter<T>` is a **factory** — `Rc<dyn Fn() -> Box<dyn
-    Iterator<Item = T>>>` — so a second `for` re-runs the producer as on
-    Kotlin, `for` never consumes its subject, and nothing about linearity
-    changes. Its manual `Clone` and `Debug` impls are what let an
-    `Iter<T>` sit in a `#[derive(Clone, Debug)]` struct field.
+  * `SalvoIter<T>` is a **factory** — `Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>`
+    with a `mint()` — so a second `for` re-runs the producer as on Kotlin,
+    `for` never consumes its subject, and nothing about linearity changes. Its
+    manual `Clone` and `Debug` impls are what let an `Iter<T>` sit in a
+    `#[derive(Clone, Debug)]` struct field.
+  * **A pass is not a `std::iter::Iterator`**: `trait SalvoPass<T>` has
+    `advance(&mut self) -> Option<T>` *and* `close(&mut self)`, because an
+    iterator has nowhere to put the release path — dropping one runs no Salvo
+    code, and a producer's deferred block is Salvo code that must run on the
+    path the consumer abandoned. `SalvoWalk<I>` wraps a plain Rust iterator
+    (a collection's elements) and takes the default no-op `close`;
+    `SalvoPassIter<T>` adapts a pass *to* an iterator for `to_vec` and
+    `IntoIterator`.
+  * A `for` over an `Iter<T>` therefore **mints, advances and closes**:
+    `let mut p = subject.mint();`, `while let Some(v) = p.advance(<handlers>)`,
+    then `p.close(<handlers>)` — spliced after the loop *and* registered as a
+    deferred entry so a `return` out of the body releases it. The handler list
+    is empty for a pure producer, so one lowering serves both. A subject that
+    is a list, array or `Str` keeps a **native** `for` (decision 8): there is
+    nothing to release.
   * [rs-generator] **A pass is a struct the compiler writes**, from the
     shared plan [iter-generator]: `struct __Pass_<fn> { <params>, <the
     body's locals>, __state: u32, __d<i>: bool }` with `fn __advance(&mut
-    self) -> Option<T>` — one `loop { match self.__state { … } }` — an
-    `impl Iterator` that delegates to it, and a `__close` running the
-    pending deferred blocks. The body's names are `self.` fields
+    self) -> Option<T>` — one `loop { match self.__state { … } }` — a
+    `__close` running the pending deferred blocks, and an
+    `impl SalvoPass<T>` (or the generated per-effect-set trait
+    [rs-pass-effects]) forwarding to both. A nested pass lives in an
+    `Option<Box<dyn SalvoPass<T>>>` slot, which the release path *closes*
+    before clearing. The body's names are `self.` fields
     (`BindKind::SelfField`), so a `let` *assigns* one.
     * The `async` borrowing is **gone** (2026-09-07), and with it
       `SalvoGen`, `SalvoYield`, `Pin`, `Future` and `Waker`: rustc used to
@@ -164,6 +182,11 @@ Conventions:
     by every pass) rather than `&mut impl FnMut(…)`, and its own
     parameters keep the ordinary convention. `Fn` rather than `FnMut`
     because a pass may run more than once [iter-effects].
+    * A **lambda** in that position is emitted as a `move` closure, since
+      `'static` is what the declared type promises: a borrowing closure is
+      E0373 for *any* capture, immutable ones included. What it may capture
+      is the checker's business [iter-mut-param] — mutable state is refused
+      there, so a `move` here only ever takes ownership of immutable data.
   * Generic parameters carry `'static` alongside the blanket `Clone`
     bound: every Salvo type is owned data with no lifetime of its own, and
     a captured element type has to outlive the call.
@@ -208,6 +231,28 @@ Conventions:
     identity would be this backend's rendering of the arguments while the
     checker's is Salvo's), a `for` over one in value position, and a
     widening between two *non-empty* claim sets (only `from_pure` exists).
+* [rs-implicit-turbofish] A **generic call that fills implicit parameters**
+  spells out its type arguments (`map_to::<Vec<i32>, Vec<i32>, i32, i32>(…)`),
+  from `Checked::call_type_args`. Each implicit arrives as an adapter *closure*
+  whose parameter types Rust infers from the callee's bound, so with the
+  callee's generics still open there is nothing to infer them from and
+  inference stalls (E0282) on closures waiting for the answer the call itself
+  would have given.
+  * An implicit's fn type renders its parameters through the **contract**
+    [fn-contract], not through the parameter types alone: a kept `Mut`
+    position is `&mut T`, because a callback cannot append to a destination
+    handed over by value. Narrowed to kept-`Mut` positions deliberately —
+    everything else keeps the by-value convention implicits have always had.
+  * Inside an iterator fn an implicit follows the same convention exception a
+    written callback does [rs-iter-lazy]: owned `impl Fn(…) + 'static` in the
+    signature, `Rc`-held as a pass field, called through `self`, and passed by
+    a `move` adapter at the call site.
+* [rs-none-unit] `None` is Rust's `()`, and a fn returning it has no return
+  type — so `return None` emits a **bare** `return`. The test is the *fn's*
+  rendered return type, not the value's: `return None` in an
+  `Option`-returning fn is `return None;` and correct. The literal is dropped
+  rather than evaluated; any other `None`-typed value runs for its effects
+  first.
 * [type-tuple] Tuples map to native Rust tuples (any size).
 * [backend-never-wrong] A **function in a struct field** is a codegen error,
   not output: Rust allows `impl Trait` nowhere but argument and return

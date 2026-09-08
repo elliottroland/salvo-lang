@@ -1,3 +1,78 @@
+**The iterator design was re-evaluated and reduced (user decisions 2026-09-08);
+the next work is that reduction, not the old roadmap.** `Iter<T>` was a
+structural interface in a language with none — a factory, i.e. a function, which
+is why `Once` and effects both fit on it — and it left two protocols (`next` and
+`iter`) with `for` arbitrating, plus a combinator surface that could not see a
+hand-written pass at all. The replacement: **a pass is a user struct, tied to
+iteration by a `next`, and `for` is sugar for calling it until `Finished`.** The
+ties between functions and structs are declared with **compiler-known `params`
+obligation groups** (`: Yield<Str>`, `: Linear`), which also gives linearity a
+named discharge (`close`). See "Roadmap: iterators — **the reduction to
+`next`**" for the decisions, the six-phase plan, the unknowns to settle first,
+and what it deletes (most of I4, the boxing question, `Once` on producers).
+Everything below this line is the design it supersedes, kept because its
+prototypes and defect findings are what the reduction stands on.
+
+**I5 landed (2026-09-08): the combinator surface, and four defects behind it.**
+`map`/`filter`/`reduce` stay eager; `map_lazy`/`filter_lazy` return a producer;
+`map_to`/`filter_to` map into a collection the caller provides, reached through
+an `?add` **implicit parameter** — so the destination is anything with an `add`,
+not a `List` (user decision). Verified on both backends with identical stdout,
+including a lazy chain over an **unbounded** producer that terminates only
+because the consumer breaks. Writing it was mostly *finding* things: the
+generic `?Iterable` body had never run (every caller took a `List` fast path),
+so a producer holding implicits, an implicit with a `Mut` parameter, and
+`return None` in a `None`-returning fn were all first-time paths — four
+defects, three of them pre-existing and backend-general. Details under "I5 as
+built".
+
+**The release path is plumbed everywhere (2026-09-08), which is I2c's first
+part.** A generated pass is no longer a target-language iterator — Rust gets a
+`SalvoPass<T>` trait with `advance`/`close` and Kotlin a `SalvoClosable`
+interface on its pass base — so every `for` over an `Iter<T>` mints, advances
+and closes, claiming or pure, and a nested pass is released with its outer one.
+Collections keep native loops (decision 8). **No observable behaviour change
+today**, deliberately recorded as such: after [iter-mut-param] a pure producer
+has no way to make an abandoned `defer` visible, and every route that would is a
+shape still refused — this is the protocol the un-boxing half of the split needs,
+correct in advance. Details under "I2c: the release path, everywhere".
+
+**A producer may not carry mutable state — parameter or capture (2026-09-08).**
+[iter-mut-param] grew its second half the same day: a lambda handed to a
+producer's fn-typed parameter may not capture mutable state either, since a
+producer keeps its callback for as long as it can mint a pass and calls it once
+per element in *every* pass. Both kinds are refused — a capture the closure
+writes through, and one it merely reads mutable data through, because
+snapshot-vs-alias is what makes the second observable. Rust already rejected
+both (`impl Fn + 'static`) while Kotlin ran them and accumulated across passes:
+a checker-clean program only one backend could build. **And the remedy turned
+out to be broken too**: a producer's callback was emitted as a *borrowing*
+closure despite its declared `impl Fn + 'static`, so E0373 hit every capturing
+lambda — immutable ones included. One `move`, and the first test in the suite
+that hands a capturing lambda to a producer. **I5's surface is decided**
+(user): eager by default, `map_lazy` for the lazy pair, `map_to` mapping into a
+caller-provided collection with an `?add` implicit.
+
+**A producer may not take a mutable parameter (user decision 2026-09-08).**
+Asking whether the *pure* producer's injected `close` is observable — the I2c
+leftover, and the natural next item after I4 — turned up a `[backend-parity]`
+defect with nothing to do with `close`: a `yield` fn taking `sink: Mut
+List<Int>` mutated a **private copy** on Rust (parameters are captured by
+clone, which is what makes the factory's state `'static`) and the **caller's
+own list** on Kotlin (a `MutableList` is a reference), so successive passes
+accumulated on one target and started fresh on the other — same source,
+different output, silently. Which backend is "wrong" is a language question, so
+the shape is **refused** [iter-mut-param] rather than sided with: transitively,
+by the same `Mut`-at-any-depth test [fate-move-mode] uses, with a diagnostic
+naming the two remedies that work everywhere (yield the values and let the
+consumer collect them, or reach the outside through an effect). Nothing in
+`std/` or the corpus did this, so it landed without a sweep. Two follow-ons
+recorded rather than decided: **`Once Iter<T>`** may be able to take one after
+all — one pass exists, so what remains is shared fate ([fate-link]), which
+needs I2c's representation split — and **sharing it properly on both backends**
+is queued as the sharpest customer of the `Cell` roadmap ("Producers: the
+`Mut`-parameter case (option C)").
+
 **I4 is complete (2026-09-07): an effectful producer compiles and runs on both
 backends.** The language half landed earlier the same day — a producer's effects
 live on its type, `FileSystem Iter<Str>` [iter-effects] — and the emission half
@@ -1925,6 +2000,39 @@ that still shape the code, and where to look for the mechanics.
 
 ### Post-M8 — tooling and flow analysis (decision log)
 
+- **A producer may not take a mutable parameter (user decision 2026-09-08)** —
+  `[iter-mut-param]`. A parity hole rather than a strictness gap: a producer's
+  parameters are captured by the pass, and Rust captured by clone (a private
+  copy — the caller saw nothing and every pass started fresh) while Kotlin
+  handed the reference over (the caller's collection mutated, and successive
+  passes accumulated). The checker now rejects a `yield` fn parameter whose
+  type is transitively mutable, by the same `Mut`-at-any-depth test
+  `[fate-move-mode]` uses, with a diagnostic naming the remedies that work
+  everywhere: yield the values and let the consumer collect them, or reach the
+  outside through an effect. The two alternatives were copying per pass on both
+  backends (rejected as the trap: it agrees everywhere and quietly discards the
+  writes the caller expected) and sharing on both (what the author expects, and
+  on Rust it *is* the `Cell` work — queued there as that roadmap's sharpest
+  customer). Raised by the user alongside it and recorded rather than decided:
+  a producer returning `Once Iter<T>` may be able to take one after all, since
+  exactly one pass exists and the rest is shared fate `[fate-link]` — which
+  wants I2c's representation split first.
+- **The same rule covers a producer's *callbacks* (2026-09-08)** — a lambda
+  handed to a producer's fn-typed parameter may not capture mutable state, for
+  the same reason and with the same remedies. Both flavours are refused (the
+  closure writing through the capture, and merely reading mutable data through
+  it), which needed two flags exported on `Checked::lambda_captures`. Writing
+  the diagnostic exposed a second defect: a producer's callback is declared
+  `impl Fn + 'static` and was emitted as a *borrowing* closure, so every
+  capturing lambda handed to a producer was E0373 on Rust — immutable captures
+  included. Fixed with `move`, and covered by the first test in the suite that
+  passes a capturing lambda to a producer.
+- **I5's combinator surface (user decision 2026-09-08)** — eager by default;
+  `map_lazy`/`filter_lazy` for the lazy pair; `map_to`, which maps into a
+  caller-provided collection passed as the first argument with an `?add`
+  implicit parameter, so the destination is anything with an `add` rather than a
+  `List`.
+
 - **Optionals never reach operators or interpolation (user decisions
   2026-09-02)** — `[op-no-none]`, `[interp-no-none]`. Both were parity
   holes, not just strictness gaps: Kotlin compares against `null` and
@@ -2645,7 +2753,127 @@ by faithful emission. Rule [fn-contract]:
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation.
 
-### Applying a qualifier to an already-qualified value flattens, so it cannot fit a qualified *group* arm
+### ~~A producer's callback may capture mutable state: checker-clean, Kotlin runs it, rustc rejects it~~ — closed 2026-09-08
+
+Found 2026-09-08 while sequencing I5, and it is the **sibling** of
+[iter-mut-param]: that rule closed mutable state reaching a pass through a
+*parameter*, and this is the same state reaching it through a *callback* the
+producer holds. LANGUAGE_SPEC had it as a known gap ("the checker does not
+reject it up front"); this is the reproduction that showed it was reachable,
+kept because it is the argument for the rule.
+
+```
+fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
+    for x in xs { yield f(x) }
+}
+
+fn bump(seen: Mut List<Int>, v: Int) -> [seen: Mut] Int {
+    add(seen, copy(v))
+    return v
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let seen = mutable_list<Int>()
+    let source = tagged(upto(2), (v) -> bump(seen, v))
+    for s in source { println("${s}") }
+    for s in source { println("${s}") }
+}
+```
+
+`salvo analyze`: **no errors**. Kotlin: compiled, ran, printed `0 1 0 1` — and
+`seen` had accumulated **four** entries, because the callback runs once per
+element in *every* pass. Rust: `rustc` rejected the emitted code (E0373, E0596),
+because a producer's fn-typed parameter arrives as `impl Fn + 'static`
+[rs-iter-lazy] — `Fn` and not `FnMut` precisely so a callback cannot carry state
+across passes.
+
+**Closed by extending [iter-mut-param] to a producer's callbacks** (2026-09-08),
+covering both a capture the closure *writes* through and one it merely *reads*
+mutable data through — the second for the rule's own reason rather than
+`FnMut`'s: snapshot-vs-alias is observable, so the backends would disagree about
+what a later pass sees. `Checked::lambda_captures` grew the two flags the rule
+reads (`mutable`, `mutated`), which are worth having exported anyway.
+
+**A second defect fell out of writing the remedy**, and it is the more
+embarrassing one: the diagnostic's advice ("capture an immutable snapshot") *did
+not compile on Rust either*. A producer's callback is declared
+`impl Fn(…) + 'static` and was emitted as a **borrowing** closure, so E0373 hit
+every capturing lambda handed to a producer — including the immutable captures
+the parity rules call free. One word (`move`) in
+`emit_args_for_params`/`emit_lambda`, gated on the callee being an iterator fn.
+Nothing in the suite passed a capturing lambda to a producer, which is why a
+plainly broken path stayed green; `{rustc,kotlinc}_compiles_and_runs_a_producer
+_with_a_capturing_callback` covers it now, one source and one stdout.
+
+### ~~A producer's `Mut` parameter is copied on Rust and shared on Kotlin~~ — closed 2026-09-08 by refusing the shape
+
+
+Kept because the reproduction is the argument for the rule, and because option
+C revives the question under `Cell`.
+
+Found 2026-09-08, immediately after I4 landed, while asking whether the
+*pure* producer's injected `close` (the I2c leftover) is observable. It is —
+and finding out turned up something worse and unrelated to `close`: the
+**capture convention for a producer's parameters diverges between the
+backends** [backend-parity]. Minimal repro, which compiles clean today:
+
+```
+fn tally(limit: Int, sink: Mut List<Int>) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        add(sink, copy(i))
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let seen = mutable_list<Int>()
+    let source = tally(2, seen)
+    for v in source { println("a ${v}") }
+    println("after first: ${seen.size()}")
+    for v in source { println("b ${v}") }
+    println("after second: ${seen.size()}")
+}
+```
+
+| | after first | after second |
+|---|---|---|
+| Rust | `0` | `0` |
+| Kotlin | `2` | `4` |
+
+**Root cause**, one line of emitter each and both defensible on their own:
+
+- Rust captures every parameter into the factory **by clone** and clones again
+  per pass (`let __c_sink = sink.clone();` … `__Pass_tally::new(…,
+  __c_sink.clone())`), which is what makes the captured state `'static` and
+  each pass start from the beginning. The pass therefore mutates a *private
+  copy*: the caller sees nothing, and two passes cannot interfere.
+- Kotlin hands the parameter to the pass **as it is** (`Iterable<Int> {
+  __Pass_tally(limit, sink) }`), and a `MutableList` is a reference — so the
+  caller's list receives the writes and successive passes *accumulate* into
+  it.
+
+`defer` is not involved (this repro has none), and neither is I4: an effect
+claim changes nothing here. The same shape with a `defer` shows it too, which
+is how it was found — and there the abandoned path hides it on both backends,
+because nothing calls the pure `close` yet.
+
+**This was a language question before it was a fix**, so it was not decided
+here: what a `Mut` parameter of a producer means — a private copy, the caller's
+own collection, or nothing at all because it is refused — decides which backend
+is wrong. **Closed by refusing the shape** [iter-mut-param] (user decision
+2026-09-08, option A); see "Producer parameters: `Mut` refused" for the two
+options it did not take, and the `Cell` roadmap for where option C is queued.
+
+**Still open behind it**: the pure producer's `close` (I2c's leftover). Giving
+it a caller makes an abandoned producer's deferred blocks run, and those are
+observable only through state the pass shares with someone else — which, after
+this rule, a *pure* producer has none of. The hole is real but no longer
+reachable by the route that found it.
+
 
 Found 2026-09-07 while answering whether a fallible producer needs `Throw`
 support [iter-protocol]. Minimal repro:
@@ -3597,7 +3825,401 @@ preserves Kotlin's repeatable semantics exactly. It is back on the table
 under the next section, which supersedes this one's *implementation*
 (the semantics it chose — lazy, both backends — are kept).
 
-## Roadmap: iterators — Salvo-level pull iterators (decided 2026-09-07, **not started**)
+## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0 done, R1 next)
+
+**Standing back from what was built.** After I4/I5 landed, the user asked for an
+evaluation of the whole iterator design rather than the next increment, and the
+outcome is a simplification that deletes most of it. The complaint was precise:
+there were multiple ways to define an iterator (`next` or `iter`, with `for`
+arbitrating), and `Iter<T>` had become "effectively a function in its own
+right" — which is why `Once` and effects both fit on it.
+
+**The diagnosis, confirmed.** `Iter<T>` *is* a factory:
+`Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>` on Rust, `Iterable<T>` on Kotlin. So
+
+```
+Once Iter<T>  ≅  a pass  ≅  (state St, next: (Mut St) -> Emitted T | Finished)
+Iter<T>       ≅  () -> Once Iter<T>
+```
+
+`Iter<T>` was a structural interface in a language with none — and, as the user
+put it, putting one in a struct field smuggled a *stateful method* onto data,
+against the separation of functions and data. `params Iterator<St, T>` was
+already the un-smuggled version of the same thing; keeping both was the mistake.
+
+**Two costs of the old design, found by probing rather than by report:**
+
+- A hand-written pass (struct + `next`) and a `Once Iter<T>` are drivable by
+  `for` but **invisible to every combinator**: `for` speaks `next` while
+  `map`/`filter`/`map_lazy` speak `?Iterable` → `iter` → `Iter<T>`. So the
+  manual form that exists to express `zip`/`merge` cannot be mapped over.
+  Verified: `map_lazy(Countdown {at: 3}, double)` fails with "no `iter` fits".
+- `Once Iter<T>` was written as a factory type, reasoned about as a position,
+  and *represented* as a factory — the mismatch I2c's remaining half existed to
+  fix.
+
+### Decided (user, 2026-09-08)
+
+1. **A pass is a user struct**, tied to iteration by a `next` function. No
+   universal `Iter<T>` type. Getting a new pass is constructing a new instance.
+2. **`for` is sugar for calling `next` until `Finished`.** One protocol, one
+   lowering.
+3. **`iter` converts a container into a fresh pass** (`fn iter(c: Counter) ->
+   Countdown`), and stays available so `for x in list` keeps working for
+   intrinsic containers (lists, arrays, later sets and maps) — declared in std
+   as a pass struct plus an (intrinsic) `next`, with the backends keeping the
+   native loop as a fast path. The language gets no special case; the emitters
+   keep the one they have.
+4. **A `yield` fn is sugar** that generates the pass struct and its `next`.
+5. **The element type is declared, not encoded in a name**, so `for` resolves
+   `next` nominally and the reader sees what a pass yields where it is declared.
+   Now folded into the `params`-obligation proposal below.
+6. **`Iter<T>` in a struct field stops being expressible**, and that is
+   accepted: erasure is what the language does not have.
+7. **The `Defer`-effect question is deferred**, recorded below.
+
+**What this deletes**: `[iter-effects]` and the whole claim-on-the-type
+apparatus (`producer_effects`, `pass_effect_sets`, the generated
+trait/interface per effect set, the variance adapter — effects go on `next`,
+where `[fn-effects]` already handles them); `Once` on producers (driving
+mutates, so `Mut` carries it, and a second drive continues rather than
+restarting); `SalvoIter`/`Iterable` as `Iter<T>`'s representation, with the
+boxing and the whole un-boxing question; and `[iter-mut-param]` as an
+*iterator* rule — a `yield` fn's parameters become fields of the generated
+struct, so a `Mut` one is a struct-field question with pre-existing answers.
+
+**What survives**: the parts that were about the machine rather than the type —
+`generator.rs`'s plan, both `__advance` renderings, the release path, and the
+two capture rules.
+
+### Abandonment, under the reduction
+
+The close problem does not go away; it **relocates**, from "a suspended body's
+pending blocks" to "a value the driver holds", where the language already has
+answers:
+
+- **`close` is a second function overloaded on the pass type**, resolved
+  exactly like `next`, called by the `for` sugar on every exit if one exists.
+  Effects on it as usual, because it is a call.
+- **Linearity makes it checked**: L6's must-use machinery (built 2026-09-02)
+  turns draining-or-closing into the ordinary all-paths obligation. The
+  abandonment write-up above already predicted this ("the injection is a
+  *convenience* … it can be relaxed to a plain obligation whenever we want the
+  user to see it") and left one thing undecided — *whether a hand-written
+  iterator's state must be `canbe Linear` by rule*. Under the reduction every
+  pass is a named struct, so that is now the only question. Proposed answer: a
+  pass type that declares a `close` must be linear; one that does not, need
+  not. `for` is not the only driver — a hand-written `while` around `next` has
+  no sugar to inject anything — so it has to be checked rather than injected.
+
+### Open: declaring the tie between functions and structs (user proposal 2026-09-08)
+
+Instead of a bespoke `yields T` clause, a general mechanism: a **declaration-site
+obligation** reusing `params`, with `Self` bound to the declaring type.
+
+```
+struct Lines canbe Mut : Linear, Yield<Str>
+
+params Yield<T> {
+    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+}
+```
+
+Unlike a qualifier, the obligation *always* applies: declaring `: Yield<Str>`
+without a matching `next` is an error at the **struct**, where today a
+misspelled `next` surfaces as "not iterable" at the loop. It also makes `for`
+resolution read a declaration instead of scanning overloads.
+
+**The rule that keeps this from being an interface** (accepted by the user
+2026-09-08): **no value may have a group as its type.** `items: Yield<Int>` is a
+syntax error — there is no `dyn`, no erasure, no interface value; a group
+constrains a *named* type and is resolved statically. This is the single
+restriction that makes the mechanism a where-clause rather than a trait, so it
+is a rule in its own right and not a consequence of one.
+
+**Open sub-questions**: how a per-type effect set reaches the group's members
+(`Lines`'s `next` performs `FileSystem`); whether `Self` unifies with today's
+`params Iterator<St, T>` shape (which already takes the state as its first
+parameter, making `: Iterator<Self, Str>` the un-sugared form); whether
+`canbe Linear` stays the marker with a separate release group, so the change is
+additive; and whether obligations may ever be conditional (`Wrapper<T> :
+Yield<T>` only when `T` yields) — recommended: unconditional only, to start.
+
+### Decided (user, 2026-09-08): `Linear` becomes a compiler-known obligation group
+
+Following `Yield<T>`'s precedent, **`Linear` is a designated `params` group with
+a single member**, and declaring it is declaring how the obligation is
+discharged:
+
+```
+struct Lines : Linear, Yield<Str> canbe Mut { handle: File }
+
+params Linear {
+    fn close(s: Self) -> [] None      // consumes: `s` is not kept
+}
+```
+
+- **The declarer must supply the `close`.** A type that says `: Linear` without
+  a matching `close(Lines) -> [] None` is an error at the *struct*.
+- **`close` is the discharge.** `discard` no longer satisfies a linear
+  obligation — it is refused, naming `close` — which closes the hole that made
+  the separate-groups version wrong: `discard(lines)` satisfied linearity and
+  leaked the handle. Moving the value onward still *transfers* the obligation,
+  since the callee's body is checked for discharging it.
+- **How the compiler knows which function**: the group is designated (one
+  candidate group), at most one per type (one candidate declaration), and it has
+  a single member (one candidate function). No scanning; every failure is a
+  declaration-site error.
+- **Linearity is therefore non-optional per type** — every `Linear` type has a
+  `close` — and the user accepted that trade explicitly. **Conditional
+  linearity is deferred**, and it is where `<T canbe Linear>` reappears.
+
+**Rules this rewrites** (none of them shipped to anyone — no compatibility
+concern, user note 2026-09-08 "no-one is using this language yet"):
+
+- `[linear-canbe]` — the spelling moves from `canbe Linear` to `: Linear`, which
+  also tidies `canbe`: it goes back to meaning only "may be qualified thus"
+  (`canbe Mut`, `canbe Once`), while `:` means "must provide these".
+- `[linear-discard]` — `discard` stays for non-linear values; for a linear one it
+  becomes a refusal naming `close`.
+- `[linear-generics]` — `<T canbe Linear>` needs a new spelling (`<T: Linear>`),
+  and it becomes a *bound on an obligation group*. Worth stating when it is
+  written: a bound is not an interface — there is still no value whose type is a
+  group, so no erasure and no `dyn`.
+
+**Open, and the first thing a user will hit**: `[linear-composite]` says a
+composite containing a linear component is itself linear. **Interim decision
+(user, 2026-09-08): storing a linear value in a composite is an *error* for
+now** — struct field, type argument, array/tuple/union component alike — rather
+than making the composite linear. Composition and conditional linearity will be
+tackled together, and until then a linear value lives only as a local, a
+parameter or a return value, which is all the iterator use case needs (open a
+`Lines`, drive it, close it).
+
+- **What it costs to implement**: `ty_transitively_linear` is exactly the
+  predicate that *detects* a linear part, so it survives — what changes is its
+  consumers: the places that today propagate the obligation into the container
+  become a refusal at the store (or at the composite's declaration, where the
+  message can name the field).
+- **Known casualty, worth deciding before S-IO resumes**: the fallible-open
+  shape. S-IO's outline settled on `Ok InputStream | Err Str` because an effect
+  member may not declare `[Throw<M>]`, and it flagged "a linear value inside a
+  union arm" as the interaction to verify first. Under this refusal that shape is
+  unavailable, so S-IO needs either an exception for union arms or a different
+  result shape. Not a reason to change the interim rule, but it should not be a
+  surprise when the filesystem work restarts.
+
+### Implementation plan: the reduction, in six phases (written 2026-09-08)
+
+Every phase ends **green** (`cargo build` warning-free, `SALVO_E2E_FRESH=1 cargo
+test` passing) and is worth committing on its own. The order is chosen so that
+`Iter<T>` keeps working until the thing that replaces it is already carrying
+load — the same sequencing I2a/I2b/I4 used, which is what let each of those land
+without a half-migration.
+
+**R0 — prototype the target shape on both backends first.** The discipline that
+paid off in I1b, I3 and I4 (each time turning up something the design did not
+predict: the variance adapter, the `Option`-slot rule, the `close`-is-idempotent
+economy). Hand-write, in `experiments/next-reduction/`, one Salvo source plus
+the Rust and Kotlin a correct emitter would produce, and run both to
+byte-identical stdout with no toolchain warnings:
+
+- a hand-written pass (`Countdown` + `next`), driven by `for`;
+- a `yield`-generated pass, including one with a `defer`;
+- a **composed** pass (`map_lazy`-shaped: a pass holding another pass), which is
+  where the type-parameter cascade shows up;
+- a **linear** pass (`Lines` + `close`) driven to exhaustion and abandoned early;
+- a `for` over a `List` (native loop) beside a `for` over a pass.
+
+#### R0 as built (2026-09-08): six shapes, one stdout, and five findings
+
+Done. `experiments/next-reduction/` holds `passes.sv` (the planned language),
+`passes.rs`, `passes.kt` and `expected.txt`; both toolchains build them and
+print the same 30 lines, verified with `diff`. `kotlinc` says nothing at all
+and `rustc` says nothing under `#![allow(dead_code, non_snake_case)]`, both of
+which are in the emitter's own header. The program covers all five required
+shapes plus a sixth — the composed pass is prototyped **twice**, because that
+is where the design had a fork nobody had named. The README records what each
+shape proves; the findings, in the order they matter:
+
+1. **Composition only breaks when the source's type is a *parameter*.** A
+   non-generic composed pass already works in today's language — a struct with
+   a `Mut Countdown` field whose `next` calls `next(d.src)`, compiled and run
+   on the Rust backend. What is refused is the generic form:
+   `next(Mut P)` on an unbounded `P` is `no matching overload`, exactly as
+   [call-resolve] promises. So **unknown 2 reduces to one question**: how does
+   `next` become reachable through a type parameter?
+2. **It has two answers, both prototyped, and they are not equivalent.**
+   **(A)** the group as a *generic bound* — a trait/interface with one `impl`
+   per declaring type, `P: SalvoYield<T>`, static dispatch, and no value ever
+   typed as the group. **(B)** the group's member as an *implicit parameter*,
+   stored as a function value — which is not new machinery, since the existing
+   generated `map_lazy` already stores its `?Iterable` member that way on both
+   backends. (B) wins on two counts the type rules do not hint at: an
+   **effectful** `next` takes handlers as parameters and therefore cannot
+   implement a fixed trait method — the "one trait per effect set" problem
+   [iter-effects] had, resurfacing at the bound — while a stored fn's *type*
+   carries the effects and [fn-effects] inheritance already handles them; and
+   `close` is **optional at the call site** under (B), where under (A) it is a
+   `P: Linear` bound a pass without a `close` cannot satisfy. The prototype's
+   section 4 composes over the effectful `chatty`, which only (B) expresses.
+3. **A consuming `close` moves the idempotency rather than removing it.**
+   `fn close(s: Self)` cannot be called twice, so I1b/I4's "one call after the
+   loop covers `break` and exhaustion" reasoning is gone. Two things survive:
+   the per-`defer`-site **flag guard inside** `close` (the body's own
+   exhaustion path may already have discharged it), and — unpredicted — a
+   composed pass needs its source in an **`Option`/nullable slot**, because
+   the release path only holds `&mut self` while closing the source consumes
+   it. Same shape as I3's no-zero-value slot rule, arriving from ownership
+   instead of initialization.
+4. **Unpredicted collision: `close`-implies-`Linear` would make most generated
+   passes uncomposable.** The proposed abandonment answer (*a pass declaring a
+   `close` must be linear*) meets the interim rule (*storing a linear value in
+   a composite is an error*), and a composed pass stores its source — so every
+   `yield` fn with a `defer` would be unmappable. The prototype keeps the two
+   independent (`Chatty` has a `close` and is not `Linear`; `Lines` declares
+   `: Linear`), which is what lets it run. **A decision, not a detail**, and
+   either way mapping over a *linear* pass — a file's lines — stays
+   unavailable until composition or conditional linearity lands.
+5. **Smaller, all verified.** `Mut` on a user struct is only reachable through
+   a qualified struct literal (`Mut Countdown { at: 3 }`) — a plain literal
+   cannot be coerced and `for x in Mut P { … }` is a parse error, so a pass
+   always arrives from a call or a local. A **fn-typed struct field is refused
+   on Rust and accepted on Kotlin** — a live backend divergence, and the
+   reason (B) is a *generated*-pass mechanism unless the refusal is lifted
+   (generated code shows it can be: `Rc<dyn Fn…>` is all it takes). Calling a
+   fn-typed field needs a local first (`h.f(e)` is `f(h, e)` [fn-dot]). A
+   generic struct literal needs written type arguments. And Rust's overload
+   mangling reaches `close` too (`close__2`), so the `for` sugar needs **two**
+   resolved functions handed over per subject where `for_drivers` carries one.
+
+Also confirmed, on the credit side: Kotlin needs **no runtime file at all**
+under the reduction (`SalvoPass<T>` existed for the `hasNext`/`next` lookahead,
+which `Emitted T | Finished` makes unnecessary), and Rust's `Clone`/`'static`
+bounds survive only on *stored callbacks*, not on passes — they came from the
+factory.
+
+**R1 — obligation groups, as a mechanism.** `: Group<Args>` on a struct
+declaration; `Self` inside a `params` group; declaration-site checking (declared
+without a matching function is an error naming the missing signature); the
+no-value-of-group-type rule. Designate nothing yet — prove it with a group
+declared in a test. Nothing else in the language changes.
+
+**R2 — designate `Yield<T>`, and make `for` read the declaration.** A pass type
+declares `: Yield<T>`; `for` resolves `next` from that declaration instead of
+scanning overloads, and takes the element type from it. `Iter<T>` is untouched,
+so both old paths still work; `iter_elem_ty`'s scan-for-`next`-then-`iter`
+becomes read-the-declaration-then-`iter`. The driving *emission* already exists
+(the `for_drivers` `while let` loop from I2b/I2c), so this phase is checker work
+with almost no emitter work.
+
+**R3 — retarget the `yield` sugar.** A `yield` fn's return type *names* the pass
+struct it declares; the compiler generates `struct X : Yield<T> canbe Mut` with
+the plan's fields, a `next` that is the plan's `__advance`, and a `close` when
+the body has deferred work. `generator.rs`'s plan survives unchanged — this is a
+change to what the emitters *render around* it. `Iter<T>`-returning `yield` fns
+stop being legal here, so this is where the corpus and most tests move.
+
+**R4 — designate `Linear`.** `: Linear` with its `close`; `discard` refused for a
+linear value, naming `close`; storing a linear value in a composite refused
+(interim); `<T: Linear>` as the generic bound spelling.
+
+**R5 — demolish `Iter<T>`.** Remove the type and everything that existed to
+support it: the `SalvoIter`/`Iterable` representations, `Once` on producers, the
+effect claim with `producer_effects`/`pass_effect_sets`/the per-effect-set
+traits/the variance adapter, and `params Iterable`. Rewrite std: a pass struct
+plus `next` per intrinsic container, `iter` returning a fresh pass, `seq.sv`'s
+combinators over passes (`map_lazy` becomes a generated composed pass). The
+emitters keep their native `for` for a list, array or `Str` subject.
+
+**R6 — sweep.** ~48 test fns and the `Iter`/`yield` snapshots; rewrite
+`[fn-iterator]`, `[iter-protocol]`, `[iter-generator]`, `[rs-iter-lazy]`,
+`[kt-generator]`, `[seq-iterable]`, `[seq-lazy]`, `[seq-into]`,
+`[linear-canbe]`, `[linear-discard]`, `[linear-composite]`,
+`[linear-generics]`; fold the superseded iterator sections of this file into
+history; update LANGUAGE.md and README.
+
+### Unknowns to settle before writing much
+
+Each of these is cheaper to answer with a probe or a prototype than to discover
+mid-phase — R0 exists to answer the first two.
+
+1. **What does a `yield` fn's return type look like, and where does the element
+   type come from?** `fn naturals(from: Int) -> Naturals` makes the fn a
+   *declaration site for a type*, which is new. Is the `: Yield<Int>` clause on
+   the generated struct inferred from the `yield` expressions, or written by the
+   author somewhere? Decide before R3.
+2. **Composition.** `map_lazy` holds another pass, so its generated struct is
+   generic in the source pass type (`MapLazy<P, U>`), and the sugar has to
+   generate that parameter and thread the source's `next` — which is the
+   `?Yield`-style implicit. Prototype it in R0; it is the shape that decides
+   whether the sugar is expressive enough to replace the combinators.
+3. **`for x in list`.** Intrinsic containers reach iteration through an `iter`
+   returning a pass, or through an intrinsic `next` on the container itself.
+   Either way the emitters keep the native loop, so this is a std-surface choice.
+4. **Effects on group members.** Recommended: the group declares none, each
+   implementation declares its own, and a generic driver *inherits* per call
+   site from the implicit it was filled with — the existing "a fn inherits its
+   fn-typed parameters' effects" rule applied to implicits. **Known gap**:
+   implicits are not in `f.params`, so `inherited_fn_effects` does not walk them
+   today (the same gap I5 hit when a producer's implicits were not pass fields).
+   The alternative — an effect parameter on the group (`params Yield<T> [E]`) —
+   is bounded row polymorphism and is being held in reserve.
+
+### Gotchas that will bite, from the work that just landed
+
+- **A fast path hides the slow path.** `map`/`filter`/`reduce` have `List`
+  overloads that overload specificity always picks, so the generic body went
+  unemitted for months and three defects surfaced at once when `map_to` reached
+  it. Any new std function with a fast path needs a test that reaches the
+  generic one deliberately.
+- **kotlinc will not smart-cast a mutable property.** `if (slot is X) slot.m()`
+  on a field is rejected; bind to a local first.
+- **`rc_fn_type`-style chained `unwrap_or` bugs**: each strip must fall back to
+  its own input, not to the original.
+- **An owned parameter whose type says `Mut` needs a `mut` binder** even when the
+  body never reassigns it — passing it to a `Mut` position is not an assignment,
+  so a scan for assignments cannot see it.
+- **`return None` in a `None`-returning fn** must emit a bare `return` on both
+  backends; the test is the *fn's* return type, not the value's.
+- **Generated code must be warning-free**, and both backends' `runtime_tests`
+  compile the runtime modules on their own to enforce it.
+
+### Deferred: `defer` as an effect with a `defers` block (user, 2026-09-08)
+
+
+The proposal: a special `defers { … }` block in which a `defer` action is
+available, a `Defer` effect for functions that register into an enclosing one,
+and all deferred work running at the end of the named block — `Throw`/`try`'s
+shape, applied to cleanup.
+
+- **For**: cleanup becomes visible in signatures, and "register cleanup on *my
+  caller's* scope" becomes expressible, which is impossible today (a `defer`
+  inside a callee runs at the callee's block end).
+- **Against**: `defer` currently has **zero runtime representation** — it is a
+  splice, "exactly the code written at each of those points" [defer], which is
+  why there is no capture question and why it can discharge a linear obligation
+  on every path. A dynamic queue costs an allocation and brings the capture
+  question back.
+- **The iterator argument for it is gone.** Its strongest motivation was
+  collapsing the generated machine's per-site flags and giving the release path
+  one shape; under the reduction that machinery is confined to generated code
+  and stops being language complexity. The restriction floated earlier — that a
+  producer may not use an *outer* `defers` block — also dissolves: `next` is an
+  ordinary call whose caller is alive for the whole loop.
+- **If it is taken**: splice when the registrations in a `defers` block are
+  static (all of today's code), and use a queue only where a `[Defer]` function
+  actually registers into someone else's block, so existing code keeps its
+  current properties.
+
+## Roadmap: iterators — Salvo-level pull iterators (built 2026-09-07/08, **largely superseded 2026-09-08**)
+
+**Read the section above first.** What follows is the design that was decided
+and built on 2026-09-07/08 — the protocol, `Once Iter<T>`, the `yield`
+lowering, the effect claim on producer types, and the combinator surface. The
+reduction to `next` supersedes the *type* half of it and keeps the machine half;
+the record stays because the reasoning, the prototypes and the defects found are
+what the reduction is standing on.
 
 The design above works, and its cost is concentrated in one place: the
 Rust body is lowered through `async` because stable Rust has no
@@ -3804,7 +4426,6 @@ Consequences recorded with it:
 
 **Leftovers from I4's emission half** (all *refused* today, none silently
 wrong — see "I4 emission as built" for the reasons):
-
 - a **claiming producer nested inside another producer**: the inner pass's
   handlers would have to thread through the outer machine's own parameters, and
   its plan slot be typed as the generated trait rather than a plain iterator.
@@ -3823,6 +4444,46 @@ wrong — see "I4 emission as built" for the reasons):
   producer's): still a codegen error on both backends. Different mechanism —
   the handlers would thread into every turn of a `for_drivers` loop — and it
   did not fall out of I4's work.
+
+### Producer parameters: `Mut` refused (user decision 2026-09-08)
+
+**The decision: option A — refuse it.** An iterator function may not take a
+parameter whose type is transitively mutable [iter-mut-param], by the same test
+[fate-move-mode] uses (`Mut` at any depth: type argument, array/tuple/union
+component, struct field). The diagnostic names the two remedies that work
+everywhere — yield the values and let the consumer collect them, or reach the
+outside through an effect.
+
+Forced by the parity defect recorded under "Open defects": a `yield` fn taking
+`sink: Mut List<Int>` mutated a private copy on Rust and the caller's own list
+on Kotlin, with successive passes accumulating on one target and starting fresh
+on the other. It is a language question rather than an emitter bug because a
+producer's parameters are captured for the lifetime of a **factory**, which can
+mint a pass at any later time — so "who owns the argument" is semantics.
+
+**Why A over the alternatives.** B (copy per pass on both backends) is the
+trap: it compiles, agrees on both targets, and silently discards the writes the
+caller was expecting. C (share on both backends) is what someone writing
+`sink: Mut List<Int>` actually expects — and doing it properly on Rust *is* the
+`Cell` work, since a captured `Mut` parameter needs `Rc<RefCell<…>>` with its
+run-time panic surface. So A now, C reconsidered under "Roadmap: shared mutable
+state (`Cell`)", where it is recorded as a customer of that machinery.
+
+**Nothing in `std/` or the test corpus does this**, so the rule landed with no
+sweep: three tests in `fn_effect_tests.rs` (direct, transitive through a struct
+field, and a control that an *immutable* parameter of the same shape is fine —
+and that a `Mut` parameter on an ordinary fn is untouched).
+
+**Open, raised by the user with the decision: should `Once Iter<T>` be allowed
+one after all?** A pass is minted once and driven once, so the ambiguity that
+sank the factory case — do two passes share the collection or each get their
+own — does not arise. What remains is that the caller must not touch the
+collection while the pass is alive, which is exactly **shared fate**
+([fate-link], the S1/L-series machinery: links, poison, and the
+consumed-use error). The blocker is representational, not semantic: a pass that
+*borrows* its argument needs to be the state machine itself rather than a boxed
+factory value, i.e. I2c's remaining half. Recorded there as a follow-on, not
+decided.
 
 ### D8 decided (user, 2026-09-07): a producer's effects live on its type
 
@@ -4586,16 +5247,24 @@ site plus a diagnostic, with the LSP surfacing the same message.
     the "has a `next` but is not `Once`" error, and `canbe Once`. Emission
     is not part of it: both backends reject a `for` over a pass for now.
     See "I2b as built" below.
-  - **I2c** — ✅ *first half* done 2026-09-07: the driving-loop emission, so
-    hand-written passes (`zip`, `merge`) run on both backends. The async
-    machinery is gone too (with I3). Remaining: the representation split — a
-    pass *being* the generated state struct and a factory keeping the
-    arguments it re-mints from, so a `for` drives the machine directly instead
-    of reaching it through the `Iter<T>` factory's boxed iterator. That is
-    also what gives the injected `close` somewhere to be called from: the
-    plan's release path is emitted (`__close`) but nothing calls it yet, so an
-    abandoned producer still skips its deferred blocks exactly as it did
-    before.
+  - **I2c** — ✅ *two of three parts done*. The driving-loop emission
+    (2026-09-07), so hand-written passes (`zip`, `merge`) run on both backends;
+    the async machinery gone with I3; and **the release path plumbed**
+    (2026-09-08) — see "I2c: the release path, everywhere" below. Remaining:
+    the **un-boxing** half of the representation split — `Once Iter<T>` *being*
+    the generated struct and a factory keeping the arguments it re-mints from,
+    so a `for` drives the machine directly instead of through a
+    `Box<dyn SalvoPass<T>>`. With it go `SalvoIter` itself, the `'static` +
+    `Clone` bounds, and the `Fn`-not-`FnMut` convention exception.
+    **What it is actually worth is written up under "The un-boxing question,
+    costed" — it is smaller than it looks, and it needs a decision.**
+    Also unlocked by it: whether a producer returning `Once Iter<T>`
+    may take a **mutable parameter** after all. One pass exists, so the
+    factory case's ambiguity is gone and what remains — the caller may not
+    touch the collection while the pass lives — is what shared fate
+    ([fate-link]) expresses. It needs a pass that *borrows*, i.e. the state
+    machine itself rather than a boxed factory value. Raised by the user
+    2026-09-08 with the decision that refused the factory case.
 - **I3** — ✅ **Done 2026-09-07**: prototyped against an oracle (see "I3
   prototyped"), then the shared plan (`salvo-core/src/generator.rs`
   [iter-generator], accepted against the prototype's eight states — "I3 step 1
@@ -4615,8 +5284,29 @@ site plus a diagnostic, with the LSP surfacing the same message.
   `experiments/pull-iterators/effectful.sv` under both toolchains with identical
   stdout. See "I4 emission as built" for the two unknowns it had to answer and
   the four shapes still refused. I2c's representation split and I5 follow.
-- **I5** — Lazy `map`/`filter` in `seq.sv` (the eager-because-of-callbacks
-  justification disappears); std surface sweep.
+- **I5** — ✅ **Done 2026-09-08**: the combinator surface, to the user's
+  decision — *eager by default, with two named variants*. See "I5 as built"
+  below for the four defects it uncovered.
+  - **`map` / `filter` stay eager**, returning `Mut List<U>`. The default is
+    the one that surprises least, and chaining already works because a list is
+    iterable.
+  - **`map_lazy` (and `filter_lazy`) are the lazy pair**, returning `Iter<U>` —
+    now that a producer may perform effects [iter-effects], a stored callback
+    is no longer a reason they cannot exist. Laziness is *asked for* rather
+    than inherited, which also keeps the "how many times was it consumed"
+    question visible at the call site: `[iter-mut-param]` refuses a callback
+    carrying mutable state precisely because a lazy combinator calls it once
+    per element in every pass.
+  - **`map_to` maps into a collection the caller provides**, given as the
+    **first argument**, with an **`?add` implicit parameter** for appending to
+    it [implicit-param]. So the destination need not be a `List` — anything
+    with an `add` qualifies, which is the same "a bundle of implicit
+    parameters, not a trait" move `params Iterable` already makes.
+  - Open when it is built: whether `reduce` needs variants at all (it is
+    already a fold to one value), and what `filter_to`/`map_to`'s deduction
+    lists say about the destination — it is mutated, so `[dest: Mut]`, and
+    `[iter-mut-param]` does *not* apply because `map_to` is not a producer:
+    it returns when it is done.
 - **I6** — Sweep: ~48 test fns and 10 of 23 insta snapshots mention
   `Iter`/`yield`; `[fn-iterator]`, `[iter-effect-free]`, `[rs-iter-lazy]`,
   `[seq-iterable]` rewritten; the LANGUAGE.md planned-change subsection
@@ -4705,7 +5395,214 @@ resumable at once. I1's program has one `defer` site and one loop; **I3
 should open with the gnarly shape** (`rangeIncl` with a `defer` inside a
 nested `for`) before the general lowering is written.
 
+### I5 as built (2026-09-08): the combinator surface, and what it uncovered
+
+The surface is the user's decision, in `std/core/seq.sv`:
+
+- `map` / `filter` / `reduce` — **eager**, unchanged, returning `Mut List<U>`.
+- `map_lazy` / `filter_lazy` — return `Iter<U>`. Laziness is *asked for*, which
+  also keeps "how many times was this consumed?" visible at the call site.
+- `map_to` / `filter_to` — the destination is the **first argument**, and
+  appending goes through an **`?add` implicit parameter**
+  (`(dest: Mut D, elem: U) -> [dest: Mut] None`), so the destination is
+  anything with an `add` rather than a `List` — the same "a function, not a
+  trait" move `?Iterable` makes for the subject. Nothing is returned: the
+  caller already holds the destination.
+
+Verified on both backends with one source and one stdout, plus a second program
+that is the point of laziness: `map_lazy(filter_lazy(naturals(), is_even),
+triple)` over an **unbounded** producer, terminating only because the consumer
+breaks. Eager `map` would not return.
+
+**Four defects, and only one of them was I5's own.** The cause of the cluster is
+worth recording: `map`/`filter`/`reduce` over a list take their `List` fast
+path [fn-overload-rank], so the **generic `?Iterable` body had never been
+emitted** for a real call. `map_to` has no fast path, and `map_lazy` is the
+first *producer* with implicits — so several long-standing paths ran for the
+first time at once.
+
+1. **A producer's implicits were not pass fields.** The body called `iter(xs)`
+   inside the machine, where the implicit is not in scope ("unresolved
+   reference"/E0425 on both backends). Fixed in the *plan*
+   (`FieldKind::Implicit`, `plan_generator_with_implicits`) rather than twice in
+   the emitters, since "the body's locals become fields" is a plan concept.
+   Rust holds them `Rc`-shared and calls them through `self`; Kotlin makes them
+   constructor properties.
+2. **An implicit with a `Mut` parameter lost its `&mut`** on Rust:
+   `implicit_param_type` rendered parameter *types*, and `Mut` erases there, so
+   `?add` became `FnMut(Vec<i32>, i32)` and the adapter could not append to
+   what it was handed (E0596). Now the fn type's **contract** decides, as it
+   already did for a written `Type::Fn`. Deliberately narrowed to kept-`Mut`
+   positions: making every implicit borrow would be more uniform and would
+   touch every existing `?Iterable`/`?cmp` call site.
+3. **A generic call filling implicits could not be inferred.** Each implicit
+   arrives as an adapter *closure* whose parameter types Rust takes from the
+   callee's bound — so with the callee's generics open there is nothing to infer
+   them from, and inference stalls on closures waiting for the answer (E0282).
+   The call now states the instantiation from `Checked::call_type_args`
+   [rs-implicit-turbofish]. Also `rc_fn_type` had a latent chained-`unwrap_or`
+   bug that undid its own prefix strip, emitting `Rc<dyn impl Fn(..)>`.
+4. **`return None` in a `None`-returning fn was wrong on *both* backends** —
+   `return null` against Kotlin's `Unit`, `return None;` against Rust's `()`,
+   each a target-language type error. The same defect in both, found by the same
+   std line, and neither is iterator-related: any program writing an explicit
+   `return None` hit it. The test asks the **fn**, not the returned value: in a
+   `Str?`/`Option`-returning fn `return None` is exactly right. The literal is
+   dropped rather than evaluated, since emitting `null` as a statement warns
+   ("expression is unused") in code the user cannot edit.
+
+**`map_to` returns its destination** (user decision 2026-09-08, taken right
+after the surface landed), so a chain carries on from it:
+
+```
+let out = map_to(mutable_list<Int>(), xs, double)
+let kept = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
+```
+
+The destination is therefore **moved in and handed back** (`-> [xs, f] Mut D`,
+with `dest` absent from the deduction list) rather than kept — which is what
+makes the nested form above legal, since a kept parameter could not be the
+value of the enclosing expression. Holding a destination across the call means
+rebinding it (`let sink = map_to(sink, …)`), which is the ordinary move
+discipline.
+
+One emitter fix came with it: an owned parameter binds `mut` when its **type**
+says `Mut`, not only when the body reassigns it. A moved-in `Mut D` handed to a
+`Mut` position needs `&mut dest`, which a non-`mut` binder refuses (E0596), and
+passing it on is not an assignment so `collect_mutated` could not see it. `Mut`
+in the type *is* the claim that the value may be mutated through this binding,
+so the binder now follows the type.
+
+**Still open on the surface**: whether `reduce` wants variants at all (it
+already folds to one value).
+
+### The un-boxing question, costed (2026-09-08)
+
+What I2c's remaining half would buy, and where it stops. The example is one
+program, and every line of Rust below is the emitter's actual output today:
+
+```
+struct Feed { name: Str, items: Iter<Int> }
+
+fn naturals() -> Iter<Int> { let i = 0  while true { yield copy(i)  i = i + 1 } }
+fn evens(it: Iter<Int>) -> [it] Iter<Int> { for x in it { if x % 2 == 0 { yield copy(x) } } }
+fn total(xs: Iter<Int>, limit: Int) -> [xs] Int { … for v in xs { … } … }
+```
+
+**Today** — three kinds of indirection, all of them from one decision (`Iter<T>`
+is one type whatever produced it):
+
+```rust
+pub struct Feed { pub name: String, pub items: SalvoIter<i32> }
+
+pub fn naturals() -> SalvoIter<i32> {
+    SalvoIter::from_factory(std::rc::Rc::new(move || Box::new(__Pass_naturals::new())))
+}
+pub fn evens(it: &SalvoIter<i32>) -> SalvoIter<i32> { … }
+pub fn total(xs: &SalvoIter<i32>, limit: i32) -> i32 { … }
+
+struct __Pass_evens { it: SalvoIter<i32>, x__pass: Option<Box<dyn SalvoPass<i32>>>, … }
+//   SalvoIter<T> = Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>
+```
+
+**Un-boxed**, each producer's factory and pass would be its own named struct.
+`naturals()` returns `__Factory_naturals` and mints a `__Pass_naturals` — no
+`Rc`, no `Box`, no `dyn`, one less allocation per loop. That is the whole prize,
+and it is real but narrow. What it costs, in the same program:
+
+- **`evens` has to become generic in its input.** Its pass holds the inner one
+  *by value*, so the type is `__Pass_evens<P>` where `P` is whatever
+  `naturals()` returned — and the parameter is `impl SalvoFactory<i32>` rather
+  than a named type. The type parameter then propagates to anything holding an
+  `evens(...)`, so composition (`map_lazy`, `filter_lazy`, `zip`, `merge`, every
+  combinator) cascades type parameters through the chain.
+- **`Feed.items` cannot be un-boxed at all.** Its type is written `Iter<Int>`
+  and its value is `evens(naturals())`, whose un-boxed type is
+  `__Factory_evens<__Factory_naturals>` — a name the *Salvo* declaration has no
+  way to say. A struct field, a union arm and a `List<Iter<Int>>` element are
+  all in this position: they must erase, i.e. stay `Box<dyn …>`.
+- **`total`'s parameter** is the choice that has to be made: generic
+  (`impl SalvoFactory<i32>`, monomorphised per call — fast, but every producer
+  that *stores* one grows a parameter, see above) or boxed (`&dyn` — no
+  cascade, no saving). Decision 5 said "boxing at the meeting point"; this is
+  the meeting point, and which of the two it gets is a language-visible choice,
+  because the generic form changes what can be written where.
+
+So the honest summary: un-boxing removes an `Rc` and a `Box` where a producer
+is **built and driven without being stored or passed** — a `for` over
+`naturals()`, which is the common shape in small code — and keeps them
+everywhere the value crosses a declaration a user wrote. It is not a
+correctness change: nothing about it is observable except allocation counts.
+
+**What is genuinely gated behind it** is the other half: a pass that *is* a
+struct can hold a **borrow**, which is what would let a `Once Iter<T>` take a
+mutable parameter under shared fate [fate-link] — the question raised with the
+[iter-mut-param] decision. That is a language capability, not an optimisation,
+and it is the reason to do the work.
+
+**Recommendation**: treat the un-boxing as a *means* to the `Once`-borrowing
+feature rather than as a performance item, and decide the parameter question
+(generic vs boxed) before starting — because the answer decides whether the
+cascade exists at all.
+
+### I2c: the release path, everywhere (2026-09-08)
+
+
+The first part of the representation split, done on its own because it is what
+the rest is built on: **a generated pass stops being a target-language
+iterator**, and every `for` over an `Iter<T>` — claiming or pure — mints,
+advances and closes.
+
+- **Rust**: `runtime/iter.rs` gains `trait SalvoPass<T> { fn advance(&mut self)
+  -> Option<T>; fn close(&mut self) {} }` and `SalvoWalk<I>` (a walk over
+  elements that already exist, whose default `close` is the honest no-op).
+  `SalvoIter<T>`'s payload becomes `Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>` with
+  a `mint()`, and `SalvoPassIter<T>` adapts a pass *to* a Rust iterator for the
+  positions that want one (`to_vec`, `IntoIterator`). A generated pass now
+  `impl SalvoPass<T>` instead of `impl Iterator`.
+- **Kotlin**: `runtime/iter.kt` gains `interface SalvoClosable { fun
+  __close() }`, which `SalvoPass<T>` implements, so a drive site can release
+  the pass it is holding without knowing which producer wrote it — a
+  collection's iterator is an `Iterator` too and has nothing to release, which
+  is what the `is SalvoClosable` test asks.
+- **Nested passes are released too**: the plan's `ClosePass` step closes the
+  slot before clearing it, so an inner producer abandoned along with its outer
+  one runs its deferred blocks. It was a plain `= None` / `= null` before.
+- **Collections keep native loops** (decision 8): the gate is the subject's
+  type being `Iter<T>`, so `for x in xs` over a list, an array or a `Str` emits
+  exactly what it did.
+
+**What it does *not* buy, and this is worth being exact about: no observable
+behaviour change today.** The hole it closes is that an abandoned *pure*
+producer skipped its deferred blocks — and after [iter-mut-param] a pure
+producer has no way to make that observable: its `defer` can only touch its own
+locals, which die with the pass, and a `defer` that performs an effect makes the
+producer *claiming*, which I4 already handled. Every route to observing it runs
+through a shape that is currently refused (a claiming producer nested in
+another, the value-position `for`). So this is plumbing that is *correct in
+advance* of the cases that will need it, plus the protocol the un-boxing half
+requires — not a bug fix, and it should not be recorded as one.
+
+**Two things it cost, both small and both instructive:**
+
+- **Rust: `mint()` already boxes.** `Box::new(x.mint())` is a
+  `Box<Box<dyn SalvoPass<T>>>`, which does not implement `SalvoPass<T>` —
+  E0277 at the nested-pass slot. Caught immediately by the e2e tests.
+- **Kotlin refuses to smart-cast a mutable property.** `if (x__pass is
+  SalvoClosable) x__pass.__close()` on a slot is *"smart cast is impossible,
+  because it is a mutable property that could be mutated concurrently"* — the
+  trap already in the gotchas from the field-narrowing work, arriving from a new
+  direction. The slot is bound to a local first.
+
+**The shape tests that changed** are the interesting record of the diff:
+`a_for_loop_borrows_an_iter_subject` asserted `for mut v in &twice` and now
+asserts `twice.mint()` + `.advance()` + `close()`; the state-machine test
+asserted `impl Iterator for __Pass_naturals` and now asserts
+`impl SalvoPass<i32>`; and both backends' loop-numbering assertions shifted by
+one, because driving a producer costs a fresh loop name for the pass.
+
 ### I2a as built (2026-09-07): the factory/pass distinction ships first
+
 
 `Once Iter<T>` is now a type the compiler accepts, and the one-shot rule is
 enforced — *before* the representation splits. That order is deliberate:
@@ -4798,7 +5695,11 @@ patterns need the opposite — mutation through a *shared* path:
   consumed (moved) by a lambda that captures and mutates it");
 - memoization / lazy initialization behind an immutable handle;
 - counters, metrics, id generators shared by several holders;
-- a stateful handler of an effect whose other handlers want to be shared.
+- a stateful handler of an effect whose other handlers want to be shared;
+- **a producer writing to a collection its caller keeps** — refused outright
+  since 2026-09-08 [iter-mut-param], and the case with the sharpest
+  requirements of the five (see "Producers: the `Mut`-parameter case (option
+  C)" below).
 
 ### The proposal: a capability qualifier, not a container type
 
@@ -4875,6 +5776,39 @@ holders can surprise each other, and the ownership analysis stops helping
 inside a cell. That is the price of shared mutable state in any language
 with an ownership discipline; what makes it defensible is that it is
 visible in the type rather than hidden behind an ordinary one.
+
+### Producers: the `Mut`-parameter case (option C)
+
+Added 2026-09-08 with the decision that refused it for now
+([iter-mut-param]; the divergence that forced that is under "Open defects").
+A producer taking `sink: Mut List<Int>` and appending to it as it yields is
+the pattern, and it is the most demanding customer this roadmap has:
+
+- **The handle outlives the call.** A producer's parameters are captured by a
+  *factory* that may mint a pass at any later time, so this is not "two
+  holders in one scope" — it is a handle stored for an unbounded period, which
+  is what makes `Rc<RefCell<…>>` (rather than a scoped `&mut`) the only Rust
+  shape that works. Every other case on the list above is at least *nameable*
+  within one scope.
+- **It multiplies.** A factory mints many passes, each capturing the same
+  cell, and they can be alive at once (`zip(p, p)`). So the borrow discipline
+  has to hold between *passes*, not just between a producer and its caller —
+  and that is exactly where a `RefCell` would panic at run time, the outcome
+  "Representation, and why it cannot panic" is written to avoid.
+- **It makes replayability a question rather than a promise.** `Iter<T>` is a
+  factory whose contract is that a second `for` starts from the beginning
+  [fn-iterator]. Sharing a cell with the caller keeps the *elements*
+  replayable while the side effect accumulates, so two loops over one factory
+  stop being interchangeable. Whether that is acceptable is a language call,
+  not a representation detail.
+
+**If `Cell` lands, this is the acceptance case to run first**, because it
+exercises the two hard parts together: a cell captured for longer than any
+scope, and several live holders derived from one capture. The narrower version
+— a producer returning `Once Iter<T>`, where exactly one pass exists — needs no
+`Cell` at all and may be answerable with **shared fate** ([fate-link]) once a
+pass *is* the state machine (roadmap I2c); that is recorded under "Producer
+parameters: `Mut` refused" and is the cheaper thing to try first.
 
 ### Relationship to E1
 
@@ -5829,7 +6763,11 @@ the other way round. Two findings from the outline worth keeping for when
 it resumes:
 
 - Errors cannot use `Throw` at all — an effect member may not declare
-  effects — so every fallible member returns `Ok T | Err Str`. That makes
+  effects — so every fallible member returns `Ok T | Err Str`. **Blocked as of
+  2026-09-08**: storing a linear value in a composite — a union arm included —
+  is now an interim *error* (see "`Linear` becomes a compiler-known obligation
+  group"), so this shape needs either an exception for union arms or a different
+  result shape before S-IO restarts. That makes
   `Ok InputStream | Err Str` the normal shape, and a **linear value inside
   a union arm** the interaction to verify first ([linear-composite] says
   composites are contagious, but nothing exercises it).
@@ -5837,7 +6775,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 740)
+## Test inventory (all green: 752)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -5845,7 +6783,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 296 - 19 unit tests (file classification, including the
+- `salvo-core`: 302 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -5979,7 +6917,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   [effect-handler-generics]: a `use` writing its handler's type arguments, a
   constructor argument still binding them, the two disagreeing reported, and
   the wrong number of them rejected)
-  + 14 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
+  + 20 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its
   fn-typed parameters' effects, through a qualifier too, with its caller
@@ -5988,11 +6926,20 @@ and `cargo nextest run` when you want to see which tests cost what.
   un-annotated lambda's effects inferred from its body; each declared effect
   required at the call, and a fn value called where its effect is
   unavailable rejected — the reason "forbid escape" was unnecessary; and
-  `use` in a fn type rejected; plus 3 iterator tests [iter-effect-free]: an
+  `use` in a fn type rejected; plus 3 iterator tests [iter-effects]: an
   iterator fn declaring an effect rejected with its remedy, the same for
   `use` (the hole that would let the body register its own handler), and a
   `for` loop over an iterator performing effects freely — the restriction is
-  on producing, not consuming)
+  on producing, not consuming;
+  plus 3 mutable-parameter tests [iter-mut-param]: a producer taking a `Mut`
+  parameter rejected, the same *transitively* through a struct field — the
+  test is [fate-move-mode]'s, not a look at the written qualifiers — and the
+  control that an immutable parameter of the same shape is fine and a `Mut`
+  parameter on an ordinary fn is untouched;
+  plus 3 callback-capture tests, the same rule's other half: a lambda handed to
+  a producer rejected for writing through a capture and for merely reading
+  mutable data through one, with the control that an *immutable* capture is
+  free and that the same lambda into a non-producer is untouched)
   + 20 throw/`try` tests (`tests/throw_tests.rs` [throw] [try]: the
   outcome type read off an annotation mismatch (`Ok Int | Thrown Str`),
   several message types unioning (`Thrown (Str | Int)`), an always-leaving
@@ -6356,7 +7303,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 140 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 143 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -6531,7 +7478,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
   `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 113 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 116 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -6722,6 +7669,52 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A fast path can hide the slow path for months.** `map`/`filter`/`reduce`
+  each have a `List` overload that overload specificity always picked, so the
+  *generic* `?Iterable` body — the one the whole "iterable is a function, not a
+  trait" design rests on — had never been emitted for a real call. Adding
+  `map_to` (no fast path) ran it for the first time and three long-standing
+  defects surfaced at once. When a declaration exists in two forms and one is
+  always chosen, the other is untested by construction: write the test that
+  reaches it deliberately, or add a shape that has no fast path.
+- **The same bug in both backends is a signal about *where* it lives.**
+  `return None` emitted `return null` on Kotlin and `return None;` on Rust —
+  both target-language type errors, both found by one line of std. Two
+  independent emitters getting the same thing wrong the same way means the
+  question ("does this fn return anything?") was never asked at the right
+  level; each had the answer locally (the rendered return type is empty) and
+  neither consulted it.
+
+- **Plumbing that fixes nothing observable is still worth doing — and worth
+  labelling.** The release path for a *pure* producer closes a hole with no
+  reachable symptom: after [iter-mut-param] a pure producer's `defer` can only
+  touch state that dies with the pass, and a `defer` that performs an effect
+  makes the producer claiming, which was already handled. Every route to
+  observing it goes through a shape that is refused. That is a reason to build
+  it (it is the protocol the un-boxing half needs, and it is correct in advance
+  of the cases that will need it) and *not* a reason to write it up as a bug
+  fix. Recording "no observable change" is what stops the next reader looking
+  for the test that proves it.
+
+- **A test suite cannot catch a shape nobody writes.** A producer's callback is
+  declared `impl Fn + 'static` and was emitted as a *borrowing* closure, so
+  every capturing lambda handed to an iterator fn failed to compile on Rust
+  (E0373) — for months, with 743 tests green, because not one of them passed a
+  capturing lambda to a producer. The `'static` in the rendered *type* had been
+  there since [rs-iter-lazy] was written; the `move` on the closure never was.
+  Two lessons, and the second is the useful one: a hand-written prototype
+  proves the shape you thought of, and the gap was in a shape nobody thought
+  of — so when a rule says "this position is `'static`", the test that earns it
+  is the one where something is actually *captured*.
+- **Write the remedy the diagnostic names, then compile it.** The
+  callback-capture rule's first message said "capture `copy(x)` for a
+  snapshot", which is wrong twice over: the copy happens inside the closure so
+  the capture is still there, and a copy of a `Mut List` is still `Mut`. The
+  advice that works is "bind a snapshot at a non-`Mut` type *before* the
+  lambda" — and finding that out is what exposed the missing `move`, because
+  the working remedy did not compile either. A remedy is a claim about the
+  compiler; check it like one.
 
 - **A checker table's *purpose* is not its shape.** Two tables I4's emission
   read said what they were for and had to be read against the grain anyway.

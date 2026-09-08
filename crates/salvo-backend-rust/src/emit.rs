@@ -793,7 +793,7 @@ fn generate_iter_effects_file(traits: &BTreeMap<Vec<String>, Vec<String>>) -> St
              are expected, and here that is a representation change, so\n    /// the compiler \
              inserts this at the boundary.\n    pub fn from_pure(pure: crate::iter::SalvoIter<T>) \
              -> Self {{\n        SalvoIter{suffix}(Rc::new(move || {{\n            \
-             Box::new(SalvoPureAs{suffix}((&pure).into_iter()))\n        }}))\n    }}\n}}\n"
+             Box::new(SalvoPureAs{suffix}(pure.mint()))\n        }}))\n    }}\n}}\n"
         ));
         out.push_str(&format!(
             "\nimpl<T> Clone for SalvoIter{suffix}<T> {{\n    fn clone(&self) -> Self {{\n        \
@@ -805,10 +805,10 @@ fn generate_iter_effects_file(traits: &BTreeMap<Vec<String>, Vec<String>>) -> St
              f.write_str(\"Iter\")\n    }}\n}}\n"
         ));
         out.push_str(&format!(
-            "\nstruct SalvoPureAs{suffix}<T>(Box<dyn Iterator<Item = T>>);\n\nimpl<T> \
+            "\nstruct SalvoPureAs{suffix}<T>(Box<dyn crate::iter::SalvoPass<T>>);\n\nimpl<T> \
              SalvoPass{suffix}<T> for SalvoPureAs{suffix}<T> {{\n    fn advance(&mut self, \
-             {ignored}) -> Option<T> {{\n        self.0.next()\n    }}\n    fn close(&mut self, \
-             {ignored}) {{}}\n}}\n"
+             {ignored}) -> Option<T> {{\n        self.0.advance()\n    }}\n    fn close(&mut self, \
+             {ignored}) {{\n        self.0.close()\n    }}\n}}\n"
         ));
     }
     out
@@ -933,11 +933,11 @@ const RUST_UNRAW: &[&str] = &["self", "Self", "super", "crate"];
 /// anyway. The rendering is exact, so this is surgery on it rather than a
 /// second fn-type renderer that could drift from the first.
 fn rc_fn_type(rendered: &str) -> String {
-    let inner = rendered
-        .strip_prefix("impl ")
-        .unwrap_or(rendered)
-        .strip_suffix(" + 'static")
-        .unwrap_or(rendered);
+    // Each strip falls back to *its own* input: chaining them onto `rendered`
+    // undid the prefix strip whenever the suffix was absent, which rendered
+    // `Rc<dyn impl Fn(..)>` ("expected a trait, found type").
+    let inner = rendered.strip_prefix("impl ").unwrap_or(rendered);
+    let inner = inner.strip_suffix(" + 'static").unwrap_or(inner);
     format!("std::rc::Rc<dyn {inner}>")
 }
 
@@ -1089,6 +1089,11 @@ struct Emitter<'p> {
     /// [iter-effects] Absolute crate-path prefix per effect name, for the
     /// generated pass-trait file (which imports nothing).
     effect_paths: HashMap<String, String>,
+    /// [rs-none-unit] The fn being emitted returns `None`, i.e. Rust `()`:
+    /// `return None;` must be a bare `return;`. Not decidable from the
+    /// returned *value*'s type — `return None` in an `Option`-returning fn is
+    /// `return None;` and correct.
+    ret_is_unit: bool,
     /// [rs-effect-fusion] Program-wide: some handler declares an effect
     /// dependency, so every effect site threads one *fused* value.
     fusion: bool,
@@ -1167,6 +1172,10 @@ struct Emitter<'p> {
     /// *declared* fn type gives that position's parameters. Taken by
     /// `emit_lambda`, so it never leaks to a nested lambda.
     pending_lambda_conv: Option<Vec<BindKind>>,
+    /// [rs-iter-lazy] Set the same way, for the same reason: an iterator fn's
+    /// fn-typed parameter is `impl Fn + 'static`, so a lambda handed to one
+    /// must be a `move` closure — it outlives the call that created the pass.
+    pending_lambda_move: bool,
     /// Enclosing `try` delimiters being emitted [rs-try-label], innermost
     /// last: a throw inside one breaks its labelled block instead of
     /// returning.
@@ -1220,6 +1229,7 @@ impl<'p> Emitter<'p> {
             union_sizes: BTreeSet::new(),
             pass_traits: BTreeMap::new(),
             effect_paths: HashMap::new(),
+            ret_is_unit: false,
             effect_env: Vec::new(),
             bindings: HashMap::new(),
             mutated: HashSet::new(),
@@ -1254,6 +1264,7 @@ impl<'p> Emitter<'p> {
             gen_slots: HashSet::new(),
             gen_handler_args: String::new(),
             pending_lambda_conv: None,
+            pending_lambda_move: false,
             try_frames: Vec::new(),
             try_id: 0,
             expr_indent: 0,
@@ -1359,13 +1370,20 @@ impl<'p> Emitter<'p> {
         )
     }
 
-    /// [iter-effects] [rs-pass-effects] The loop header for a `for` over a
-    /// **claiming** producer, and the `close` that ends it:
+    /// [iter-effects] [iter-generator] [rs-pass-effects] The loop header for a
+    /// `for` over a **producer**, and the `close` that ends it:
     ///
     /// ```text
     /// let mut __loop0_pass = chatty(3).mint();
     /// while let Some(mut v) = __loop0_pass.advance(console) {
     /// ```
+    ///
+    /// One lowering whether the producer claims effects or not — the handler
+    /// list is simply empty for a pure one, and the emitted text differs only
+    /// by those arguments. What the pure case *gains* by going through here is
+    /// the `close`: an `Iter<T>` reached as a target-language iterator had
+    /// nowhere to put one, so an abandoned producer skipped its deferred
+    /// blocks.
     ///
     /// The handlers come from the subject's claim set in the checker's
     /// canonical order, which is the order the generated trait declares them
@@ -1375,7 +1393,7 @@ impl<'p> Emitter<'p> {
     /// The returned `close` call is spliced after the loop *and* registered as
     /// a deferred entry, so a `return` out of the body releases the producer
     /// too. It is idempotent, so landing there twice costs nothing.
-    fn emit_claiming_loop_header(
+    fn emit_producer_loop_header(
         &mut self,
         claims: &[Ty],
         pattern: &Pattern,
@@ -1389,23 +1407,28 @@ impl<'p> Emitter<'p> {
             .map(|ty| self.thread_effect_by_ty(ty))
             .collect();
         let args = args.join(", ");
-        // Registers the trait this drive site names, for a program that only
-        // ever *receives* a claiming producer.
-        let elem = match self.ty_of(iterable.span()).map(|t| t.strip_quals().clone()) {
-            Some(Ty::Named { args, .. }) => match args.first() {
-                Some(t) => {
-                    let t = t.clone();
-                    self.rust_ty(&t)
-                }
-                None => "()".to_string(),
-            },
-            _ => "()".to_string(),
-        };
-        let _ = self.producer_repr(&names, &elem);
+        if names.is_empty() {
+            // The pure runtime is what a plain `Iter<T>` mints from.
+            self.needs_iter = true;
+        } else {
+            // Registers the trait this drive site names, for a program that
+            // only ever *receives* a claiming producer.
+            let elem = match self.ty_of(iterable.span()).map(|t| t.strip_quals().clone()) {
+                Some(Ty::Named { args, .. }) => match args.first() {
+                    Some(t) => {
+                        let t = t.clone();
+                        self.rust_ty(&t)
+                    }
+                    None => "()".to_string(),
+                },
+                _ => "()".to_string(),
+            };
+            let _ = self.producer_repr(&names, &elem);
+        }
         let place = format!("{}_pass", self.fresh_loop_var());
         // A *place*, not an owned value: `mint` takes `&self`, so nothing is
-        // cloned — a claiming producer's factory is an `Rc` like the pure
-        // one's, and the loop only needs to read it.
+        // cloned — a producer's factory is an `Rc`, and the loop only needs to
+        // read it.
         let subject = self.emit_place(iterable);
         let var = self.for_pattern_var(pattern, false);
         let close = format!("{place}.close({args});");
@@ -2219,7 +2242,11 @@ impl<'p> Emitter<'p> {
     /// roadmap I2c's second half.
     fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let plan = match salvo_core::plan_generator(f) {
+        // [implicit-param] The implicits are fields of the pass like any other
+        // parameter: the body calls them on every turn, long after the call
+        // that filled them.
+        let implicits = self.implicits_of(f);
+        let plan = match salvo_core::plan_generator_with_implicits(f, &implicits) {
             Ok(plan) => plan,
             Err(errors) => {
                 for e in errors {
@@ -2317,6 +2344,20 @@ impl<'p> Emitter<'p> {
                     decls.push(format!("    {name}: {ty},\n"));
                     inits.push(format!("            {name},\n"));
                 }
+                FieldKind::Implicit(imp) => {
+                    // [implicit-param] An implicit is always of fn type, so it
+                    // takes the callback treatment: `Rc`-held, shared by every
+                    // pass [rs-iter-lazy].
+                    let ty: Ty = imp.ty.clone();
+                    // The *owned* fn type, not the `&mut dyn` parameter form:
+                    // a pass outlives the call, so it holds an `Rc` exactly as
+                    // it does for a written callback [rs-iter-lazy].
+                    let rendered = self.owned_fn_ty(&ty);
+                    let held = rc_fn_type(&rendered);
+                    ctor.push(format!("{name}: {held}"));
+                    decls.push(format!("    {name}: {held},\n"));
+                    inits.push(format!("            {name},\n"));
+                }
                 FieldKind::Local { ty, value, span } => {
                     let rendered = match ty {
                         Some(t) => self.emit_type(t),
@@ -2377,7 +2418,7 @@ impl<'p> Emitter<'p> {
                         );
                     }
                     decls.push(format!(
-                        "    {name}: Option<Box<dyn Iterator<Item = {rendered}>>>,\n"
+                        "    {name}: Option<Box<dyn SalvoPass<{rendered}>>>,\n"
                     ));
                     inits.push(format!("            {name}: None,\n"));
                 }
@@ -2486,10 +2527,14 @@ impl<'p> Emitter<'p> {
         item.push_str(&runners);
         item.push_str("}\n");
         if claim_names.is_empty() {
+            // [iter-generator] A pass, not a `std::iter::Iterator`: an
+            // iterator has nowhere to put `close`, and a producer's deferred
+            // blocks have to run on the path the consumer abandoned.
             item.push_str(&format!(
-                "\nimpl{generic_decl} Iterator for {pass}{generic_args} {{\n    type Item = \
-                 {elem};\n    fn next(&mut self) -> Option<{elem}> {{\n        \
-                 self.__advance()\n    }}\n}}\n"
+                "\nimpl{generic_decl} SalvoPass<{elem}> for {pass}{generic_args} {{\n    \
+                 fn advance(&mut self) -> Option<{elem}> {{\n        \
+                 self.__advance()\n    }}\n    fn close(&mut self) {{\n        \
+                 self.__close()\n    }}\n}}\n"
             ));
         } else {
             // [iter-effects] A claiming pass is *not* a `std::iter::Iterator`
@@ -2509,7 +2554,7 @@ impl<'p> Emitter<'p> {
         // The fn itself: a factory. Every parameter is captured once and
         // cloned per pass, so each pass starts from the beginning.
         let mut out = String::new();
-        let captures: Vec<(String, String, bool)> = f
+        let mut captures: Vec<(String, String, bool)> = f
             .params
             .iter()
             .map(|p| {
@@ -2521,6 +2566,16 @@ impl<'p> Emitter<'p> {
                 )
             })
             .collect();
+        // [implicit-param] The implicits the signature ends with, in the
+        // checker's order: captured into the factory exactly as a written
+        // callback is.
+        for imp in &implicits {
+            if f.params.iter().any(|p| p.name.name == imp.name) {
+                continue;
+            }
+            let name = rs_ident(&imp.name);
+            captures.push((format!("__c_{name}"), name, true));
+        }
         for (capture, name, is_fn) in &captures {
             let owned = if *is_fn {
                 format!("std::rc::Rc::new({name})")
@@ -2580,13 +2635,31 @@ impl<'p> Emitter<'p> {
                 Step::OpenPass { slot, subject } => {
                     let name = self.gen_field_name(*slot);
                     let code = self.emit_expr(subject);
-                    out.push_str(&format!(
-                        "{pad}self.{name} = Some(Box::new(IntoIterator::into_iter({code})));\n"
-                    ));
+                    // [iter-generator] A nested `for`'s subject becomes a pass
+                    // in a slot: an `Iter<T>` mints one (so the inner
+                    // producer's own `close` is reachable), and a collection
+                    // or string is walked — there is nothing to release
+                    // there, which is what `SalvoWalk`'s default `close`
+                    // says.
+                    let opened = if self
+                        .ty_of(subject.span())
+                        .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"))
+                    {
+                        // `mint` already hands over a boxed pass.
+                        format!("{code}.mint()")
+                    } else {
+                        format!("Box::new(SalvoWalk(IntoIterator::into_iter({code})))")
+                    };
+                    out.push_str(&format!("{pad}self.{name} = Some({opened});\n"));
                 }
                 Step::ClosePass(slot) => {
                     let name = self.gen_field_name(*slot);
-                    out.push_str(&format!("{pad}self.{name} = None;\n"));
+                    // The release path closes an open nested pass before
+                    // dropping it: its deferred blocks are Salvo code.
+                    out.push_str(&format!(
+                        "{pad}if let Some(__p) = self.{name}.as_mut() {{\n\
+                         {pad}    __p.close();\n{pad}}}\n{pad}self.{name} = None;\n"
+                    ));
                 }
                 Step::Drive {
                     slot,
@@ -2598,7 +2671,7 @@ impl<'p> Emitter<'p> {
                     let elem = self.gen_field_name(*binding);
                     let tmp = format!("__step{state}");
                     out.push_str(&format!(
-                        "{pad}let {tmp} = self.{pass}.as_mut().and_then(|__it| __it.next());\n"
+                        "{pad}let {tmp} = self.{pass}.as_mut().and_then(|__p| __p.advance());\n"
                     ));
                     out.push_str(&format!("{pad}match {tmp} {{\n"));
                     let store = if self.gen_slots.contains(elem.as_str()) {
@@ -2895,7 +2968,16 @@ impl<'p> Emitter<'p> {
                 ParamMode::RefMut => BindKind::RefMut,
             };
             self.bindings.insert(p.name.name.clone(), kind);
-            let mut_kw = if mode == ParamMode::Owned && self.mutated.contains(&p.name.name)
+            // [rs-borrows] An owned parameter binds `mut` when the body
+            // *reassigns* it — and also when its type says `Mut`, because that
+            // is exactly the claim that it may be mutated through this
+            // binding: a moved-in `Mut D` handed to a `Mut` position needs
+            // `&mut dest`, which a non-`mut` binder refuses (E0596). Passing
+            // it on is not an assignment, so `collect_mutated` cannot see it.
+            // A spurious `mut` is harmless — `unused_mut` is allowed in
+            // generated code — while a missing one does not compile.
+            let mut_kw = if mode == ParamMode::Owned
+                && (self.mutated.contains(&p.name.name) || type_has_mut(&p.ty))
             {
                 "mut "
             } else {
@@ -2913,6 +2995,17 @@ impl<'p> Emitter<'p> {
         let own_implicits = self.implicits_of(f);
         let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
         for imp in &self.implicits.clone() {
+            // [rs-iter-lazy] An iterator fn's callbacks arrive **owned** and
+            // `'static`, because its pass calls them long after this returns —
+            // and an implicit is a callback. The same convention exception a
+            // written fn-typed parameter gets.
+            if self.in_iterator_fn {
+                let rendered = self.owned_fn_ty(&imp.ty);
+                let owned = format!("{rendered} + 'static");
+                self.bindings.insert(imp.name.clone(), BindKind::Owned);
+                params.push(format!("{}: {owned}", rs_ident(&imp.name)));
+                continue;
+            }
             let rendered = self.implicit_param_type(&imp.ty);
             self.bindings.insert(imp.name.clone(), BindKind::RefMut);
             params.push(format!("{}: {rendered}", rs_ident(&imp.name)));
@@ -2968,6 +3061,11 @@ impl<'p> Emitter<'p> {
         } else {
             self.emit_return_type(f.return_type.as_ref())
         };
+        // [rs-none-unit] An empty rendered return type *is* Rust's `()`. Taken
+        // before the `Throw` wrapping below, which replaces the type but not
+        // the question this answers (a `ControlFlow`-returning fn still has a
+        // `None` payload).
+        let saved_ret_unit = std::mem::replace(&mut self.ret_is_unit, ret.is_empty());
         // [rs-throw-controlflow] The declared return type becomes
         // `ControlFlow`'s `Continue` payload; the message type is its
         // `Break` payload, which is why propagation is `?`.
@@ -3092,6 +3190,7 @@ impl<'p> Emitter<'p> {
         self.taken_names = saved_taken;
         self.current_fn = saved_fn;
         self.hoist_id = saved_hoist;
+        self.ret_is_unit = saved_ret_unit;
         self.defers = saved_defers;
         self.defer_floor = saved_defer_floor;
         self.loop_defer_floors = saved_loop_floors;
@@ -3708,13 +3807,77 @@ impl<'p> Emitter<'p> {
         let Ty::Fn { params, ret, .. } = ty.strip_quals() else {
             return self.rust_ty(ty);
         };
-        let ps: Vec<String> = params.iter().map(|p| self.rust_ty(p)).collect();
+        let ps = self.fn_ty_param_renderings(ty);
+        let _ = params;
         let ret = if ret.is_none_ty() {
             String::new()
         } else {
             format!(" -> {}", self.rust_ty(ret))
         };
         format!("&mut dyn FnMut({}){ret}", ps.join(", "))
+    }
+
+    /// [rs-iter-lazy] A checker fn type as an **owned** `impl Fn`, the
+    /// convention an iterator fn's callbacks arrive under: its pass calls them
+    /// long after the call returns, so nothing may be borrowed.
+    fn owned_fn_ty(&mut self, ty: &Ty) -> String {
+        let Ty::Fn { ret, .. } = ty.strip_quals() else {
+            return self.rust_ty(ty);
+        };
+        let ret = ret.clone();
+        let ps = self.fn_ty_param_renderings(ty);
+        let ret = if ret.is_none_ty() {
+            String::new()
+        } else {
+            format!(" -> {}", self.rust_ty(&ret))
+        };
+        format!("impl Fn({}){ret}", ps.join(", "))
+    }
+
+    /// [rs-fn-param-convention] [fn-contract] The parameters of a *checker*
+    /// fn type, rendered the way `emit_type`'s `Type::Fn` arm renders a
+    /// written one: a kept `Mut` position borrows mutably, a kept non-`Copy`
+    /// one borrows, and a moved one is owned.
+    ///
+    /// The contract is what makes an `?add: (dest: Mut D, elem: U) -> [dest:
+    /// Mut] None` implicit render `FnMut(&mut Vec<i32>, i32)`. Reading only
+    /// the parameter *types* (which erase `Mut` on this backend) rendered
+    /// `FnMut(Vec<i32>, i32)` and the adapter could not mutate what it was
+    /// handed — invisible until an implicit had a `Mut` parameter, which
+    /// [seq-into]'s is the first to have.
+    fn fn_ty_param_renderings(&mut self, ty: &Ty) -> Vec<String> {
+        let Ty::Fn {
+            params, contract, ..
+        } = ty.strip_quals()
+        else {
+            return Vec::new();
+        };
+        let contract = contract.clone();
+        let params = params.clone();
+        params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let base = self.rust_ty(p);
+                let entry = contract.as_ref().and_then(|c| c.get(i));
+                let (kept, mutable) = match entry {
+                    Some(e) => (e.kept, e.mutable),
+                    // No contract means "keeps everything" [fn-contract].
+                    None => (true, p.quals().iter().any(|q| q.name == "Mut")),
+                };
+                // Only a kept **`Mut`** position changes: you cannot mutate
+                // what you were handed by value. Every other position keeps
+                // the by-value convention implicits have always had — making
+                // them all borrow would be more uniform and would touch every
+                // existing `?Iterable`/`?cmp` call site, which is a change of
+                // its own rather than a fix for this one.
+                if kept && mutable {
+                    format!("&mut {base}")
+                } else {
+                    base
+                }
+            })
+            .collect()
     }
 
     /// [rs-fn-param-convention] How the *declaration* of a fn type renders
@@ -3932,6 +4095,32 @@ impl<'p> Emitter<'p> {
                 format!("{pad}{t} = {v};\n")
             }
             Stmt::Return { value, .. } => match (ctx, value) {
+                // [rs-none-unit] `None` is Rust's `()`: a fn returning it has
+                // no return type at all, so `return None;` is E0308. The
+                // literal has nothing to evaluate; anything else may be a
+                // call, so it runs for its effects and the return is bare.
+                (_, Some(v))
+                    if self.ret_is_unit
+                        && self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) =>
+                {
+                    let evaluated = if matches!(v, Expr::Ident(id) if id.name == "None") {
+                        String::new()
+                    } else {
+                        self.emit_stmt(
+                            &Stmt::Expr(v.clone()),
+                            indent,
+                            StmtCtx::Normal,
+                        )
+                    };
+                    let defers = self.exit_defers(indent, false);
+                    let unit = self.wrap_continue("()".to_string());
+                    let value = if self.throw_message.is_some() {
+                        format!(" {unit}")
+                    } else {
+                        String::new()
+                    };
+                    format!("{evaluated}{defers}{pad}return{value};\n")
+                }
                 (_, Some(v)) => {
                     let code = self.emit_return_value(v);
                     // [rs-defer-splice] The value is evaluated before the
@@ -4733,24 +4922,30 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                // [iter-effects] A **claiming** producer is minted, advanced
-                // with its handlers and closed: it is not a `dyn Iterator`, so
-                // there is no `for` to write. This is also where the injected
-                // `close` finally gets a caller.
+                // [iter-generator] [iter-effects] A **producer** is driven, not
+                // iterated: minted, advanced, and closed. That is where the
+                // injected `close` gets its caller — an `Iter<T>` reached as a
+                // target-language iterator had nowhere to put one, so an
+                // abandoned producer skipped its deferred blocks. The handler
+                // list is empty for a pure producer and the claimed set for a
+                // claiming one; nothing else differs.
                 let claims: Vec<Ty> = self
                     .ty_of(iterable.span())
                     .map(|t| t.effect_claims())
                     .unwrap_or_default();
-                let claiming = if claims.is_empty() {
-                    None
+                let is_producer = self
+                    .ty_of(iterable.span())
+                    .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
+                let producer = if is_producer {
+                    Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
                 } else {
-                    Some(self.emit_claiming_loop_header(&claims, pattern, iterable, indent))
+                    None
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
                 // after it — the `else` bookkeeping, the body, the deferred
                 // floors — is the same as for any other loop.
-                let pass = if claiming.is_some() {
+                let pass = if producer.is_some() {
                     None
                 } else {
                     self.pass_driver_of(iterable).map(|driver| {
@@ -4793,7 +4988,7 @@ impl<'p> Emitter<'p> {
                         _ => false,
                     })
                     .unwrap_or(false);
-                let (var, iter) = if claiming.is_some() || pass.is_some() {
+                let (var, iter) = if producer.is_some() || pass.is_some() {
                     // Both headers bound the element themselves.
                     (String::new(), String::new())
                 } else {
@@ -4816,7 +5011,7 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
                 }
-                match (&claiming, &pass) {
+                match (&producer, &pass) {
                     (Some((header, ..)), _) => out.push_str(header),
                     (None, Some(header)) => out.push_str(header),
                     (None, None) => out.push_str(&format!("{pad}for {var} in {iter} {{\n")),
@@ -4835,7 +5030,7 @@ impl<'p> Emitter<'p> {
                 // idempotent. A `return` out of the body ran it already,
                 // through the deferred entry the header registered — which is
                 // what that entry is for.
-                if let Some((_, close)) = &claiming {
+                if let Some((_, close)) = &producer {
                     self.defers.pop();
                     out.push_str(&format!("{pad}{close}\n"));
                 }
@@ -6638,14 +6833,20 @@ impl<'p> Emitter<'p> {
             }
             None => rs_ident(&p.name.name),
         }));
+        // [rs-iter-lazy] A producer's callback owns its captures.
+        let mv = if std::mem::take(&mut self.pending_lambda_move) {
+            "move "
+        } else {
+            ""
+        };
         let out = match body {
             LambdaBody::Expr(expr) => {
-                format!("|{}| {}", param_list.join(", "), self.emit_expr(expr))
+                format!("{mv}|{}| {}", param_list.join(", "), self.emit_expr(expr))
             }
             LambdaBody::Block(block) => {
                 // Closures return their last expression; a trailing
                 // `return X` becomes the value.
-                let mut out = format!("|{}| {{\n", param_list.join(", "));
+                let mut out = format!("{mv}|{}| {{\n", param_list.join(", "));
                 // [rs-defer-splice] A closure is a function boundary: its
                 // `return` runs only the deferred blocks written inside it.
                 let saved_floor = self.defer_floor;
@@ -6955,7 +7156,44 @@ impl<'p> Emitter<'p> {
         // [implicit-param] An implicit parameter shadows the fns of the same
         // name inside the body: it *is* one of them, chosen by the caller.
         if self.implicits.iter().any(|i| i.name == name) {
-            let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+            // A kept `Mut` position of the implicit's fn type is a `&mut`
+            // borrow; everything else is by value [fn-contract].
+            let modes: Vec<bool> = self
+                .implicits
+                .iter()
+                .find(|i| i.name == name)
+                .map(|i| match i.ty.strip_quals() {
+                    Ty::Fn { params, contract, .. } => (0..params.len())
+                        .map(|k| {
+                            contract
+                                .as_ref()
+                                .and_then(|c| c.get(k))
+                                .is_some_and(|e| e.kept && e.mutable)
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                })
+                .unwrap_or_default();
+            let arg_code: Vec<String> = args
+                .iter()
+                .enumerate()
+                .map(|(k, a)| {
+                    if modes.get(k).copied().unwrap_or(false) {
+                        self.borrowed_mut_arg(a)
+                    } else {
+                        self.emit_owned(a)
+                    }
+                })
+                .collect();
+            // [iter-generator] Inside a generated pass the implicit is a
+            // *field* (an `Rc<dyn Fn…>`), so it is called through `self` and
+            // nothing is re-borrowed.
+            if matches!(
+                self.bindings.get(name),
+                Some(BindKind::SelfField) | Some(BindKind::SelfSlot)
+            ) {
+                return format!("(self.{})({})", rs_ident(name), arg_code.join(", "));
+            }
             // [effect-args-hoisted] Calling through the parameter borrows it,
             // so an argument that *also* reaches it (a recursive call
             // forwarding the same implicit) is hoisted out first.
@@ -7089,6 +7327,13 @@ impl<'p> Emitter<'p> {
         fn_key: Option<salvo_core::FnKey>,
     ) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
+        // [rs-iter-lazy] An iterator fn's fn-typed parameter is declared
+        // `impl Fn(…) + 'static`, so a lambda in that position must own what
+        // it captures: a borrowing closure is E0373 ("may outlive the current
+        // function"), even for an immutable capture the parity rules call
+        // free. The *type* said `'static` from the start; the closure has to
+        // say `move`.
+        let producer = fn_key.is_some_and(|k| self.is_iterator_fn(k));
         let variadic_at = params.iter().position(|p| p.variadic);
         let fixed = variadic_at.unwrap_or(params.len());
         for (i, param) in params.iter().enumerate().take(fixed) {
@@ -7097,7 +7342,9 @@ impl<'p> Emitter<'p> {
                 Some(_) => self.param_mode(fn_key, param),
                 None => self.default_param_mode(&param.ty, param.variadic),
             };
+            self.pending_lambda_move = producer;
             out.push(self.emit_arg(arg, mode, Some(&param.ty)));
+            self.pending_lambda_move = false;
         }
         if variadic_at.is_some() {
             let rest = args.get(fixed..).unwrap_or(&[]);
@@ -7372,6 +7619,15 @@ impl<'p> Emitter<'p> {
             None => return Vec::new(),
         };
         let mut out = Vec::new();
+        // [rs-iter-lazy] An iterator fn's implicits arrive **owned** and
+        // `'static` like its written callbacks, so the adapter is a `move`
+        // closure rather than a `&mut` borrow of one: the pass calls it long
+        // after this call returns.
+        let producer = self
+            .checked
+            .call_fn
+            .get(&(self.file_idx, span))
+            .is_some_and(|k| self.is_iterator_fn(*k));
         for arg in &filled {
             match arg {
                 salvo_core::ImplicitArg::Given { name, arity } => {
@@ -7386,7 +7642,19 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 salvo_core::ImplicitArg::Forwarded { name } => {
-                    out.push(format!("&mut *{}", rs_ident(name)));
+                    // Forwarding into a producer hands over a *share* of the
+                    // callback (it is `Rc`-held), not a borrow of it.
+                    if producer {
+                        let held = match self.bindings.get(name.as_str()) {
+                            Some(BindKind::SelfField) | Some(BindKind::SelfSlot) => {
+                                format!("self.{}", rs_ident(name))
+                            }
+                            _ => rs_ident(name),
+                        };
+                        out.push(format!("{held}.clone()"));
+                    } else {
+                        out.push(format!("&mut *{}", rs_ident(name)));
+                    }
                 }
                 salvo_core::ImplicitArg::Resolved { name, key } => {
                     match self.fn_by_key(*key) {
@@ -7428,7 +7696,11 @@ impl<'p> Emitter<'p> {
                             // A fn item is not a closure: wrap it, so the
                             // parameter's `impl FnMut` bound is satisfied
                             // whatever the callee's convention is.
-                            out.push(format!("&mut |{}| {body}", params.join(", ")));
+                            if producer {
+                                out.push(format!("move |{}| {body}", params.join(", ")));
+                            } else {
+                                out.push(format!("&mut |{}| {body}", params.join(", ")));
+                            }
                         }
                         None => {
                             self.error(format!(
@@ -7509,6 +7781,7 @@ impl<'p> Emitter<'p> {
         // [implicit-resolve] The implicit parameters, in the callee's order:
         // ordinary trailing arguments of fn type.
         let implicit_args = self.emit_implicit_args(named, span);
+        let has_implicits = !implicit_args.is_empty();
         if !implicit_args.is_empty() {
             // [effect-args-hoisted] An argument that reborrows an implicit
             // *this* call also passes would borrow it twice (`E0499`), so it
@@ -7535,6 +7808,31 @@ impl<'p> Emitter<'p> {
         // would have gone through the local — so it is spelled as a path.
         if self.bindings.contains_key(name) {
             rs_name = format!("{}::{rs_name}", self.fn_module_path(f));
+        }
+        // [rs-implicit-turbofish] A **generic call that fills implicit
+        // parameters** gets its type arguments spelled out. Each implicit
+        // arrives as an adapter *closure* whose parameter types Rust infers
+        // from the callee's bound — so with the callee's generics still open
+        // there is nothing to infer them from, and inference stalls (E0282,
+        // "type must be known at this point") on closures that are themselves
+        // waiting on the answer. The checker already resolved the
+        // instantiation [call-type-args], so the call states it.
+        //
+        // Nothing hit this before I5: `map`/`filter`/`reduce` over a list take
+        // their `List` fast path, so the *generic* `?Iterable` body had never
+        // been called with a subject whose element type only the adapters
+        // could determine.
+        if (has_implicits || producer) && !f.generics.is_empty() {
+            if let Some(args) = self
+                .checked
+                .call_type_args
+                .get(&(self.file_idx, span))
+                .cloned()
+                .filter(|args| args.len() == f.generics.len() && args.iter().all(ty_is_concrete))
+            {
+                let rendered: Vec<String> = args.iter().map(|t| self.rust_ty(t)).collect();
+                rs_name = format!("{rs_name}::<{}>", rendered.join(", "));
+            }
         }
         Self::wrap_hoisted(&prelude, format!("{rs_name}({})", all.join(", ")))
     }

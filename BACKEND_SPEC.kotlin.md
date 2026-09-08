@@ -487,6 +487,15 @@ same programs running ([rs-effect-fusion]).
       "advance and report" into Kotlin's `hasNext`/`next` by holding one
       element of lookahead. `__current` is `Any?` so a **null element** is
       an element like any other.
+    * It implements `SalvoClosable { fun __close() }`, which is how a drive
+      site releases the pass it holds: a `for` over an `Iter<T>` reaches the
+      pass as a plain `Iterator` (a collection's iterator is one too, with
+      nothing to release), so the site asks — `val p = (subject).iterator()`,
+      `try { while (p.hasNext()) { … } } finally { if (p is SalvoClosable)
+      p.__close() }`. A list, array or `Str` subject keeps a **native** `for`
+      (decision 8). The plan's `ClosePass` closes a nested slot the same way,
+      binding it to a local first because kotlinc will not smart-cast a
+      mutable property.
     * Reads need no rewriting — a Kotlin property is in scope in its own
       class's methods — so only a `let` changes: it assigns the property.
       A property whose type has no zero value is nullable, and reads of it
@@ -543,6 +552,15 @@ same programs running ([rs-effect-fusion]).
     wording as the Rust backend: a claiming producer nested inside another
     producer, a generic effect claim, a `for` over one in value position, and
     a widening between two *non-empty* claim sets.
+* [kt-none-unit] `None` is Kotlin's `Unit`, and a fn returning it renders no
+  return type — so `return None` emits a **bare** `return`. The test is the
+  *fn's* rendered return type, not the value's: `return None` in a
+  nullable-returning fn is `return null` and correct. The literal is dropped
+  rather than evaluated, since `null` as a statement warns ("expression is
+  unused") in code the user cannot edit.
+  * An iterator fn's **implicit** parameters become constructor properties of
+    the generated pass, like its written ones [implicit-param]: the body calls
+    them on every turn, long after the call that filled them.
 * [fn-dot] Dot-notation calls resolve to a declared fn or effect
   member and normalize to `f(base, args)`. There is no method-call
   fallback: an unresolved name here is a *codegen error* naming an internal

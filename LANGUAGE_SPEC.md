@@ -1031,13 +1031,26 @@ Conventions:
   array, a `Str` (its characters), an `Iter<T>` (an identity overload), or a
   customer type that declares `fn iter`. There is no `Iterable` type and
   nothing implements it [implicit-group].
-  * **Eager**: `map`/`filter` return `Mut List<U>`, not a lazy `Iter<U>`. The
-    original reason was that a lazy one would have to store the callback and
-    a stored callback could not perform effects — which would have ruled out
-    a `println` inside a `map`. That reason **expired** when a producer's
-    handlers became parameters of its machine [iter-effects]: making these
-    lazy is roadmap I5, not a rule. Chaining works either way: a list is
-    iterable.
+  * **Eager by default, with two named variants** (user decision 2026-09-08).
+    `map`/`filter`/`reduce` return `Mut List<U>`; the default is the one that
+    surprises least, and chaining works because a list is iterable.
+    * [seq-lazy] `map_lazy`/`filter_lazy` return `Iter<U>`. Laziness is
+      *asked for*, not inherited — which also keeps "how often was this
+      consumed?" visible at the call site, since a lazy combinator's callback
+      runs once per element in **every** pass ([iter-mut-param] is why one
+      carrying mutable state is refused). The original reason they could not
+      exist — a stored callback could not perform effects — expired when a
+      producer's handlers became parameters of its machine [iter-effects].
+    * [seq-into] `map_to`/`filter_to` put the results in a collection the
+      caller provides, passed **first** because it is what the call is about.
+      Appending goes through an `?add` implicit parameter
+      (`(dest: Mut D, elem: U) -> [dest: Mut] None`), so the destination is
+      anything with an `add` the call site can find rather than a `List` —
+      `?Iterable`'s move, applied to the output. The destination is **moved in
+      and returned** (user decision 2026-09-08), which is what lets one nest
+      inside another; keeping hold of one across the call means rebinding it.
+      These are *not* producers (they return when done), so [iter-mut-param]
+      does not apply to the mutable destination.
   * Each also has an `intrinsic` **`List` fast path**, which
     [fn-overload-rank] selects when the subject really is a list; the
     generic Salvo body is what every other subject reaches.
@@ -1190,6 +1203,44 @@ Conventions:
     the beginning, each re-running the producer — which is what Kotlin's
     `Iterable` already did, and what keeps `for` from consuming its
     subject.
+* [iter-mut-param] An iterator function may **not take a mutable parameter**
+  — transitively, by the same test [fate-move-mode] uses, so `Mut` reachable
+  through a type argument, an array/tuple/union component or a struct field
+  counts (user decision 2026-09-08).
+  * **Why.** A producer's parameters are *captured*: by the factory, and again
+    by each pass it mints. A mutable one is therefore state a suspended body
+    shares with whoever passed it, and "who owns it" has no answer the two
+    targets agree on — a captured-by-clone convention gives the pass a private
+    copy (the caller sees nothing, every pass starts fresh), a captured-by-
+    reference one gives it the caller's own collection (the writes land, and
+    successive passes accumulate). Both are defensible and they are different
+    programs, so the shape is refused rather than sided with
+    [backend-parity]. This is the same reason `use` is barred inside a
+    producer: a suspended body must not hold state someone else can see.
+  * **The remedies the diagnostic names**: yield the values and let the
+    consumer collect them (a producer's elements are the channel that works
+    everywhere), or reach the outside through an **effect**, which is the
+    language's declared way to touch it.
+  * **And not through a callback either.** The same rule covers a **lambda
+    handed to a producer's fn-typed parameter**: a producer keeps its callback
+    for as long as it can mint a pass and calls it once per element in *every*
+    pass, so a capture carrying mutable state accumulates by however often the
+    producer was consumed. Both kinds are refused — a capture the closure
+    *writes* through, and one it merely *reads* mutable data through, since
+    snapshot-vs-alias is what makes the second observable. An **immutable**
+    capture is free, which is the standing parity argument, and is the remedy:
+    bind a snapshot at a non-`Mut` type before the lambda.
+    * Rust already rejected both (a producer's callback is
+      `impl Fn + 'static` [rs-iter-lazy], so neither a write nor a borrow of
+      outer mutable data compiles) while Kotlin ran them — a checker-clean
+      program only one backend could build. The checker owns it now.
+  * **Open**: whether a producer returning `Once Iter<T>` may take one after
+    all. A pass is minted once and driven once, so the "do two passes share
+    it?" ambiguity disappears, and the remaining question — the caller may not
+    touch the collection while the pass is alive — is what shared fate
+    ([fate-link]) already expresses. It needs the pass to *be* the state
+    machine rather than a boxed factory (roadmap I2c), so it is recorded, not
+    decided.
 * [iter-effects] A producer's effects are written on the **producer type**,
   in qualifier position: `FileSystem Iter<Str>` is a producer whose *driving*
   performs `FileSystem` (user decision 2026-09-07, roadmap D8 — replacing
@@ -1255,12 +1306,9 @@ Conventions:
       claim. What is still refused [backend-never-wrong]: a claiming producer
       nested inside another producer, a generic effect claim, a `for` over one
       in value position, and a widening between two non-empty claim sets.
-  * A callback with mutable state of its own is the effect-free story from
-    the other side: an iterator fn's fn-typed parameter is called once per
-    element in *every* pass, so accumulating state would depend on how many
-    times the iterator was consumed. Rust enforces it (`impl Fn`, not
-    `FnMut` [rs-iter-lazy]); the checker does not reject it up front — known
-    gap.
+  * A callback with mutable state of its own is the same hazard from the other
+    side, and it is the checker's now rather than rustc's: see
+    [iter-mut-param].
 * [iter-generator] A `yield` fn's body is planned as a **state machine
   once**, in `salvo-core`'s `generator.rs`, and *rendered* by each backend:
   neither emitter re-derives control flow (roadmap I2c/I3). The plan is a
@@ -1281,6 +1329,10 @@ Conventions:
     latest-first, open passes closed. Flags and empty slots make it
     idempotent, so one `close` after the consumer's loop covers `break`,
     `return` and exhaustion alike.
+    * **Every `for` over a producer calls it** (2026-09-08): a pass is not a
+      target-language iterator on either backend, precisely because an iterator
+      has nowhere to put a release path. A subject that is a list, an array or
+      a `Str` keeps a native loop — there is nothing suspended to release.
   * **States are numbered in the order their code is written**, and states
     that only forward are collapsed: the resume point of a `yield` at the
     end of a loop body *is* the loop head.

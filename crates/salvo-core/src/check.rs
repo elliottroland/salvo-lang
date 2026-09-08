@@ -448,6 +448,14 @@ pub struct FateRead {
 pub struct LambdaCapture {
     pub name: String,
     pub consumed: bool,
+    /// [fate-move-mode] The captured value is transitively **mutable**, so
+    /// whether the closure holds a snapshot or an alias is observable.
+    pub mutable: bool,
+    /// The closure **writes** through this capture — including handing it to
+    /// a `Mut` parameter. True even for a value whose type is not itself
+    /// mutable (`let i = 0` reassigned inside the lambda), which is why it
+    /// is a flag of its own rather than implied by `mutable`.
+    pub mutated: bool,
 }
 
 impl Checked {
@@ -2861,6 +2869,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ),
                     ),
                 }
+            }
+            // [iter-mut-param] A producer's parameters are **captured** — by
+            // the factory, and again by each pass it mints — so a
+            // transitively mutable one is state a suspended body shares with
+            // whoever passed it, and the two backends do not agree on what
+            // that means: Rust captures by clone (the pass mutates a private
+            // copy, so the caller sees nothing and every pass starts fresh),
+            // Kotlin hands the reference over (the caller's collection
+            // receives the writes and successive passes accumulate into it).
+            // Same source, different output [backend-parity], so it is
+            // refused rather than sided with (user decision 2026-09-08,
+            // option A: refuse now, revisit as shared state when `Cell`
+            // lands).
+            //
+            // Uses the same transitive test as [fate-move-mode]: `Mut`
+            // anywhere at any depth counts, since that is exactly what makes
+            // clone-vs-alias observable.
+            for p in extra_params.iter().chain(&f.params) {
+                let mut visited = HashSet::new();
+                if !self.ast_type_mut(&p.ty, &mut visited) {
+                    continue;
+                }
+                self.error(
+                    p.name.span,
+                    format!(
+                        "an iterator function cannot take a mutable parameter \
+                         (`{}`): its parameters are captured by the pass, so a write \
+                         through one would mean different things on different \
+                         backends. Yield the values and let the consumer collect \
+                         them, or reach the outside through an effect",
+                        p.name.name
+                    ),
+                );
             }
         }
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
@@ -8556,6 +8597,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             exported.push(LambdaCapture {
                 name: cap.name.clone(),
                 consumed: cap.mutated || cap.moved,
+                mutable: cap.mutable,
+                mutated: cap.mutated,
             });
             if cap.mutated {
                 // [linear-lambda] A mutated capture would move the
@@ -10565,6 +10608,55 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = best.subst.clone();
         let decl = best.decl;
         let best_key = best.key;
+        // [iter-mut-param] The callback half of the rule: a producer holds its
+        // fn-typed parameters for as long as it can mint a pass, and calls one
+        // *once per element in every pass* — so a lambda carrying mutable
+        // state into it is the same hazard as a mutable parameter, reached
+        // through a capture instead. Rust already refuses it (a producer's
+        // callback arrives as `impl Fn + 'static` [rs-iter-lazy], so neither a
+        // write nor a borrow of outer mutable data compiles) while Kotlin runs
+        // it happily, accumulating across passes: a checker-clean program only
+        // one backend can build. Owned here rather than left to rustc.
+        if self.inferred.is_some() && decl.body.as_ref().is_some_and(block_contains_yield) {
+            for (i, arg) in args.iter().enumerate() {
+                if !matches!(arg, Expr::Lambda { .. }) {
+                    continue;
+                }
+                let Some(captures) = self.out.lambda_captures.get(&self.key(arg.span())) else {
+                    continue;
+                };
+                let offenders: Vec<(String, bool)> = captures
+                    .iter()
+                    .filter(|c| c.mutable || c.mutated)
+                    .map(|c| (c.name.clone(), c.mutated))
+                    .collect();
+                let param_name = decl
+                    .params
+                    .get(i)
+                    .map(|p| p.name.name.clone())
+                    .unwrap_or_else(|| format!("#{}", i + 1));
+                for (captured, mutated) in offenders {
+                    let what = if mutated {
+                        "writes through"
+                    } else {
+                        "reads mutable data through"
+                    };
+                    self.error(
+                        arg.span(),
+                        format!(
+                            "this lambda {what} `{captured}`, and it is the `{param_name}` \
+                             callback of the iterator function `{}`: a producer's callback \
+                             runs once per element in *every* pass, so what the capture \
+                             accumulates would depend on how often the producer was \
+                             consumed. Capture an immutable snapshot instead (bind \
+                             `copy({captured})` to a local at a non-`Mut` type *before* the \
+                             lambda), or pass the state in and yield it back",
+                            decl.name.name
+                        ),
+                    );
+                }
+            }
+        }
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
         self.resolve_implicits(decl, best_key, &subst, &callee_generics, named, span);

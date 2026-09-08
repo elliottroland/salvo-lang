@@ -1266,12 +1266,14 @@ fn loops_lower_to_run_blocks() {
     // Without `else` (or with a bare `break`) the local stays nullable:
     // no `!!` unwrap on the `found`/`capped` loops.
     assert!(main.content.contains("__loop3\n}"));
-    assert!(main.content.contains("__loop5\n}"));
+    // The number shifted by one when a `for` over an `Iter<T>` started naming
+    // its pass: driving a producer costs one fresh loop name.
+    assert!(main.content.contains("__loop6\n}"));
     // Statement-position `else` needs only the ran-flag, no `run {}`.
     assert!(main.content.contains("var __loop4_ran = false"));
     assert!(main.content.contains("if (!__loop4_ran) {"));
     // A union-typed loop value re-wraps to the declared arm order.
-    assert!(main.content.contains("var __loop6: Union2<String, Int>? = null"));
+    assert!(main.content.contains("var __loop7: Union2<String, Int>? = null"));
     assert!(main.content.contains("}.let { when (it) {"));
 }
 
@@ -4591,6 +4593,152 @@ fn an_iterator_fn_lowers_to_a_lazy_iterable() {
             "`{gone}` should be gone from:\n{main}"
         );
     }
+}
+
+/// [seq-lazy] [seq-into] The combinator surface (user decision 2026-09-08) —
+/// same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_the_combinator_surface`, which is the parity claim
+/// for the eager/lazy/into trio.
+const SEQ_SURFACE_DEMO: &str = r#"
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs = list(1, 2, 3, 4)
+    let doubled = map(xs, double)
+    println("eager ${doubled.size()}")
+    for v in map_lazy(xs, double) {
+        println("lazy ${v}")
+    }
+    for v in filter_lazy(xs, is_even) {
+        println("kept ${v}")
+    }
+    let out = map_to(mutable_list<Int>(), xs, double)
+    println("sink ${out.size()}")
+    let chained = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
+    println("chained ${chained.size()}")
+}
+"#;
+
+const SEQ_SURFACE_OUTPUT: &str =
+    "eager 4\nlazy 2\nlazy 4\nlazy 6\nlazy 8\nkept 2\nkept 4\nsink 4\nchained 6\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_the_combinator_surface() {
+    let program = build_program(&[("main.sv", SEQ_SURFACE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let seq = &files
+        .iter()
+        .find(|f| f.rel_path.ends_with("seq.kt"))
+        .expect("core/seq.kt emitted")
+        .content;
+    // A lazy combinator is a producer, so its implicits become constructor
+    // properties of the pass: the body calls them on every turn, long after
+    // the call that filled them [implicit-param].
+    assert!(
+        seq.contains("private var iter: (It) -> Iterable<T>"),
+        "expected the implicit as a pass property in:\n{seq}"
+    );
+    run_kotlin_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
+}
+
+/// [seq-lazy] The observable difference laziness makes, with the Rust twin's
+/// source and stdout: an **unbounded** producer mapped and filtered lazily,
+/// terminating only because the consumer stops.
+#[test]
+fn kotlinc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
+    let program = build_program(&[("main.sv", LAZY_CHAIN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "lazy-chain", LAZY_CHAIN_OUTPUT);
+}
+
+const LAZY_CHAIN_DEMO: &str = r#"
+fn naturals() -> Iter<Int> {
+    let i = 0
+    while true {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn triple(n: Int) -> Int {
+    return n * 3
+}
+
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for v in map_lazy(filter_lazy(naturals(), is_even), triple) {
+        if v > 12 {
+            break
+        }
+        println("v ${v}")
+    }
+}
+"#;
+
+const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
+
+/// The Kotlin half of the parity claim for a producer holding a **capturing
+/// callback** — same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_producer_with_a_capturing_callback`. Kotlin needs
+/// nothing special (a JVM closure captures by reference and the JVM keeps it
+/// alive), which is exactly why the Rust side's missing `move` went unnoticed:
+/// this side always worked.
+const PRODUCER_CALLBACK_DEMO: &str = r#"
+fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
+    for x in xs {
+        yield f(x)
+    }
+}
+
+fn upto(n: Int) -> Iter<Int> {
+    let i = 0
+    while i < n {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn scale_by(factors: List<Int>, v: Int) -> [factors] Int {
+    return v * factors.first()!
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let factors = list(10)
+    let source = tagged(upto(3), (v) -> scale_by(factors, v))
+    for s in source {
+        println("a ${s}")
+    }
+    for s in source {
+        println("b ${s}")
+    }
+}
+"#;
+
+const PRODUCER_CALLBACK_OUTPUT: &str = "a 0\na 10\na 20\nb 0\nb 10\nb 20\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_producer_with_a_capturing_callback() {
+    let program = build_program(&[("main.sv", PRODUCER_CALLBACK_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "producer-callback", PRODUCER_CALLBACK_OUTPUT);
 }
 
 /// [iter-effects] The **effectful producer**, end to end — the same source and

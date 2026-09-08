@@ -580,6 +580,12 @@ struct Emitter<'p> {
     /// [iter-effects] Fully-qualified package prefix per effect name, for the
     /// generated pass-interface file (which imports nothing).
     effect_paths: HashMap<String, String>,
+    /// [kt-none-unit] The fn being emitted returns `None`, i.e. Kotlin `Unit`:
+    /// `return None` must be a **bare** `return`, since `return null` against a
+    /// `Unit` return type is a kotlinc error. Not decidable from the returned
+    /// *value*'s type — `return None` in a `Str?`-returning fn is `return
+    /// null` and correct.
+    ret_is_unit: bool,
     /// [implicit-param] The implicit parameters of the fn being emitted, in
     /// the checker's order: trailing parameters of the signature, and the
     /// names a bare call inside the body reaches as *values* rather than
@@ -677,6 +683,7 @@ impl<'p> Emitter<'p> {
             union_sizes: BTreeSet::new(),
             pass_traits: BTreeMap::new(),
             effect_paths: HashMap::new(),
+            ret_is_unit: false,
             needs_throw: false,
             needs_iter: false,
             gen_fields: HashSet::new(),
@@ -838,8 +845,8 @@ impl<'p> Emitter<'p> {
     }
 
     /// Looks up a checker-resolved fn declaration by its stable key.
-    /// [iter-effects] [kt-pass-effects] The loop header for a `for` over a
-    /// **claiming** producer, and the trailer that ends it:
+    /// [iter-effects] [iter-generator] [kt-pass-effects] The loop header for a
+    /// `for` over a **producer**, and the trailer that ends it:
     ///
     /// ```text
     /// val __loop0_pass = chatty(3).mint()
@@ -847,6 +854,11 @@ impl<'p> Emitter<'p> {
     /// while (__loop0_pass.advance(console)) {
     ///     val v = __loop0_pass.current()
     /// ```
+    ///
+    /// A **pure** producer takes the same shape with no handler arguments, and
+    /// through Kotlin's own `Iterator` rather than a generated interface — what
+    /// it gains by coming through here is the `close`, which native `for`
+    /// iteration had nowhere to put.
     ///
     /// The handlers come from the subject's claim set in the checker's
     /// canonical order, which is the order the generated interface declares
@@ -857,7 +869,7 @@ impl<'p> Emitter<'p> {
     /// too [kt-defer-finally]: `break`, `return` and exhaustion all reach it,
     /// and it is idempotent, so the release happens exactly once on every
     /// path.
-    fn emit_claiming_loop_header(
+    fn emit_producer_loop_header(
         &mut self,
         claims: &[Ty],
         pattern: &Pattern,
@@ -872,6 +884,27 @@ impl<'p> Emitter<'p> {
             .map(|ty| self.lookup_effect_handler_by_ty(ty))
             .collect();
         let args = args.join(", ");
+        let place = format!("{}_pass", self.fresh_loop_var());
+        let subject = self.emit_expr(iterable);
+        let var = self.for_pattern_var(pattern);
+        if names.is_empty() {
+            // A pure producer's factory is Kotlin's own `Iterable<T>`, so the
+            // pass is its `Iterator` — and only *our* passes have something to
+            // release, which is what the `SalvoClosable` test asks.
+            self.needs_iter = true;
+            return (
+                format!(
+                    "{pad}val {place} = ({subject}).iterator()\n\
+                     {pad}try {{\n\
+                     {pad}while ({place}.hasNext()) {{\n\
+                     {inner_pad}val {var} = {place}.next()\n"
+                ),
+                format!(
+                    "{pad}}} finally {{\n{inner_pad}if ({place} is SalvoClosable) \
+                     {place}.__close()\n{pad}}}\n"
+                ),
+            );
+        }
         // Registers the interface this drive site names, for a program that
         // only ever *receives* a claiming producer.
         let elem = match self.ty_of(iterable.span()).map(|t| t.strip_quals().clone()) {
@@ -885,9 +918,6 @@ impl<'p> Emitter<'p> {
             _ => "Any".to_string(),
         };
         let _ = self.producer_repr(&names, &elem);
-        let place = format!("{}_pass", self.fresh_loop_var());
-        let subject = self.emit_expr(iterable);
-        let var = self.for_pattern_var(pattern);
         (
             format!(
                 "{pad}val {place} = {subject}.mint()\n\
@@ -1425,6 +1455,8 @@ impl<'p> Emitter<'p> {
         } else {
             self.emit_return_type(f.return_type.as_ref())
         };
+        // [kt-none-unit] An empty rendered return type *is* Kotlin `Unit`.
+        let saved_ret_unit = std::mem::replace(&mut self.ret_is_unit, ret.is_empty());
 
         let pad = "    ".repeat(indent);
         let name = if is_main {
@@ -1500,6 +1532,7 @@ impl<'p> Emitter<'p> {
         self.mutated = saved_mutated;
         self.taken_names = saved_taken;
         self.implicits = saved_implicits;
+        self.ret_is_unit = saved_ret_unit;
         out
     }
 
@@ -1521,7 +1554,11 @@ impl<'p> Emitter<'p> {
     /// the backend-parity principle.
     fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> (String, String) {
         let pad = "    ".repeat(indent);
-        let plan = match salvo_core::plan_generator(f) {
+        // [implicit-param] The implicits are properties of the pass like any
+        // other parameter: the body calls them on every turn, long after the
+        // call that filled them.
+        let implicits = self.implicits_of(f);
+        let plan = match salvo_core::plan_generator_with_implicits(f, &implicits) {
             Ok(plan) => plan,
             Err(errors) => {
                 for e in errors {
@@ -1593,6 +1630,11 @@ impl<'p> Emitter<'p> {
                 FieldKind::Param(p) => {
                     let ty = self.emit_type(&p.ty);
                     ctor.push(format!("private var {name}: {ty}"));
+                }
+                FieldKind::Implicit(imp) => {
+                    let ty: Ty = imp.ty.clone();
+                    let rendered = self.kotlin_ty(&ty);
+                    ctor.push(format!("private var {name}: {rendered}"));
                 }
                 FieldKind::Local { ty, value, .. } => {
                     let rendered = match ty {
@@ -1698,7 +1740,9 @@ impl<'p> Emitter<'p> {
             (
                 format!("SalvoPass<{elem}>()"),
                 "override fun __advance()".to_string(),
-                "fun __close()".to_string(),
+                // [iter-generator] `SalvoClosable`, so a `for` can release the
+                // pass it drives without knowing which producer wrote it.
+                "override fun __close()".to_string(),
             )
         } else {
             (
@@ -1735,11 +1779,19 @@ impl<'p> Emitter<'p> {
         }
         item.push_str("}\n");
 
-        let args: Vec<String> = f
+        let mut args: Vec<String> = f
             .params
             .iter()
             .map(|p| kt_ident(&p.name.name))
             .collect();
+        // [implicit-param] The implicits the signature ends with, in the
+        // checker's order.
+        for imp in &implicits {
+            if f.params.iter().any(|p| p.name.name == imp.name) {
+                continue;
+            }
+            args.push(kt_ident(&imp.name));
+        }
         let body = if claim_names.is_empty() {
             self.needs_iter = true;
             format!(
@@ -1807,7 +1859,15 @@ impl<'p> Emitter<'p> {
                 }
                 Step::ClosePass(slot) => {
                     let name = self.gen_field_name(*slot);
-                    out.push_str(&format!("{pad}{name} = null\n"));
+                    // The release path closes an open nested pass before
+                    // dropping it: its deferred blocks are Salvo code. Bound to
+                    // a local first — kotlinc refuses to smart-cast a *mutable
+                    // property* ("could be mutated concurrently").
+                    out.push_str(&format!(
+                        "{pad}val __closing{slot} = {name}\n\
+                         {pad}if (__closing{slot} is SalvoClosable) __closing{slot}.__close()\n\
+                         {pad}{name} = null\n"
+                    ));
                 }
                 Step::Drive {
                     slot,
@@ -2566,6 +2626,26 @@ impl<'p> Emitter<'p> {
                 format!("{pad}{t} = {v}\n")
             }
             Stmt::Return { value, .. } => match (self.stmt_ctx, value) {
+                // [kt-none-unit] A `None` value in a `Unit`-returning fn has no
+                // payload to hand back: evaluate it for its effects (it may be
+                // a call) and return bare. `return null` would be a kotlinc
+                // error — and in a *nullable*-returning fn it is exactly right,
+                // which is why this asks the fn and not the value.
+                (_, Some(v))
+                    if self.ret_is_unit
+                        && self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) =>
+                {
+                    // The literal `None` has nothing to evaluate; anything else
+                    // may be a call, so it runs for its effects. Emitting
+                    // `null` as a statement would warn ("expression is
+                    // unused") in code the user cannot edit.
+                    if matches!(v, Expr::Ident(id) if id.name == "None") {
+                        format!("{pad}return\n")
+                    } else {
+                        let stmt = self.emit_expr_stmt(v, indent);
+                        format!("{stmt}{pad}return\n")
+                    }
+                }
                 (_, Some(v)) => {
                     let v = self.emit_expr(v);
                     format!("{pad}return {v}\n")
@@ -2854,18 +2934,23 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                // [iter-effects] A **claiming** producer is minted, advanced
-                // with its handlers and closed: it is not a Kotlin `Iterable`,
-                // so there is no `for` to write. This is also where the
-                // injected `close` finally gets a caller.
+                // [iter-generator] [iter-effects] A **producer** is driven, not
+                // iterated: minted, advanced, and closed in a `finally`. That
+                // is where the injected `close` gets its caller — native `for`
+                // iteration had nowhere to put one, so an abandoned producer
+                // skipped its deferred blocks. The handler list is empty for a
+                // pure producer and the claimed set for a claiming one.
                 let claims: Vec<Ty> = self
                     .ty_of(iterable.span())
                     .map(|t| t.effect_claims())
                     .unwrap_or_default();
-                let claiming = if claims.is_empty() {
-                    None
+                let is_producer = self
+                    .ty_of(iterable.span())
+                    .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
+                let claiming = if is_producer {
+                    Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
                 } else {
-                    Some(self.emit_claiming_loop_header(&claims, pattern, iterable, indent))
+                    None
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything

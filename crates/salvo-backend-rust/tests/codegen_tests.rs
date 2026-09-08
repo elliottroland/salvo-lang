@@ -653,8 +653,10 @@ fn loops_lower_to_block_expressions() {
     assert!(main.content.contains("if !__loop1_ran {"));
     // `break value` assigns before breaking.
     assert!(main.content.contains("__loop3 = Some(x);"));
-    // Optional joins keep the plain Option local (no unwrap).
-    assert!(main.content.contains("__loop5\n})"));
+    // Optional joins keep the plain Option local (no unwrap). The number
+    // shifted by one when a `for` over an `Iter<T>` started naming its pass:
+    // driving a producer costs one fresh loop name.
+    assert!(main.content.contains("__loop6\n})"));
     // A union-typed loop value re-wraps to the declared arm order.
     assert!(main.content.contains("(match "));
 }
@@ -3725,10 +3727,15 @@ fn an_iterator_fn_lowers_to_a_state_machine() {
         "match self.__state {",
         "self.__state = 1;",
         "return Some(__v);",
-        "impl Iterator for __Pass_naturals {",
-        // The nested `for` in `evens` drives a pass held as a field.
-        "x__pass: Option<Box<dyn Iterator<Item = i32>>>,",
-        "self.x__pass.as_mut().and_then(|__it| __it.next())",
+        // A pass, not a `std::iter::Iterator`: an iterator has nowhere to put
+        // `close`, and a producer's deferred blocks must run on the path the
+        // consumer abandoned [iter-generator].
+        "impl SalvoPass<i32> for __Pass_naturals {",
+        "fn close(&mut self) {",
+        // The nested `for` in `evens` drives a pass held as a field, and the
+        // release path closes it.
+        "x__pass: Option<Box<dyn SalvoPass<i32>>>,",
+        "self.x__pass.as_mut().and_then(|__p| __p.advance())",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -3762,10 +3769,195 @@ fn a_for_loop_borrows_an_iter_subject() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs")
         .content;
+    // [iter-generator] A producer is *driven*: minted from the factory (which
+    // is only read, so `twice` stays usable and a second `for` starts over),
+    // advanced, and closed. Before the release path was plumbed this was
+    // `for mut v in &twice` — native iteration, which had nowhere to put the
+    // `close`.
     assert!(
-        src.contains("for mut v in &twice {"),
-        "expected the second pass to borrow the factory in:\n{src}"
+        src.contains("= twice.mint();") && src.contains(".advance()"),
+        "expected the second pass to mint from the factory in:\n{src}"
     );
+    assert!(
+        src.contains("_pass.close();"),
+        "expected the injected close after the loop in:\n{src}"
+    );
+}
+
+/// [seq-lazy] [seq-into] The combinator surface (user decision 2026-09-08):
+/// **eager by default**, with `map_lazy`/`filter_lazy` for the lazy pair and
+/// `map_to` for mapping into a collection the caller provides.
+///
+/// Same source and stdout as the Kotlin backend's twin. What it exercises that
+/// nothing did before: the *generic* `?Iterable` body — `map`/`filter` over a
+/// list take their `List` fast path, so the polymorphic one had never run — a
+/// producer holding **implicit** parameters as pass fields, and an implicit
+/// with a `Mut` parameter (`?add`).
+pub const SEQ_SURFACE_DEMO: &str = r#"
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs = list(1, 2, 3, 4)
+    let doubled = map(xs, double)
+    println("eager ${doubled.size()}")
+    for v in map_lazy(xs, double) {
+        println("lazy ${v}")
+    }
+    for v in filter_lazy(xs, is_even) {
+        println("kept ${v}")
+    }
+    let out = map_to(mutable_list<Int>(), xs, double)
+    println("sink ${out.size()}")
+    let chained = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
+    println("chained ${chained.size()}")
+}
+"#;
+
+pub const SEQ_SURFACE_OUTPUT: &str =
+    "eager 4\nlazy 2\nlazy 4\nlazy 6\nlazy 8\nkept 2\nkept 4\nsink 4\nchained 6\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_combinator_surface() {
+    let files = generate(&[("main.sv", SEQ_SURFACE_DEMO)]);
+    let seq = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("core/seq.rs"))
+        .expect("core/seq.rs")
+        .content;
+    // A lazy combinator is a producer, so its implicits become pass fields —
+    // `Rc`-held and called through `self`, because the pass calls them long
+    // after the call that filled them [implicit-param] [rs-iter-lazy].
+    assert!(
+        seq.contains("iter: std::rc::Rc<dyn Fn(It) -> SalvoIter<T>>"),
+        "expected the implicit as an Rc-held pass field in:\n{seq}"
+    );
+    assert!(
+        seq.contains("(self.iter)("),
+        "expected the implicit called through `self` in:\n{seq}"
+    );
+    // [fn-contract] A kept `Mut` position of an implicit's fn type borrows
+    // mutably: `add` cannot append to a destination handed over by value.
+    assert!(
+        seq.contains("add: &mut dyn FnMut(&mut D, U)"),
+        "expected the `?add` implicit to take its destination by `&mut` in:\n{seq}"
+    );
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    // [rs-implicit-turbofish] The instantiation is spelled out, or the adapter
+    // closures have nothing to infer their parameter types from.
+    assert!(
+        main.contains("map_to::<"),
+        "expected the type arguments spelled out in:\n{main}"
+    );
+    run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
+}
+
+/// [seq-lazy] Laziness is the observable difference, so this is the test that
+/// shows it: an **unbounded** producer, mapped and filtered lazily, that
+/// terminates only because the consumer stops. Eager `map` would not return.
+#[test]
+fn rustc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
+    let files = generate(&[("main.sv", LAZY_CHAIN_DEMO)]);
+    run_rust_files(&files, "lazy-chain", LAZY_CHAIN_OUTPUT);
+}
+
+pub const LAZY_CHAIN_DEMO: &str = r#"
+fn naturals() -> Iter<Int> {
+    let i = 0
+    while true {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn triple(n: Int) -> Int {
+    return n * 3
+}
+
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for v in map_lazy(filter_lazy(naturals(), is_even), triple) {
+        if v > 12 {
+            break
+        }
+        println("v ${v}")
+    }
+}
+"#;
+
+pub const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
+
+/// [rs-iter-lazy] A producer's fn-typed parameter is `impl Fn(…) + 'static`,
+/// so a lambda handed to one must be a **`move`** closure: it outlives the call
+/// that minted the pass. Emitting a borrowing closure was E0373 ("closure may
+/// outlive the current function") for *every* capturing callback, immutable
+/// ones included — the case the parity rules call free — and nothing in the
+/// suite passed a capturing lambda to a producer, which is why it went unseen
+/// until [iter-mut-param]'s callback half was written.
+///
+/// Same source and stdout as the Kotlin backend's twin. The capture is
+/// immutable on purpose: a *mutable* one is now a checker error.
+pub const PRODUCER_CALLBACK_DEMO: &str = r#"
+fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
+    for x in xs {
+        yield f(x)
+    }
+}
+
+fn upto(n: Int) -> Iter<Int> {
+    let i = 0
+    while i < n {
+        yield copy(i)
+        i = i + 1
+    }
+}
+
+fn scale_by(factors: List<Int>, v: Int) -> [factors] Int {
+    return v * factors.first()!
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let factors = list(10)
+    let source = tagged(upto(3), (v) -> scale_by(factors, v))
+    for s in source {
+        println("a ${s}")
+    }
+    for s in source {
+        println("b ${s}")
+    }
+}
+"#;
+
+pub const PRODUCER_CALLBACK_OUTPUT: &str = "a 0\na 10\na 20\nb 0\nb 10\nb 20\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_producer_with_a_capturing_callback() {
+    let files = generate(&[("main.sv", PRODUCER_CALLBACK_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("move |v|"),
+        "expected a `move` closure for the producer's callback in:\n{src}"
+    );
+    run_rust_files(&files, "producer-callback", PRODUCER_CALLBACK_OUTPUT);
 }
 
 /// [iter-effects] The **effectful producer**, end to end: the I4 prototype

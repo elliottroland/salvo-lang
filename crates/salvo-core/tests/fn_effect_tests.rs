@@ -396,6 +396,172 @@ fn an_iterator_fn_cannot_declare_use() {
     );
 }
 
+/// [iter-mut-param] A producer's parameters are *captured* — by the factory
+/// and again by each pass — so a mutable one is state a suspended body shares
+/// with its caller, and the backends did not agree on what a write through it
+/// meant: Rust captured by clone (a private copy, invisible to the caller,
+/// fresh per pass), Kotlin handed the reference over (the caller's collection
+/// mutated, and successive passes accumulating). Refused rather than sided
+/// with (user decision 2026-09-08); the reproduction that forced it is under
+/// "Open defects" in PROGRESS.md.
+#[test]
+fn an_iterator_fn_cannot_take_a_mutable_parameter() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         fn counted(n: Int, sink: Mut Buffer) -> Iter<Int> {{\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot take a mutable parameter")),
+        "expected the mutable-parameter rejection, got: {errs:?}"
+    );
+}
+
+/// And it is the **transitive** test [fate-move-mode] uses, not a look at the
+/// written qualifiers: `Mut` reachable through a struct field counts, since
+/// that is equally what makes clone-vs-alias observable.
+#[test]
+fn a_producers_mutable_parameter_is_caught_through_a_field() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         struct Holder {{\n\
+         buffer: Mut Buffer\n\
+         }}\n\
+         fn counted(n: Int, holder: Holder) -> Iter<Int> {{\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot take a mutable parameter")),
+        "expected the transitive rejection, got: {errs:?}"
+    );
+}
+
+/// The control, so the rule is not "a producer may take nothing": an
+/// immutable parameter of the same shape is fine, and so is a mutable
+/// parameter on an ordinary fn.
+#[test]
+fn an_immutable_producer_parameter_is_fine() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         fn counted(n: Int, buffer: Buffer) -> Iter<Int> {{\n\
+         yield n\n\
+         }}\n\
+         fn bump(buffer: Mut Buffer) -> [buffer: Mut] None {{\n\
+         buffer.at = buffer.at + 1\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [iter-mut-param] The **callback** half of the rule: a producer holds its
+/// fn-typed parameters for as long as it can mint a pass, and calls one once
+/// per element in *every* pass — so a lambda carrying mutable state in is the
+/// same hazard as a mutable parameter, reached through a capture. Rust already
+/// refused it (`impl Fn + 'static`) while Kotlin ran it and accumulated across
+/// passes: a checker-clean program only one backend could build.
+#[test]
+fn a_producers_callback_cannot_write_through_a_capture() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         fn raise(b: Mut Buffer) -> [b: Mut] Int {{\n\
+         b.at = b.at + 1\n\
+         return b.at\n\
+         }}\n\
+         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
+         for x in xs {{\n\
+         yield f(x)\n\
+         }}\n\
+         }}\n\
+         fn drive(xs: Iter<Int>, buf: Mut Buffer) -> [] None {{\n\
+         let source = tagged(xs, (v) -> raise(buf))\n\
+         return None\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("writes through `buf`")),
+        "expected the write-capture rejection, got: {errs:?}"
+    );
+}
+
+/// And a *read* of mutable data is refused too, for [iter-mut-param]'s own
+/// reason rather than for `FnMut`: whether the closure holds a snapshot or an
+/// alias is observable, so the two backends would not agree on what the
+/// callback sees on a later pass.
+#[test]
+fn a_producers_callback_cannot_read_mutable_data_through_a_capture() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         fn peek(b: Buffer) -> [b] Int {{\n\
+         return b.at\n\
+         }}\n\
+         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
+         for x in xs {{\n\
+         yield f(x)\n\
+         }}\n\
+         }}\n\
+         fn drive(xs: Iter<Int>, buf: Mut Buffer) -> [buf] None {{\n\
+         let source = tagged(xs, (v) -> peek(buf))\n\
+         return None\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("reads mutable data through `buf`")),
+        "expected the read-capture rejection, got: {errs:?}"
+    );
+}
+
+/// The control, and the remedy the diagnostic names: an **immutable** capture
+/// is free — clone-vs-alias is unobservable, which is the standing parity
+/// argument — so a snapshot at a non-`Mut` type goes through. The same lambda
+/// against a *non*-producer is fine too, since only a pass keeps its callback
+/// past the call.
+#[test]
+fn a_producers_callback_may_capture_immutable_data() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Buffer canbe Mut {{\n\
+         at: Int\n\
+         }}\n\
+         fn peek(b: Buffer) -> [b] Int {{\n\
+         return b.at\n\
+         }}\n\
+         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
+         for x in xs {{\n\
+         yield f(x)\n\
+         }}\n\
+         }}\n\
+         fn eager(xs: Iter<Int>, f: (Int) -> Int) -> Int {{\n\
+         return f(1)\n\
+         }}\n\
+         fn drive(xs: Iter<Int>, snapshot: Buffer) -> [snapshot] None {{\n\
+         let lazy = tagged(xs, (v) -> peek(snapshot))\n\
+         let now = eager(xs, (v) -> peek(snapshot))\n\
+         return None\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
 /// The restriction is on *producing*, not consuming: a `for` loop over an
 /// iterator sits in an ordinary fn and may perform whatever it declares.
 #[test]

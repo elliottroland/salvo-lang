@@ -36,6 +36,7 @@
 
 use std::collections::HashSet;
 
+use crate::check::ImplicitParam;
 use salvo_syntax::ast::{Block, Expr, FnDecl, LambdaBody, Param, Pattern, Stmt, Type};
 use salvo_syntax::Span;
 
@@ -52,6 +53,13 @@ pub struct GenField<'p> {
 pub enum FieldKind<'p> {
     /// A parameter of the iterator function: captured once, at creation.
     Param(&'p Param),
+    /// [implicit-param] An **implicit** parameter of the iterator function —
+    /// a function the call site supplied, like `?Iterable`'s `iter`. It is
+    /// captured exactly as a written parameter is, because the body calls it
+    /// on every turn and the body runs long after the call that filled it.
+    /// Not in `decl.params`, which is why it is a kind of its own: the
+    /// checker's `implicit_params` is where it comes from.
+    Implicit(ImplicitParam),
     /// A body local hoisted out of the body, because it may be live across a
     /// suspension. The annotation is there when written; otherwise the
     /// emitter takes the type of `value` from the checker.
@@ -166,6 +174,7 @@ impl GeneratorPlan<'_> {
         for (i, field) in self.fields.iter().enumerate() {
             let kind = match &field.kind {
                 FieldKind::Param(_) => "param".to_string(),
+                FieldKind::Implicit(_) => "implicit".to_string(),
                 FieldKind::Local { .. } => "local".to_string(),
                 FieldKind::Element { .. } => "element".to_string(),
                 FieldKind::Pass { .. } => "pass".to_string(),
@@ -267,6 +276,17 @@ pub fn is_generator(decl: &FnDecl) -> bool {
 
 /// Plan `decl`'s body as a pass. `Err` lists every unsupported construct.
 pub fn plan_generator(decl: &FnDecl) -> Result<GeneratorPlan<'_>, Vec<GenError>> {
+    plan_generator_with_implicits(decl, &[])
+}
+
+/// [implicit-param] As [`plan_generator`], with the fn's **implicit**
+/// parameters — which the checker resolves, so they are not in the AST — made
+/// fields of the pass alongside the written ones. A producer's body calls them
+/// on every turn, long after the call that filled them.
+pub fn plan_generator_with_implicits<'p>(
+    decl: &'p FnDecl,
+    implicits: &[ImplicitParam],
+) -> Result<GeneratorPlan<'p>, Vec<GenError>> {
     let Some(body) = &decl.body else {
         return Err(vec![GenError {
             message: "an iterator function needs a body".to_string(),
@@ -289,6 +309,16 @@ pub fn plan_generator(decl: &FnDecl) -> Result<GeneratorPlan<'_>, Vec<GenError>>
         planner.fields.push(GenField {
             name: param.name.name.clone(),
             kind: FieldKind::Param(param),
+        });
+    }
+    for imp in implicits {
+        // A written `?name: FnType` is already a parameter [implicit-param].
+        if decl.params.iter().any(|p| p.name.name == imp.name) {
+            continue;
+        }
+        planner.fields.push(GenField {
+            name: imp.name.clone(),
+            kind: FieldKind::Implicit(imp.clone()),
         });
     }
     planner.check_shadowing(body);

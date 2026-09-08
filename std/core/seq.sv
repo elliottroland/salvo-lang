@@ -52,3 +52,67 @@ fn reduce<It, T, A>(xs: It, init: A, f: (A, T) -> A, ?Iterable<It, T>) [] -> [xs
 intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>
 intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> [list, keep] Mut List<T>
 intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> [list, f] A
+
+// ===== the lazy pair [seq-lazy] =====
+//
+// Laziness is **asked for**, not inherited (user decision 2026-09-08): the
+// eager forms above stay the default, and these are the ones that hand back a
+// producer. Nothing is computed until the result is driven, so an unbounded
+// subject is fine — and the callback runs once per element in *every* pass,
+// which is why a callback carrying mutable state is refused
+// [iter-mut-param].
+
+// Applies [f] to every element of [xs], lazily: [f] runs as the consumer
+// pulls. Chain freely — the result is iterable like anything else.
+fn map_lazy<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> [xs, f] Iter<U> {
+    for x in iter(xs) {
+        yield f(x)
+    }
+}
+
+// The elements of [xs] that [keep] accepts, lazily.
+fn filter_lazy<It, T>(xs: It, keep: (T) -> Bool, ?Iterable<It, T>) -> [xs, keep] Iter<T> {
+    for x in iter(xs) {
+        if keep(x) {
+            yield x
+        }
+    }
+}
+
+// ===== mapping into a collection you provide [seq-into] =====
+
+// Applies [f] to every element of [xs] and puts the results in [dest], which
+// is the *first* argument because it is what the call is about — and which is
+// **handed back**, so a chain can carry on from it.
+//
+// [add] is an implicit parameter, so [dest] is not a `List`: it is anything
+// with an `add` the call site can find — the same "a function, not a trait"
+// move `?Iterable` makes for the subject [implicit-group].
+fn map_to<D, It, T, U>(
+    dest: Mut D,
+    xs: It,
+    f: (T) -> U,
+    ?add: (dest: Mut D, elem: U) -> [dest: Mut] None,
+    ?Iterable<It, T>
+) -> [xs, f] Mut D {
+    for x in iter(xs) {
+        add(dest, f(x))
+    }
+    return dest
+}
+
+// The same, keeping the elements [keep] accepts rather than mapping them.
+fn filter_to<D, It, T>(
+    dest: Mut D,
+    xs: It,
+    keep: (T) -> Bool,
+    ?add: (dest: Mut D, elem: T) -> [dest: Mut] None,
+    ?Iterable<It, T>
+) -> [xs, keep] Mut D {
+    for x in iter(xs) {
+        if keep(x) {
+            add(dest, x)
+        }
+    }
+    return dest
+}

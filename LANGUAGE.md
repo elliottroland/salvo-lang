@@ -859,12 +859,31 @@ Inference runs *through* the group: `It` comes from the subject, and `T` — the
 element type — comes from which `iter` fills the implicit. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 
-`map` and `filter` are **eager**: they return a `Mut List<U>`, not a lazy
-`Iter<U>`. A lazy one calls its callback *inside* a producer, and until a
-producer can thread its handlers through (see the effect claim on a producer
-type, above) that would rule out a `println` inside a `map` — the thing people
-actually write. Chaining still works, because a list is iterable like anything
-else, and going lazy is a planned change rather than a rule.
+`map`, `filter` and `reduce` are **eager**: they return a `Mut List<U>`, not a
+lazy `Iter<U>`. Chaining works because a list is iterable like anything else.
+Two named variants cover the rest:
+
+- `map_lazy` and `filter_lazy` return an `Iter<U>`, computing nothing until the
+  result is driven — so an unbounded subject is fine. Laziness is asked for
+  rather than inherited, which also keeps it visible that a lazy combinator's
+  callback runs once per element on *every* pass over the result.
+- `map_to` and `filter_to` put their results in a collection you provide, given
+  first because it is what the call is about, and **hand it back** so a chain
+  can carry on from it. Appending goes through an `?add` implicit parameter, so
+  the destination is anything with an `add` — not just a `List`.
+
+```
+let doubled = map(xs, double)              // Mut List<Int>
+for v in map_lazy(naturals(), double) {    // computed as you pull
+    if v > 100 { break }
+}
+let out = map_to(mutable_list<Int>(), xs, double)
+let kept = filter_to(map_to(mutable_list<Int>(), xs, double), ys, is_even)
+```
+
+The destination is moved in and returned, which is what makes the nested form
+work. If you want to keep hold of one across the call, rebind it:
+`let sink = map_to(sink, xs, double)`.
 
 ### Variadic arguments
 
@@ -1046,6 +1065,22 @@ It is on the return type and not on the function because **none of the body runs
 Everything else about the claim is what function values already do: a function that takes a producer **inherits** its effects (`fn take<T>(xs: FileSystem Iter<T>, n: Int)` needs no list of its own, and its callers supply the handler); a producer performing *fewer* effects fits where more are expected, never the reverse; the claim never drops, so `^ FileSystem` is an error; and **holding** a producer needs nothing at all — only driving it does, which is why a `for` over one requires the claimed effects in scope. The claim may be written on `Iter<T>` and on a type of your own that says `canbe Once`; a function type is excluded, since it has the bracket spelling already.
 
 `use` stays barred inside a producer: it would register a handler the pass then has to carry across every suspension.
+
+A producer also **may not take a mutable parameter** — `Mut` at any depth, so a struct with a mutable field counts too. Its parameters are captured by the pass, so a mutable one would be state a suspended body shares with whoever passed it, and there is no answer to "who owns it" that means the same thing on every target: captured by copy, the pass writes to its own private version; captured by reference, the caller's own value changes and a second pass carries on where the first left off. Rather than pick one silently, the shape is rejected — the same reasoning that bars `use`. Yield the values and let the consumer collect them, or reach the outside through an effect.
+
+```
+// Rejected: the pass would capture it.
+fn tally(limit: Int, sink: Mut List<Int>) -> Iter<Int> { ... }   // ERROR
+
+// Fine: the elements are the channel.
+fn tally(limit: Int) -> Iter<Int> {
+    let i = 0
+    while i < limit {
+        yield copy(i)
+        i = i + 1
+    }
+}
+```
 
 ```
 // Rejected: the effects belong on the type, not in the list.
