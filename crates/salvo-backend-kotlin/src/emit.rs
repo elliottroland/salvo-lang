@@ -637,7 +637,7 @@ impl<'p> Emitter<'p> {
         self.checked
             .for_drivers
             .get(&(self.file_idx, iterable.span()))
-            .copied()
+            .cloned()
     }
 
     /// [iter-protocol] The loop header for a `for` over a **pass**: the
@@ -669,27 +669,36 @@ impl<'p> Emitter<'p> {
     ) -> (String, String) {
         let pad = "    ".repeat(indent);
         let inner_pad = "    ".repeat(indent + 1);
-        let header = self.emit_pass_loop_header(driver, pattern, iterable, indent);
+        let header = self.emit_pass_loop_header(driver.clone(), pattern, iterable, indent);
         let place = format!("__loop{}_pass", self.loop_id);
-        let close = match driver.close_fn.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) {
-            Some((key, decl)) => {
-                let callee = self.kotlin_fn_name(decl);
-                let effects: Vec<Ty> = self
-                    .checked
-                    .fn_effects
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|t| !is_throw_effect_ty(t))
-                    .collect();
-                let mut args: Vec<String> = effects
-                    .iter()
-                    .map(|ty| self.lookup_effect_handler_by_ty(ty))
-                    .collect();
-                args.push(place);
-                format!("{callee}({})", args.join(", "))
+        let close = match &driver.close {
+            // [iter-generic-drive] An implicit `close` — the `?Linear<It>`
+            // spread's member — is called by its own name, like the `next`.
+            Some(salvo_core::PassMember::Implicit(name)) => {
+                format!("{}({place})", kt_ident(name))
             }
+            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
+                Some(decl) => {
+                    let key = *key;
+                    let callee = self.kotlin_fn_name(decl);
+                    let effects: Vec<Ty> = self
+                        .checked
+                        .fn_effects
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| !is_throw_effect_ty(t))
+                        .collect();
+                    let mut args: Vec<String> = effects
+                        .iter()
+                        .map(|ty| self.lookup_effect_handler_by_ty(ty))
+                        .collect();
+                    args.push(place);
+                    format!("{callee}({})", args.join(", "))
+                }
+                None => String::new(),
+            },
             None => String::new(),
         };
         // The pass local has to be declared *outside* the `try`, or the
@@ -713,17 +722,27 @@ impl<'p> Emitter<'p> {
     ) -> String {
         let pad = "    ".repeat(indent);
         let inner_pad = "    ".repeat(indent + 1);
-        let Some(decl) = self.fn_by_key(driver.next_fn) else {
-            self.error("the `next` this `for` resolved to is not available");
-            return String::new();
+        // [iter-generic-drive] The `next` is either a declared overload or an
+        // **implicit parameter** of this body, called by its own name — a
+        // generic pass has no declaration to resolve against, and the parameter
+        // shadows the fns of that name here anyway [implicit-param].
+        let decl = match driver.next.key() {
+            Some(key) => match self.fn_by_key(key) {
+                Some(decl) => Some(decl),
+                None => {
+                    self.error("the `next` this `for` resolved to is not available");
+                    return String::new();
+                }
+            },
+            None => None,
         };
         // [fn-effects] An effectful `next` would need its handlers threaded
         // into every turn of the loop — phase I4. Loud until then
         // [backend-never-wrong].
-        if self
-            .checked
-            .fn_effects
-            .get(&driver.next_fn)
+        if driver
+            .next
+            .key()
+            .and_then(|k| self.checked.fn_effects.get(&k))
             .is_some_and(|e| !e.is_empty())
         {
             self.error(
@@ -735,22 +754,31 @@ impl<'p> Emitter<'p> {
             self.error("a `next` result must have both an `Emitted` and a `Finished` arm");
             return String::new();
         }
-        let callee = self.kotlin_fn_name(decl);
+        let callee = match (&driver.next, decl) {
+            (salvo_core::PassMember::Implicit(name), _) => kt_ident(name),
+            (_, Some(decl)) => self.kotlin_fn_name(decl),
+            (_, None) => {
+                self.error("the `next` this `for` resolved to is not available");
+                return String::new();
+            }
+        };
         // A *non-generic* `next` lets the arm be spelled with its real type
         // arguments, which is what keeps the element read cast-free: an
         // `is U2_1<*, *>` smart-cast leaves `value` at `Any?`, and casting
         // back would warn ("unchecked cast") in code the user cannot edit.
         // A generic `next` has type arguments this loop does not know — there
         // is no call node to read them from — so it falls back to stars.
-        let arm_args: Option<Vec<String>> = if decl.generics.is_empty() {
-            match &decl.return_type {
+        let arm_args: Option<Vec<String>> = match decl {
+            Some(decl) if decl.generics.is_empty() => match &decl.return_type {
                 Some(Type::Union { arms, .. }) if arms.len() == driver.arms => {
                     Some(arms.iter().map(|a| self.emit_type(a)).collect())
                 }
                 _ => None,
-            }
-        } else {
-            None
+            },
+            // A generic `next`, or an implicit one: the type arguments are not
+            // knowable here (there is no call node), so the arm is spelled with
+            // stars and the element read casts.
+            _ => None,
         };
         let loop_id = self.fresh_loop_var();
         let (place, step) = (format!("{loop_id}_pass"), format!("{loop_id}_step"));
@@ -778,6 +806,18 @@ impl<'p> Emitter<'p> {
                 )
             }
         };
+        // [iter-drive-in-place] A pass the fn *keeps* is advanced where it
+        // lives, so the caller sees the position the loop reached. Kotlin's
+        // local would have aliased it anyway; naming the subject directly is
+        // what makes the two backends say so identically [backend-parity].
+        if driver.in_place {
+            return format!(
+                "{pad}while (true) {{\n\
+                 {inner_pad}val {step} = {callee}({subject})\n\
+                 {inner_pad}if ({step} !is {arm}) {{ break }}\n\
+                 {inner_pad}val {var} = {read}\n"
+            );
+        }
         format!(
             "{pad}var {place} = {subject}\n\
              {pad}while (true) {{\n\
@@ -829,7 +869,11 @@ impl<'p> Emitter<'p> {
     ) -> (String, String) {
         let pad = "    ".repeat(indent);
         let inner_pad = "    ".repeat(indent + 1);
-        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+        let Some(next_key) = driver.next.key() else {
+            self.error("an origin's `for` needs the `yield fn` behind it");
+            return (String::new(), String::new());
+        };
+        let Some(decl) = self.fn_by_key(next_key) else {
             self.error("the `yield fn` this `for` resolved to is not available");
             return (String::new(), String::new());
         };
@@ -837,7 +881,7 @@ impl<'p> Emitter<'p> {
         let effects: Vec<Ty> = self
             .checked
             .fn_effects
-            .get(&driver.next_fn)
+            .get(&next_key)
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -1499,13 +1543,17 @@ impl<'p> Emitter<'p> {
             .into_iter()
             .filter(|t| !is_throw_effect_ty(t))
             .collect();
-        let claim_names = self.claim_names(&claimed);
+        // [fn-effects] The handlers, as parameters of the machine — named from
+        // the *rendered* effect type, exactly as an ordinary fn's are, so a
+        // **generic** effect (`Random<Int>`) needs nothing special: the type
+        // carries its arguments and the name is derived from it (R5 removed the
+        // per-effect-set interface whose naming used to forbid this).
         let mut handler_params: Vec<String> = Vec::new();
         let mut handler_args: Vec<String> = Vec::new();
         let mut handler_env: Vec<EffectEntry> = Vec::new();
-        for (name, ty) in claim_names.iter().zip(&claimed) {
+        for ty in &claimed {
             let rendered = self.kotlin_ty(ty);
-            let param = effect_param_name(name);
+            let param = self.unique_name(effect_param_name(&rendered));
             handler_params.push(format!("{param}: {rendered}"));
             handler_args.push(param.clone());
             handler_env.push(EffectEntry {
@@ -1830,9 +1878,9 @@ impl<'p> Emitter<'p> {
             Some(t) => self.kotlin_ty(&t),
             None => {
                 self.error(
-                    "a `for` inside an iterator function iterates an array, a `List<T>` or an \
-                     `Iter<T>` for now — a hand-written pass as the subject of a *suspending* \
-                     loop is not supported yet",
+                    "a `for` inside an iterator function iterates an array, a `List<T>` or a \
+                     `Str` for now — a pass as the subject of a *suspending* loop is not \
+                     lowered yet",
                 );
                 "Any?".to_string()
             }
@@ -2130,20 +2178,6 @@ impl<'p> Emitter<'p> {
             }
         }
         self.emit_type_ref_named(&name, &base.args)
-    }
-    fn claim_names(&mut self, claims: &[Ty]) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for ty in claims {
-            match ty {
-                Ty::Named { name, args } if args.is_empty() => out.push(name.clone()),
-                other => self.error(format!(
-                    "a producer claiming a *generic* effect (`{other} Iter<…>`) is not \
-                     supported yet: the generated pass interface is named per effect set, \
-                     and the arguments would have to be part of that name"
-                )),
-            }
-        }
-        out
     }
     fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
         let kt = crate::intrinsics::mut_type_name(name)?;
@@ -2758,7 +2792,7 @@ impl<'p> Emitter<'p> {
                 // 2026-09-09).
                 let raw_closing = self
                     .pass_driver_of(iterable)
-                    .filter(|d| !d.origin && d.close_fn.is_some());
+                    .filter(|d| !d.origin && d.close.is_some());
                 let claiming = match origin_driver {
                     Some(driver) => {
                         Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))

@@ -13,24 +13,16 @@
 // **Eager**: `map` and `filter` return a `Mut List<U>`. The lazy pair below
 // returns a pass instead, and it is asked for by name [seq-lazy].
 //
-// Driving is a `while` around `next` and a `when` over its two arms — the
-// same shape a `for` lowers to, written out because the subject is a type
-// parameter. `[it: Mut]` says the pass is advanced in place and handed back.
+// Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration
+// the loop reads [iter-generic-drive], so a generic pass is driven exactly as a
+// named one is. `[it: Mut]` says the pass is advanced **in place** and handed
+// back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {
     let out = mutable_list<U>()
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted {
-                add(out, f(step))
-            }
-            is Finished {
-                going = false
-            }
-        }
+    for x in it {
+        add(out, f(x))
     }
     return out
 }
@@ -38,18 +30,9 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut 
 // The elements of [it] that [keep] accepts, in order.
 fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [it: Mut, keep] Mut List<T> {
     let out = mutable_list<T>()
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted {
-                if keep(step) {
-                    add(out, step)
-                }
-            }
-            is Finished {
-                going = false
-            }
+    for x in it {
+        if keep(x) {
+            add(out, x)
         }
     }
     return out
@@ -59,17 +42,8 @@ fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [it: Mut, k
 // [f] — the accumulator first, the element second.
 fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [it: Mut, f] A {
     let acc = init
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted {
-                acc = f(acc, step)
-            }
-            is Finished {
-                going = false
-            }
-        }
+    for x in it {
+        acc = f(acc, x)
     }
     return acc
 }
@@ -178,17 +152,8 @@ fn map_to<D, It, T, U>(
     ?add: (dest: Mut D, elem: U) -> [dest: Mut] None,
     ?Yield<It, T>
 ) [] -> [it: Mut, f] Mut D {
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted {
-                add(dest, f(step))
-            }
-            is Finished {
-                going = false
-            }
-        }
+    for x in it {
+        add(dest, f(x))
     }
     return dest
 }
@@ -201,18 +166,9 @@ fn filter_to<D, It, T>(
     ?add: (dest: Mut D, elem: T) -> [dest: Mut] None,
     ?Yield<It, T>
 ) [] -> [it: Mut, keep] Mut D {
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted {
-                if keep(step) {
-                    add(dest, step)
-                }
-            }
-            is Finished {
-                going = false
-            }
+    for x in it {
+        if keep(x) {
+            add(dest, x)
         }
     }
     return dest

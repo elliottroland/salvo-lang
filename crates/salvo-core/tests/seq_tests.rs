@@ -278,3 +278,74 @@ fn the_lead_narrows_before_the_lambda_is_typed() {
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     assert!(!picked_fast_path(&src, "map"));
 }
+
+// ===== [iter-generic-drive] a generic pass is driven by `for` =====
+
+/// The rule that lets std's own combinators read like ordinary Salvo (user
+/// decision 2026-09-09): when a body has a `?Yield<It, T>` spread, the position
+/// *is* the declaration `for` needs — it says "this call supplies a `next` for
+/// `It`" — so the loop drives by calling that implicit parameter, and the
+/// element type comes off its result.
+#[test]
+fn a_generic_pass_is_driven_by_for() {
+    let src = "fn total<It>(it: Mut It, ?Yield<It, Int>) [] -> [it: Mut] Int {\n\
+               \x20   let sum = 0\n\
+               \x20   for n in it {\n\
+               \x20       sum = sum + n\n\
+               \x20   }\n\
+               \x20   return sum\n\
+               }\n";
+    assert!(messages(src).is_empty(), "{:?}", messages(src));
+}
+
+/// The element is the pass's to give: `next` returns `Emitted T` **by value**,
+/// so the loop binding is an owned value and not a projection of the pass —
+/// which is what lets a combinator move each element into its output.
+#[test]
+fn a_driven_element_is_owned_not_derived() {
+    let src = "fn keep<It, T>(it: Mut It, ?Yield<It, T>) [] -> [it: Mut] Mut List<T> {\n\
+               \x20   let out = mutable_list<T>()\n\
+               \x20   for x in it {\n\
+               \x20       add(out, x)\n\
+               \x20   }\n\
+               \x20   return out\n\
+               }\n";
+    assert!(messages(src).is_empty(), "{:?}", messages(src));
+}
+
+/// Without the spread there is nothing to drive with, and the diagnostic is the
+/// ordinary not-iterable one [iter-resolve]: a bare type parameter says nothing.
+#[test]
+fn a_type_parameter_without_the_spread_is_not_iterable() {
+    let src = "fn total<It>(it: Mut It) [] -> [it: Mut] Int {\n\
+               \x20   let sum = 0\n\
+               \x20   for n in it {\n\
+               \x20       sum = sum + 1\n\
+               \x20   }\n\
+               \x20   return sum\n\
+               }\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("`It` is not iterable")),
+        "expected the not-iterable error, got: {msgs:?}"
+    );
+}
+
+/// The spread's position has to take its state as `Mut`, for the same reason a
+/// declared `next` does: advancing a pass mutates its position [iter-protocol].
+#[test]
+fn a_non_mut_position_cannot_be_driven() {
+    let src = "fn total<It, T>(it: Mut It, ?next: (It) -> Emitted T | Finished) [] -> [it: Mut] Int {\n\
+               \x20   let sum = 0\n\
+               \x20   for n in it {\n\
+               \x20       sum = sum + 1\n\
+               \x20   }\n\
+               \x20   return sum\n\
+               }\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("has to take its state as `Mut It`")),
+        "expected the `Mut` requirement, got: {msgs:?}"
+    );
+}

@@ -4409,6 +4409,137 @@ fn main() [use] {
 pub const MINT_CLOSE_OUTPUT: &str = "open\nclose\ngot 1\n";
 
 /// Two mints in one call, and two mints of the **same origin value**: each is a
+
+/// [iter-generic-drive] [iter-drive-in-place] The three things the generic drive
+/// buys, in one program: a combinator driving its pass with an ordinary `for`,
+/// the caller **carrying that pass on** afterwards (the parity case — Rust used
+/// to bind the `&mut` parameter into a local, so the caller never saw the
+/// position the loop reached), and a `yield fn` performing a **generic** effect.
+///
+/// Shared with the other backend, byte for byte.
+pub const GENERIC_DRIVE_DEMO: &str = r#"
+struct Slice<T> : Yield<self, T> canbe Mut {
+    items: List<T>,
+    at: Int
+}
+
+fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+    return Mut Slice<T> { items: items, at: 0 }
+}
+
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+    let e = get(p.items, p.at)
+    if e is None {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(e)
+}
+
+// The pass is *kept*, so the loop advances it where it lives and the caller may
+// drive it further.
+fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> [it: Mut] Int {
+    let sum = 0
+    let seen = 0
+    for n in it {
+        sum = sum + n
+        seen = seen + 1
+        if seen == count {
+            break
+        }
+    }
+    return sum
+}
+
+effect Random<T> {
+    fn next_random() -> [] T
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> [] T {
+        i = (i + 1) % size(values)
+        return values[i]
+    }
+}
+
+struct Rolls : Yield<self, Int> {
+    count: Int
+}
+
+fn rolls(count: Int) -> [] Rolls {
+    return Rolls {count: count}
+}
+
+yield fn next(r: Rolls) [Random<Int>] -> Int {
+    let n = 0
+    while n < r.count {
+        yield next_random()
+        n = n + 1
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use CyclicRandom([7, 8, 9])
+    let p = slice(list(1, 2, 3, 4))
+    println("first ${take(p, 2)}")
+    println("rest ${take(p, 9)}")
+    for v in rolls(3) {
+        println("v ${v}")
+    }
+}
+"#;
+
+pub const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
+
+/// [iter-generic-drive] [linear-generics] A combinator that **owns** a possibly
+/// linear pass releases it through the `?Linear<It>` spread. The release cannot
+/// print — an implicitly resolved fn is effect-free [implicit-resolve] — so the
+/// call is asserted in the emitted code and the program is run to prove it
+/// builds.
+pub const GENERIC_CLOSE_DEMO: &str = r#"
+struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_handle(from: Int) -> [] Mut Handle {
+    return Mut Handle { at: from }
+}
+
+fn next(h: Mut Handle) -> [h: Mut] Emitted Int | Finished {
+    if h.at <= 0 {
+        return finished()
+    }
+    let v = copy(h.at)
+    h.at = h.at - 1
+    return emitted(v)
+}
+
+fn close(h: Handle) -> [] None {}
+
+// Owns the pass: the loop releases it on every exit, `break` included.
+fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> [] Int {
+    let sum = 0
+    for n in it {
+        sum = sum + n
+        if sum > stop {
+            break
+        }
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("all ${drain(open_handle(4), 100)}")
+    println("cut ${drain(open_handle(4), 5)}")
+}
+"#;
+
+pub const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
+
 /// fresh machine, so both replay from the beginning and both are released.
 pub const TWO_MINTS_DEMO: &str = r#"
 struct Counter : Yield<self, Int> {
@@ -5631,4 +5762,87 @@ fn scope_selectors_and_renames_are_erased() {
 fn rustc_compiles_and_runs_overload_overrides() {
     let files = generate(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
     run_rust_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
+}
+
+// ===== [iter-generic-drive] driving a generic pass =====
+
+/// [iter-drive-in-place] The lowering a *kept* pass gets: no local, no clone —
+/// the loop advances the parameter where it lives, which is what makes the
+/// caller's next drive continue from where this one stopped. Binding it into a
+/// local cloned the `&mut`, and the caller never saw the position (Kotlin
+/// aliased it and did, so the two backends disagreed [backend-parity]).
+#[test]
+fn a_kept_pass_is_driven_in_place() {
+    let files = generate(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("while let Union2::U1(mut n) = next(it)"),
+        "expected the in-place drive in:\n{src}"
+    );
+    assert!(
+        !src.contains("_pass = it"),
+        "a kept pass must not be bound into a local in:\n{src}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_drive() {
+    let files = generate(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    run_rust_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
+}
+
+/// [linear-generics] The release: the implicit `close` is called after the loop
+/// *and* registered as a deferred entry, so a `return` out of the body reaches
+/// it too. The pass is **moved** into the loop's local, since the fn owns it —
+/// cloning it would have left the original unreleased.
+#[test]
+fn an_owned_generic_pass_is_closed_by_the_loop() {
+    let files = generate(&[("main.sv", GENERIC_CLOSE_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("let mut __loop1_pass = it;"),
+        "expected the pass to be moved into the loop in:\n{src}"
+    );
+    assert!(
+        src.contains("close(__loop1_pass);"),
+        "expected the implicit release after the loop in:\n{src}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_close() {
+    let files = generate(&[("main.sv", GENERIC_CLOSE_DEMO)]);
+    run_rust_files(&files, "generic-close", GENERIC_CLOSE_OUTPUT);
+}
+
+/// [fn-effects] A `yield fn` may declare a **generic** effect: the machine takes
+/// its handlers as ordinary parameters, rendered from the effect *type*, so
+/// `Random<Int>` needs nothing beyond what any other effect needs. (The refusal
+/// this replaces was about the per-effect-set trait naming, which R5 deleted.)
+#[test]
+fn a_machine_takes_a_generic_effect_handler() {
+    let files = generate(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        src.contains("fn __advance(&mut self, random_i32: &mut dyn Random<i32>)"),
+        "expected the generic handler as a machine parameter in:\n{src}"
+    );
+    // The *builder* declares no effects, so nothing is threaded into it: the
+    // drive site is what supplies the handler.
+    assert!(
+        src.contains("__Pass_Rolls::new(rolls(3))"),
+        "expected the origin builder called without handlers in:\n{src}"
+    );
 }

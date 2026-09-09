@@ -19,7 +19,12 @@ const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic typ
      intrinsic fn mutable_list<T canbe Linear>(...elems: T[]) [] -> [] Mut List<T>\n\
      intrinsic fn add<T canbe Linear>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
      intrinsic fn size<T canbe Linear>(list: List<T>) [] -> [list] Int\n\
-     params Linear<It> {\n    fn close(it: It) -> [] None\n}\n";
+     params Linear<It> {\n    fn close(it: It) -> [] None\n}\n\
+     qualifier Emitted<T> of T\n\
+     struct Finished {}\n\
+     fn emitted<T canbe Linear>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
+     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -336,6 +341,108 @@ fn a_composite_of_plain_values_is_unaffected() {
         "{LINES}\nstruct Holder {{\n    names: Mut List<Str>\n}}\n\
          fn go() -> [] None {{\n    let l = open_lines(\"a\")\n    \
          let h = Holder {{ names: mutable_list(\"x\") }}\n    close(l)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+// ===== [iter-generic-drive] the release a generic drive owes =====
+
+/// The protocol and a linear pass, for the drive tests below: a `Handle` that
+/// declares both obligations, plus the `close` that discharges its linearity.
+const HANDLE: &str = "\
+struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_handle(from: Int) -> [] Mut Handle {
+    return Mut Handle { at: from }
+}
+
+fn next(h: Mut Handle) [] -> [h: Mut] Emitted Int | Finished {
+    if h.at <= 0 {
+        return finished()
+    }
+    let v = copy(h.at)
+    h.at = h.at - 1
+    return emitted(v)
+}
+
+fn close(h: Handle) [] -> [] None {}
+";
+
+/// [linear-generics] A generic pass the fn **owns** — `<It canbe Linear>`, and
+/// no deduction hands it back — may be carrying a resource, so the loop is what
+/// has to release it. Without a `close` it can name, that is an error whose
+/// remedy is the implicit: driving and dropping it silently is exactly the leak
+/// the obligation exists to prevent.
+#[test]
+fn owning_a_possibly_linear_pass_needs_a_close() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> [] Int {{\n\
+         \x20   let sum = 0\n\
+         \x20   for n in it {{\n\
+         \x20       sum = sum + n\n\
+         \x20   }}\n\
+         \x20   return sum\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("needs a `close` for it") && e.contains("?Linear<It>")),
+        "expected the release remedy, got {errs:?}"
+    );
+}
+
+/// With the spread declared, the `for` has a `close` to call and the body is
+/// accepted — the release happens on every exit, `break` and `return` included.
+#[test]
+fn the_linear_spread_supplies_the_release() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) [] -> [] Int {{\n\
+         \x20   let sum = 0\n\
+         \x20   for n in it {{\n\
+         \x20       sum = sum + n\n\
+         \x20   }}\n\
+         \x20   return sum\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [iter-drive-in-place] A pass the fn **keeps** needs nothing: the obligation
+/// stayed with the caller, the loop advances the pass where it lives, and
+/// closing it here would be the caller's use-after-close.
+#[test]
+fn keeping_the_pass_leaves_the_release_to_the_caller() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn peek<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> [it: Mut] Int {{\n\
+         \x20   let sum = 0\n\
+         \x20   for n in it {{\n\
+         \x20       sum = sum + n\n\
+         \x20   }}\n\
+         \x20   return sum\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// And a pass that is *not* opted in needs no release either: a non-linear pass
+/// may be abandoned, which is the same latitude a hand-written `while` has
+/// [linear-group].
+#[test]
+fn a_plain_generic_pass_needs_no_release() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn drain<It>(it: Mut It, ?Yield<It, Int>) [] -> [] Int {{\n\
+         \x20   let sum = 0\n\
+         \x20   for n in it {{\n\
+         \x20       sum = sum + n\n\
+         \x20   }}\n\
+         \x20   return sum\n\
+         }}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

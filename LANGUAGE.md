@@ -851,17 +851,18 @@ params Yield<It, T> {
 
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> [it: Mut, f] Mut List<U> {
     let out = mutable_list<U>()
-    let going = true
-    while going {
-        let step = next(it)
-        when step {
-            is Emitted { add(out, f(step)) }
-            is Finished { going = false }
-        }
+    for x in it {
+        add(out, f(x))
     }
     return out
 }
 ```
+
+A `for` over a **type parameter** works because of the spread: the position says
+"this call supplies a `next` for `It`", which is as much of a declaration as a
+`: Yield<self, T>` clause is, so the loop drives by calling that parameter and
+takes the element type from its result. Nothing about `for` is special-cased for
+std — this is how any combinator of your own reads.
 
 There is no `Yield` *type* and nothing implements it: `map` needs a `next` for
 whatever `it` is, and the call site supplies one. The subject is a **pass** — a
@@ -1145,6 +1146,39 @@ on every exit — exhaustion, `break`, `return`, a `throw` passing through. A
 `close` does not make a type linear; `: Linear<self>` does that
 ([Linearity](#linearity)), and then the obligation is checked as well as called.
 
+**Who owns the pass decides what the loop does with it.** A pass the function
+*keeps* — `it: Mut It` with `[it: Mut]` — is advanced **where it lives**: the
+position the loop reaches is what the caller sees next, so a function can take
+two elements and leave the rest.
+
+```
+fn take(p: Mut Slice<Int>, count: Int) -> [p: Mut] Int { ... }   // keeps it
+
+let p = slice(list(1, 2, 3, 4))
+let first = take(p, 2)     // 1 + 2
+let rest = take(p, 9)      // 3 + 4 — the same pass, carried on
+```
+
+A pass the function *owns* (no deduction hands it back) is consumed by the loop,
+and the loop is then what releases it. For a **generic** pass that may be linear
+(`<It canbe Linear>`) there is no `close` to resolve — the type is not known
+here — so the function asks for one the same way it asks for `next`:
+
+```
+fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) -> [] Int {
+    let sum = 0
+    for n in it {          // the `for` calls the implicit `close` on every exit
+        sum = sum + n
+    }
+    return sum
+}
+```
+
+Leave `?Linear<It>` off and the loop reports it, naming that remedy: driving a
+resource-owning pass and dropping it silently is the leak the obligation exists
+to prevent. A pass that is *not* opted in needs nothing, and neither does one
+the function keeps.
+
 #### Letting the compiler write the state: `yield fn`
 
 Writing `next` by hand means writing the position out as fields. A **`yield
@@ -1194,10 +1228,10 @@ differs is what you can hold:
   to write `zip`, or to hand one to a function — that is what the raw form is
   for: there, the state struct is yours too.
 - **Effects go where they always go.** A `yield fn` declares them in its own
-  list, like any function, and *driving* is what performs them: the `for` is
-  what needs the handler, since nothing calls the function. A `defer` inside
-  runs when the loop ends *however* it ends, including a `break` — the machine
-  is closed on every path out.
+  list, like any function — generic ones (`[Random<Int>]`) included — and
+  *driving* is what performs them: the `for` is what needs the handler, since
+  nothing calls the function. A `defer` inside runs when the loop ends *however*
+  it ends, including a `break` — the machine is closed on every path out.
 - **The origin may not be mutated while it is being driven.** It does not have
   to be immutable — a `Counter` holding a `Mut List<Int>` is a perfectly good
   origin — but for as long as a `for` over it is running, it has to hold still:

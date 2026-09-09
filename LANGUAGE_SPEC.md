@@ -1006,6 +1006,45 @@ Conventions:
     [iter-protocol], then `iter` [iter-pass]. The pass comes before `iter`
     because a type with both is *already* a position in a sequence, so minting
     a second pass from it would be wrong.
+* [iter-generic-drive] A `for` over a **type parameter** drives it when the
+  enclosing fn has a protocol-shaped `?Yield<It, T>` spread for it
+  [implicit-group] (user decision 2026-09-09): the position *is* the declaration
+  — it says "this call supplies a `next` for `It`" — so the loop calls that
+  implicit parameter and takes the element type from its result. This is what
+  lets std's own combinators be written with `for`, and any combinator of one's
+  own with them.
+  * **By name, not by shape**: the implicit must be called `next`, which is what
+    `for` drives everywhere else [iter-protocol]; and it must take its state as
+    `Mut It`, for the same reason a declared `next` does (the same diagnostic
+    fires when it does not).
+  * **The element is owned.** `next` hands the element over by value, so the
+    loop binding is *not* a projection of the pass and may be moved on — which
+    is what lets a combinator put each element in its output. (A native
+    container loop is the other case: there the binding really is a projection
+    and it links [fate-link].)
+  * Without the spread there is nothing to drive with, and the subject reports
+    the ordinary not-iterable error [iter-resolve]: a bare type parameter says
+    nothing, which is [call-resolve]'s rule for generics.
+* [iter-drive-in-place] Who **owns** the pass decides what the loop does with
+  it (user decision 2026-09-09):
+  * A pass the fn **keeps** — a `Mut` parameter its deduction list hands back, or
+    a projection of one — is advanced *where it lives*: the position the loop
+    reaches is what the caller sees next, the loop counts as a **mutation** of it
+    rather than a move, and the release stays the caller's (a `close` here would
+    be their use-after-close).
+  * A pass the fn **owns** is consumed by the loop, and the loop releases it: the
+    resolved `close` for a concrete pass, or the implicit one for a generic pass.
+  * The rule exists because the two backends disagreed without it: Rust bound the
+    subject into a local — a *clone*, since a kept parameter is a `&mut` — so the
+    caller never saw the position the loop reached, while Kotlin aliased it and
+    did [backend-parity].
+  * [linear-generics] A **generic** pass the fn owns, whose type parameter says
+    `canbe Linear`, needs a `close` the body can name: the `?Linear<It>` spread,
+    or a `?close: (It) -> [] None` written by hand. Missing, that is an error
+    naming the remedy — driving a resource-owning pass and dropping it is the
+    leak [linear-group] exists to prevent. A pass that is not opted in needs
+    nothing (a non-linear pass may be abandoned, the same latitude a hand-written
+    `while` has), and neither does one the fn keeps.
 * [iter-pass] `iter` converts a **container** into a fresh pass
   (`fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T>`), and that is the whole
   of container iteration: std declares a pass struct plus a `next` per
@@ -1496,6 +1535,15 @@ Conventions:
   effects outright — is gone with it.
   * **`use` stays barred inside a `yield fn`**: it would let the body register
     a handler the machine then has to carry across every suspension.
+  * **A generic effect is ordinary** (2026-09-09): `yield fn next(r: Rolls)
+    [Random<Int>] -> Int` works, because the machine takes its handlers as
+    parameters rendered from the effect *type* — exactly as any fn's are. The
+    refusal this replaces was about the per-effect-set trait's *name*, which R5
+    deleted along with the trait.
+    * The drive site is what supplies the handler, so the effects are checked
+      there and **not recorded at the subject's span**: a subject that is a call
+      (`rolls(3)` — a builder declaring no effects) would otherwise have them
+      threaded into *it*.
   * **`[Throw<M>]` is still never allowed on a `yield fn`** (user decision
     2026-09-07): `Throw` exists so *intermediate* frames stay silent, and a
     suspended machine is not an intermediate frame — it is a value the consumer

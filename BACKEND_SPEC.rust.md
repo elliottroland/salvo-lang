@@ -132,7 +132,17 @@ Conventions:
     `.chars()` [iter-for-native]. Everything else is driven by its `next`:
     `let mut p = <subject>; while let Union2::U1(v) = next(&mut p) { … }`, with a
     raw pass's `close` spliced after the loop and registered as a deferred entry
-    so a `return` out of the body releases it.
+    so a `return` out of the body releases it. The subject is **moved** into the
+    local, never cloned: a clone would leave the original unreleased, which for a
+    linear pass is the leak `close` exists to prevent.
+    * [iter-drive-in-place] A pass the fn **keeps** gets *no local at all* — the
+      loop calls `next(it)` on the `&mut` parameter itself. Binding it cloned the
+      borrow, so the caller never saw the position the loop reached while Kotlin's
+      aliasing did: the same program, two answers [backend-parity].
+    * [iter-generic-drive] A **generic** pass's `next` is an implicit parameter
+      (`&mut dyn FnMut(&mut It) -> Union2<T, Finished>`), called by its own name;
+      an implicit `close` (the `?Linear<It>` member) is called the same way and
+      **consumes** the local, so the pass is moved into it.
   * `trait SalvoPass<T>` and `SalvoWalk<I>` survive in `iter.rs` for **one**
     purpose: a *suspending* loop inside a `yield fn` holds its walk in an
     `Option<Box<dyn SalvoPass<T>>>` slot. Only data reaches there (a pass as the

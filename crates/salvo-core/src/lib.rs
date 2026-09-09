@@ -15,7 +15,8 @@ pub mod source;
 pub mod types;
 
 pub use check::{
-    check_program, Checked, Coercion, ImplicitArg, ImplicitParam, PassDriver, ThrowSite,
+    check_program, Checked, Coercion, ImplicitArg, ImplicitParam, PassDriver, PassMember,
+    ThrowSite,
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;

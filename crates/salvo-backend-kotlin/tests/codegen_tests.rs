@@ -817,6 +817,136 @@ fn kotlinc_compiles_and_runs_an_origin_mint() {
 
 /// [linear-group] The Kotlin half: a raw pass declaring `: Linear<self>` is
 /// released by the loop, in the `finally` — same source and stdout as the Rust
+/// [iter-generic-drive] [iter-drive-in-place] The three things the generic drive
+/// buys, in one program: a combinator driving its pass with an ordinary `for`,
+/// the caller **carrying that pass on** afterwards (the parity case — Rust used
+/// to bind the `&mut` parameter into a local, so the caller never saw the
+/// position the loop reached), and a `yield fn` performing a **generic** effect.
+///
+/// Shared with the Rust backend, byte for byte.
+const GENERIC_DRIVE_DEMO: &str = r#"
+struct Slice<T> : Yield<self, T> canbe Mut {
+    items: List<T>,
+    at: Int
+}
+
+fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+    return Mut Slice<T> { items: items, at: 0 }
+}
+
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+    let e = get(p.items, p.at)
+    if e is None {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(e)
+}
+
+// The pass is *kept*, so the loop advances it where it lives and the caller may
+// drive it further.
+fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> [it: Mut] Int {
+    let sum = 0
+    let seen = 0
+    for n in it {
+        sum = sum + n
+        seen = seen + 1
+        if seen == count {
+            break
+        }
+    }
+    return sum
+}
+
+effect Random<T> {
+    fn next_random() -> [] T
+}
+
+handler CyclicRandom<T>(values: T[]) of Random<T> {
+    i: Int = 0
+
+    fn next_random() -> [] T {
+        i = (i + 1) % size(values)
+        return values[i]
+    }
+}
+
+struct Rolls : Yield<self, Int> {
+    count: Int
+}
+
+fn rolls(count: Int) -> [] Rolls {
+    return Rolls {count: count}
+}
+
+yield fn next(r: Rolls) [Random<Int>] -> Int {
+    let n = 0
+    while n < r.count {
+        yield next_random()
+        n = n + 1
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use CyclicRandom([7, 8, 9])
+    let p = slice(list(1, 2, 3, 4))
+    println("first ${take(p, 2)}")
+    println("rest ${take(p, 9)}")
+    for v in rolls(3) {
+        println("v ${v}")
+    }
+}
+"#;
+
+const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
+
+/// [iter-generic-drive] [linear-generics] A combinator that **owns** a possibly
+/// linear pass releases it through the `?Linear<It>` spread. The release cannot
+/// print — an implicitly resolved fn is effect-free [implicit-resolve] — so the
+/// call is asserted in the emitted code and the program is run to prove it
+/// builds.
+const GENERIC_CLOSE_DEMO: &str = r#"
+struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_handle(from: Int) -> [] Mut Handle {
+    return Mut Handle { at: from }
+}
+
+fn next(h: Mut Handle) -> [h: Mut] Emitted Int | Finished {
+    if h.at <= 0 {
+        return finished()
+    }
+    let v = copy(h.at)
+    h.at = h.at - 1
+    return emitted(v)
+}
+
+fn close(h: Handle) -> [] None {}
+
+// Owns the pass: the loop releases it on every exit, `break` included.
+fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> [] Int {
+    let sum = 0
+    for n in it {
+        sum = sum + n
+        if sum > stop {
+            break
+        }
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("all ${drain(open_handle(4), 100)}")
+    println("cut ${drain(open_handle(4), 5)}")
+}
+"#;
+
+const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
+
 /// backend's `rustc_compiles_and_runs_a_released_raw_pass`.
 const RAW_CLOSE_DEMO: &str = r#"
 struct Lines : Yield<self, Int>, Linear<self> canbe Mut {
@@ -6258,4 +6388,93 @@ fn kotlinc_compiles_and_runs_overload_overrides() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
+}
+
+// ===== [iter-generic-drive] driving a generic pass =====
+
+/// [iter-drive-in-place] A *kept* pass is advanced where it lives — no local —
+/// so the caller's next drive continues from where this one stopped. Kotlin's
+/// local aliased the same object and behaved this way already; naming the
+/// subject directly is what makes the two backends *say* so identically.
+#[test]
+fn a_kept_pass_is_driven_in_place() {
+    let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("val __loop1_step = next(it)"),
+        "expected the in-place drive in:\n{src}"
+    );
+    assert!(
+        !src.contains("_pass = it"),
+        "a kept pass must not be bound into a local in:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_generic_drive() {
+    let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
+}
+
+/// [linear-generics] The release: the implicit `close` goes in the `finally`,
+/// which is how `defer` is lowered here [kt-defer-finally], so `break`, `return`
+/// and exhaustion all reach it.
+#[test]
+fn an_owned_generic_pass_is_closed_by_the_loop() {
+    let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("} finally {") && src.contains("close(__loop1_pass)"),
+        "expected the implicit release in a `finally` in:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_generic_close() {
+    let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "generic-close", GENERIC_CLOSE_OUTPUT);
+}
+
+/// [fn-effects] A `yield fn` may declare a **generic** effect: the machine takes
+/// its handlers as ordinary parameters, rendered from the effect *type*.
+#[test]
+fn a_machine_takes_a_generic_effect_handler() {
+    let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("fun __advance(random_int: Random<Int>)"),
+        "expected the generic handler as a machine parameter in:\n{src}"
+    );
+    // The *builder* declares no effects, so nothing is threaded into it.
+    assert!(
+        src.contains("__Pass_Rolls(rolls(3))"),
+        "expected the origin builder called without handlers in:\n{src}"
+    );
 }

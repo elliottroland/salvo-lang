@@ -1230,7 +1230,7 @@ impl<'p> Emitter<'p> {
         self.checked
             .for_drivers
             .get(&(self.file_idx, iterable.span()))
-            .copied()
+            .cloned()
     }
 
     /// [iter-protocol] The loop header for a `for` over a **pass**: the
@@ -1254,17 +1254,27 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
-        let Some(decl) = self.fn_by_key(driver.next_fn) else {
-            self.error("the `next` this `for` resolved to is not available");
-            return String::new();
+        // [iter-generic-drive] The `next` is either a declared overload or an
+        // **implicit parameter** of this body — a generic pass has no
+        // declaration to resolve against, and the parameter is what the caller
+        // filled [implicit-param].
+        let callee = match &driver.next {
+            salvo_core::PassMember::Implicit(name) => rs_ident(name),
+            salvo_core::PassMember::Fn(key) => match self.fn_by_key(*key) {
+                Some(decl) => self.rust_fn_name(decl),
+                None => {
+                    self.error("the `next` this `for` resolved to is not available");
+                    return String::new();
+                }
+            },
         };
         // [fn-effects] An effectful `next` would need its handlers threaded
         // into every turn of the loop — phase I4. Loud until then
         // [backend-never-wrong].
-        if self
-            .checked
-            .fn_effects
-            .get(&driver.next_fn)
+        if driver
+            .next
+            .key()
+            .and_then(|k| self.checked.fn_effects.get(&k))
             .is_some_and(|e| !e.is_empty())
         {
             self.error(
@@ -1279,14 +1289,29 @@ impl<'p> Emitter<'p> {
             self.error("a `next` result must have both an `Emitted` and a `Finished` arm");
             return String::new();
         }
-        let callee = self.rust_fn_name(decl);
         let place = format!("{}_pass", self.fresh_loop_var());
-        let subject = self.emit_bound_value(iterable, iterable.span());
         let var = self.for_pattern_var(pattern, false);
         // The `Emitted` arm of the result, by the identity the *checker*
         // computed [union-arm-identity].
         self.union_sizes.insert(driver.arms);
         let arm = format!("Union{}::U{}", driver.arms, driver.emitted_arm + 1);
+        // [iter-drive-in-place] A pass the fn *keeps* is advanced where it
+        // lives: binding it into a local would clone it (the parameter is a
+        // `&mut`), and the caller would never see the position the loop
+        // reached — which is what Kotlin's aliasing did all along
+        // [backend-parity].
+        if driver.in_place {
+            let subject = self.borrowed_mut_arg(iterable);
+            return format!("{pad}while let {arm}({var}) = {callee}({subject}) {{\n");
+        }
+        // The loop *consumes* the pass (the checker moved it in), so the local
+        // takes it over rather than cloning it: a clone would leave the original
+        // unreleased, which for a linear pass is the leak `close` exists to
+        // prevent — and cost an allocation for every other pass.
+        let subject = {
+            let code = self.emit_place(iterable);
+            self.apply_coercion(iterable.span(), code)
+        };
         format!(
             "{pad}let mut {place} = {subject};\n\
              {pad}while let {arm}({var}) = {callee}(&mut {place}) {{\n"
@@ -1309,29 +1334,40 @@ impl<'p> Emitter<'p> {
         iterable: &Expr,
         indent: usize,
     ) -> (String, String) {
-        let header = self.emit_pass_loop_header(driver, pattern, iterable, indent);
+        let header = self.emit_pass_loop_header(driver.clone(), pattern, iterable, indent);
         // The place the header bound: `emit_pass_loop_header` names it from
         // the same counter, so the last one issued is this loop's.
         let place = format!("__loop{}_pass", self.loop_id);
-        let close = match driver.close_fn.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) {
-            Some((key, decl)) => {
-                let callee = self.rust_fn_name(decl);
-                let effects: Vec<Ty> = self
-                    .checked
-                    .fn_effects
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|t| !is_throw_effect_ty(t))
-                    .collect();
-                let mut args: Vec<String> = effects
-                    .iter()
-                    .map(|ty| self.thread_effect_by_ty(ty))
-                    .collect();
-                args.push(place);
-                format!("{callee}({});", args.join(", "))
+        let close = match &driver.close {
+            // [iter-generic-drive] An implicit `close` — the `?Linear<It>`
+            // spread's member — is called by its own name, like the `next`. The
+            // position *consumes* the pass (`close(it) -> [] None`), so the
+            // local is moved in rather than borrowed.
+            Some(salvo_core::PassMember::Implicit(name)) => {
+                format!("{}({place});", rs_ident(name))
             }
+            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
+                Some(decl) => {
+                    let key = *key;
+                    let callee = self.rust_fn_name(decl);
+                    let effects: Vec<Ty> = self
+                        .checked
+                        .fn_effects
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| !is_throw_effect_ty(t))
+                        .collect();
+                    let mut args: Vec<String> = effects
+                        .iter()
+                        .map(|ty| self.thread_effect_by_ty(ty))
+                        .collect();
+                    args.push(place);
+                    format!("{callee}({});", args.join(", "))
+                }
+                None => String::new(),
+            },
             None => String::new(),
         };
         self.defers.push(close.clone());
@@ -1363,7 +1399,11 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> (String, String) {
         let pad = "    ".repeat(indent);
-        let Some(decl) = self.fn_by_key(driver.next_fn) else {
+        let Some(next_key) = driver.next.key() else {
+            self.error("an origin's `for` needs the `yield fn` behind it");
+            return (String::new(), String::new());
+        };
+        let Some(decl) = self.fn_by_key(next_key) else {
             self.error("the `yield fn` this `for` resolved to is not available");
             return (String::new(), String::new());
         };
@@ -1371,7 +1411,7 @@ impl<'p> Emitter<'p> {
         let effects: Vec<Ty> = self
             .checked
             .fn_effects
-            .get(&driver.next_fn)
+            .get(&next_key)
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -2428,20 +2468,23 @@ impl<'p> Emitter<'p> {
         } else {
             Vec::new()
         };
-        let claim_names = self.claim_names(&claimed);
-        // `(handler_params, handler_args)`: the leading parameters of
-        // `advance`/`close`/`__run_dN`, and the arguments forwarding them on.
+        // [fn-effects] `(handler_params, handler_args)`: the leading parameters
+        // of `advance`/`close`/`__run_dN`, and the arguments forwarding them on.
+        // Rendered exactly as an ordinary fn's effect parameters are, so a
+        // **generic** effect (`Random<Int>`) needs nothing special: the type
+        // carries its arguments and the name is derived from it (R5 removed the
+        // per-effect-set trait whose naming used to forbid this).
         let mut handler_params: Vec<String> = Vec::new();
         let mut handler_args: Vec<String> = Vec::new();
         let mut handler_env: Vec<EffectEntry> = Vec::new();
-        for (name, ty) in claim_names.iter().zip(&claimed) {
-            let prefix = self.effect_paths.get(name).cloned().unwrap_or_default();
-            let param = effect_param_name(name);
-            handler_params.push(format!("{param}: &mut dyn {prefix}{}", rs_ident(name)));
+        for ty in &claimed {
+            let rendered = self.rust_ty(ty);
+            let param = self.unique_name(effect_param_name(&rendered));
+            handler_params.push(format!("{param}: &mut dyn {rendered}"));
             handler_args.push(param.clone());
             handler_env.push(EffectEntry {
                 ty: Some(ty.clone()),
-                key: rs_ident(name),
+                key: rendered,
                 var: param,
                 is_local: false,
             });
@@ -2842,9 +2885,9 @@ impl<'p> Emitter<'p> {
             Some(t) => self.rust_ty(&t),
             None => {
                 self.error(
-                    "a `for` inside an iterator function iterates an array, a `List<T>` or an \
-                     `Iter<T>` for now — a hand-written pass as the subject of a *suspending* \
-                     loop is not supported yet",
+                    "a `for` inside an iterator function iterates an array, a `List<T>` or a \
+                     `Str` for now — a pass as the subject of a *suspending* loop is not \
+                     lowered yet",
                 );
                 "()".to_string()
             }
@@ -3734,26 +3777,6 @@ impl<'p> Emitter<'p> {
             Ty::Nothing => "()".to_string(),
         }
     }
-
-    /// [fn-effects] The canonical set identity of a claim list: the effect
-    /// names, already in the checker's order. A generic effect claim is
-    /// refused for the reason `ast_effect_claims` gives.
-    fn claim_names(&mut self, claims: &[Ty]) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for ty in claims {
-            match ty {
-                Ty::Named { name, args } if args.is_empty() => out.push(name.clone()),
-                other => self.error(format!(
-                    "a producer claiming a *generic* effect (`{other} Iter<…>`) is not \
-                     supported yet: the generated pass trait is named per effect set, and \
-                     the arguments would have to be part of that name"
-                )),
-            }
-        }
-        out
-    }
-
-    /// Whether a checker type is a Copy scalar in Rust [rs-borrows].
     fn is_copy_ty(ty: &Ty) -> bool {
         matches!(
             ty.strip_quals(),
@@ -4916,7 +4939,7 @@ impl<'p> Emitter<'p> {
                 // 2026-09-09).
                 let raw_closing = self
                     .pass_driver_of(iterable)
-                    .filter(|d| !d.origin && d.close_fn.is_some());
+                    .filter(|d| !d.origin && d.close.is_some());
                 let producer = match origin_driver {
                     Some(driver) => {
                         Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))

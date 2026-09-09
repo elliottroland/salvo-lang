@@ -536,9 +536,17 @@ same programs running ([rs-effect-fusion]).
     `while (true) { val step = next(p); if (step !is U2_1<…>) break; val v =
     step.value as E; … }`. The arm is spelled with its *real* type arguments
     where it can be (a non-generic `next`), which keeps the element read free of
-    an unchecked cast; a generic `next` falls back to star projections plus a
-    cast. A raw pass with a `close` is released in a `finally`, like an origin's
-    machine.
+    an unchecked cast; a generic `next` — or an implicit one — falls back to star
+    projections plus a cast. A raw pass with a `close` is released in a
+    `finally`, like an origin's machine.
+    * [iter-drive-in-place] A pass the fn **keeps** gets *no local*: the subject
+      is named directly (`next(it)`). Kotlin's local aliased the same object and
+      behaved this way already; saying so directly is what makes the two backends
+      identical here rather than accidentally equal.
+    * [iter-generic-drive] A **generic** pass's `next` is an implicit parameter,
+      so the call is `next(p)` by that name — the parameter shadows the fns of
+      that name in the body anyway [implicit-param] — and an implicit `close`
+      (the `?Linear<It>` member) is called the same way, in the `finally`.
   * **A minted origin at an argument position** (`map_lazy(counter(2), f)`)
     becomes `val __mintN = __Pass_Counter(<origin>)` hoisted before the call,
     with the implicit `next` an **anonymous function** rather than a lambda —

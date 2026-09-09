@@ -97,12 +97,36 @@ pub struct UnionTest {
     pub match_none: bool,
 }
 
+/// [iter-protocol] Which function a `for` calls to drive a pass — the `next`
+/// that advances it, or the `close` that releases it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PassMember {
+    /// A declared overload, resolved from the subject's own type.
+    Fn(FnKey),
+    /// [implicit-group] [iter-generic-drive] An **implicit parameter** of the
+    /// enclosing fn. The subject's type is one of its type parameters, so there
+    /// is no declaration to resolve against: the member came in through a
+    /// `?Yield<It, T>` (or `?Linear<It>`) spread and is called by that name.
+    Implicit(String),
+}
+
+impl PassMember {
+    /// The declaration behind it, when there is one — what the emitters need
+    /// for a mangled name, an effect list or a machine name.
+    pub fn key(&self) -> Option<FnKey> {
+        match self {
+            PassMember::Fn(key) => Some(*key),
+            PassMember::Implicit(_) => None,
+        }
+    }
+}
+
 /// [iter-protocol] What a `for` over a **pass** needs from the checker: which
 /// `next` to call, and which arm of its result carries an element.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct PassDriver {
-    /// The `next` overload resolved for this subject.
-    pub next_fn: FnKey,
+    /// The `next` this subject is driven by.
+    pub next: PassMember,
     /// Index of the `Emitted` arm among the result's non-`None` arms
     /// [union-arm-identity] — positional over the *declared* type, so
     /// `Finished | Emitted T` is as valid as the usual order. Unused when
@@ -113,7 +137,7 @@ pub struct PassDriver {
     pub arms: usize,
     /// [yield-fn-origin] The resolved `next` is a **`yield fn`**: the subject
     /// is an *origin* struct, so the loop constructs the hidden state machine
-    /// from it and drives that. `next_fn` is the `yield fn`'s key — what the
+    /// from it and drives that. `next` is the `yield fn`'s key — what the
     /// emitters name the machine after and read the handler order from — and
     /// the subject is *not* consumed, since a fresh machine is minted per
     /// loop.
@@ -125,7 +149,19 @@ pub struct PassDriver {
     /// linear obligation counted as discharged by the move into the loop, which
     /// is bookkeeping, not release. `None` for the origin form, whose machine
     /// has its own `__close`.
-    pub close_fn: Option<FnKey>,
+    pub close: Option<PassMember>,
+    /// [iter-drive-in-place] The subject is a **place the enclosing fn keeps**
+    /// — a `Mut` parameter its deduction list hands back, or a projection of one
+    /// — so the loop advances the pass *where it lives* instead of taking it
+    /// over: the position it reaches is what the caller sees next, and the
+    /// release stays the caller's (a `close` here would be their
+    /// use-after-close).
+    ///
+    /// Without this the two backends disagreed on the same program: Rust bound
+    /// the subject into a local (a clone, since the parameter is a `&mut`), so
+    /// the caller's pass never advanced, while Kotlin aliased it and the caller
+    /// saw the new position [backend-parity].
+    pub in_place: bool,
     /// [iter-pass] The `iter` overload that **mints** the pass, when the
     /// subject is a container rather than a pass itself (`for x in bag`, where
     /// `iter(bag)` answers a pass). The emitters call it once, before the
@@ -5128,6 +5164,20 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// available here [fn-effects]. Records the instances to thread, keyed
     /// by the call span, exactly as a named call's dependencies are.
     fn check_fn_value_effects(&mut self, effects: &[Ty], span: Span) {
+        self.check_effects_available(effects, span, true);
+    }
+
+    /// The same, without recording anything: a **drive site** must have the
+    /// handlers in scope, but the span it is checked at belongs to the subject
+    /// *expression* — and if that expression is a call, `call_effects` there is
+    /// what the emitters thread into **that** call. The drive site derives its
+    /// own handler list from the `yield fn`'s effects instead, so recording here
+    /// would hand a builder fn handlers it never declared.
+    fn check_drive_effects(&mut self, effects: &[Ty], span: Span) {
+        self.check_effects_available(effects, span, false);
+    }
+
+    fn check_effects_available(&mut self, effects: &[Ty], span: Span, record: bool) {
         if effects.is_empty() {
             return;
         }
@@ -5163,7 +5213,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        self.out.call_effects.insert(self.key(span), resolved);
+        if record {
+            self.out.call_effects.insert(self.key(span), resolved);
+        }
     }
 
     // ================= throw and `try` [throw] [try] =================
@@ -8640,7 +8692,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let iter_ty = self.check_expr(iterable, None);
-                let elem = self.iter_elem_ty(&iter_ty, iterable.span());
+                let elem = self.iter_elem_ty(&iter_ty, iterable, iterable.span());
                 // [once-fn] Driving a **pass** consumes it: `Once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
@@ -8653,16 +8705,41 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // consumes nor mutates it and the binding stays an ordinary
                 // projection. Only a real pass — the value that *holds* the
                 // position — is moved into the loop.
-                let drives_origin = self
+                let recorded = self
                     .out
                     .for_drivers
                     .get(&self.key(iterable.span()))
-                    .is_some_and(|d| d.origin);
+                    .cloned();
+                let drives_origin = recorded.as_ref().is_some_and(|d| d.origin);
+                // [iter-drive-in-place] A pass the fn *keeps* is advanced where
+                // it lives: the loop mutates it rather than taking it over, so
+                // the caller sees the position it reached and may drive it on.
+                let drives_in_place = recorded.as_ref().is_some_and(|d| d.in_place);
                 let drives_pass = !drives_origin
+                    && !drives_in_place
                     && (iter_ty.quals().iter().any(|q| q.name == "Once")
-                        || self.yield_obligation(iter_ty.strip_quals()).is_some());
-                let links = if drives_pass {
-                    self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
+                        || self.yield_obligation(iter_ty.strip_quals()).is_some()
+                        // [iter-generic-drive] A generic pass is a pass: the
+                        // implicit `next` in the driver is the declaration.
+                        || recorded
+                            .as_ref()
+                            .is_some_and(|d| matches!(d.next, PassMember::Implicit(_))));
+                if drives_in_place {
+                    if let Some(place) = crate::place::Place::of_expr(iterable) {
+                        let root = place.root.clone();
+                        self.fate_mutation_root(&root, iterable.span());
+                    }
+                }
+                let links = if drives_pass || drives_in_place {
+                    if drives_pass {
+                        self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
+                    }
+                    // A pass **hands the element over**: `next` returns
+                    // `Emitted T` by value, so the binding is an owned value and
+                    // not a projection of the pass — which is what lets a
+                    // combinator move each element into its output. (A native
+                    // container loop is the other case: there the binding really
+                    // is a projection, and it links [fate-link].)
                     Vec::new()
                 } else {
                     // The loop binding is a projection of the iterated
@@ -9129,8 +9206,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// fits, the obligation check has already reported it at the struct —
     /// the declared element type is returned so the one mistake does not
     /// cascade [type-unknown-lenient].
-    fn pass_elem_ty(&mut self, stripped: &Ty, span: Span) -> Option<Ty> {
-        self.pass_elem_ty_minted(stripped, span, None)
+    fn pass_elem_ty(&mut self, stripped: &Ty, iterable: Option<&'p Expr>, span: Span) -> Option<Ty> {
+        self.pass_elem_ty_minted(stripped, iterable, span, None)
     }
 
     /// The same, for a pass the loop **mints** from a container through the
@@ -9139,6 +9216,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn pass_elem_ty_minted(
         &mut self,
         stripped: &Ty,
+        iterable: Option<&'p Expr>,
         span: Span,
         mint: Option<FnKey>,
     ) -> Option<Ty> {
@@ -9160,16 +9238,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .collect();
             let _ = yf;
             if !effects.is_empty() {
-                self.check_fn_value_effects(&effects, span);
+                self.check_drive_effects(&effects, span);
             }
             self.out.for_drivers.insert(
                 self.key(span),
                 PassDriver {
-                    next_fn: key,
+                    next: PassMember::Fn(key),
                     emitted_arm: 0,
                     arms: 0,
                     origin: true,
-                    close_fn: None,
+                    close: None,
+                    // An origin is *read*: the machine minted from it holds the
+                    // position, so there is nothing to advance in place.
+                    in_place: false,
                     mint_iter_fn: mint,
                 },
             );
@@ -9195,15 +9276,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             // with a `close` is closed by the loop, on every exit (user
             // decision 2026-09-09). Resolved here, beside the `next`, so the
             // emitters get both halves of the protocol from one table.
-            let close_fn = self.pass_close_fn(stripped);
+            // [iter-drive-in-place] A pass the fn keeps is the caller's: it
+            // advances where it lives, and the caller's `close` releases it.
+            let in_place = iterable.is_some_and(|e| self.drives_in_place(e));
+            let close = if in_place {
+                None
+            } else {
+                self.pass_close_fn(stripped).map(PassMember::Fn)
+            };
             self.out.for_drivers.insert(
                 self.key(span),
                 PassDriver {
-                    next_fn: key,
+                    next: PassMember::Fn(key),
                     emitted_arm,
                     arms,
                     origin: false,
-                    close_fn,
+                    close,
+                    in_place,
                     mint_iter_fn: mint,
                 },
             );
@@ -9281,6 +9370,138 @@ impl<'p, 'r> Checker<'p, 'r> {
         elem
     }
 
+    /// [iter-drive-in-place] Whether a `for` subject is a place the enclosing
+    /// fn **keeps**: a parameter its contract hands back, or a projection of
+    /// one. Driving such a pass has to be visible to the caller, so the loop
+    /// advances it in place rather than binding it into a local.
+    fn drives_in_place(&self, iterable: &'p Expr) -> bool {
+        crate::place::Place::of_expr(iterable)
+            .map(|p| self.is_param(&p.root) && !self.param_owned(&p.root))
+            .unwrap_or(false)
+    }
+
+    /// Whether a name is a parameter of the fn being checked.
+    fn is_param(&self, name: &str) -> bool {
+        self.lookup(name).is_some_and(|v| v.is_param)
+    }
+
+    /// [iter-generic-drive] The element type of a **generic** pass: the
+    /// subject's type is one of the enclosing fn's type parameters, and a
+    /// protocol-shaped `next` for it is in scope as an *implicit parameter* —
+    /// the `?Yield<It, T>` spread a combinator declares [implicit-group] (user
+    /// decision 2026-09-09).
+    ///
+    /// The spread is the declaration `for` reads here: there is no struct to
+    /// carry a `: Yield<self, T>` clause, but the position that says "this call
+    /// supplies a `next` for `It`" says exactly as much, and the element type
+    /// falls out of its result. The loop therefore drives by **calling the
+    /// implicit parameter** rather than a resolved overload.
+    fn generic_pass_elem_ty(&mut self, subject: &Ty, iterable: &'p Expr, span: Span) -> Option<Ty> {
+        if !matches!(subject, Ty::Var(_)) {
+            return None;
+        }
+        // The protocol shape, against the implicits this body has: one
+        // parameter the subject fits, and an `Emitted T | Finished` result.
+        let mut found: Option<(String, Ty, usize, usize, bool)> = None;
+        for imp in &self.own_implicits {
+            // The protocol's member name, as everywhere else: `for` drives
+            // `next`, whatever grouping brought the position in [iter-protocol].
+            if imp.name != "next" {
+                continue;
+            }
+            let Ty::Fn { params, ret, .. } = imp.ty.strip_quals() else {
+                continue;
+            };
+            if params.len() != 1 || params[0].strip_quals() != subject {
+                continue;
+            }
+            let Some((elem, emitted_arm, arms)) = emitted_arm_ty(ret) else {
+                continue;
+            };
+            let mutable = params[0].quals().iter().any(|q| q.name == "Mut");
+            found = Some((imp.name.clone(), elem, emitted_arm, arms, mutable));
+            break;
+        }
+        let (name, elem, emitted_arm, arms, mutable) = found?;
+        // The state is taken as `Mut` [iter-protocol]: advancing a pass mutates
+        // its position, and the backends hand over a mutable place. A position
+        // of the right *result* shape that does not say so plainly means to be
+        // the protocol, so say what is wrong.
+        if !mutable {
+            self.error(
+                span,
+                format!(
+                    "`{name}` has to take its state as `Mut {subject}` — advancing a \
+                     pass mutates its position"
+                ),
+            );
+        }
+        // [iter-drive-in-place] A pass the fn keeps advances where it lives, and
+        // its release stays the caller's.
+        let in_place = self.drives_in_place(iterable);
+        let close = if in_place {
+            None
+        } else {
+            self.generic_pass_close(subject, span)
+        };
+        self.out.for_drivers.insert(
+            self.key(span),
+            PassDriver {
+                next: PassMember::Implicit(name),
+                emitted_arm,
+                arms,
+                origin: false,
+                close,
+                in_place,
+                mint_iter_fn: None,
+            },
+        );
+        Some(elem)
+    }
+
+    /// [iter-generic-drive] [linear-generics] The release a generic drive owes.
+    ///
+    /// A pass whose type parameter says `canbe Linear` may own something, and
+    /// when the fn **moves** it in, the obligation travelled *here*: the loop is
+    /// what has to release it. The only `close` a generic body can name is an
+    /// implicit one — the `?Linear<It>` spread, or a `?close` written by hand —
+    /// so a body without one is an error naming that remedy, rather than a loop
+    /// that silently drops the resource [linear-group].
+    ///
+    /// A pass the fn **keeps** needs nothing: the obligation stayed with the
+    /// caller, and closing someone else's pass here would be the double release.
+    fn generic_pass_close(&mut self, subject: &Ty, span: Span) -> Option<PassMember> {
+        // An implicit `close` for this subject, whatever grouping brought it in.
+        let implicit = self.own_implicits.iter().find_map(|imp| {
+            let Ty::Fn { params, .. } = imp.ty.strip_quals() else {
+                return None;
+            };
+            if params.len() == 1 && params[0].strip_quals() == subject && imp.name == "close" {
+                Some(imp.name.clone())
+            } else {
+                None
+            }
+        });
+        if let Some(name) = implicit {
+            return Some(PassMember::Implicit(name));
+        }
+        if !self.ty_own_linear(subject) {
+            return None;
+        }
+        self.error(
+            span,
+            format!(
+                "driving a `{subject}` this function owns needs a `close` for it: \
+                 `{subject}` may be linear (`canbe Linear`), and this function moves \
+                 the pass in, so the loop is what has to release it — declare \
+                 `?Linear<{subject}>` (or `?close: ({subject}) -> [] None`) and the \
+                 `for` will call it on every exit, or hand the pass back with a \
+                 deduction that keeps it"
+            ),
+        );
+        None
+    }
+
     /// Whether a `for` subject is one of the containers a backend iterates
     /// natively [iter-for-native]: an `intrinsic type` (a list, a `Str`; an
     /// array is a language-level type and never reaches here). Every other
@@ -9296,7 +9517,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    fn iter_elem_ty(&mut self, iter_ty: &Ty, span: Span) -> Ty {
+    fn iter_elem_ty(&mut self, iter_ty: &Ty, iterable: &'p Expr, span: Span) -> Ty {
         match iter_ty.strip_quals() {
             Ty::Array(elem) => (**elem).clone(),
             other => {
@@ -9307,7 +9528,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // minting a second pass from it would be wrong. This is the
                 // manual half of the iterator story (`zip`, `merge`), which
                 // `yield` cannot express.
-                if let Some(elem) = self.pass_elem_ty(&other, span) {
+                if let Some(elem) = self.pass_elem_ty(&other, Some(iterable), span) {
                     return elem;
                 }
                 // [iter-pass] `for x in xs` iterates a **container**: its
@@ -9317,13 +9538,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // data natively, which is both faster and non-consuming
                 // [iter-for-native]; for anything else the `iter` call is the
                 // mint, made once before the loop.
+                // [iter-generic-drive] A **generic** pass: its `next` is an
+                // implicit parameter of this body, which is as much of a
+                // declaration as a `: Yield<self, T>` clause is.
+                if let Some(elem) = self.generic_pass_elem_ty(&other, iterable, span) {
+                    return elem;
+                }
                 if let Some((iter_key, pass_ty)) = self.iter_pass_for(&other) {
                     if self.is_intrinsic_container(&other) {
                         if let Some(elem) = self.pass_declared_elem_ty(&pass_ty) {
                             return elem;
                         }
                     } else if let Some(elem) =
-                        self.pass_elem_ty_minted(&pass_ty, span, Some(iter_key))
+                        // The *minted* pass is the loop's own value, never a
+                        // place the caller keeps, so it is never driven in place.
+                        self.pass_elem_ty_minted(&pass_ty, None, span, Some(iter_key))
                     {
                         return elem;
                     }
@@ -9348,10 +9577,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         span,
                         format!(
-                            "`{other}` is not iterable: `for` takes an array, an \
-                             `Iter<T>`, a pass (a type declaring \
-                             `: Yield<self, T>`), or a value some `iter` function \
-                             accepts{hint}"
+                            "`{other}` is not iterable: `for` takes an array, a \
+                             pass (a type declaring `: Yield<self, T>`), or a value \
+                             some `iter` function accepts{hint}"
                         ),
                     );
                 }
