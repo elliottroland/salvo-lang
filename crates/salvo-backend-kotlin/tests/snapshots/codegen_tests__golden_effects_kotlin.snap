@@ -9,16 +9,16 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun<T> iter(array: Array<T>): ArrayPass<T> {
-    return ArrayPass(items = array, at = 0)
+fun<T> iter(array: Array<T>): ArrayYield<T> {
+    return ArrayYield(items = array, at = 0)
 }
 
-data class ArrayPass<T>(
+data class ArrayYield<T>(
     var items: Array<T>,
     var at: Int,
 )
 
-fun<T> next(pass: ArrayPass<T>): Union2<T, Finished> {
+fun<T> next(pass: ArrayYield<T>): Union2<T, Finished> {
     val elem = pass.items.getOrNull(pass.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -67,16 +67,16 @@ import salvo.*
 import salvo.core.array.*
 import salvo.core.iterator.*
 
-fun<T> iter__2(list: List<T>): ListPass<T> {
-    return ListPass(items = list, at = 0)
+fun<T> iter__2(list: List<T>): ListYield<T> {
+    return ListYield(items = list, at = 0)
 }
 
-data class ListPass<T>(
+data class ListYield<T>(
     var items: List<T>,
     var at: Int,
 )
 
-fun<T> next__2(pass: ListPass<T>): Union2<T, Finished> {
+fun<T> next__2(pass: ListYield<T>): Union2<T, Finished> {
     val elem = pass.items.getOrNull(pass.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -92,16 +92,16 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun iter__3(str: String): StrPass {
-    return StrPass(text = str, at = 0)
+fun iter__3(str: String): StrYield {
+    return StrYield(text = str, at = 0)
 }
 
-data class StrPass(
+data class StrYield(
     var text: String,
     var at: Int,
 )
 
-fun next__5(pass: StrPass): Union2<Char, Finished> {
+fun next__5(pass: StrYield): Union2<Char, Finished> {
     val chr = pass.text.getOrNull(pass.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())

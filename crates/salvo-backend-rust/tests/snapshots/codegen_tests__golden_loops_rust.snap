@@ -7,17 +7,17 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter<T: Clone + 'static>(array: Vec<T>) -> ArrayPass<T> {
-    return ArrayPass { items: array, at: 0 };
+pub fn iter<T: Clone + 'static>(array: Vec<T>) -> ArrayYield<T> {
+    return ArrayYield { items: array, at: 0 };
 }
 
 #[derive(Clone, Debug)]
-pub struct ArrayPass<T: Clone + 'static> {
+pub struct ArrayYield<T: Clone + 'static> {
     pub items: Vec<T>,
     pub at: i32,
 }
 
-pub fn next<T: Clone + 'static>(pass: &mut ArrayPass<T>) -> Union2<T, Finished> {
+pub fn next<T: Clone + 'static>(pass: &mut ArrayYield<T>) -> Union2<T, Finished> {
     let mut elem = pass.items.get((pass.at) as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -73,17 +73,17 @@ use crate::core_array::*;
 use crate::core_iterator::*;
 use crate::unions::*;
 
-pub fn iter__2<T: Clone + 'static>(list: Vec<T>) -> ListPass<T> {
-    return ListPass { items: list, at: 0 };
+pub fn iter__2<T: Clone + 'static>(list: Vec<T>) -> ListYield<T> {
+    return ListYield { items: list, at: 0 };
 }
 
 #[derive(Clone, Debug)]
-pub struct ListPass<T: Clone + 'static> {
+pub struct ListYield<T: Clone + 'static> {
     pub items: Vec<T>,
     pub at: i32,
 }
 
-pub fn next__2<T: Clone + 'static>(pass: &mut ListPass<T>) -> Union2<T, Finished> {
+pub fn next__2<T: Clone + 'static>(pass: &mut ListYield<T>) -> Union2<T, Finished> {
     let mut elem = pass.items.get((pass.at) as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -108,17 +108,17 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter__3(str: String) -> StrPass {
-    return StrPass { text: str, at: 0 };
+pub fn iter__3(str: String) -> StrYield {
+    return StrYield { text: str, at: 0 };
 }
 
 #[derive(Clone, Debug)]
-pub struct StrPass {
+pub struct StrYield {
     pub text: String,
     pub at: i32,
 }
 
-pub fn next__5(pass: &mut StrPass) -> Union2<char, Finished> {
+pub fn next__5(pass: &mut StrYield) -> Union2<char, Finished> {
     let mut chr = pass.text.chars().nth((pass.at) as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());

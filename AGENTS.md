@@ -44,6 +44,7 @@ which rules are in play and where they live in the code*.
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
 | `PROGRESS.md` | Status, milestones, design decisions, **open defects**, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
+| `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |
 
 ## Keep the documents up to date
@@ -82,6 +83,8 @@ crates/
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency: toolchain probing + the e2e content cache
 std/core/                 # Salvo stdlib (.sv); each backend lowers its `intrinsic` declarations in src/intrinsics.rs
+examples/<name>/          # worked examples: salvo/ source, rust/ + kotlin/ generated output,
+                          #   expected.txt (identical on both backends), README.md — see examples/README.md
 ```
 
 This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
@@ -166,16 +169,21 @@ Three speeds, and it matters which one you use:
     stops being the language.
   - **Rewrite every affected example** in the same change: `std/`,
     `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
-    LANGUAGE.md / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets, README,
-    and the syntax references in PROGRESS.md (it is the handoff document,
-    not a historical archive — record the change in the decision log
-    instead of leaving stale syntax in prose).
+    `examples/**` (source *and* its checked-in generated code and expected
+    output), LANGUAGE.md / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets,
+    README, and the syntax references in PROGRESS.md (it is the handoff
+    document, not a historical archive — record the change in the decision
+    log instead of leaving stale syntax in prose).
+  - **An example that no longer works is deleted, not preserved.** There is
+    no compatibility guarantee to document and no value in a checked-in
+    program that does not compile, so rewriting it or removing it are both
+    correct outcomes and removal needs no apology. History belongs in
+    PROGRESS.md's decision log, not in a directory of dead programs.
   - **Flag what you cannot rewrite confidently.** Anything whose intent
-    is ambiguous under the new rules, sketches of unimplemented features
-    (`experiments/`), or a site that *looks* like the changed construct
-    but might be a different one: list it for the user to update by
-    hand rather than guessing. Precedent: the `with` → `canbe` rename
-    left `experiments/refinements.sv` alone because its `with` was the
+    is ambiguous under the new rules, or a site that *looks* like the
+    changed construct but might be a different one: list it for the user to
+    update by hand rather than guessing. Precedent: the `with` → `canbe`
+    rename left a sketch's `with` alone because it was the
     qualifier-compatibility clause, not an opt-in.
   - A transitional *error* naming the replacement is permitted but not
     expected (it is a diagnostic, not compatibility); still accepting the

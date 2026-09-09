@@ -111,6 +111,105 @@ and "I4 emission as built".
 
 # Salvo Compiler — Progress & Plan
 
+**The pass structs are `*Yield`, and `experiments/` became `examples/`
+(user decisions 2026-09-09).** Two housekeeping changes with one theme: the
+repository should say what it means, and it should show the language that
+exists.
+
+- **`ListPass`/`ArrayPass`/`StrPass`/`MapPass`/`FilterPass` →
+  `ListYield`/`ArrayYield`/`StrYield`/`MapYield`/`FilterYield`.** "Pass" was
+  too general a word for a type name (the user's call); `Yield` names the
+  obligation the struct declares (`: Yield<self, T>`), so the type and the
+  group now read as one thing. The *concept* keeps its name — a pass is still
+  what these are — and nothing else moved: the Rust runtime's `SalvoPass<T>`
+  trait and the generated `__Pass_<fn>` machines are internal to a backend and
+  untouched. The user named three structs; the other two came with them, since
+  half a rename is worse than none. Pure rename, no semantics: `std/`, the
+  specs, the tests and every snapshot swept in one pass, the only snapshot
+  churn being spans shifting by one character per name.
+- **`experiments/` is deleted; `examples/` replaces it.** The two directories
+  are not the same thing. `experiments/` held hand-written *prototypes of
+  designs not yet built* — target-language code an emitter would eventually
+  produce, beside Salvo that deliberately did not compile — and their value was
+  the findings, which are recorded in this file. `examples/<name>/` holds
+  programs that compile and run **today**: `salvo/` source, the `rust/` and
+  `kotlin/` trees exactly as `salvo compile` wrote them, `expected.txt` (the
+  same stdout on both backends), and a README saying what to look for. Three to
+  start with, chosen by the user: `iteration/`, `defer-and-throw/`,
+  `qualifiers/`. Conventions live in `examples/README.md`, including the one
+  worth stating out loud: **an example that no longer works is deleted, not
+  preserved** — now also an invariant in AGENTS.md, since it is a thing a
+  future session needs permission for. Entries *below* this one cite
+  `experiments/…` paths as the evidence for what was verified at the time;
+  those files are gone, and the citations stay because what they record is the
+  verification, not the code.
+- **The generator-plan tests were modernized with it** (2026-09-09). Their 13
+  inline sources still wrote `fn name(args) -> Once Iter<Int>`, a producer shape
+  R5 deleted; they only had to *parse*, so nothing failed and the staleness
+  survived the flip. Each is now `struct X : Yield<self, Int>` plus
+  `yield fn next(x: X) -> Int` [yield-fn-origin], which made the plans change
+  exactly as the model says they should — the origin is field 0, and what was a
+  parameter is a field read off it (`i < u.limit`) — and made every positive
+  source *check*, verified by running the seven of them as one program through
+  `salvo analyze`. That is how three of them turned out to be wrong in a second
+  way: `yield i` **moves** `i`, so a body that yields a counter and then
+  increments it needs `yield copy(i)`, which no plan-only test would ever have
+  told us. The helper now finds the function by its `is_yield` flag rather than
+  by name, since every producer's sugar is called `next`.
+- **One prototype had a live consumer and moved rather than died**: the I3
+  acceptance test reads the gnarly `yield` body from disk. It is now
+  `crates/salvo-core/tests/fixtures/gnarly.sv`, **restated in the current
+  language** (an origin struct plus `yield fn next`, and a hand-written
+  `Countdown` for the nested pass) — and the plan it produces is the
+  prototype's eight states unchanged but for `g (param)` where `limit (param)`
+  was, which is the evidence the restatement is faithful. The test now finds
+  the `yield` fn by its `is_yield` flag rather than by name, because a fixture
+  with a nested pass declares two functions called `next`.
+
+**Three examples, and building them was a small survey of the rough edges.**
+Each is one `main.sv` verified by `salvo run` on both backends and `diff`-ed:
+
+- `examples/iteration/` — native container loops, a hand-written pass driven in
+  two stages, two `yield fn` generators (one effectful with a `defer`, one
+  unbounded), a generic combinator of one's own over `?Yield<It, Int>`, the
+  eager sequence functions, and the lazy pair plus `map_to`.
+- `examples/defer-and-throw/` — `defer` LIFO at a block end and per loop
+  iteration (`continue` and `break` included), a `: Linear<self>` handle
+  released by one `defer` across two exits *and* across a throw, `[Throw<Str>]`
+  with a silent intermediate frame, a union message, and nested `try`.
+- `examples/qualifiers/` — a state qualifier with its `qualifies` predicate, a
+  `refn` supplying the claim through `add`, an `is` check establishing one at
+  run time, a constructive qualifier with its constructor, `^` widening to
+  reach the less specific overload, an inferred deduction list keeping a claim
+  across a call, an exhaustive one dropping it, and the state/provenance
+  contrast — where the generated code names the winner
+  (`handle__Authenticated` before *and* after a mutating call, `handle__Fresh`
+  before it and plain `handle` after).
+
+What writing them turned up, none of it new but all of it worth having written
+down where a newcomer meets it:
+
+- **A lambda in a lazy combinator needs an annotated parameter.**
+  `map_lazy(naturals(1), n -> n * n)` cannot infer `U`: `T` comes from which
+  `next` filled the implicit, and the un-annotated lambda's result is what `U`
+  would have to come from. `(n: Int) -> n * n` fixes it, and the diagnostic
+  already names both remedies. The eager `map(xs, n -> n * 2)` is fine, because
+  the `List` fast path binds `T` from the argument.
+- **A nested string literal inside an interpolation does not lex**
+  (`"read ${read_size("a.txt", 3)}"`). Bind the call to a local first. Not a
+  defect — the interpolation lexer re-lexes the fragment — but it is the first
+  thing an example author trips over.
+- **`core.list` has no removal function**, so "a call that may empty the list"
+  had to be written as a declaration whose body does nothing. The example says
+  so rather than pretending.
+- **`map_to`'s destination is moved and handed back** (`[it: Mut, f] Mut D`),
+  so the result is the collection to read afterwards, not the argument.
+- **Two known Kotlin warnings show up in example output**, both in code the
+  author cannot touch: the generic combinators' `unchecked cast of 'Any?' to
+  'T'` (recorded under R5) and the same on a nested-union bind
+  (`let why: Str | Int = mixed`, dropping a `Thrown` claim). Each example's
+  README names its own.
+
 **The iterator reduction is complete (2026-09-09): all six phases are done and
 `Iter<T>` is gone.** The user decided a wholesale simplification — a pass is a
 user struct, `for` is sugar for `next` until `Finished`, `Iter<T>` goes away —
@@ -175,9 +274,9 @@ built".
 `salvo-core`, rendered by both backends.** `generator.rs` turns a `yield` fn
 body into a `GeneratorPlan` [iter-generator] — numbered states of steps, the
 body's locals as fields, a flag per `defer` site, a release path — and its
-acceptance test is the I3 prototype itself: the plan for the checked-in
-`experiments/pull-iterators/gnarly.sv` must be the eight states of the
-hand-written `gnarly.rs`, in its order. It is, on the first run.
+acceptance test is the I3 prototype itself: the plan for the checked-in gnarly
+body (now `crates/salvo-core/tests/fixtures/gnarly.sv`) must be the eight states
+of the hand-written prototype machine, in its order. It is, on the first run.
 
 **Both emitters now render it, and the borrowed coroutine machinery is gone**:
 `SalvoGen`/`SalvoYield`/`async`/`Pin`/`Waker` on Rust [rs-generator], the
@@ -1830,10 +1929,11 @@ rewritten in the same change (`std/`, test corpora, inline `.sv` sources
 in Rust tests, the spec documents, README, and the syntax references in
 this file — it is a handoff document, not an archive, so stale syntax in
 prose is a bug and the change belongs in this decision log instead).
-Anything that cannot be rewritten confidently — ambiguous intent under
-the new rules, `experiments/` sketches of unimplemented features, or a
-site that merely *looks* like the changed construct — is flagged for the
-user to update by hand. A transitional *error* naming the replacement is
+An example that no longer works is *deleted*, not preserved — history
+belongs in this decision log, not in a directory of dead programs — and
+anything that cannot be rewritten confidently (ambiguous intent under the
+new rules, or a site that merely *looks* like the changed construct) is
+flagged for the user to update by hand. A transitional *error* naming the replacement is
 permitted but not expected (it is a diagnostic, not compatibility);
 still accepting the old form never is — and the `canbe` rename's own
 transitional error was removed on the user's call, so a plain parse
@@ -1918,7 +2018,7 @@ hard-won operational knowledge.
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 733 tests, complete: the toolchain tests are
+cargo test                  # 817 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -4759,7 +4859,7 @@ the same programs to the same stdout. `iter` hands back a pass, std's
 combinators take one, and the `Iter<T>` world is deleted. The plan below was
 followed in its six steps; what it did not predict is recorded here.
 
-**std as built.** `ListPass<T>`/`ArrayPass<T>`/`StrPass` are ordinary structs
+**std as built.** `ListYield<T>`/`ArrayYield<T>`/`StrYield` are ordinary structs
 (`items`/`text` plus `at`) declaring `: Yield<self, T> canbe Mut`, each with a
 Salvo `next` — the `is None` guard shape [is-narrow-guard] is what made them
 writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `-> []`
@@ -4767,8 +4867,8 @@ writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `-> []`
 `iterable.sv` is gone. `seq.sv`'s `map`/`filter`/`reduce`/`map_to`/`filter_to`
 drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
 `when` as first built, and with an ordinary `for` since the same day
-[iter-generic-drive]; `map_lazy`/`filter_lazy` return **composed passes** (`MapPass`,
-`FilterPass`) holding the source, the callback and the source's `next`.
+[iter-generic-drive]; `map_lazy`/`filter_lazy` return **composed passes** (`MapYield`,
+`FilterYield`) holding the source, the callback and the source's `next`.
 
 **What the flip forced, in the order it turned up:**
 
@@ -4841,7 +4941,7 @@ drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
   edit — a `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
   and it is the first thing to do in a polish pass.
 - **A user type named like one of std's passes collides**: implicit resolution
-  matches by name, so a program declaring its own `ListPass` plus `next` makes
+  matches by name, so a program declaring its own `ListYield` plus `next` makes
   the `next` ambiguous. Nominal types are not module-qualified in that match;
   worth fixing when someone hits it (the demos were renamed instead).
 
@@ -4866,7 +4966,7 @@ drives `next` everywhere else) and must take its state as **`Mut It`** (the same
 diagnostic a declared `next` gets). Without a spread the subject reports the
 ordinary not-iterable error — a bare type parameter says nothing.
 
-**The parity defect the work turned up.** `fn take_two(p: Mut ListPass<Int>) ->
+**The parity defect the work turned up.** `fn take_two(p: Mut ListYield<Int>) ->
 [p: Mut] Int` driving `p` with `for`, called twice, printed `first 3 rest 3` on
 Rust and `first 3 rest 7` on Kotlin: Rust bound the subject into a local, which
 for a kept parameter is a *clone* of the `&mut`, so the caller's pass never
@@ -4898,7 +4998,7 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut 
 }
 ```
 
-The lazy `next`s (`MapPass`, `FilterPass`) stay hand-written: they produce one
+The lazy `next`s (`MapYield`, `FilterYield`) stay hand-written: they produce one
 element per call, so they have no loop to write.
 
 #### The generic-effect refusal, lifted (2026-09-09)
@@ -4921,7 +5021,7 @@ record.
 
 ##### R5 part 2 probe (2026-09-08): what the flip needs, from a real program
 
-Two throwaway programs (a `ListPass<T>` container pass plus a generic
+Two throwaway programs (a `ListYield<T>` container pass plus a generic
 combinator; and a narrowing probe) were run through `analyze` before touching
 std, and they turn the sequencing question into five facts:
 
@@ -4930,7 +5030,7 @@ std, and they turn the sequencing question into five facts:
    implicit resolver fills each implicit against the *declared* signature, so
    `P` is still unbound when it reaches `?Yield<P, Int>`: `no next fits ?next:
    (Mut ?) -> Emitted Int | Finished`, while the `next` in scope is
-   `(Mut ListPass<Int>) -> …`. Filling `?iter` first and **feeding the chosen
+   `(Mut ListYield<Int>) -> …`. Filling `?iter` first and **feeding the chosen
    overload's return type back into the substitution** before resolving the
    next implicit is the missing step — a targeted change in `resolve_implicits`,
    and the enabling work R5 part 2 rests on. (Where a type parameter is bound by
@@ -4946,9 +5046,9 @@ std, and they turn the sequencing question into five facts:
    `close`) remains optional: it needs `pass_elem_ty` to accept a `Ty::Var`
    whose `next` is a fn-typed *parameter*, and a `PassDriver` that can name one.
 3. **A generic struct literal needs its type arguments written**
-   (`Mut ListPass<T> { … }`) — R0 finding 5, met again immediately.
+   (`Mut ListYield<T> { … }`) — R0 finding 5, met again immediately.
 4. **A pass that stores its source consumes it**: `fn iter<T>(items: List<T>)
-   -> [items] Mut ListPass<T>` is refused ("deduction promises `items` back to
+   -> [items] Mut ListYield<T>` is refused ("deduction promises `items` back to
    the caller, but the body moves it"), so std's `iter` will be `-> []`. Worth
    knowing before the rewrite: iterating a list *consumes* the list unless the
    pass borrows, which is drive-in-place (R5's own open question) territory.
@@ -4984,7 +5084,7 @@ things this settles at once:
   `Mut It` with `[it: Mut]`, since advancing it is a mutation.
 
 **Validated end to end on both backends before touching std** (2026-09-09): a
-`ListPass<T>` with a hand-written `next`, a `map2` over the `?Yield` spread
+`ListYield<T>` with a hand-written `next`, a `map2` over the `?Yield` spread
 driving with `while` + `next` + `when`, `map2(iter2(xs), double)` printing
 `d 2 / d 4 / d 6` under rustc and kotlinc. Doing that first was worth it — the
 surface works, but **nothing had ever exercised a spread member that mutates
@@ -6391,9 +6491,10 @@ body (already an error [defer-no-escape]).
 
 `crates/salvo-core/src/generator.rs` turns a `yield` fn body into a
 `GeneratorPlan` [iter-generator], and the acceptance test is the one the plan
-named: `tests/generator_tests.rs` reads the checked-in
-`experiments/pull-iterators/gnarly.sv`, renders the plan as text, and compares
-it with the **eight states of the hand-written `gnarly.rs`, in its order** —
+named: `tests/generator_tests.rs` reads the checked-in gnarly body (now
+`crates/salvo-core/tests/fixtures/gnarly.sv`), renders the plan as text, and
+compares it with the **eight states of the hand-written machine, in its
+order** —
 the machine an oracle had already vouched for. It passed on the first run,
 which is the whole return on having prototyped: the numbering was predictable
 enough to write down before the code ran. Negative-tested by disabling the
@@ -8428,8 +8529,8 @@ and `cargo nextest run` when you want to see which tests cost what.
   reported as not iterable, and a non-`Mut` position refused).
 - **14 generator-plan tests** (`tests/generator_tests.rs` [iter-generator]:
   the I3 acceptance test — the plan for the checked-in
-  `experiments/pull-iterators/gnarly.sv`, rendered as text and compared with
-  the eight states of the hand-written `gnarly.rs`, in its order — plus one
+  `tests/fixtures/gnarly.sv`, rendered as text and compared with the eight
+  states of the hand-written prototype machine, in its order — plus one
   shape at a time: a bare loop resuming at its own head, a `yield` in the
   middle of a body, a `break` and a `return` discharging what they leave, a
   nested `for` becoming a pass field, a suspending `if` arm getting states of
@@ -10285,7 +10386,7 @@ snapshot diffs.
   pass over the hits first: `with Linear` (syntax) and `with linear
   type` (an error message's prose) differ only in case, and one site
   that looked like the same clause — `qualifier NonEmpty<T> of List<T>
-  with Mut<T>` in `experiments/` — was the *other* meaning of `with`
+  with Mut<T>` in a prototype sketch — was the *other* meaning of `with`
   ([qual-with]) and had to stay. Grep with context, exclude the
   exceptions explicitly, then re-grep for leftovers.
 - (N1) **Rust puts modules and structs in one type namespace.** The

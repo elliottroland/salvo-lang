@@ -25,12 +25,12 @@ fn svignore_skips_listed_files_and_directories() {
     let root = dir("svignore");
     fs::write(root.join("main.sv"), "fn main() {}\n").unwrap();
     fs::write(root.join("scratch.sv"), "fn broken( {\n").unwrap();
-    fs::create_dir_all(root.join("experiments/deep")).unwrap();
-    fs::write(root.join("experiments/idea.sv"), "fn broken( {\n").unwrap();
-    fs::write(root.join("experiments/deep/x.sv"), "fn broken( {\n").unwrap();
+    fs::create_dir_all(root.join("sketches/deep")).unwrap();
+    fs::write(root.join("sketches/idea.sv"), "fn broken( {\n").unwrap();
+    fs::write(root.join("sketches/deep/x.sv"), "fn broken( {\n").unwrap();
     fs::write(
         root.join(".svignore"),
-        "# scratch space\n\nscratch.sv\nexperiments/\n",
+        "# scratch space\n\nscratch.sv\nsketches/\n",
     )
     .unwrap();
 

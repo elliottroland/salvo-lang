@@ -5560,7 +5560,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListPass<Int> {
+fn iter(bag: Bag) -> [] Mut ListYield<Int> {
     return iter(bag.items)
 }
 

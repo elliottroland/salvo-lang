@@ -1046,7 +1046,7 @@ Conventions:
     nothing (a non-linear pass may be abandoned, the same latitude a hand-written
     `while` has), and neither does one the fn keeps.
 * [iter-pass] `iter` converts a **container** into a fresh pass
-  (`fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T>`), and that is the whole
+  (`fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T>`), and that is the whole
   of container iteration: std declares a pass struct plus a `next` per
   intrinsic container, so the language has no container protocol of its own
   (user decision 2026-09-08, roadmap R5).
@@ -1299,7 +1299,7 @@ Conventions:
   Resolution feeds back into the substitution *between* the arguments, so a
   variable that appears only in an implicit's type is still inferred:
   `map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>)` binds `It` from its
-  subject, then resolves `next` at `(Mut ListPass<Int>) -> Emitted T | Finished`
+  subject, then resolves `next` at `(Mut ListYield<Int>) -> Emitted T | Finished`
   and reads `T = Int` off the `next` that fits.
   * A designated group teaches even more directly: a `?Yield<It, T>` spread
     reads `T` off `It`'s own `: Yield<self, T>` clause, reaching through the
@@ -1553,8 +1553,8 @@ Conventions:
   once**, in `salvo-core`'s `generator.rs`, and *rendered* by each backend:
   neither emitter re-derives control flow (roadmap I2c/I3). The plan is a
   list of numbered states, each a list of steps ending in a jump — the shape
-  the I3 prototype fixed and verified against an oracle
-  (`experiments/pull-iterators/`).
+  the I3 prototype fixed and verified against a push-style oracle (its body
+  is the planner's acceptance fixture, `salvo-core/tests/fixtures/gnarly.sv`).
   * **The body's locals become fields** of the generated pass, together with
     the parameters, each flattened `for`'s element binding, and a slot per
     nested pass (which must survive the outer body's suspensions). Nothing

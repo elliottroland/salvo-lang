@@ -7745,7 +7745,7 @@ impl<'p> Emitter<'p> {
         // [implicit-param] How the *position* hands each parameter over: a
         // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
         // so the adapter must not borrow it a second time — `next(&mut __i0)`
-        // where `__i0: &mut ListPass<i32>` is E0596. Keyed by implicit name,
+        // where `__i0: &mut ListYield<i32>` is E0596. Keyed by implicit name,
         // since that is what the adapter loop has.
         let position_refmut: HashMap<String, Vec<bool>> = self
             .checked

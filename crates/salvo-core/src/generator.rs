@@ -10,8 +10,7 @@
 //! body's locals as fields, one flag per `defer` site, and a release path.
 //!
 //! The shape is the one the I3 prototype fixed
-//! (`experiments/pull-iterators/`, verified against an oracle on both
-//! backends): a flat `loop { match state }` dispatch where
+//! XX//! backends): a flat `loop { match state }` dispatch where
 //!
 //! * every state is a list of [`Step`]s ending in a terminator
 //!   ([`Step::Goto`], [`Step::Emit`] or [`Step::Finish`]);

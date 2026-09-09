@@ -45,14 +45,14 @@ fn finished() [] -> [] Finished { return Finished {} }\n\
 params Yield<It, T> {\n\
     fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n\
 }\n\
-struct ListPass<T> : Yield<self, T> canbe Mut {\n\
+struct ListYield<T> : Yield<self, T> canbe Mut {\n\
     items: List<T>,\n\
     at: Int\n\
 }\n\
-fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T> {\n\
-    return Mut ListPass<T> { items: list, at: 0 }\n\
+fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T> {\n\
+    return Mut ListYield<T> { items: list, at: 0 }\n\
 }\n\
-fn next<T>(pass: Mut ListPass<T>) [] -> [pass: Mut] Emitted T | Finished {\n\
+fn next<T>(pass: Mut ListYield<T>) [] -> [pass: Mut] Emitted T | Finished {\n\
     let elem = get(pass.items, pass.at)\n\
     if elem is None {\n\
         return finished()\n\
@@ -60,14 +60,14 @@ fn next<T>(pass: Mut ListPass<T>) [] -> [pass: Mut] Emitted T | Finished {\n\
     pass.at = pass.at + 1\n\
     return emitted(elem)\n\
 }\n\
-struct StrPass : Yield<self, Char> canbe Mut {\n\
+struct StrYield : Yield<self, Char> canbe Mut {\n\
     text: Str,\n\
     at: Int\n\
 }\n\
-fn iter(str: Str) [] -> [] Mut StrPass {\n\
-    return Mut StrPass { text: str, at: 0 }\n\
+fn iter(str: Str) [] -> [] Mut StrYield {\n\
+    return Mut StrYield { text: str, at: 0 }\n\
 }\n\
-fn next(pass: Mut StrPass) [] -> [pass: Mut] Emitted Char | Finished {\n\
+fn next(pass: Mut StrYield) [] -> [pass: Mut] Emitted Char | Finished {\n\
     let chr = char_at(pass.text, pass.at)\n\
     if chr is None {\n\
         return finished()\n\
@@ -219,7 +219,7 @@ fn chains_compose_through_iter() {
 fn a_user_type_becomes_iterable_by_declaring_iter() {
     let src = format!(
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
-         fn iter(bag: Bag) -> [] Mut ListPass<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
+         fn iter(bag: Bag) -> [] Mut ListYield<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
             "    let b = Bag {items: list(1, 2)}\n    \
              let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"

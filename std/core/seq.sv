@@ -69,7 +69,7 @@ intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> [list, f
 // return, only a struct of one's own [iter-protocol].
 
 // A pass applying [f] to every element of [source] as it is pulled.
-struct MapPass<It, T, U> : Yield<self, U> canbe Mut {
+struct MapYield<It, T, U> : Yield<self, U> canbe Mut {
     // The pass being mapped, advanced in place as this one is.
     source: Mut It,
     // Applied to each element as it arrives.
@@ -83,11 +83,11 @@ struct MapPass<It, T, U> : Yield<self, U> canbe Mut {
 
 // Applies [f] to every element of [it], lazily: [f] runs as the consumer
 // pulls. Chain freely — the result is a pass like any other.
-fn map_lazy<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [] Mut MapPass<It, T, U> {
-    return Mut MapPass<It, T, U> { source: it, f: f, step: copy(next) }
+fn map_lazy<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [] Mut MapYield<It, T, U> {
+    return Mut MapYield<It, T, U> { source: it, f: f, step: copy(next) }
 }
 
-fn next<It, T, U>(pass: Mut MapPass<It, T, U>) [] -> [pass: Mut] Emitted U | Finished {
+fn next<It, T, U>(pass: Mut MapYield<It, T, U>) [] -> [pass: Mut] Emitted U | Finished {
     let advance = copy(pass.step)
     let step = advance(pass.source)
     when step {
@@ -102,7 +102,7 @@ fn next<It, T, U>(pass: Mut MapPass<It, T, U>) [] -> [pass: Mut] Emitted U | Fin
 }
 
 // A pass keeping the elements of [source] that [keep] accepts.
-struct FilterPass<It, T> : Yield<self, T> canbe Mut {
+struct FilterYield<It, T> : Yield<self, T> canbe Mut {
     // The pass being filtered, advanced in place as this one is.
     source: Mut It,
     // Decides which elements survive.
@@ -112,11 +112,11 @@ struct FilterPass<It, T> : Yield<self, T> canbe Mut {
 }
 
 // The elements of [it] that [keep] accepts, lazily.
-fn filter_lazy<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [] Mut FilterPass<It, T> {
-    return Mut FilterPass<It, T> { source: it, keep: keep, step: copy(next) }
+fn filter_lazy<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [] Mut FilterYield<It, T> {
+    return Mut FilterYield<It, T> { source: it, keep: keep, step: copy(next) }
 }
 
-fn next<It, T>(pass: Mut FilterPass<It, T>) [] -> [pass: Mut] Emitted T | Finished {
+fn next<It, T>(pass: Mut FilterYield<It, T>) [] -> [pass: Mut] Emitted T | Finished {
     let advance = copy(pass.step)
     let keep = copy(pass.keep)
     let going = true

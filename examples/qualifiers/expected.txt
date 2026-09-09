@@ -1,0 +1,8 @@
+1. head after add: 3
+2. checked at run time, head is 7
+2. 21 (no unit) vs 21°C
+2. widened: 21 (no unit)
+3. sum 3, head still 3
+3. after compact and add, head is 3
+4. before: authenticated /orders / fresh /health
+4. after:  authenticated /orders / plain /health

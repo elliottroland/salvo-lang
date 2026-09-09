@@ -5194,7 +5194,7 @@ fn run_kotlin_entry(
 /// wrong answer: before the mangling rule, a delegation whose argument lowered
 /// to the same Kotlin type re-resolved to the delegating overload itself.
 const OVERLOAD_DELEGATION: &str = r#"
-fn twice(p: Mut ListPass<Int>, f: (Int) -> Int) -> [p: Mut, f] Mut List<Int> {
+fn twice(p: Mut ListYield<Int>, f: (Int) -> Int) -> [p: Mut, f] Mut List<Int> {
     return map(p, f)
 }
 
@@ -5234,7 +5234,7 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice(p: ListPass<Int>") && main.contains("fun twice__2(xs: List<Int>"),
+        main.contains("fun twice(p: ListYield<Int>") && main.contains("fun twice__2(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
@@ -5410,7 +5410,7 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() {
     // source, the callback and the source's `next`, which is the implicit
     // resolved at the call that built it [implicit-group].
     assert!(
-        seq.contains("class MapPass<It, T, U>") && seq.contains("var step: (It) -> Union2<T, Finished>"),
+        seq.contains("class MapYield<It, T, U>") && seq.contains("var step: (It) -> Union2<T, Finished>"),
         "expected the composed pass with its stored `next` in:\n{seq}"
     );
     run_kotlin_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
@@ -6176,7 +6176,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListPass<Int> {
+fn iter(bag: Bag) -> [] Mut ListYield<Int> {
     return iter(bag.items)
 }
 

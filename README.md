@@ -20,7 +20,9 @@ ownership, or borrowing in the source.
   capabilities.
 
 The compiler is written in Rust. See [LANGUAGE.md](LANGUAGE.md) for the full
-specification and [PROGRESS.md](PROGRESS.md) for implementation status.
+specification, [examples/](examples/) for programs that compile and run today —
+each checked in with the Rust and Kotlin the compiler generated for it and the
+output it prints — and [PROGRESS.md](PROGRESS.md) for implementation status.
 
 ## Building
 

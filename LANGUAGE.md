@@ -187,7 +187,7 @@ block — `return`, `break`, `continue`, or a call that never comes back — wha
 follows is on the else-path, so it reads with the remaining arms.
 
 ```
-fn next(p: Mut ListPass<T>) -> [p: Mut] Emitted T | Finished {
+fn next(p: Mut ListYield<T>) -> [p: Mut] Emitted T | Finished {
     let element = get(p.items, p.at)
     if element is None {
         return finished()       // the only way out for the empty case
@@ -881,7 +881,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListPass<Int> {
+fn iter(bag: Bag) -> [] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -1246,12 +1246,12 @@ differs is what you can hold:
 A container is iterated through its `iter`, which builds a fresh pass:
 
 ```
-fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T>
-fn iter<T>(array: T[]) [] -> [] Mut ArrayPass<T>
-fn iter(str: Str) [] -> [] Mut StrPass
+fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T>
+fn iter<T>(array: T[]) [] -> [] Mut ArrayYield<T>
+fn iter(str: Str) [] -> [] Mut StrYield
 ```
 
-Each is an ordinary struct with an ordinary `next` — `ListPass` holds the list
+Each is an ordinary struct with an ordinary `next` — `ListYield` holds the list
 and an index — so nothing about container iteration is special-cased in the
 language. The backends keep their native loop as a fast path for a `for`
 straight over a list, an array or a string, which is why *that* form neither
