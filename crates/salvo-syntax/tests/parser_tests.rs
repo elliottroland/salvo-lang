@@ -268,7 +268,7 @@ fn canbe_opts_declarations_into_auto_qualifiers() {
 #[test]
 fn a_struct_declares_obligations_before_canbe() {
     let source = "struct Lines : Linear, Yield<Str> canbe Mut {\n    name: Str\n}\n\n\
-                  params Yield<T> {\n    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished\n}\n";
+                  params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -295,7 +295,7 @@ fn a_struct_declares_obligations_before_canbe() {
 // without `canbe`, and neither.
 #[test]
 fn obligations_parse_without_canbe() {
-    let source = "struct Counter : Yield<Int> {\n    start: Int\n}\n";
+    let source = "struct Counter : Yield<self, Int> {\n    start: Int\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),

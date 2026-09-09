@@ -521,10 +521,11 @@ same programs running ([rs-effect-fusion]).
       finally { p.__close(<handlers>) }` — the `close` in a `finally`, which
       is how `defer` is lowered here anyway [kt-defer-finally], so `break`,
       `return` and exhaustion all reach it.
-    * The origin needs **no copy**, where Rust clones: it is non-`Mut` and
-      [iter-mut-param] refuses a transitively mutable one, so sharing the
-      reference with every machine is unobservable — the two backends reach
-      the same behaviour by different means, as [backend-parity] allows.
+    * The origin is shared by **reference**, where Rust clones, and the
+      difference is unobservable because the checker refuses mutation of an
+      origin while its loop is open [yield-fn-origin]. That rule is what lets
+      the two backends keep different conventions here, as [backend-parity]
+      allows — not an immutability requirement on the origin's type.
   * [iter-effects] A captured handler is what the parity principle rules
     out here: Kotlin could happily perform an effect from inside the builder
     long after the call returned, and Rust could not, so the program would

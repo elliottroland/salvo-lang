@@ -628,12 +628,14 @@ fn check_once<'p>(
             effect_env: Vec::new(),
             can_use: false,
             loop_stack: Vec::new(),
+            driven_origins: Vec::new(),
             next_var_id: 0,
             move_candidates,
             param_claims,
             param_mutations,
             own_fn: None,
             own_contract: None,
+            own_close_param: None,
             own_written: false,
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
@@ -926,6 +928,14 @@ struct Checker<'p, 'r> {
     /// statements record their value contributions into the innermost
     /// entry [while-value]. Lambda bodies are a barrier.
     loop_stack: Vec<LoopCtx>,
+    /// [yield-fn-origin] Origins whose `for` loops are currently open: the
+    /// root variable's name and the span to blame. A hidden machine reads
+    /// its origin *across suspensions*, so a write while the loop runs has
+    /// two defensible meanings — the machine's own copy, or the caller's
+    /// object — and the two backends each pick one. Refused rather than
+    /// sided with [backend-parity], which is also what keeps a value
+    /// *derived* from the origin valid for the whole drive.
+    driven_origins: Vec<(String, Span)>,
     /// Fresh-id counter for local bindings [fate-link].
     next_var_id: u32,
     /// Move-mode candidates [fate-move-mode]: bind events (keyed by bind
@@ -951,6 +961,10 @@ struct Checker<'p, 'r> {
     /// root is *owned* (moved by the contract) for move-mode bindings
     /// [fate-move-mode]. `None` for member fns and in round one.
     own_contract: Option<Vec<crate::deduce::ParamDeduction>>,
+    /// [linear-group] The parameter name of the designated `close` currently
+    /// being checked, if this fn is one: its obligation is discharged by
+    /// being closed.
+    own_close_param: Option<String>,
     /// Whether the current fn has a *written* deduction list: written
     /// contracts never gain claims — a kept parameter stays kept and
     /// derived moves stay errors [fate-derived-readonly].
@@ -1143,6 +1157,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // written list when present (never gains claims),
                     // else the previous round's inferred facts.
                     self.own_fn = Some(key);
+                    // [linear-group] Is this the designated `close` of a
+                    // linear type? Then its parameter's obligation is
+                    // discharged by this very function.
+                    self.own_close_param = None;
+                    if f.name.name == "close" && f.params.len() == 1 {
+                        let pt = self.lower_type(&f.params[0].ty);
+                        if let Ty::Named { name, .. } = pt.strip_quals() {
+                            if self.has_auto_linear(name) {
+                                self.own_close_param =
+                                    Some(f.params[0].name.name.clone());
+                            }
+                        }
+                    }
                     self.own_written = f.deductions.is_some();
                     self.own_contract = match &f.deductions {
                         Some(list) => {
@@ -1156,6 +1183,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     self.check_fn(f, &[], &[]);
                     self.own_fn = None;
+                    self.own_close_param = None;
                     self.own_written = false;
                     self.own_contract = None;
                 }
@@ -1164,12 +1192,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect's.
                 Item::Params(g) => {
                     let saved = self.enter_generics(&g.generics);
-                    // [group-self] `Self` is a valid type inside a group's
-                    // member signatures: it stands for the declaring type of
-                    // whichever struct states the obligation `: Group<...>`.
-                    // Scoped like a generic — which is what it is, bound at
-                    // the obligation rather than at a call.
-                    self.generics.insert("Self".to_string());
                     for f in &g.fns {
                         self.reject_implicits(f, "a `params` group member");
                         if f.body.is_some() {
@@ -1267,6 +1289,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for field in &h.state {
                         self.validate_type(&field.ty);
+                        self.check_linear_field(&h.name.name, field);
                         // A state field's initializer is checked against its
                         // declared type, exactly like a struct field's
                         // default [effect-handler]: it runs in `new()` with
@@ -1340,6 +1363,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
+                        self.check_linear_field(&s.name.name, field);
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(&field.ty);
                             self.locals.push(HashMap::new());
@@ -1419,7 +1443,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 origin.span,
                 format!(
                     "`{bare}` is not a pass: a `yield fn next` is how a type declaring \
-                     `: Yield<T>` satisfies it, so declare the clause on `{bare}`"
+                     `: Yield<self, T>` satisfies it, so declare the clause on \
+                     `{bare}`"
                 ),
             );
             return;
@@ -1428,7 +1453,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `Finished`, no machine — and it has to be what the clause says.
         let declared = {
             let saved = self.enter_generics(&f.generics);
-            let t = ob.args.first().map(|a| self.lower_type(a));
+            let t = yield_elem_arg(ob).map(|a| self.lower_type(a));
             self.generics = saved;
             t
         };
@@ -1528,10 +1553,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             };
+            // [group-self] `self` in an obligation's argument list is the
+            // declaring type. It is written where a type argument goes rather
+            // than inside the group, which is what keeps the group ordinary:
+            // its members mention only their own parameters, so the very same
+            // group also spreads as `?Group<...>` implicits [implicit-group].
+            let self_ty = Ty::Named {
+                name: s.name.name.clone(),
+                args: s
+                    .generics
+                    .iter()
+                    .map(|g| Ty::Var(g.name.clone()))
+                    .collect(),
+            };
             for a in &ob.args {
-                self.validate_type(a);
+                if !is_self_ref(a) {
+                    self.validate_type(a);
+                }
             }
-            let args: Vec<Ty> = ob.args.iter().map(|a| self.lower_type(a)).collect();
+            let args: Vec<Ty> = ob
+                .args
+                .iter()
+                .map(|a| {
+                    if is_self_ref(a) {
+                        self_ty.clone()
+                    } else {
+                        self.lower_type(a)
+                    }
+                })
+                .collect();
             if args.len() != group.generics.len() {
                 self.error(
                     ob.span,
@@ -1544,39 +1594,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
-            // `Self` is this declaration, with its own generics as
-            // variables [group-self].
-            let self_ty = Ty::Named {
-                name: s.name.name.clone(),
-                args: s
-                    .generics
-                    .iter()
-                    .map(|g| Ty::Var(g.name.clone()))
-                    .collect(),
-            };
-            let mut subst: HashMap<String, Ty> = group
+            let subst: HashMap<String, Ty> = group
                 .generics
                 .iter()
                 .map(|p| p.name.clone())
                 .zip(args)
                 .collect();
-            subst.insert("Self".to_string(), self_ty);
-            let mut bound: HashSet<String> =
+            let bound: HashSet<String> =
                 group.generics.iter().map(|p| p.name.clone()).collect();
-            bound.insert("Self".to_string());
             // [yield-fn-origin] `Yield<T>` has a second, sugared way to be
             // discharged: a `yield fn next(origin) -> T`, whose signature is
             // deliberately *not* the member's — the machine it stands for is
             // hidden. Checked here so the promise still fails at the struct.
             if ob.name.name == "Yield" {
-                let self_named = Ty::Named {
-                    name: s.name.name.clone(),
-                    args: s
-                        .generics
-                        .iter()
-                        .map(|g| Ty::Var(g.name.clone()))
-                        .collect(),
-                };
+                let self_named = self_ty.clone();
                 if let Some((_, decl, _)) = self.yield_fn_for(&self_named) {
                     // The element type is compared in `check_yield_fn_decl`,
                     // at the `yield fn`'s return type — the site that can name
@@ -1604,7 +1635,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             for member in &group.fns {
                 let outer = self.enter_generics(&group.generics);
-                self.generics.insert("Self".to_string());
                 let member_ty = self.member_fn_ty(member);
                 self.generics = outer;
                 let expected = substitute_vars(&member_ty, &subst, &bound);
@@ -1653,19 +1683,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `Once` joined the list 2026-09-07 (user decision) so a hand-written
     /// **pass** — a type with a `next` [iter-protocol] — can say that
     /// driving it uses it up. Opting in is the author's call for the same
-    /// reason `Linear` is declared rather than applied [linear-canbe]: an
+    /// reason `Linear` is declared rather than applied [linear-group]: an
     /// obligation should not attach to someone's type on the strength of a
     /// method name.
     fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
         for q in quals {
-            if matches!(q.name.name.as_str(), "Mut" | "Linear" | "Once") {
+            if matches!(q.name.name.as_str(), "Mut" | "Once") {
+                continue;
+            }
+            // [linear-group] `canbe` grants a *qualifier*; linearity is an
+            // **obligation**, and declaring it means supplying the `close`
+            // that discharges it. The two were spelled alike until R4; now
+            // `canbe` means only "may be qualified thus".
+            if q.name.name == "Linear" {
+                self.error(
+                    q.span,
+                    "linearity is declared as an obligation, not granted with \
+                     `canbe`: write `: Linear<self>` and supply its `close`"
+                        .to_string(),
+                );
                 continue;
             }
             self.error(
                 q.span,
                 format!(
-                    "only `Mut`, `Linear` and `Once` can be opted into with \
-                     `canbe` (found `{}`)",
+                    "only `Mut` and `Once` can be opted into with `canbe` \
+                     (found `{}`)",
                     q.name.name
                 ),
             );
@@ -1960,21 +2003,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             };
-            // [group-self] A group whose members mention `Self` cannot be
-            // spread as implicits: only an obligation (`: Group<...>` on a
-            // type declaration) binds `Self`, so in a signature it would
-            // stand for nothing.
-            if group.fns.iter().any(|m| fn_decl_mentions_self(m)) {
-                self.error(
-                    g.span,
-                    format!(
-                        "`?{}` cannot spread `{}`: its members mention `Self`,                          which only an obligation binds — a type satisfies the                          group by declaring `: {}<...>` [group-self]",
-                        g.name.name, g.name.name, g.name.name
-                    ),
-                );
-                continue;
+            // The spread's type arguments bind the group's generics. Written
+            // types, so they are validated like any other declaration site —
+            // which is also what reports `self` here, since only an obligation
+            // binds it [group-self].
+            for a in &g.args {
+                self.validate_type(a);
             }
-            // The spread's type arguments bind the group's generics.
             let args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
             if args.len() != group.generics.len() {
                 self.error(
@@ -4149,8 +4184,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         }
         let is_linear = self.lookup(name).is_some_and(|v| {
-            let mut visited = HashSet::new();
-            self.ty_transitively_linear(&v.declared, &mut visited)
+            self.ty_own_linear(&v.declared)
         });
         if is_linear {
             if self.inferred.is_some() {
@@ -4509,36 +4543,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Whether a type is *linear* — declared `canbe Linear`, or a
-    /// composite containing a linear component at any depth (type
-    /// argument, array/tuple/union component, or struct field, followed
-    /// recursively) [linear-canbe] [linear-composite].
-    fn ty_transitively_linear(&self, ty: &Ty, visited: &mut HashSet<String>) -> bool {
+    /// Whether a type *is* linear — it declares `: Linear<self>`
+    /// [linear-group], or it is a union one of whose arms does (a union
+    /// value is one value: the obligation cannot be lost by narrowing or
+    /// by a branch merge), or it is a type parameter opted in with
+    /// `<T canbe Linear>` [linear-generics].
+    ///
+    /// **Not** transitive through composites, since R4 part 2: a
+    /// composite may not *hold* a linear value at all
+    /// [linear-composite], and every way of putting one in is refused at
+    /// the store, so "a `List<FileHandle>` is itself linear" describes a
+    /// type no accepted program can build. Keeping the obligation out of
+    /// composites is also what keeps the diagnostics single: the store is
+    /// the one error, with no follow-on leak for the container.
+    fn ty_own_linear(&self, ty: &Ty) -> bool {
         match ty.strip_quals() {
-            Ty::Named { name, args } => {
-                if self.has_auto_linear(name) {
-                    return true;
-                }
-                if args.iter().any(|a| self.ty_transitively_linear(a, visited)) {
-                    return true;
-                }
-                let Some(decl) = self.scope.structs.get(name.as_str()) else {
-                    return false;
-                };
-                if !visited.insert(name.clone()) {
-                    return false;
-                }
-                decl.fields
-                    .iter()
-                    .any(|f| self.ast_type_linear(&f.ty, visited))
-            }
-            Ty::Array(elem) => self.ty_transitively_linear(elem, visited),
-            Ty::Tuple(elems) => {
-                elems.iter().any(|e| self.ty_transitively_linear(e, visited))
-            }
-            Ty::Union(arms) => {
-                arms.iter().any(|a| self.ty_transitively_linear(a, visited))
-            }
+            Ty::Named { name, .. } => self.has_auto_linear(name),
+            Ty::Union(arms) => arms.iter().any(|a| self.ty_own_linear(a)),
             // [linear-generics] An opted-in type parameter is treated as
             // linear inside its fn (worst case), which also makes calls
             // that forward it to other generics require *their* opt-in.
@@ -4547,52 +4568,127 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Whether a declaration opted into linearity with `canbe Linear`
-    /// [linear-canbe].
+    /// [linear-group] Whether a declaration is **linear**: it states the
+    /// designated `: Linear<self>` obligation (roadmap R4, user decisions
+    /// 2026-09-08 — the spelling moved from `canbe Linear`, which now means
+    /// only "may be qualified thus"). Declaring it is declaring how the
+    /// obligation is discharged, since the group's `close` must be supplied
+    /// [group-obligation].
+    ///
+    /// A `close` alone never makes a type linear: only this clause does, and
+    /// generic code opts in per type parameter with `<T canbe Linear>`
+    /// [linear-generics]. Attaching an obligation on the strength of a
+    /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
-        let has = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Linear");
-        self.scope
-            .structs
-            .get(name)
-            .is_some_and(|s| has(&s.auto_qualifiers))
-            || self
-                .scope
-                .opaque_types
-                .get(name)
-                .is_some_and(|t| has(&t.auto_qualifiers))
+        self.scope.structs.get(name).is_some_and(|s| {
+            s.obligations.iter().any(|o| o.name.name == "Linear")
+        })
     }
 
-    /// `ty_transitively_linear` over written (AST) types
+    /// `ty_own_linear` over written (AST) types, without lowering: used by
+    /// the composite refusal, which runs at declaration sites
     /// [linear-composite].
-    fn ast_type_linear(&self, ty: &ast::Type, visited: &mut HashSet<String>) -> bool {
+    ///
+    /// Deliberately blind to `<T canbe Linear>` type parameters: a
+    /// declaration that *may* be instantiated with a linear type stores
+    /// nothing by itself — std's `add(list: Mut List<T>, elem: T)` is a
+    /// legal signature — so the generic case is refused at the
+    /// instantiation instead (`var_in_composite` at the call site, the
+    /// type-argument check at a struct literal).
+    fn ast_type_own_linear(&self, ty: &ast::Type) -> Option<String> {
         match ty {
             ast::Type::Named { base, .. } => {
-                if self.has_auto_linear(&base.name.name) {
-                    return true;
+                let name = &base.name.name;
+                if self.has_auto_linear(name) {
+                    Some(name.clone())
+                } else {
+                    None
                 }
-                if base.args.iter().any(|a| self.ast_type_linear(a, visited)) {
-                    return true;
-                }
-                let Some(decl) = self.scope.structs.get(base.name.name.as_str()) else {
-                    return false;
-                };
-                if !visited.insert(base.name.name.clone()) {
-                    return false;
-                }
-                decl.fields
-                    .iter()
-                    .any(|f| self.ast_type_linear(&f.ty, visited))
             }
-            ast::Type::QualifiedGroup { base, .. } => self.ast_type_linear(base, visited),
+            ast::Type::QualifiedGroup { base, .. } => self.ast_type_own_linear(base),
+            // A union value is one value, so an arm's obligation is the
+            // union's — which is why writing one is a store.
             ast::Type::Union { arms, .. } => {
-                arms.iter().any(|a| self.ast_type_linear(a, visited))
+                arms.iter().find_map(|a| self.ast_type_own_linear(a))
+            }
+            ast::Type::Nullable { inner, .. } => self.ast_type_own_linear(inner),
+            _ => None,
+        }
+    }
+
+    /// [linear-composite] R4 part 2 (interim, user decision 2026-09-08):
+    /// a linear value may not be **stored in a composite** — a struct or
+    /// handler-state field, a type argument, an array element, a tuple
+    /// component, a union arm. Its obligation would have to travel with
+    /// the container, and composition plus conditional linearity are one
+    /// design question (roadmap L8), so until that is answered a linear
+    /// value lives only in a local, a parameter or a return value.
+    ///
+    /// `position` names where the value would have landed, so the message
+    /// reads as a refusal of the *store* rather than of the type.
+    fn refuse_linear_composite(&mut self, span: Span, linear: &str, position: String) {
+        self.error(
+            span,
+            format!(
+                "`{linear}` is linear, so it cannot be {position}: a linear value's \
+                 obligation cannot travel inside a composite yet, so keep it in a \
+                 local, a parameter or a return value and discharge it with its \
+                 `close`"
+            ),
+        );
+    }
+
+    /// The immediate components of a written composite type, refused when
+    /// one of them is linear [linear-composite]. Called from
+    /// `validate_type`, which visits every written type once, and checks
+    /// only one level: a nested composite reports at its own node, so
+    /// `List<List<Lines>>` is one error, at the inner list.
+    fn check_linear_components(&mut self, ty: &ast::Type) {
+        let mut found: Vec<(Span, String, String)> = Vec::new();
+        match ty {
+            ast::Type::Named { base, .. } => {
+                for a in &base.args {
+                    if let Some(linear) = self.ast_type_own_linear(a) {
+                        found.push((
+                            a.span(),
+                            linear,
+                            format!("a type argument of `{}`", base.name.name),
+                        ));
+                    }
+                }
+            }
+            ast::Type::Array { elem, .. } => {
+                if let Some(linear) = self.ast_type_own_linear(elem) {
+                    found.push((elem.span(), linear, "an array's element type".to_string()));
+                }
             }
             ast::Type::Tuple { elems, .. } => {
-                elems.iter().any(|e| self.ast_type_linear(e, visited))
+                for e in elems {
+                    if let Some(linear) = self.ast_type_own_linear(e) {
+                        found.push((e.span(), linear, "a tuple component".to_string()));
+                    }
+                }
             }
-            ast::Type::Array { elem, .. } => self.ast_type_linear(elem, visited),
-            ast::Type::Nullable { inner, .. } => self.ast_type_linear(inner, visited),
-            ast::Type::Fn { .. } => false,
+            ast::Type::Union { arms, .. } => {
+                for a in arms {
+                    if let Some(linear) = self.ast_type_own_linear(a) {
+                        found.push((a.span(), linear, "a union arm".to_string()));
+                    }
+                }
+            }
+            ast::Type::Nullable { inner, .. } => {
+                if let Some(linear) = self.ast_type_own_linear(inner) {
+                    found.push((
+                        inner.span(),
+                        linear,
+                        "a union arm (`T?` is `T | None`)".to_string(),
+                    ));
+                }
+            }
+            ast::Type::QualifiedGroup { .. } | ast::Type::Fn { .. } => {}
+        }
+        for (span, linear, position) in found {
+            self.refuse_linear_composite(span, &linear, position);
         }
     }
 
@@ -4613,8 +4709,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         if var.is_param && !self.param_owned(name) {
             return false;
         }
-        let mut visited = HashSet::new();
-        self.ty_transitively_linear(&var.declared, &mut visited)
+        if self.is_own_close_param(name) {
+            return false;
+        }
+        self.ty_own_linear(&var.declared)
+    }
+
+    /// [linear-group] The parameter of a type's designated `close` owes
+    /// nothing: `close` **is** the discharge, so the value legitimately dies
+    /// there — that is the point of the obligation naming a function. Without
+    /// this, a `close` implementation would be the one place linearity makes
+    /// impossible to write.
+    fn is_own_close_param(&self, name: &str) -> bool {
+        self.own_close_param.as_deref() == Some(name)
     }
 
     /// Reports every live linear obligation in the top scope frame —
@@ -4634,7 +4741,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!(
                     "`{name}` still owns a linear value when it goes out of \
                      scope; move it onward (pass, return, or store it) or \
-                     `discard({name})`"
+                     discharge it with `close({name})`"
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
@@ -5562,6 +5669,26 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// derived variable is an error [fate-derived-readonly]; mutating a
     /// root poisons its derived variables [fate-poison].
     fn fate_mutation(&mut self, name: &str, span: Span) {
+        // [yield-fn-origin] The origin of an open `for` may not be mutated:
+        // its machine reads it across suspensions.
+        if let Some((_, subject_span)) = self
+            .driven_origins
+            .iter()
+            .find(|(origin, _)| origin == name)
+            .cloned()
+        {
+            let _ = subject_span;
+            self.error(
+                span,
+                format!(
+                    "`{name}` is being iterated, so it cannot be mutated here: the \
+                     pass reads its origin as it goes, and what it would see has no \
+                     answer both backends agree on. Mutate it before or after the \
+                     loop, or iterate `copy({name})` to work from a snapshot"
+                ),
+            );
+        }
+
         // [deduce-syntax] Record the invalidation against the enclosing
         // fn's parameter: mutation can falsify qualifiers the caller has
         // and this signature never mentions, so such a parameter may not
@@ -5880,11 +6007,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     && var.links.is_empty()
                                     && (!var.is_param || self.param_owned(name))
                                     && {
-                                        let mut visited = HashSet::new();
-                                        self.ty_transitively_linear(
-                                            &var.declared,
-                                            &mut visited,
-                                        )
+                                        self.ty_own_linear(&var.declared)
                                     }
                             });
                         if owes {
@@ -6383,7 +6506,82 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declaration sites (fn signatures, `let` annotations, struct
     /// fields, ...) so each error is reported once; type *lowering* runs
     /// repeatedly and stays silent.
+    /// [linear-composite] Whether a written type puts `var`-typed values
+    /// *inside* a composite: a type argument, an array element, a tuple
+    /// component or a union arm. Std's
+    /// `add(list: Mut List<T>, elem: T)` is the shape that matters — a
+    /// call instantiating such a `T` with a linear type **is** the store,
+    /// so it is refused at the call site whatever the callee's
+    /// `<T canbe Linear>` claims. A bare `T` (or a qualified one, `T as
+    /// Ok`) is a value passed along, not stored, and stays legal.
+    fn var_in_composite(&self, ty: &ast::Type, var: &str) -> bool {
+        let inside = |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
+        match ty {
+            ast::Type::Named { base, .. } => base.args.iter().any(|a| inside(a)),
+            ast::Type::QualifiedGroup { base, .. } => self.var_in_composite(base, var),
+            ast::Type::Array { elem, .. } => inside(elem),
+            ast::Type::Tuple { elems, .. } => elems.iter().any(|e| inside(e)),
+            ast::Type::Union { arms, .. } => arms.iter().any(|a| inside(a)),
+            ast::Type::Nullable { inner, .. } => inside(inner),
+            // A fn type neither owns nor stores what it is handed.
+            ast::Type::Fn { .. } => false,
+        }
+    }
+
+    /// Whether a written type is the bare type variable `var` — possibly
+    /// qualified (`T as Ok`), which is still the value itself and not a
+    /// container of it.
+    fn type_is_bare_var(ty: &ast::Type, var: &str) -> bool {
+        match ty {
+            ast::Type::Named { base, .. } => base.name.name == var && base.args.is_empty(),
+            ast::Type::QualifiedGroup { base, .. } => Self::type_is_bare_var(base, var),
+            _ => false,
+        }
+    }
+
+    /// Whether a written type mentions the type variable `var` anywhere.
+    fn type_mentions_var(ty: &ast::Type, var: &str) -> bool {
+        match ty {
+            ast::Type::Named { base, .. } => {
+                base.name.name == var
+                    || base.args.iter().any(|a| Self::type_mentions_var(a, var))
+            }
+            ast::Type::QualifiedGroup { base, .. } => Self::type_mentions_var(base, var),
+            ast::Type::Array { elem, .. } => Self::type_mentions_var(elem, var),
+            ast::Type::Tuple { elems, .. } => {
+                elems.iter().any(|e| Self::type_mentions_var(e, var))
+            }
+            ast::Type::Union { arms, .. } => {
+                arms.iter().any(|a| Self::type_mentions_var(a, var))
+            }
+            ast::Type::Nullable { inner, .. } => Self::type_mentions_var(inner, var),
+            ast::Type::Fn { params, ret, .. } => {
+                params.iter().any(|p| Self::type_mentions_var(p, var))
+                    || Self::type_mentions_var(ret, var)
+            }
+        }
+    }
+
+    /// [linear-composite] A field may not *hold* a linear value: the
+    /// composite's own declaration is where that store is refused, so the
+    /// message can name the field. (Composite field *types* —
+    /// `xs: List<Lines>` — are refused by `validate_type`; this catches
+    /// the bare `h: Lines`.)
+    fn check_linear_field(&mut self, owner: &str, field: &ast::FieldDecl) {
+        if let Some(linear) = self.ast_type_own_linear(&field.ty) {
+            self.refuse_linear_composite(
+                field.ty.span(),
+                &linear,
+                format!("the type of field `{owner}.{}`", field.name.name),
+            );
+        }
+    }
+
     fn validate_type(&mut self, ty: &ast::Type) {
+        // [linear-composite] A linear value may not be stored in a
+        // composite: refused at each composite node, one level deep, so a
+        // nested one reports at its own node.
+        self.check_linear_components(ty);
         match ty {
             ast::Type::Named { qualifiers, base } => {
                 self.require_name(base, false);
@@ -6467,7 +6665,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 }
-                // [linear-canbe] Linearity is declared, not applied: every
+                // [linear-group] Linearity is declared, not applied: every
                 // value of a `canbe Linear` type is linear, so writing
                 // `Linear` at a use site is meaningless (and forgetting
                 // it must not silently drop the protection).
@@ -7759,8 +7957,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [linear-obligation] A linear value in statement
                 // position is dropped on the spot.
                 if self.inferred.is_some() {
-                    let mut visited = HashSet::new();
-                    if self.ty_transitively_linear(&ty, &mut visited) {
+                    if self.ty_own_linear(&ty) {
                         self.error(
                             e.span(),
                             "this expression produces a linear value that is \
@@ -8181,6 +8378,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for e in elems {
                     tys.push(self.check_expr(e, expected_elem.as_ref()));
                 }
+                // [linear-composite] An array holds many values; a linear
+                // one may not be among them.
+                for (e, ty) in elems.iter().zip(&tys) {
+                    if self.ty_own_linear(ty) {
+                        let linear = format!("{ty}");
+                        self.refuse_linear_composite(
+                            e.span(),
+                            &linear,
+                            "an array element".to_string(),
+                        );
+                    }
+                }
                 // Storing a value in an array literal moves it
                 // [deduce-consume]; spread elements move their operand.
                 for e in elems {
@@ -8227,6 +8436,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut tys = Vec::new();
                 for (i, e) in elems.iter().enumerate() {
                     tys.push(self.check_expr(e, expected_elems.map(|ts| &ts[i])));
+                }
+                // [linear-composite] A tuple is a composite too.
+                for (e, ty) in elems.iter().zip(&tys) {
+                    if self.ty_own_linear(ty) {
+                        let linear = format!("{ty}");
+                        self.refuse_linear_composite(
+                            e.span(),
+                            &linear,
+                            "a tuple component".to_string(),
+                        );
+                    }
                 }
                 // Storing a value in a tuple literal moves it
                 // [deduce-consume].
@@ -8477,7 +8697,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
                 });
+                // [yield-fn-origin] While this loop is open, the origin it
+                // drives is off limits for mutation. Keyed on the subject's
+                // *root* variable, so `add(b.rows, …)` — a write through a
+                // projection — reports too: everything reachable from the
+                // origin is what the machine may read.
+                let driven = if drives_origin {
+                    crate::place::Place::of_expr(iterable).map(|p| p.root.clone())
+                } else {
+                    None
+                };
+                if let Some(root) = &driven {
+                    self.driven_origins.push((root.clone(), iterable.span()));
+                }
                 let (body_ty, body_tail) = self.check_loop_body(body, &[], bindings);
+                if driven.is_some() {
+                    self.driven_origins.pop();
+                }
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // Merge break-path states into the after-loop state (the
                 // loop-binding frame is popped first, so the snapshots'
@@ -8851,9 +9087,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         let saved = self.enter_generics(&decl.generics);
-        let elem = ob
-            .args
-            .first()
+        let elem = yield_elem_arg(ob)
             .map(|a| self.lower_type_subst(a, &subst, 0))
             .unwrap_or(Ty::Unknown);
         self.generics = saved;
@@ -8917,7 +9151,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let hint = match self.find_next_driver(&other) {
                         Some((_, elem, _, _, _)) => format!(
                             " (`{other}` has a matching `next` — declare \
-                             `: Yield<{elem}>` on it to make it a pass)"
+                             `: Yield<self, {elem}>` on it to make it a pass)"
                         ),
                         None => String::new(),
                     };
@@ -8925,8 +9159,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span,
                         format!(
                             "`{other}` is not iterable: `for` takes an array, an \
-                             `Iter<T>`, a pass (a type declaring `: Yield<T>`), or \
-                             a value some `iter` function accepts{hint}"
+                             `Iter<T>`, a pass (a type declaring \
+                             `: Yield<self, T>`), or a value some `iter` function \
+                             accepts{hint}"
                         ),
                     );
                 }
@@ -9097,8 +9332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [linear-lambda] A mutated capture would move the
                 // obligation into the closure: forbidden.
                 let is_linear = self.var_by_id(cap.var_id).is_some_and(|v| {
-                    let mut visited = HashSet::new();
-                    self.ty_transitively_linear(&v.declared, &mut visited)
+                    self.ty_own_linear(&v.declared)
                 });
                 if is_linear {
                     if self.inferred.is_some() {
@@ -9240,6 +9474,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return struct_ty;
         };
+        // [linear-composite] A generic field type hides the store from the
+        // struct's own declaration (`struct Box<T> { item: T }`), so the
+        // literal is where it surfaces. A field whose *declared* type is
+        // linear was already refused at the struct, so it is not reported
+        // twice.
         let mut has_spread = false;
         let mut provided: HashSet<&str> = HashSet::new();
         for f in fields {
@@ -9250,6 +9489,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let fty = self.lower_type_subst(&df.ty, &subst, 0);
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
+                            if self.ty_own_linear(&vty) && !self.ty_own_linear(&fty) {
+                                let linear = format!("{vty}");
+                                self.refuse_linear_composite(
+                                    value.span(),
+                                    &linear,
+                                    format!(
+                                        "stored in field `{}.{}`",
+                                        decl.name.name, name.name
+                                    ),
+                                );
+                            }
                             if !is_subtype(&vty, &fty) {
                                 self.error(
                                     value.span(),
@@ -10544,34 +10794,28 @@ fn substitute_known(
     }
 }
 
-/// [group-self] Whether a group member's signature mentions `Self` — the
-/// test that decides whether the group can be spread as implicits (it
-/// cannot: nothing binds `Self` in a signature) or only stated as an
-/// obligation.
-fn fn_decl_mentions_self(f: &ast::FnDecl) -> bool {
-    f.params.iter().any(|p| ast_type_mentions_self(&p.ty))
-        || f.return_type.as_ref().is_some_and(ast_type_mentions_self)
+/// [iter-protocol] The **element** argument of a designated `: Yield<self, T>`
+/// clause. `params Yield<It, T>` takes the state first (so that the very same
+/// group spreads as `?Yield<It, T>` implicits — the composition rendering) and
+/// the element second, which is the one `for` needs.
+fn yield_elem_arg(ob: &TypeRef) -> Option<&ast::Type> {
+    ob.args.get(1)
 }
 
-fn ast_type_mentions_self(ty: &ast::Type) -> bool {
-    let ref_mentions = |r: &ast::TypeRef| {
-        r.name.name == "Self" || r.args.iter().any(ast_type_mentions_self)
-    };
-    match ty {
-        ast::Type::Named { qualifiers, base } => {
-            ref_mentions(base) || qualifiers.iter().any(ref_mentions)
-        }
-        ast::Type::QualifiedGroup {
-            qualifiers, base, ..
-        } => ast_type_mentions_self(base) || qualifiers.iter().any(ref_mentions),
-        ast::Type::Union { arms, .. } => arms.iter().any(ast_type_mentions_self),
-        ast::Type::Tuple { elems, .. } => elems.iter().any(ast_type_mentions_self),
-        ast::Type::Array { elem, .. } => ast_type_mentions_self(elem),
-        ast::Type::Nullable { inner, .. } => ast_type_mentions_self(inner),
-        ast::Type::Fn { params, ret, .. } => {
-            params.iter().any(ast_type_mentions_self) || ast_type_mentions_self(ret)
-        }
-    }
+/// [group-self] Whether an obligation's type argument is the `self`
+/// shorthand — "the type this declaration is". Written at the *obligation*
+/// rather than inside the group (user decision 2026-09-08), which is what
+/// keeps a group ordinary: its members mention only their own parameters, so
+/// one group serves both `: Group<self, …>` and `?Group<…>`.
+///
+/// Bare and unqualified: `Mut self` or `self<T>` is not the shorthand, and
+/// falls through to the ordinary unknown-type error.
+fn is_self_ref(ty: &ast::Type) -> bool {
+    matches!(
+        ty,
+        ast::Type::Named { qualifiers, base }
+            if qualifiers.is_empty() && base.args.is_empty() && base.name.name == "self"
+    )
 }
 
 /// [group-obligation] Structural equality of two types up to a *bijective*
@@ -11161,6 +11405,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let best = &viable[best_idx];
+        // [linear-discard] `discard` no longer discharges a linear
+        // obligation: dropping a handle is precisely the leak the obligation
+        // exists to prevent, so a linear value's discharge is its own `close`
+        // [linear-group] (user decision 2026-09-08). Keyed on core's
+        // `intrinsic fn discard` rather than on the bare name — only std may
+        // write `intrinsic` [intrinsic-std-only].
+        if best.decl.name.name == "discard" && best.decl.intrinsic && args.len() == 1 {
+            let arg_ty = arg_tys[0].clone();
+            if self.ty_own_linear(&arg_ty) {
+                self.error(
+                    span,
+                    format!(
+                        "`discard` cannot drop a linear value (`{arg_ty}`): that is the \
+                         leak the obligation exists to prevent — call its `close`, \
+                         which is what discharges it"
+                    ),
+                );
+            }
+        }
         // [yield-fn-origin] A `yield fn` is not callable: it names the machine
         // a `for` mints, and none of its body runs at a call. Calling it would
         // have to hand back the hidden state struct, which is exactly what the
@@ -11261,9 +11524,49 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|(_, q)| q.name.name == "Linear")
                 .map(|(id, _)| id.name.as_str())
                 .collect();
-            for (var_name, ty) in &subst {
+            // Sorted, so which of several offending type arguments is
+            // reported does not depend on hash order.
+            let mut instantiations: Vec<(&String, &Ty)> = subst.iter().collect();
+            instantiations.sort_by(|a, b| a.0.cmp(b.0));
+            for (var_name, ty) in instantiations {
                 if !callee_generics.contains(var_name) {
                     continue;
+                }
+                if !self.ty_own_linear(ty) {
+                    continue;
+                }
+                // [linear-composite] The callee takes a bare `T` and puts
+                // a `T` *inside* a composite — `add(list: Mut List<T>,
+                // elem: T)` is the shape — so this call is the store, and
+                // the opt-in does not help: no container can carry the
+                // obligation yet. A signature that only *reads* a
+                // composite of `T` (`size(list: List<T>) -> Int`) stores
+                // nothing and stays legal.
+                let takes_bare = decl
+                    .params
+                    .iter()
+                    .any(|p| !p.variadic && Self::type_is_bare_var(&p.ty, var_name));
+                let stores = if takes_bare {
+                    decl.params
+                        .iter()
+                        .map(|p| &p.ty)
+                        .chain(decl.return_type.as_ref())
+                        .find(|t| self.var_in_composite(t, var_name))
+                        .map(|t| format!("{t}"))
+                } else {
+                    None
+                };
+                if let Some(composite) = stores {
+                    let linear = format!("{ty}");
+                    self.refuse_linear_composite(
+                        span,
+                        &linear,
+                        format!(
+                            "stored in the `{composite}` of `{name}` (type argument \
+                             `{var_name}`)"
+                        ),
+                    );
+                    break;
                 }
                 // [linear-generics] `<T canbe Linear>` admits linear
                 // instantiation: the callee's body honors the obligation
@@ -11271,30 +11574,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if opted.contains(var_name.as_str()) {
                     continue;
                 }
-                let mut visited = HashSet::new();
-                if self.ty_transitively_linear(ty, &mut visited) {
-                    if decl.intrinsic && decl.name.name == "copy" {
-                        self.error(
-                            span,
-                            format!(
-                                "cannot `copy` a value of linear type `{ty}`: \
-                                 that would duplicate its obligation; every \
-                                 linear value has exactly one owner"
-                            ),
-                        );
-                    } else {
-                        self.error(
-                            span,
-                            format!(
-                                "cannot instantiate generic parameter `{var_name}` \
-                                 of `{name}` with linear type `{ty}`: `{name}` does \
-                                 not declare `<{var_name} canbe Linear>`, so it does \
-                                 not honor the use obligation"
-                            ),
-                        );
-                    }
-                    break;
+                if decl.intrinsic && decl.name.name == "copy" {
+                    self.error(
+                        span,
+                        format!(
+                            "cannot `copy` a value of linear type `{ty}`: \
+                             that would duplicate its obligation; every \
+                             linear value has exactly one owner"
+                        ),
+                    );
+                } else {
+                    self.error(
+                        span,
+                        format!(
+                            "cannot instantiate generic parameter `{var_name}` \
+                             of `{name}` with linear type `{ty}`: `{name}` does \
+                             not declare `<{var_name} canbe Linear>`, so it does \
+                             not honor the use obligation"
+                        ),
+                    );
                 }
+                break;
             }
         }
         // [deduce-consume] Deduction lists are a contract, enforced
@@ -11371,8 +11671,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .ty_of(self.file_idx, arg.span())
                             .cloned()
                             .unwrap_or(Ty::Unknown);
-                        let mut visited = HashSet::new();
-                        if self.ty_transitively_linear(&ty, &mut visited) {
+                        if self.ty_own_linear(&ty) {
                             self.error(
                                 arg.span(),
                                 "a linear value cannot be passed in a variadic \

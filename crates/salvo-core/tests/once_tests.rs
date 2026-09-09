@@ -131,7 +131,7 @@ fn canbe_rejects_a_qualifier_that_is_not_an_opt_in() {
     let errs = errors("struct Ticket canbe Ok {\n    id: Int\n}\n");
     assert!(
         errs.iter().any(|e| e.contains(
-            "only `Mut`, `Linear` and `Once` can be opted into with `canbe`"
+            "only `Mut` and `Once` can be opted into with `canbe`"
         )),
         "expected the canbe allowlist error, got {errs:?}"
     );
@@ -223,11 +223,11 @@ struct Finished {}
 fn emitted<T>(value: T) [] -> [] T as Emitted { return value }
 fn finished() [] -> [] Finished { return Finished {} }
 
-params Yield<T> {
-    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+params Yield<It, T> {
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 
-struct Countdown : Yield<Int> canbe Mut {
+struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -243,7 +243,7 @@ fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
 
 /// [iter-protocol] [once-fn] A type with a `next` is driven directly rather
 /// than through `iter` — but only if its declaration says it is a pass
-/// [group-obligation]: `for` reads the `: Yield<T>` clause rather than
+/// [group-obligation]: `for` reads the `: Yield<self, T>` clause rather than
 /// scanning overloads for a `next` and guessing (roadmap R2, user decisions
 /// 2026-09-08).
 /// [iter-protocol] The whole point: a hand-written pass drives a `for` loop,
@@ -292,7 +292,7 @@ fn driving_a_hand_written_pass_twice_is_an_error() {
 }
 
 /// [group-obligation] [iter-resolve] A matching `next` without the
-/// declaration is not a pass — the tie is the `: Yield<T>` clause, not the
+/// declaration is not a pass — the tie is the `: Yield<self, T>` clause, not the
 /// method name — and the not-iterable error names the clause as the remedy.
 #[test]
 fn a_next_without_a_yield_declaration_is_not_a_pass() {
@@ -301,7 +301,7 @@ fn a_next_without_a_yield_declaration_is_not_a_pass() {
          struct Finished {}\n\
          fn emitted<T>(value: T) [] -> [] T as Emitted { return value }\n\
          fn finished() [] -> [] Finished { return Finished {} }\n\
-         params Yield<T> {\n    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished\n}\n\
+         params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n\
          struct Countdown canbe Mut {\n    at: Int\n}\n\
          fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
              return finished()\n\
@@ -312,7 +312,7 @@ fn a_next_without_a_yield_declaration_is_not_a_pass() {
     assert!(
         errs.iter().any(|e| e.contains("is not iterable")
             && e.contains("has a matching `next`")
-            && e.contains(": Yield<Int>")),
+            && e.contains(": Yield<self, Int>")),
         "expected the not-iterable error naming the declaration remedy, got {errs:?}"
     );
 }

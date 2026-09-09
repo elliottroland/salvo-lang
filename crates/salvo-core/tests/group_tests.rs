@@ -66,11 +66,13 @@ fn errors(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// A `Self`-using group shaped like the iteration protocol, declared in the
-/// test rather than designated by the compiler.
+/// A group shaped like the iteration protocol, declared in the test rather
+/// than designated by the compiler. The state is an ordinary parameter and
+/// comes first; a declaring type writes itself as `self` at the obligation
+/// [group-self].
 const PROTO: &str = r#"
-params Step<T> {
-    fn advance(s: Mut Self) -> [s: Mut] Emitted T | Finished
+params Step<It, T> {
+    fn advance(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 "#;
 
@@ -80,7 +82,7 @@ params Step<T> {
 fn a_satisfied_obligation_is_clean() {
     let errs = errors(&format!(
         "{PROTO}
-struct Countdown : Step<Int> canbe Mut {{
+struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
@@ -103,7 +105,7 @@ fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
 fn a_missing_member_errors_at_the_struct() {
     let errs = errors(&format!(
         "{PROTO}
-struct Countdown : Step<Int> canbe Mut {{
+struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 "
@@ -121,7 +123,7 @@ struct Countdown : Step<Int> canbe Mut {{
 fn a_wrong_signature_does_not_satisfy() {
     let errs = errors(&format!(
         "{PROTO}
-struct Countdown : Step<Int> canbe Mut {{
+struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
@@ -143,7 +145,7 @@ fn advance(c: Countdown) -> [c] Emitted Int | Finished {{
 fn a_generic_struct_satisfies_through_its_generics() {
     let errs = errors(&format!(
         "{PROTO}
-struct Zip<A, B> : Step<(A, B)> canbe Mut {{
+struct Zip<A, B> : Step<self, (A, B)> canbe Mut {{
     left: List<A>,
     right: List<B>,
     at: Int
@@ -169,7 +171,7 @@ fn advance<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished {{
 fn variable_matching_is_bijective() {
     let errs = errors(&format!(
         "{PROTO}
-struct Twin<A, B> : Step<(A, B)> canbe Mut {{
+struct Twin<A, B> : Step<self, (A, B)> canbe Mut {{
     xs: List<A>
 }}
 
@@ -192,11 +194,11 @@ fn advance<A>(t: Mut Twin<A, A>) -> [t: Mut] Emitted (A, A) | Finished {{
 #[test]
 fn parameter_names_are_not_part_of_matching() {
     let errs = errors(
-        "params Pair<T> {
-    fn combine(a: Self, b: Self) -> T
+        "params Pair<S, T> {
+    fn combine(a: S, b: S) -> T
 }
 
-struct Point : Pair<Int> {
+struct Point : Pair<self, Int> {
     x: Int
 }
 
@@ -234,11 +236,11 @@ struct B : Int {
 fn arity_and_duplicates_are_declaration_errors() {
     let errs = errors(&format!(
         "{PROTO}
-struct A : Step<Int, Str> canbe Mut {{
+struct A : Step<self, Int, Str> canbe Mut {{
     x: Int
 }}
 
-struct B : Step<Int>, Step<Int> canbe Mut {{
+struct B : Step<self, Int>, Step<self, Int> canbe Mut {{
     x: Int
 }}
 
@@ -248,7 +250,7 @@ fn advance(b: Mut B) -> [b: Mut] Emitted Int | Finished {{
 "
     ));
     assert!(
-        errs.iter().any(|e| e.contains("`Step` takes 1 type argument(s), found 2")),
+        errs.iter().any(|e| e.contains("`Step` takes 2 type argument(s), found 3")),
         "got {errs:?}"
     );
     assert!(
@@ -260,28 +262,53 @@ fn advance(b: Mut B) -> [b: Mut] Emitted Int | Finished {{
     assert_eq!(errs.len(), 2, "got {errs:?}");
 }
 
-// --- `Self` [group-self] ------------------------------------------------------
+// --- `self` at the obligation [group-self] -----------------------------------
 
-/// A group whose members mention `Self` cannot be spread as implicit
-/// parameters: nothing binds `Self` in a signature.
+/// The point of writing the declaring type as an **argument** rather than as a
+/// magic `Self` inside the group (user decision 2026-09-08): the group stays
+/// ordinary, so *one* declaration serves both the obligation and the `?`
+/// spread. This is what composition needs — a generic combinator reaches its
+/// source's `next` through an implicit.
 #[test]
-fn a_self_group_cannot_be_spread_as_implicits() {
+fn the_same_group_serves_an_obligation_and_a_spread() {
     let errs = errors(&format!(
         "{PROTO}
-fn drive<St>(s: Mut St, ?Step<Int>) -> Int {{
+struct Countdown : Step<self, Int> canbe Mut {{
+    at: Int
+}}
+
+fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
+    return finished()
+}}
+
+fn drive<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
+    let step = advance(source)
     return 0
 }}
 "
     ));
-    assert_eq!(errs.len(), 1, "got {errs:?}");
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// `self` is the *obligation's* shorthand and nothing else: in a spread it has
+/// no declaration to refer to.
+#[test]
+fn self_is_not_a_type_outside_an_obligation() {
+    let errs = errors(&format!(
+        "{PROTO}
+fn drive<It>(source: Mut It, ?Step<self, Int>) -> Int {{
+    return 0
+}}
+"
+    ));
     assert!(
-        errs[0].contains("cannot spread `Step`") && errs[0].contains("`Self`"),
+        errs.iter().any(|e| e.contains("unknown type `self`")),
         "got {errs:?}"
     );
 }
 
-/// A group without `Self` still spreads exactly as before — the mechanism is
-/// additive.
+/// A group with no obligation involved still spreads exactly as before — the
+/// mechanism is additive.
 #[test]
 fn a_selfless_group_still_spreads() {
     let errs = errors(
@@ -299,19 +326,6 @@ fn add(a: Int, b: Int) -> Int {
 ",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
-}
-
-/// `Self` outside a `params` group resolves to nothing.
-#[test]
-fn self_outside_a_group_is_unknown() {
-    let errs = errors(
-        "fn f(x: Self) -> Int {
-    return 0
-}
-",
-    );
-    assert_eq!(errs.len(), 1, "got {errs:?}");
-    assert!(errs[0].contains("unknown type `Self`"), "got {errs:?}");
 }
 
 // --- no value has a group type [group-not-a-value] ---------------------------

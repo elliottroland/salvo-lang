@@ -1600,34 +1600,108 @@ impl<'p> Emitter<'p> {
     fn emit_struct(&mut self, s: &StructDecl) -> String {
         let saved = self.enter_generics(&s.generics);
         let generics = self.emit_generic_params(&s.generics);
+        // [rs-fn-field] A fn-typed field is held as `Rc<dyn Fn…>` — the same
+        // representation a generated pass has always used for a stored
+        // callback [iter-generator]. `dyn Fn` has no `Debug`, so a struct
+        // with one gets a hand-written `Debug` instead of the derive.
+        let fn_fields: Vec<String> = s
+            .fields
+            .iter()
+            .filter(|f| matches!(f.ty, Type::Fn { .. }))
+            .map(|f| rs_ident(&f.name.name))
+            .collect();
+        let derives = if fn_fields.is_empty() {
+            "#[derive(Clone, Debug)]"
+        } else {
+            "#[derive(Clone)]"
+        };
         let mut out = format!(
-            "\n#[derive(Clone, Debug)]\npub struct {}{generics} {{\n",
+            "\n{derives}\npub struct {}{generics} {{\n",
             rs_ident(&s.name.name)
         );
         for field in &s.fields {
-            // [backend-never-wrong] A field cannot hold a function: Rust
-            // spells `impl Trait` nowhere but argument and return position
-            // (`E0562`), and a `Box<dyn Fn>` field would be a representation
-            // choice with ownership consequences the checker knows nothing
-            // about. So this is an error naming the two things that *do*
-            // work, not invalid output — Kotlin accepts the same source, so
-            // the restriction has to be reported rather than discovered by
-            // rustc [implicit-group].
-            if matches!(field.ty, Type::Fn { .. }) || is_fn_group(&field.ty) {
+            // [backend-never-wrong] A `params` *group* in field position is
+            // a bundle of functions with no single type to store; the
+            // checker refuses it as a value [group-not-a-value], and this is
+            // the backend's own guard.
+            if is_fn_group(&field.ty) {
                 self.error(format!(
-                    "the rust backend cannot store a function in a struct field \
+                    "the rust backend cannot store a `params` group in a struct field \
                      (`{}.{}`): pass it as a parameter instead — an implicit \
                      parameter (`?{}: ...`) or a `params` group is how a bundle of \
                      functions travels",
                     s.name.name, field.name.name, field.name.name
                 ));
             }
-            let ty = self.emit_type(&field.ty);
+            let ty = if matches!(field.ty, Type::Fn { .. }) {
+                // A stored callback is reached through a shared `Rc`, so it
+                // has to be `Fn`, not `FnMut` — the same rendering an
+                // iterator fn's callback gets [rs-iter-lazy], reused rather
+                // than duplicated.
+                let saved_iter = self.in_iterator_fn;
+                self.in_iterator_fn = true;
+                let rendered = self.emit_type(&field.ty);
+                self.in_iterator_fn = saved_iter;
+                rc_fn_type(&rendered)
+            } else {
+                self.emit_type(&field.ty)
+            };
             out.push_str(&format!("    pub {}: {ty},\n", rs_ident(&field.name.name)));
         }
         out.push_str("}\n");
+        if !fn_fields.is_empty() {
+            out.push_str(&self.emit_fn_field_debug(s, &generics, &fn_fields));
+        }
         self.generics = saved;
         out
+    }
+
+    /// [rs-fn-field] The hand-written `Debug` for a struct holding a
+    /// function: every other field prints as it would, the functions print
+    /// as `<fn>`. Written rather than derived because `dyn Fn` has no
+    /// `Debug` — and needed rather than dropped, since `{:?}` on a struct is
+    /// how `${…}` interpolation renders one [rs-display].
+    fn emit_fn_field_debug(
+        &mut self,
+        s: &StructDecl,
+        generics: &str,
+        fn_fields: &[String],
+    ) -> String {
+        let name = rs_ident(&s.name.name);
+        let args = if s.generics.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                s.generics
+                    .iter()
+                    .map(|g| g.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let mut body = format!(
+            "\nimpl{generics} std::fmt::Debug for {name}{args} {{\n    \
+             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        \
+             f.debug_struct(\"{}\")\n",
+            s.name.name
+        );
+        for field in &s.fields {
+            let fname = rs_ident(&field.name.name);
+            if fn_fields.contains(&fname) {
+                body.push_str(&format!(
+                    "            .field(\"{}\", &\"<fn>\")\n",
+                    field.name.name
+                ));
+            } else {
+                body.push_str(&format!(
+                    "            .field(\"{}\", &self.{fname})\n",
+                    field.name.name
+                ));
+            }
+        }
+        body.push_str("            .finish()\n    }\n}\n");
+        body
     }
 
     fn emit_effect(&mut self, e: &EffectDecl) -> String {
@@ -7123,6 +7197,30 @@ impl<'p> Emitter<'p> {
             self.error("struct literals without a type annotation are not supported here");
             return "todo!()".to_string();
         };
+        // [rs-fn-field] A fn-typed field is held as `Rc<dyn Fn…>`, so the
+        // store wraps: `Rc::new` of an `impl Fn` value, and of an `Rc` one
+        // too (it re-coerces, at one more indirection) — which keeps the
+        // rendering the same whatever the value came from.
+        if let Some(decl) = self.symbols.structs.get(name.as_str()).copied() {
+            let fn_fields: HashSet<String> = decl
+                .fields
+                .iter()
+                .filter(|f| matches!(f.ty, Type::Fn { .. }))
+                .map(|f| rs_ident(&f.name.name))
+                .collect();
+            if !fn_fields.is_empty() {
+                named_args = named
+                    .iter()
+                    .map(|(n, v)| {
+                        if fn_fields.contains(n) {
+                            format!("{n}: std::rc::Rc::new({v})")
+                        } else {
+                            format!("{n}: {v}")
+                        }
+                    })
+                    .collect();
+            }
+        }
         match spreads.len() {
             0 => {
                 // Inline declared defaults for omitted fields
@@ -7145,6 +7243,12 @@ impl<'p> Emitter<'p> {
                         if let Some(default) = &df.default {
                             let default = default.clone();
                             let code = self.emit_default_value(&default, &df.ty);
+                            let code = if matches!(df.ty, Type::Fn { .. }) {
+                                // [rs-fn-field] Same wrap as a written store.
+                                format!("std::rc::Rc::new({code})")
+                            } else {
+                                code
+                            };
                             named_args.push(format!("{fname}: {code}"));
                         }
                     }

@@ -1215,26 +1215,35 @@ fn l4_lambda_captures() {
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
-// [linear-obligation] L6: values of `canbe Linear` types must be used —
-// moved onward or `discard`ed — on every path. The negative matrix:
+// [linear-obligation] L6: values of a `: Linear<self>` type must be used —
+// moved onward or `close`d — on every path. The negative matrix:
 // scope-exit leak, consumed-on-some-paths-only, dropped expression
 // result, overwriting a live value, returning while owing, `copy`
-// refused, generic instantiation refused, and a lambda swallowing an
-// obligation. The positive matrix (pass onward, discard, return with
-// the caller obligated, kept-parameter borrow, derived alias, linear
-// composite) is clean.
+// refused, a lambda swallowing an obligation, and — since R4 part 2 —
+// storing one in a struct field [linear-composite]. The positive matrix
+// (pass onward, `close`, return with the caller obligated, kept-parameter
+// borrow, derived alias) is clean.
 #[test]
 fn l6_linear_obligations() {
     let dir = src_dir("l6_linear");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
-         struct Box2 canbe Linear {\n    item: FileHandle\n}\n\n\
-         struct Conn canbe Linear {\n    tags: Mut List<Int>\n}\n\n\
+        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+
+fn close(x: FileHandle) -> [] None {}
+\n\n\
+         struct Box2 : Linear<self> {\n    item: FileHandle\n}
+
+fn close(x: Box2) -> [] None {}
+\n\n\
+         struct Conn : Linear<self> {\n    tags: Mut List<Int>\n}
+
+fn close(x: Conn) -> [] None {}
+\n\n\
          fn open_file(path: Str) -> [] FileHandle {\n    \
          return FileHandle {fd: size(path)}\n}\n\n\
-         fn close_file(h: FileHandle) -> [] None {\n    discard(h)\n}\n\n\
-         fn close_box(b: Box2) -> [] None {\n    discard(b)\n}\n\n\
+         fn close_file(h: FileHandle) -> [] None {\n    close(h)\n}\n\n\
+         fn close_box(b: Box2) -> [] None {\n    close(b)\n}\n\n\
          fn inspect(h: FileHandle) -> [h] Int {\n    return h.fd\n}\n\n\
          fn run(f: () -> None) {\n    f()\n}\n\n\
          fn leak() {\n    let h = open_file(\"data.txt\")\n}\n\n\
@@ -1248,15 +1257,15 @@ fn l6_linear_obligations() {
          fn copy_refused() {\n    let h = open_file(\"data.txt\")\n    let c = copy(h)\n    \
          close_file(h)\n    close_file(c)\n}\n\n\
          fn swallow() {\n    let conn = Conn {tags: mutable_list(1)}\n    \
-         let g = () -> { add(conn.tags, 2) }\n    run(g)\n    discard(conn)\n}\n\n\
+         let g = () -> { add(conn.tags, 2) }\n    run(g)\n    close(conn)\n}\n\n\
          fn ok_pass() {\n    let h = open_file(\"data.txt\")\n    close_file(h)\n}\n\n\
-         fn ok_discard() {\n    let h = open_file(\"data.txt\")\n    discard(h)\n}\n\n\
+         fn ok_discard() {\n    let h = open_file(\"data.txt\")\n    close(h)\n}\n\n\
          fn ok_return() -> FileHandle {\n    let h = open_file(\"data.txt\")\n    return h\n}\n\n\
          fn ok_kept_borrow() {\n    let h = open_file(\"data.txt\")\n    \
          let n = inspect(h)\n    close_file(h)\n}\n\n\
          fn ok_alias() {\n    let h = open_file(\"data.txt\")\n    let alias = h\n    \
          let n = inspect(alias)\n    close_file(h)\n}\n\n\
-         fn ok_composite() {\n    let h = open_file(\"data.txt\")\n    \
+         fn composite_refused() {\n    let h = open_file(\"data.txt\")\n    \
          let b = Box2 {item: h}\n    close_box(b)\n}\n\n\
          fn caller_obligated() {\n    let h = ok_return()\n    close_file(h)\n}\n",
     )
@@ -1298,8 +1307,19 @@ fn l6_linear_obligations() {
         ),
         "stderr: {stderr}"
     );
-    // Exactly the seven violations: the positive matrix is clean.
-    assert!(stderr.contains("7 errors"), "stderr: {stderr}");
+    // [linear-composite] R4 part 2: `Box2` holds a `FileHandle`, which is
+    // refused at the field — the store's *declaration*, so `Box2`'s own
+    // `close` cannot make the container carry the obligation. The
+    // `composite_refused` body itself is silent: the container was never
+    // legally built, so there is no follow-on leak.
+    assert!(
+        stderr.contains(
+            "`FileHandle` is linear, so it cannot be the type of field `Box2.item`"
+        ),
+        "stderr: {stderr}"
+    );
+    // Exactly the eight violations: the positive matrix is clean.
+    assert!(stderr.contains("8 errors"), "stderr: {stderr}");
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused
@@ -1310,7 +1330,10 @@ fn l6_generics_refuse_linear_types() {
     let dir = src_dir("l6_generics");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
+        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+
+fn close(x: FileHandle) -> [] None {}
+\n\n\
          fn hold<T>(value: T) -> T {\n    return value\n}\n\n\
          fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
          let kept = hold(h)\n    discard(kept)\n}\n\n\
@@ -1347,20 +1370,20 @@ fn l7a_generic_linear_opt_in() {
     let dir = src_dir("l7a_optin");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle canbe Linear {\n    fd: Int\n}\n\n\
+        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+
+fn close(x: FileHandle) -> [] None {}
+\n\n\
          fn open_file(n: Int) -> [] FileHandle {\n    return FileHandle {fd: n}\n}\n\n\
          fn hold<T canbe Linear>(value: T) -> T {\n    return value\n}\n\n\
          fn eat<T canbe Linear>(value: T) -> [] None {\n}\n\n\
-         fn forward<T canbe Linear>(value: T) {\n    let kept = unopted(value)\n    \
-         discard(kept)\n}\n\n\
+         fn forward<T canbe Linear>(value: T) -> T {\n    let kept = unopted(value)\n    \
+         return kept\n}\n\n\
          fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
          fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
          fn variadic_refused() {\n    let h = open_file(1)\n    \
          let xs = mutable_list(h)\n}\n\n\
-         fn workflow() -> Int {\n    let handles: Mut List<FileHandle> = mutable_list()\n    \
-         add(handles, open_file(1))\n    add(handles, open_file(2))\n    \
-         let n = size(handles)\n    discard(handles)\n    return n\n}\n\n\
-         fn ok_hold() {\n    let h = hold(open_file(9))\n    discard(h)\n}\n",
+         fn ok_hold() {\n    let h = hold(open_file(9))\n    close(h)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1390,10 +1413,18 @@ fn l7a_generic_linear_opt_in() {
         stderr.contains("a linear value cannot be passed in a variadic position"),
         "stderr: {stderr}"
     );
-    // workflow and ok_hold are clean. Six errors total: the four above
-    // plus the two follow-on leaks in `variadic_refused` (the refused
-    // `h` is never discharged, and `xs` — a linear composite — leaks).
-    assert!(stderr.contains("6 errors"), "stderr: {stderr}");
+    // ok_hold is clean (its discharge is `close`, not `discard`
+    // [linear-group]). Five errors total: the four above plus the
+    // follow-on leak in `variadic_refused` (the refused `h` is never
+    // discharged).
+    //
+    // Two shapes this used to cover are gone. The opted-std
+    // `List<FileHandle>` workflow: under [linear-group] a linear value's
+    // discharge is its own `close`, and a `List<FileHandle>` has none. And
+    // the `xs` leak that followed it: since R4 part 2 a composite never
+    // *holds* a linear value [linear-composite], so the store is the one
+    // error and the container that was never built owes nothing.
+    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
 // [once-fn] L7b: `Once` on fn types means callable at most once,

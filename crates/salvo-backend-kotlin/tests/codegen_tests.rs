@@ -437,7 +437,7 @@ fn expect_errors(src: &str) -> Vec<String> {
 /// `rustc_compiles_and_runs_a_hand_written_pass`. `zip` is the point — it
 /// reads two sources at once, which `yield` cannot express.
 const PASS_DEMO: &str = r#"
-struct Zip : Yield<(Str, Int)> canbe Mut {
+struct Zip : Yield<self, (Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -457,7 +457,7 @@ fn zip(left: List<Str>, right: List<Int>) -> [] Zip {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown : Yield<Int> canbe Mut {
+struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -548,7 +548,7 @@ fn a_fieldless_struct_is_a_plain_class() {
 /// (see the open defect about wrapping an inner arm under a qualifier: the
 /// intermediate `let` here is that workaround, not decoration).
 const FALLIBLE_PASS_DEMO: &str = r#"
-struct Reader : Yield<Ok Str | Err Str> canbe Mut {
+struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }
@@ -628,11 +628,78 @@ fn kotlinc_compiles_and_runs_a_hand_written_pass() {
     run_kotlin_files(&files, "hand-written-pass", PASS_OUTPUT);
 }
 
+/// A **composed pass, hand-written**: it stores its source *and* its callback.
+/// Kotlin has always accepted a fn-typed field; the Rust backend refused one
+/// until R5 lifted it ([rs-fn-field]: an `Rc<dyn Fn…>` field). Same source and
+/// same stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_composed_pass_with_a_stored_callback` — the
+/// parity claim, and the reason a user-written combinator is now possible on
+/// both targets rather than only in generated std code.
+const FN_FIELD_DEMO: &str = r#"
+struct Countdown : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+struct Doubling : Yield<self, Int> canbe Mut {
+    src: Mut Countdown,
+    f: (Int) -> Int
+}
+
+fn next(d: Mut Doubling) -> [d: Mut] Emitted Int | Finished {
+    let step = next(d.src)
+    when step {
+        is Emitted {
+            let g = d.f
+            return emitted(g(step))
+        }
+        is Finished {
+            return finished()
+        }
+    }
+}
+
+fn twice(n: Int) -> Int {
+    return n * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let doubled = Mut Doubling { src: Mut Countdown { at: 3 }, f: twice }
+    for n in doubled {
+        println("n ${n}")
+    }
+    println("done")
+}
+"#;
+
+const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", FN_FIELD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "fn-field-pass", FN_FIELD_OUTPUT);
+}
+
 /// [yield-fn-origin] The origin-struct sugar, end to end — the same source and
 /// the same expected stdout as the Rust backend's
 /// `rustc_compiles_and_runs_a_yield_origin`, which is the parity claim.
 const YIELD_ORIGIN_DEMO: &str = r#"
-struct Counter : Yield<Int> {
+struct Counter : Yield<self, Int> {
     start: Int
 }
 
@@ -1996,9 +2063,12 @@ fn kotlinc_compiles_and_runs_borrows() {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Kotlin: `discard` evaluates and ignores via `.let {}`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(path: Str) [Console] -> [] FileHandle {
     println("open ${path}")
@@ -2007,7 +2077,7 @@ fn open_file(path: Str) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn main() [use] -> [] None {
@@ -2017,7 +2087,9 @@ fn main() [use] -> [] None {
     println("fd=${n}")
     close_file(h)
     let temp = open_file("scratch")
-    discard(temp)
+    close(temp)
+    let note = "note"
+    discard(note)
     println("done")
 }
 "#;
@@ -2041,9 +2113,12 @@ fn kotlinc_compiles_and_runs_linear() {
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -2058,12 +2133,7 @@ fn main() [use] -> [] None {
     use StdOutConsole
     let h = hold(open_file(9))
     println("held fd=${h.fd}")
-    discard(h)
-    let handles: Mut List<FileHandle> = mutable_list()
-    add(handles, open_file(1))
-    add(handles, open_file(2))
-    println("count=${size(handles)}")
-    discard(handles)
+    close(h)
     println("done")
 }
 "#;
@@ -2077,7 +2147,7 @@ fn kotlinc_compiles_and_runs_linear_generics() {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
+    let expected = "open 9\nheld fd=9\ndone\n";
     run_kotlin_files(&files, "l7a-linear-generics", expected);
 }
 
@@ -3601,9 +3671,12 @@ fn provenance_survives_mutation_where_state_does_not() {
 /// `return`, on `continue`/`break` out of a loop body, and discharging a
 /// linear obligation on every path of a fn with two exits.
 const DEFER_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -3612,7 +3685,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn scoped() [Console] -> [] None {
@@ -3736,9 +3809,12 @@ fn kotlin_compiles_and_runs_defer() {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -3747,7 +3823,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn parse(line: Str) [Throw<Str>, Console] -> [] Int {

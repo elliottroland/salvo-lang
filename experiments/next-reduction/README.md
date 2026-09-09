@@ -13,7 +13,11 @@ there are only as good as the code they came from.
 | `passes.kt` | what the Kotlin emitter would produce for it |
 | `expected.txt` | the stdout both print, byte for byte |
 
-**Superseded spelling, same machine (2026-09-08, after this prototype ran).**
+**Superseded spellings, same machine (2026-09-08, after this prototype ran).**
+The obligation clause is now written `: Yield<self, Str>` against
+`params Yield<It, T>` — the declaring type is a type *argument*, which is what
+lets one group also spread as `?Yield<It, T>` implicits (the composition
+rendering). `passes.sv` writes the earlier `Self`-inside-the-group form.
 `passes.sv` writes the `yield` fn as
 `fn chatty(limit: Int) [Console] -> Chatty : Yield<Int>` — a return type that
 *names* the generated struct. The user replaced that surface with the

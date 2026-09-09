@@ -174,8 +174,8 @@ pub struct StructDecl {
     /// Obligations [group-obligation]: `params` groups this type promises
     /// to satisfy, written `: Group<Args>` after the generics and before
     /// `canbe`. Each member of each named group must have a matching
-    /// visible fn with `Self` bound to this type — checked at this
-    /// declaration, not at a use site.
+    /// visible fn, with `self` in the argument list standing for this type —
+    /// checked at this declaration, not at a use site.
     pub obligations: Vec<TypeRef>,
     /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
@@ -308,7 +308,7 @@ pub struct FnDecl {
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
     /// [yield-fn-origin] `yield fn next(c: Counter) -> Int`: the sugar form
-    /// of a `: Yield<T>` obligation's member. The subject is the *origin*
+    /// of a `: Yield<self, T>` obligation's member. The subject is the *origin*
     /// struct, the return type is the **element** type, and the compiler
     /// generates a hidden state machine the `for` sugar drives — the fn
     /// itself is never callable. Declared with the keyword, not inferred

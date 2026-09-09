@@ -1,9 +1,9 @@
 //! [yield-fn-origin] The `yield fn` origin-struct sugar (roadmap R3, user
-//! direction 2026-09-08): the second way to discharge a `: Yield<T>`
+//! direction 2026-09-08): the second way to discharge a `: Yield<self, T>`
 //! obligation.
 //!
 //! ```
-//! struct Counter : Yield<Int> { start: Int }
+//! struct Counter : Yield<self, Int> { start: Int }
 //!
 //! yield fn next(c: Counter) -> Int { … }
 //! ```
@@ -21,12 +21,16 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str =
     "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
+     intrinsic type List<T> canbe Mut\n\
      intrinsic fn copy<T>(value: T) [] -> [value] T\n\
+     intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n\
+     intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
+     intrinsic fn size<T>(list: List<T>) [] -> [list] Int\n\
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
      fn emitted<T>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
      fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
-     params Yield<T> {\n    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n\
      effect Console {\n    fn print(message: Str) -> [] None\n}\n\
      handler StdOutConsole of Console {\n    fn print(message: Str) -> [] None {}\n}\n\
      fn println(message: Str) [Console] -> [] None {}\n";
@@ -76,7 +80,7 @@ fn errors(src: &str) -> Vec<String> {
 /// wants (`yield num` *moves* `num`, so the decrement after it would read a
 /// consumed variable — the same idiom the `Iter<T>` form has always used).
 const COUNTER: &str = r#"
-struct Counter : Yield<Int> {
+struct Counter : Yield<self, Int> {
     start: Int
 }
 
@@ -126,7 +130,7 @@ fn driving_an_origin_twice_is_fine() {
 #[test]
 fn drive_site_effects_are_required_at_the_loop() {
     const CHATTY: &str = r#"
-struct Chatty : Yield<Int> {
+struct Chatty : Yield<self, Int> {
     limit: Int
 }
 
@@ -155,6 +159,123 @@ fn chatty(limit: Int) -> Chatty {
     );
 }
 
+// --- the origin may not be mutated while it is driven [yield-fn-origin] ------
+
+/// The origin does not have to be *immutable* — it must be **stable for the
+/// duration of a drive**. A hidden machine reads its origin across
+/// suspensions, so a write while the loop runs has two defensible meanings
+/// (the machine's own copy, or the caller's object) and the two backends each
+/// pick one. Refused rather than sided with [backend-parity].
+///
+/// Reported through the mutation choke point, so a write through a
+/// *projection* counts too: everything reachable from the origin is what the
+/// machine may read.
+const MUT_ORIGIN: &str = r#"
+struct B : Yield<self, Int> {
+    rows: Mut List<Int>
+}
+
+yield fn next(b: B) -> Int {
+    let before = size(b.rows)
+    yield copy(before)
+    let after = size(b.rows)
+    yield copy(after)
+}
+
+fn make_b() -> B {
+    return B { rows: mutable_list(1, 2) }
+}
+
+// A `Mut`-capable origin, for the whole-value mutation case.
+struct C : Yield<self, Int> canbe Mut {
+    n: Int
+}
+
+yield fn next(c: C) -> Int {
+    yield copy(c.n)
+    yield copy(c.n)
+}
+
+fn make_c() -> Mut C {
+    return Mut C { n: 1 }
+}
+"#;
+
+#[test]
+fn mutating_a_driven_origin_is_refused() {
+    let errs = errors(&format!(
+        "{MUT_ORIGIN}\n\
+         fn go() -> [] None {{\n\
+         let b = make_b()\n\
+         for n in b {{\n\
+         add(b.rows, 9)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("`b` is being iterated")
+            && e.contains("cannot be mutated here")),
+        "got {errs:?}"
+    );
+}
+
+/// A mutable-origin *type* is fine — this is the case that must keep working,
+/// since an origin is ordinary data the caller holds. Mutating it before and
+/// after the drive is unremarkable.
+#[test]
+fn a_transitively_mutable_origin_is_allowed() {
+    let errs = errors(&format!(
+        "{MUT_ORIGIN}\n\
+         fn go() -> [] None {{\n\
+         let b = make_b()\n\
+         add(b.rows, 3)\n\
+         for n in b {{}}\n\
+         add(b.rows, 4)\n\
+         for n in b {{}}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// The refusal is scoped to the loop, not to the function: an origin driven by
+/// one loop may be mutated inside a *different* one.
+#[test]
+fn the_refusal_ends_with_the_loop() {
+    let errs = errors(&format!(
+        "{MUT_ORIGIN}\n\
+         fn go() -> [] None {{\n\
+         let b = make_b()\n\
+         let c = make_b()\n\
+         for n in c {{\n\
+         add(b.rows, 9)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// Passing the origin to a mutating function is the same event, so it is
+/// caught by the same rule.
+#[test]
+fn passing_a_driven_origin_to_a_mutator_is_refused() {
+    let errs = errors(&format!(
+        "{MUT_ORIGIN}\n\
+         fn bump(x: Mut C) -> [x: Mut] None {{\n\
+         x.n = x.n + 1\n\
+         }}\n\
+         fn go() -> [] None {{\n\
+         let c = make_c()\n\
+         for v in c {{\n\
+         bump(c)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("`c` is being iterated")),
+        "got {errs:?}"
+    );
+}
+
 // --- declaration rules ------------------------------------------------------
 
 /// It is the sugared *member* of an obligation, so it answers to the member's
@@ -163,7 +284,7 @@ fn chatty(limit: Int) -> Chatty {
 #[test]
 fn a_yield_fn_must_be_called_next() {
     let errs = errors(
-        "struct Counter : Yield<Int> {\n    start: Int\n}\n\
+        "struct Counter : Yield<self, Int> {\n    start: Int\n}\n\
          yield fn generate(c: Counter) -> Int {\n    yield 1\n}\n",
     );
     assert!(
@@ -175,7 +296,7 @@ fn a_yield_fn_must_be_called_next() {
 #[test]
 fn a_yield_fn_takes_exactly_one_origin() {
     let errs = errors(
-        "struct Counter : Yield<Int> {\n    start: Int\n}\n\
+        "struct Counter : Yield<self, Int> {\n    start: Int\n}\n\
          yield fn next(c: Counter, extra: Int) -> Int {\n    yield 1\n}\n",
     );
     assert!(
@@ -188,7 +309,7 @@ fn a_yield_fn_takes_exactly_one_origin() {
 #[test]
 fn a_mut_origin_is_refused() {
     let errs = errors(
-        "struct Counter : Yield<Int> canbe Mut {\n    start: Int\n}\n\
+        "struct Counter : Yield<self, Int> canbe Mut {\n    start: Int\n}\n\
          yield fn next(c: Mut Counter) -> Int {\n    yield 1\n}\n",
     );
     assert!(
@@ -198,7 +319,7 @@ fn a_mut_origin_is_refused() {
     );
 }
 
-/// The origin has to carry the clause: the sugar is how a `: Yield<T>` type
+/// The origin has to carry the clause: the sugar is how a `: Yield<self, T>` type
 /// satisfies its obligation, not a way to make any struct iterable.
 #[test]
 fn an_origin_without_the_clause_is_refused() {
@@ -208,7 +329,7 @@ fn an_origin_without_the_clause_is_refused() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("is not a pass") && e.contains(": Yield<T>")),
+            .any(|e| e.contains("is not a pass") && e.contains(": Yield<self, T>")),
         "got {errs:?}"
     );
 }
@@ -218,7 +339,7 @@ fn an_origin_without_the_clause_is_refused() {
 #[test]
 fn the_return_type_must_match_the_clause() {
     let errs = errors(
-        "struct Counter : Yield<Int> {\n    start: Int\n}\n\
+        "struct Counter : Yield<self, Int> {\n    start: Int\n}\n\
          yield fn next(c: Counter) -> Str {\n    yield \"x\"\n}\n",
     );
     assert_eq!(errs.len(), 1, "got {errs:?}");
@@ -231,7 +352,7 @@ fn the_return_type_must_match_the_clause() {
 #[test]
 fn a_yield_fn_without_a_yield_is_refused() {
     let errs = errors(
-        "struct Counter : Yield<Int> {\n    start: Int\n}\n\
+        "struct Counter : Yield<self, Int> {\n    start: Int\n}\n\
          yield fn next(c: Counter) -> Int {\n    return 1\n}\n",
     );
     assert!(
@@ -246,7 +367,7 @@ fn a_yield_fn_without_a_yield_is_refused() {
 #[test]
 fn both_forms_at_once_are_refused() {
     let errs = errors(
-        "struct Both : Yield<Int> canbe Mut {\n    at: Int\n}\n\
+        "struct Both : Yield<self, Int> canbe Mut {\n    at: Int\n}\n\
          yield fn next(b: Both) -> Int {\n    yield 1\n}\n\
          fn next(b: Mut Both) -> [b: Mut] Emitted Int | Finished {\n    return finished()\n}\n",
     );

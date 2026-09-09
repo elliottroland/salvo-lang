@@ -1104,9 +1104,12 @@ fn rustc_compiles_and_runs_borrows() {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Rust: `discard` lowers to `drop`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(path: Str) [Console] -> [] FileHandle {
     println("open ${path}")
@@ -1115,7 +1118,7 @@ fn open_file(path: Str) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn main() [use] -> [] None {
@@ -1125,7 +1128,9 @@ fn main() [use] -> [] None {
     println("fd=${n}")
     close_file(h)
     let temp = open_file("scratch")
-    discard(temp)
+    close(temp)
+    let note = "note"
+    discard(note)
     println("done")
 }
 "#;
@@ -1138,8 +1143,12 @@ fn discard_lowers_to_drop() {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
-    assert!(main.content.contains("drop(h)"), "generated:\n{}", main.content);
-    assert!(main.content.contains("drop(temp)"), "generated:\n{}", main.content);
+    // [linear-discard] A linear value's discharge is its own `close`; what
+    // `discard` still lowers to is `drop`, for the non-linear values it is
+    // now the escape hatch for.
+    assert!(main.content.contains("close(h)"), "generated:\n{}", main.content);
+    assert!(main.content.contains("close(temp)"), "generated:\n{}", main.content);
+    assert!(main.content.contains("drop(note)"), "generated:\n{}", main.content);
 }
 
 #[test]
@@ -1159,9 +1168,12 @@ fn rustc_compiles_and_runs_linear() {
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -1176,12 +1188,7 @@ fn main() [use] -> [] None {
     use StdOutConsole
     let h = hold(open_file(9))
     println("held fd=${h.fd}")
-    discard(h)
-    let handles: Mut List<FileHandle> = mutable_list()
-    add(handles, open_file(1))
-    add(handles, open_file(2))
-    println("count=${size(handles)}")
-    discard(handles)
+    close(h)
     println("done")
 }
 "#;
@@ -1193,7 +1200,7 @@ fn rustc_compiles_and_runs_linear_generics() {
         return;
     }
     let files = generate(&[("main.sv", LINEAR_GENERICS_DEMO)]);
-    let expected = "open 9\nheld fd=9\nopen 1\nopen 2\ncount=2\ndone\n";
+    let expected = "open 9\nheld fd=9\ndone\n";
     run_rust_files(&files, "l7a-linear-generics", expected);
 }
 
@@ -2690,9 +2697,12 @@ fn provenance_survives_mutation_where_state_does_not() {
 /// `return`, on `continue`/`break` out of a loop body, and discharging a
 /// linear obligation on every path of a fn with two exits.
 const DEFER_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -2701,7 +2711,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn scoped() [Console] -> [] None {
@@ -2836,9 +2846,12 @@ fn rustc_compiles_and_runs_defer() {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
 }
+
+fn close(x: FileHandle) -> [] None {}
+
 
 fn open_file(n: Int) [Console] -> [] FileHandle {
     println("open ${n}")
@@ -2847,7 +2860,7 @@ fn open_file(n: Int) [Console] -> [] FileHandle {
 
 fn close_file(h: FileHandle) [Console] -> [] None {
     println("close fd=${h.fd}")
-    discard(h)
+    close(h)
 }
 
 fn parse(line: Str) [Throw<Str>, Console] -> [] Int {
@@ -4327,7 +4340,7 @@ fn rustc_compiles_and_runs_a_generator_with_defers() {
 /// the *same origin* replays from the beginning, which is the point of the
 /// origin model: driving mints a fresh machine and consumes nothing.
 pub const YIELD_ORIGIN_DEMO: &str = r#"
-struct Counter : Yield<Int> {
+struct Counter : Yield<self, Int> {
     start: Int
 }
 
@@ -4577,32 +4590,109 @@ fn rustc_compiles_and_runs_implicit_parameters() {
     run_rust_files(&files, "implicits", IMPLICIT_OUTPUT);
 }
 
-/// [backend-never-wrong] A function in a struct field is legal Salvo and
-/// legal Kotlin, but Rust spells `impl Trait` nowhere but argument and
-/// return position (`E0562`). So it is a codegen *error* naming what does
-/// work — an implicit parameter or a `params` group — not invalid output.
+/// [rs-fn-field] A **composed pass, hand-written**: it stores both its source
+/// and its callback. Storing a function in a struct field used to be a Rust
+/// codegen error while Kotlin accepted it (a live backend divergence, recorded
+/// as R0 finding 5); the field is now an `Rc<dyn Fn…>`, the same
+/// representation a generated pass has always used for a callback, so the
+/// program builds on both targets — which is what makes user-written
+/// combinators possible at all, not just std's generated ones.
+pub const FN_FIELD_DEMO: &str = r#"
+struct Countdown : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+struct Doubling : Yield<self, Int> canbe Mut {
+    src: Mut Countdown,
+    f: (Int) -> Int
+}
+
+fn next(d: Mut Doubling) -> [d: Mut] Emitted Int | Finished {
+    let step = next(d.src)
+    when step {
+        is Emitted {
+            let g = d.f
+            return emitted(g(step))
+        }
+        is Finished {
+            return finished()
+        }
+    }
+}
+
+fn twice(n: Int) -> Int {
+    return n * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let doubled = Mut Doubling { src: Mut Countdown { at: 3 }, f: twice }
+    for n in doubled {
+        println("n ${n}")
+    }
+    println("done")
+}
+"#;
+
+pub const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
+
+/// [rs-fn-field] The representation: an `Rc<dyn Fn…>` field, `#[derive(Clone)]`
+/// without `Debug` (a `dyn Fn` has none), a hand-written `Debug` printing the
+/// callback as `<fn>`, and `Rc::new` at the store.
 #[test]
-fn a_function_in_a_struct_field_is_a_codegen_error() {
-    let errors = expect_errors(
-        "struct Ops {\n    add: (Int, Int) -> Int\n}\n\
-         fn plus(a: Int, b: Int) -> Int { return a + b }\n\
-         fn main() [use] {\n    use StdOutConsole()\n    \
-         let ops = Ops { add: plus }\n    println(\"made\")\n}\n",
+fn a_function_in_a_struct_field_is_an_rc_dyn_fn() {
+    let files = generate(&[("main.sv", FN_FIELD_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    assert!(
+        main.content.contains("pub f: std::rc::Rc<dyn Fn(i32) -> i32>,"),
+        "expected an Rc<dyn Fn> field, got:\n{}",
+        main.content
     );
     assert!(
-        errors.iter().any(|e| {
-            e.contains("cannot store a function in a struct field")
-                && e.contains("`params` group")
-        }),
-        "expected the struct-field rejection naming the remedy, got: {errors:?}"
+        main.content.contains("impl std::fmt::Debug for Doubling"),
+        "expected a hand-written Debug, got:\n{}",
+        main.content
     );
+    assert!(
+        main.content.contains(".field(\"f\", &\"<fn>\")"),
+        "expected the callback to print as <fn>, got:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("f: std::rc::Rc::new(twice)"),
+        "expected the store to wrap in Rc::new, got:\n{}",
+        main.content
+    );
+}
+
+/// Under rustc, with the stdout the Kotlin backend asserts byte for byte.
+#[test]
+fn rustc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FN_FIELD_DEMO)]);
+    run_rust_files(&files, "fn_field", FN_FIELD_OUTPUT);
 }
 
 /// [iter-protocol] A hand-written **pass**: `zip`, which `yield` cannot
 /// express because it reads two sources at once. A struct, a `next`, and
 /// nothing else — no state machine, no compiler support beyond driving it.
 pub const PASS_DEMO: &str = r#"
-struct Zip : Yield<(Str, Int)> canbe Mut {
+struct Zip : Yield<self, (Str, Int)> canbe Mut {
     left: List<Str>,
     right: List<Int>,
     at: Int
@@ -4622,7 +4712,7 @@ fn zip(left: List<Str>, right: List<Int>) -> [] Zip {
     return Zip { left: left, right: right, at: 0 }
 }
 
-struct Countdown : Yield<Int> canbe Mut {
+struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -4689,7 +4779,7 @@ fn a_pass_lowers_to_a_while_let_driving_loop() {
 /// (see the open defect about wrapping an inner arm under a qualifier: the
 /// intermediate `let` here is that workaround, not decoration).
 pub const FALLIBLE_PASS_DEMO: &str = r#"
-struct Reader : Yield<Ok Str | Err Str> canbe Mut {
+struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
 }

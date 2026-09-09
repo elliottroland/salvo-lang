@@ -891,11 +891,11 @@ A `params` group can also be stated as an **obligation** on a struct, with a
 `:` clause between the generics and `canbe`:
 
 ```
-params Step<T> {
-    fn advance(s: Mut Self) -> [s: Mut] Emitted T | Finished
+params Step<It, T> {
+    fn advance(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 
-struct Countdown : Step<Int> canbe Mut {
+struct Countdown : Step<self, Int> canbe Mut {
     at: Int
 }
 
@@ -907,26 +907,31 @@ fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
 }
 ```
 
-Where `?Step<Int>` in a signature asks the *call site* to supply the group's
-members, `: Step<Int>` on a declaration promises that the members exist for
-this type — and the promise is checked **at the struct**: declaring
-`: Step<Int>` without a visible `advance` matching
-`fn advance(s: Mut Countdown) -> Emitted Int | Finished` is an error naming
+Where `?Step<It, Int>` in a signature asks the *call site* to supply the
+group's members, `: Step<self, Int>` on a declaration promises that the
+members exist for this type — and the promise is checked **at the struct**:
+declaring it without a visible `advance` matching
+`fn advance(it: Mut Countdown) -> Emitted Int | Finished` is an error naming
 that signature, where a misspelled member would otherwise surface as some
 puzzling failure at a distant use site.
 
-`Self` in a group member stands for the declaring type. It is what makes the
-obligation about *this* type: the checker substitutes `Countdown` for `Self`
-and looks for a matching overload — by parameter types and return type,
-positionally, up to a consistent renaming of type variables (a generic struct
-satisfies a group through its own type parameters). The member's parameter
-*names* belong to the group; an implementation picks its own. And because
-only an obligation binds `Self`, a group whose members mention it cannot be
-spread with `?` — there would be nothing for `Self` to mean.
+`self` is the shorthand for "the type being declared", written where a type
+argument goes. The checker substitutes `Countdown` for it and looks for a
+matching overload — by parameter types and return type, positionally, up to a
+consistent renaming of type variables, so a generic struct satisfies a group
+through its own type parameters. The member's parameter *names* belong to the
+group; an implementation picks its own.
+
+Note what `self` being an *argument* buys: the group itself is ordinary, so
+**one declaration serves both uses**. The same `Step` spreads as
+`?Step<It, Int>`, which is how a generic function reaches the member of a type
+it does not know — a magic `Self` inside the group would have ruled that out,
+since nothing would bind it in a signature. Outside an obligation `self` is
+simply an unknown type.
 
 Two things keep this a where-clause rather than a trait:
 
-- **No value may have a group as its type.** `let p: Step<Int>` is an error
+- **No value may have a group as its type.** `let p: Step<Countdown, Int>` is an error
   wherever a type can be written — parameter, return, field, `let`
   annotation, type argument, union arm. There is no erasure and no interface
   value; a group constrains a *named* type, and everything resolves
@@ -1195,8 +1200,8 @@ express, like `zip` and `merge`, since they read two sources at once:
 qualifier Emitted<T> of T
 struct Finished {}
 
-params Yield<T> {
-    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+params Yield<It, T> {
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 ```
 
@@ -1229,12 +1234,12 @@ A hand-written iterator declares the tie itself. Declaring a `next` for a
 struct of your own is what makes `zip` and `merge` writable — this part
 *works today*, ahead of the rest of this subsection — but the method alone
 does not make the struct a pass: the tie is stated as an obligation,
-`: Yield<T>`, and checked at the struct (declaring it without a matching
+`: Yield<self, T>`, and checked at the struct (declaring it without a matching
 `next` is an error naming the missing signature). `for` reads the
 declaration — it does not scan overloads for a `next` and guess:
 
 ```
-struct Zip<A, B> : Yield<(A, B)> canbe Mut {
+struct Zip<A, B> : Yield<self, (A, B)> canbe Mut {
     ...
 }
 
@@ -1247,14 +1252,14 @@ for pair in zip(names, ages) { ... }   // drives the pass, consuming it
 
 Leave the clause off `Zip` and the `for` reports it:
 ``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
-`: Yield<(A, B)>` on it to make it a pass) ```.
+`: Yield<self, (A, B)>` on it to make it a pass) ```.
 
 **Or let the compiler write the state for you.** Writing `next` by hand means
 writing the position out as fields. A `yield fn` says the same thing as a
 body, and the state machine stays the compiler's:
 
 ```
-struct Counter : Yield<Int> {
+struct Counter : Yield<self, Int> {
     start: Int
 }
 
@@ -1290,6 +1295,12 @@ differs is what you can hold:
   driving performs it, since nothing calls the function; the `for` is what
   needs the handler. A `defer` inside runs when the loop ends *however* it
   ends, including a `break` — the machine is closed on every path out.
+- **The origin may not be mutated while it is being driven.** It does not have
+  to be immutable — a `Counter` holding a `Mut List<Int>` is a perfectly good
+  origin — but for as long as a `for` over it is running, it has to hold still:
+  the machine reads it as it goes, so a write in the middle has no answer that
+  means the same thing everywhere. Write before the loop, after it, or drive
+  `copy(origin)` to work from a snapshot.
 
 **Where two iterators meet, the compiler boxes.** Each iterator function
 gets its *own* state type. A position that must hold either of two
@@ -1655,15 +1666,21 @@ Some consequences worth knowing:
 
 ### Linear types: values that must be used
 
-Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type can opt into **linearity** at its declaration:
+Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type declares **linearity** as an obligation, and the obligation names how it is discharged:
 
 ```
-struct FileHandle canbe Linear {
+struct FileHandle : Linear<self> {
     fd: Int
+}
+
+fn close(handle: FileHandle) -> [] None {
+    // release the resource
 }
 ```
 
-Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, storing it in a struct/array/tuple, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own.
+`Linear` is a `params` group the compiler knows — `params Linear<It> { fn close(it: It) -> [] None }` in `core.basic` — so the clause is an ordinary [obligation](#obligations-params-groups-on-a-type): declaring `: Linear<self>` without a matching `close` is an error at the struct. Declaring linearity is therefore declaring the discharge, in one place, and a `close` on its own never makes a type linear.
+
+Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own. Inside `close` itself the parameter owes nothing — that is where the value legitimately dies.
 
 Dropping the obligation is a compile-time error, wherever it would happen:
 
@@ -1690,12 +1707,12 @@ fn overwrite() {
 }
 ```
 
-The deliberate escape hatch is one word: `discard(x)` in the standard library consumes a linear value and drops it on purpose — the code says out loud that the resource dies here.
+There is no escape hatch: `discard(x)`, which deliberately drops an ordinary value, refuses a linear one and names its `close` — dropping a handle is exactly the leak the obligation exists to prevent.
 
 ```
 fn deliberate() {
     let h = open("data.txt")
-    discard(h)                  // fine: an explicit drop
+    discard(h)                  // ERROR: `discard` cannot drop a linear value; call `close(h)`
 }
 ```
 
@@ -1713,9 +1730,9 @@ fn no_leak(flag: Bool) {
 
 Rules that keep the obligation sound:
 
-- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `canbe Linear` type is linear, always. (A qualifier you could forget to write would defeat the point.)
-- **Composites are contagious**: a struct with a linear field, a tuple/array/union with a linear component, is itself linear — storing a handle in a box moves the obligation into the box, and the box must now be passed on.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size` — so `List<FileHandle>` works), while `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked) — add elements to a collection individually.
+- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `: Linear<self>` type is linear, always. (A qualifier you could forget to write would defeat the point.) `canbe Linear` on a declaration is an error naming the clause; on a *type parameter* it keeps its spelling, where it means something else entirely (below).
+- **A composite may not hold a linear value** — for now. Storing a handle in a struct field, an array, a tuple, a union arm or a type argument (`List<FileHandle>`) is an error *at the store*, rather than moving the obligation into the container: a linear value lives only in a local, a parameter or a return value. This is an interim rule; carrying an obligation through a container is one design question together with conditional linearity ("a `Box<T>` is linear exactly when `T` is"), and until that is answered the compiler refuses rather than guesses. The store is refused wherever it is written — the field's declaration, the literal, or a call like `add(list, handle)` that would put a bare value into a container.
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe Linear>(value: T) -> [] None`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 

@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\nparams Linear<It> {\n    fn close(it: It) -> [] None\n}\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -72,15 +72,18 @@ effect Throw<M> {
 qualifier Ok<T> of T
 qualifier Thrown<M> of M
 
-struct Handle canbe Linear {
+struct Handle : Linear<self> {
     fd: Int
 }
+
+fn close(x: Handle) -> [] None {}
+
 
 fn open_handle(fd: Int) [] -> [] Handle {
     return Handle { fd: fd }
 }
 fn close_handle(h: Handle) [] -> [] None {
-    discard(h)
+    close(h)
 }
 fn note(text: Str) [] -> [text] None {}
 

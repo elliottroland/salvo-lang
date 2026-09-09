@@ -266,7 +266,8 @@ Conventions:
   may carry the named qualifier. Two sites use it — auto-qualifiers on
   struct and type declarations (`struct Person canbe Mut` [struct-mut],
   `intrinsic type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
-  canbe Linear` [linear-canbe]) and per-type-parameter opt-ins on fns
+  canbe Linear` on a type parameter [linear-generics]) and, for a
+  declaration, the `: Linear<self>` obligation [linear-group]; per-type-parameter opt-ins on fns
   (`fn hold<T canbe Linear>` [linear-generics]).
   * `canbe` and `with` are unrelated clauses: `canbe` grants a qualifier
     to one declaration ("this may be Mut"), while `with` declares that
@@ -342,7 +343,7 @@ Conventions:
     flavor of this pattern is a one-field struct, and two lowering models
     for one concept was the cost that settled it).
   * The compiler's own capability qualifiers stay intrinsic and are *not*
-    user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-canbe],
+    user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-group],
     `Once` [once-fn], `ReadOnly` [readonly-return] each need a
     representation choice, a flow rule, a non-standard subtyping
     direction, or a restricted position. Vocabulary: users declare
@@ -970,10 +971,10 @@ Conventions:
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
 * [iter-resolve] A `for` subject must be an array, an `Iter<T>`, a **pass**
-  — a type declaring `: Yield<T>` [iter-protocol] [group-obligation] — or a
+  — a type declaring `: Yield<self, T>` [iter-protocol] [group-obligation] — or a
   value some declared `iter` overload accepts (the implicit `iter(subject)`
   call); anything else is an error. When the subject has a protocol-shaped
-  `next` but no declaration, the error names the `: Yield<T>` remedy.
+  `next` but no declaration, the error names the `: Yield<self, T>` remedy.
   * Resolution order: `Iter<T>` and arrays natively, then the declared pass
     [iter-protocol], then `iter`. The pass comes before `iter` because a
     type with both is *already* a position in a sequence, so minting a
@@ -991,16 +992,16 @@ Conventions:
     `None | None` would have one. `Finished` is a fieldless struct — it has
     nothing to qualify, and `None` would say "absent" where the claim is
     "the sequence ended".
-  * `params Yield<T> { fn next(s: Mut Self) -> [s: Mut] Emitted T |
+  * `params Yield<It, T> { fn next(it: Mut It) -> [it: Mut] Emitted T |
     Finished }` [group-obligation] [group-self]: a type of your own becomes
-    drivable by declaring `: Yield<T>` and supplying the `next` — checked at
+    drivable by declaring `: Yield<self, T>` and supplying the `next` — checked at
     the struct, where a misspelled member is caught, rather than surfacing
     as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
     this replaced `params Iterator<St, T>` and the `Once` requirement). The
     state is `Mut` because advancing a pass mutates its position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
-  * **`for` reads the declaration** — the `: Yield<T>` clause is the one
+  * **`for` reads the declaration** — the `: Yield<self, T>` clause is the one
     fact that makes a value a pass, and the element type is the clause's
     argument. The overload scan only resolves *which* `next` (and the arm
     identity); when the obligation is declared but unsatisfied, the error
@@ -1140,10 +1141,12 @@ Conventions:
   made the caller name it to override one member).
   * A group is never a value, which is what keeps it free of any runtime
     representation: neither backend knows groups exist. Declaring one as a
-    struct of fn-typed fields instead would need `Box<dyn Fn>` fields on
-    Rust (`impl Trait` is illegal in a field type — a codegen error
-    [backend-never-wrong]) and a way to call a fn-typed field, which
-    dot-notation [fn-dot] already spells otherwise.
+    struct of fn-typed fields instead is possible since [rs-fn-field] (a
+    field is an `Rc<dyn Fn…>` on Rust, 2026-09-08) but still says something
+    different: a struct is a value with an identity, and reaching a member
+    would need a local first, since `h.f(e)` is dot-notation for `f(h, e)`
+    [fn-dot]. A group is resolved per call site instead
+    [implicit-resolve].
   * The expansion order — written implicits first, then each group's members
     in declaration order — is published by the checker as the one ordered
     list both the callee's parameters and the caller's arguments follow.
@@ -1168,23 +1171,30 @@ Conventions:
     implementation (unlike [qual-refn-match], which picks an overload
     someone already declared). Effects are deliberately not compared: the
     group declares none, each implementation declares its own. A failure is
-    an error at the declaration naming the missing signature with `Self`
+    an error at the declaration naming the missing signature with `self`
     substituted.
   * The obligation adds no scope and no dispatch: the satisfying fn is an
     ordinary overload, and calls to it resolve as ever [fn-overload]. The
     clause moves the *check* to the declaration; nothing is designated in
     the mechanism itself (`Yield<T>`/`Linear` designation is roadmap
     R2/R4).
-* [group-self] `Self` inside a `params` group's member signatures stands for
-  the **declaring type** of whichever struct states the obligation — scoped
-  like a generic, bound at the obligation (`Self := Countdown`, with the
-  struct's own generics as variables). Consequences:
-  * a group whose members mention `Self` cannot be spread as `?Group<...>`:
-    nothing binds `Self` in a signature, and the error names the obligation
-    form as the remedy;
-  * `Self` outside a `params` group is an unknown type, as ever.
+* [group-self] The declaring type is written **`self`, as a type argument at
+  the obligation** — `struct Countdown : Step<self, Int>` — and not as a magic
+  `Self` inside the group (user decision 2026-09-08). The group's members
+  mention only their own parameters, which is the point:
+  * **one declaration serves both uses.** The very same group spreads as
+    `?Step<It, T>` implicit parameters, which is how a generic combinator
+    reaches its source's member [implicit-group] — the rendering composition
+    needs. A `Self` inside the group would have made that impossible, since
+    nothing binds `Self` in a signature.
+  * The shorthand is bare and unqualified: `Mut self` or `self<T>` is not it.
+  * `self` anywhere else — including in a `?Group<self, …>` spread, whose
+    arguments are validated like any other written type — is an unknown type.
+  * A designated group therefore puts the **state first and the element
+    second** (`params Yield<It, T>`), because the state is the parameter
+    `self` fills.
 * [group-not-a-value] **No value may have a group as its type** (user
-  decision 2026-09-08). `items: Yield<Int>` is an error in every type
+  decision 2026-09-08). `items: Yield<Countdown, Int>` is an error in every type
   position — parameter, return, field, `let` annotation, type argument,
   union arm, array element. There is no `dyn`, no erasure, no interface
   value: a group constrains a *named* type and is resolved statically. This
@@ -1262,13 +1272,13 @@ Conventions:
     `Iterable` already did, and what keeps `for` from consuming its
     subject.
 * [yield-fn-origin] A **`yield fn`** is the sugared way to discharge a
-  `: Yield<T>` obligation [group-obligation] (user direction 2026-09-08,
+  `: Yield<self, T>` obligation [group-obligation] (user direction 2026-09-08,
   roadmap R3): the subject is the **origin** struct, the return type is the
   **element** type, and the state machine the compiler builds from the body is
   *hidden*.
 
   ```
-  struct Counter : Yield<Int> { start: Int }
+  struct Counter : Yield<self, Int> { start: Int }
 
   yield fn next(c: Counter) [Console] -> Int {
       let num = copy(c.start)
@@ -1288,8 +1298,8 @@ Conventions:
     named `next` (it is a member of an obligation, so a free-standing one
     would reintroduce an anonymous generator type); exactly one parameter;
     the origin **not `Mut`** (it is read, not advanced — the machine holds
-    the position); the origin's declaration must carry the `: Yield<T>`
-    clause; the return type must be that clause's `T`; and the body must
+    the position); the origin's declaration must carry the
+    `: Yield<self, T>` clause; the return type must be that clause's `T`; and the body must
     contain a `yield`. A type may declare **one** form, not both: the sugar
     generates the state struct a hand-written `next` would be.
   * **It is not callable.** A call is an error naming the remedy (iterate the
@@ -1314,11 +1324,22 @@ Conventions:
     the concrete type. `for` constructs it, calls `__advance` per turn and
     `__close` on every exit (Rust splices the call and registers a deferred
     entry; Kotlin uses `finally` [kt-defer-finally]). Rust *clones* a place
-    subject, Kotlin shares the reference, and the two agree because the
-    origin is non-`Mut` and [iter-mut-param] refuses a transitively mutable
-    one. Refused for now [backend-never-wrong]: a `for` over an origin in
-    **value position**, whose machine would have to be closed inside a block
-    that is also producing a value.
+    subject, Kotlin shares the reference, and the two agree because of the
+    rule below. Refused for now [backend-never-wrong]: a `for` over an origin
+    in **value position**, whose machine would have to be closed inside a
+    block that is also producing a value.
+  * **An origin may not be mutated while it is being driven.** The origin does
+    not have to be *immutable* — a mutable-origin type is legal, and an origin
+    is ordinary data the caller keeps — it has to be **stable for the duration
+    of a drive**: a machine reads its origin across suspensions, so a write
+    while the loop runs would mean the machine's own copy on one backend and
+    the caller's object on the other. Refused rather than sided with
+    [backend-parity], which is also what keeps a value *derived* from the
+    origin valid for the whole drive. Reported at the mutation itself, keyed on
+    the subject's **root**, so a write through a projection
+    (`add(b.rows, 9)`) and passing the origin to a `Mut` parameter both count;
+    scoped to the loop, so another loop's body may mutate it. The remedies the
+    diagnostic names: move the write outside the loop, or drive `copy(origin)`.
 * [iter-mut-param] An iterator function may **not take a mutable parameter**
   — transitively, by the same test [fate-move-mode] uses, so `Mut` reachable
   through a type argument, an array/tuple/union component or a struct field
@@ -2060,7 +2081,7 @@ Conventions:
     [canbe-optin] (user decision 2026-09-07), which is how a hand-written
     pass says that driving it uses it up [iter-protocol]. Opting in is the
     author's call for the same reason `Linear` is declared rather than
-    applied [linear-canbe]: an obligation should not attach to someone's
+    applied [linear-group]: an obligation should not attach to someone's
     type on the strength of a method name. Making `Once` valid on *any*
     type is roadmap D6, to be designed with D7.
     * The built-in half is `types::once_position`; the opt-in half is the
@@ -2150,12 +2171,35 @@ Conventions:
 
 ## Linear types
 
-* [linear-canbe] A type opts into linearity at its declaration with
-  `canbe Linear` (structs and `intrinsic` types; decision L6a,
-  2026-09-02). Every value of the type is linear — `Linear` cannot be
-  written in a use-site type (error): a per-value qualifier that could
-  be forgotten would defeat the protection. Tooling may present
-  linearity as a compiler-facing property.
+* [linear-group] A type declares linearity as an **obligation**:
+  `struct Lines : Linear<self> { … }` against the designated
+  `params Linear<It> { fn close(it: It) -> [] None }` (user decisions
+  2026-09-08, roadmap R4 — replacing `canbe Linear`, decision L6a
+  2026-09-02). Declaring it *is* declaring how the obligation is discharged,
+  because [group-obligation] requires the member: a type that says
+  `: Linear<self>` without a matching `close` is an error at the **struct**.
+  * **`close` consumes** (an empty deduction list moves its parameter), which
+    is what makes it the discharge rather than a convention. Inside the
+    `close` implementation the parameter owes nothing — that is where the
+    value legitimately dies, and without the exemption a `close` would be the
+    one thing linearity makes impossible to write.
+  * **A `close` never implies linearity.** Only the clause does; a bare
+    `close` function is an ordinary function. Attaching an obligation on the
+    strength of a function name is what [qual-*] keeps the compiler from
+    doing — and it is what keeps a generated pass with a `defer`, which gets
+    a `close`, composable [yield-fn-origin].
+  * **`canbe` no longer grants it**: `canbe` means only "may be qualified
+    thus" (`canbe Mut`, `canbe Once`), and `canbe Linear` on a *declaration*
+    is an error naming `: Linear<self>`. On a **type parameter** it keeps its
+    spelling [linear-generics] — permission on a parameter is a different
+    thing from obligation on a declaration.
+  * Every value of the type is linear — `Linear` still cannot be written in a
+    use-site type (a per-value qualifier that could be forgotten would defeat
+    the protection). Tooling may present linearity as a compiler-facing
+    property.
+  * **Not yet covered**: `intrinsic type` carries no obligation clause, so a
+    linear opaque type has no spelling until `TypeDecl` gains one (nothing
+    declares one today).
 * [linear-obligation] A linear value carries a *use obligation*: on
   every path it must be moved onward before it goes out of scope
   (decision L6b: consumption = any move, exactly as the deduction
@@ -2178,15 +2222,49 @@ Conventions:
     ownership needs contracts [deduce-fixpoint]); reported variables
     are marked consumed so each obligation errors once.
 * [linear-discard] `core.discard` —
-  `intrinsic fn discard<T>(value: T) -> [] None` — deliberately drops a
-  value, consuming it: the escape hatch (decision L6c). Lowered per
+  `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — deliberately
+  drops a value, consuming it. **No longer an escape hatch from linearity**
+  (user decision 2026-09-08): `discard` on a linear value is an error naming
+  its `close`, since dropping a handle is exactly the leak the obligation
+  exists to prevent — the hole that made the separate-groups design wrong.
+  It remains the escape hatch for non-linear values (decision L6c). Lowered per
   backend [intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
   ignores (`(value).let {}`). Failure/panic paths are out of scope
   until Salvo has such semantics.
-* [linear-composite] A composite containing a linear component is
-  itself linear (decision L6d): struct fields (followed recursively
-  through declarations), type arguments, array/tuple/union components.
-  Storing a linear value moves the obligation into the container.
+* [linear-composite] A composite may not **hold** a linear value
+  (interim rule, user decision 2026-09-08, roadmap R4 part 2 — replacing
+  decision L6d's contagion, under which a composite containing a linear
+  component became linear itself). Its obligation would have to travel
+  with the container, and composition plus conditional linearity are one
+  design question (roadmap L8), so until that is answered a linear value
+  lives only in a **local, a parameter or a return value**. Refused *at
+  the store*, so the container is never built and there is no follow-on
+  leak to report:
+  * a **struct or handler-state field** whose declared type is linear —
+    at the field, naming it (`Holder.handle`);
+  * a **written composite** with a linear component, one level at a time
+    so a nested one reports at its own node: a type argument
+    (`List<Lines>`), an array element (`Lines[]`), a tuple component, a
+    union arm — including `Lines?`, which is `Lines | None`;
+  * an **array or tuple literal** whose element type is linear (nothing
+    written to refuse);
+  * a **struct literal** field taking a linear value where the field's
+    declared type is generic (`struct Box<T> { item: T }`), which is the
+    store the struct's own declaration cannot see;
+  * a **call** that takes a bare `T` and puts a `T` inside a composite —
+    `add(list: Mut List<T>, elem: T)` is the shape — refused whatever the
+    callee's `<T canbe Linear>` claims, since no container can carry the
+    obligation yet. A signature that only *reads* a composite of `T`
+    (`size(list: List<T>) -> Int`) stores nothing and stays legal.
+  * Consequently a *union* is not a container: a value of `Lines | Int`
+    **is** the linear value, so the obligation survives narrowing and
+    branch merges (an inferred union arm keeps it, a written one is the
+    refusal above).
+  * **Known casualties**, both recorded rather than worked around: a
+    linear pass cannot be composed (`map_lazy(open_lines("a"), f)` stores
+    its source), and the fallible-open shape `Ok InputStream | Err Str`
+    is unavailable to S-IO until union arms get an exception or the result
+    shape changes.
 * [linear-generics] An unconstrained generic parameter cannot be
   instantiated with a linear type (decision L6d): unopted generic code
   does not honor the obligation. A fn opts in *per type parameter* with
@@ -2195,7 +2273,7 @@ Conventions:
   `canbe`, the comma separates parameters; spelled `with` until the
   2026-09-03 rename [canbe-optin]):
   * inside the opted fn, `T`-typed values are treated as linear
-    (`Ty::Var` participates in the transitive analysis), so the body is
+    (`Ty::Var` counts as linear), so the body is
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
@@ -2204,7 +2282,12 @@ Conventions:
     `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — no
     blessed-by-name special case), while `get` stays out (returns an
     alias of an element) and `copy` refuses with a dedicated message
-    (duplicating an obligation is meaningless);
+    (duplicating an obligation is meaningless). The opt-ins are
+    **signatures, not permissions to store**: since R4 part 2 a call that
+    would put a linear value into `List<T>` is refused by
+    [linear-composite] regardless, so the audited surface now means only
+    "these may be *called* with a linear `T`" — `size` of a list of them,
+    never a list of them;
   * a linear value cannot be passed in a *variadic* position (variadic
     arguments are untracked, so the obligation would be physically
     moved but statically unresolvable);
@@ -2218,8 +2301,8 @@ Conventions:
   closure would swallow the obligation.
 * [linear-static] Linearity is enforced purely statically and
   identically on both backends (decision L6e): no runtime component, no
-  destructors — `discard` is the only way a value legally dies without
-  being passed on.
+  destructors — a value's own `close` [linear-group] is the only way it
+  legally dies without being passed on.
 
 ## Modules, imports, files
 

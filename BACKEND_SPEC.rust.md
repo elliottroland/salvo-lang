@@ -187,6 +187,10 @@ Conventions:
         **place** subject is cloned — driving mints a fresh machine, so a
         second `for` over the same origin replays — while a temporary is
         moved.
+      * **The clone is unobservable** because the checker refuses mutation of
+        an origin while its loop is open [yield-fn-origin] — the clone is
+        therefore also, since that rule landed, *removable*: the machine
+        holding the origin at all is what roadmap option (e) drops.
       * Handlers come from the `yield fn`'s own `fn_effects` (minus
         `Throw`), which is the list an ordinary fn's leading parameters come
         from: the origin form declares its effects normally, so
@@ -275,13 +279,34 @@ Conventions:
   rather than evaluated; any other `None`-typed value runs for its effects
   first.
 * [type-tuple] Tuples map to native Rust tuples (any size).
-* [backend-never-wrong] A **function in a struct field** is a codegen error,
-  not output: Rust allows `impl Trait` nowhere but argument and return
-  position (`E0562`), and a `Box<dyn Fn>` field would be a representation
-  choice with ownership consequences the checker knows nothing about. The
-  diagnostic names what does work — an implicit parameter, or a `params`
-  group [implicit-group]. Kotlin accepts the same source, so the restriction
-  has to be reported rather than left to rustc.
+* [rs-fn-field] A **function in a struct field** is an `Rc<dyn Fn…>`
+  (roadmap R5, 2026-09-08 — it was a codegen error until then, while Kotlin
+  accepted the same source: a live backend divergence, now closed). The
+  representation is the one a *generated* pass has always used for a stored
+  callback [rs-iter-lazy], reused rather than reinvented:
+  * the field renders as `std::rc::Rc<dyn Fn(A) -> R>` — `Fn`, not `FnMut`,
+    because it is reached through a shared `Rc` (the same rendering an
+    iterator fn's callback parameter gets, with `impl `/` + 'static`
+    rewritten to `Rc<dyn …>`);
+  * a **store** wraps in `std::rc::Rc::new(…)`, in a struct literal and in
+    an inlined default alike. Wrapping a value that is *already* an `Rc`
+    re-coerces (one more indirection) rather than failing, so the rendering
+    does not depend on where the value came from;
+  * the struct gets `#[derive(Clone)]` and a **hand-written `Debug`** that
+    prints the callback as `<fn>`, since `dyn Fn` has no `Debug` and `{:?}`
+    is how `${…}` renders a struct [rs-display];
+  * a read is an ordinary place read (`Rc` clones), and calling the value
+    still needs a local first (`let g = h.f` then `g(e)`) — `h.f(e)` is
+    dot-notation for `f(h, e)` [fn-dot], which is a language rule, not a
+    backend one;
+  * what this buys: a **hand-written composed pass** (a struct storing its
+    source *and* its callback) builds on both targets, so composing passes
+    is available to anyone rather than only to generated std code.
+* [backend-never-wrong] A **`params` group in a struct field** is still a
+  codegen error: a bundle of functions has no single type to store. The
+  checker refuses it first [group-not-a-value]; the backend keeps its own
+  guard, and the diagnostic names what does work — an implicit parameter, or
+  a `params` group in a signature [implicit-group].
 * [rs-tuple-index] A tuple index ([expr-tuple-index]) is Rust's own
   positional field: `t.0` emits as `t.0`, nesting included (`t.1.0`).
   Reads clone like any other projection in owned position, and a narrowed

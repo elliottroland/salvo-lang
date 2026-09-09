@@ -36,14 +36,21 @@ fn finished() [] -> [] Finished {
 }
 
 // [iter-protocol] [group-obligation] What a **pass** is: a type that
-// declares `: Yield<T>`, tied to iteration by its `next`. The obligation is
-// checked at the declaring struct — a misspelled or missing `next` is an
-// error where the promise is written, not a puzzling "not iterable" at some
-// loop — and `for` reads the declaration rather than scanning overloads.
+// declares `: Yield<self, T>`, tied to iteration by its `next`. The
+// obligation is checked at the declaring struct — a misspelled or missing
+// `next` is an error where the promise is written, not a puzzling "not
+// iterable" at some loop — and `for` reads the declaration rather than
+// scanning overloads.
+//
+// The state comes *first* and the element second, and the state is an
+// ordinary type parameter rather than a magic `Self`: that is what keeps this
+// an ordinary group, so the same declaration also spreads as
+// `?Yield<It, T>` implicit parameters — which is how a generic combinator
+// reaches a source pass's `next` [implicit-group]. At an obligation the
+// declaring type is written `self` [group-self].
 //
 // The state is taken as `Mut`: advancing a pass is a mutation of its
-// position. `Self` is the declaring type [group-self]; a group emits
-// nothing on any backend [implicit-group].
-params Yield<T> {
-    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+// position. A group emits nothing on any backend [implicit-group].
+params Yield<It, T> {
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
