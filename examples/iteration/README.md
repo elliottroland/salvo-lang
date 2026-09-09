@@ -74,4 +74,4 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
 `kotlinc` emits `unchecked cast of 'Any?' to 'T'` warnings for std's generic
 combinators (`core/seq.kt`). A generic union arm read has to go through `Any?`
 on the JVM, so the cast is in code the author never wrote; it is recorded in
-PROGRESS.md rather than silenced.
+COMPLETED.md rather than silenced.

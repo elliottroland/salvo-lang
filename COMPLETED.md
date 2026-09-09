@@ -1,115 +1,223 @@
-**The iterator design was re-evaluated and reduced (user decisions 2026-09-08);
-the next work is that reduction, not the old roadmap.** `Iter<T>` was a
-structural interface in a language with none — a factory, i.e. a function, which
-is why `Once` and effects both fit on it — and it left two protocols (`next` and
-`iter`) with `for` arbitrating, plus a combinator surface that could not see a
-hand-written pass at all. The replacement: **a pass is a user struct, tied to
-iteration by a `next`, and `for` is sugar for calling it until `Finished`.** The
-ties between functions and structs are declared with **compiler-known `params`
-obligation groups** (`: Yield<Str>`, `: Linear`), which also gives linearity a
-named discharge (`close`). See "Roadmap: iterators — **the reduction to
-`next`**" for the decisions, the six-phase plan, the unknowns to settle first,
-and what it deletes (most of I4, the boxing question, `Once` on producers).
-Everything below this line is the design it supersedes, kept because its
-prototypes and defect findings are what the reduction stands on.
+# Salvo Compiler — Completed work
 
-**I5 landed (2026-09-08): the combinator surface, and four defects behind it.**
-`map`/`filter`/`reduce` stay eager; `map_lazy`/`filter_lazy` return a producer;
-`map_to`/`filter_to` map into a collection the caller provides, reached through
-an `?add` **implicit parameter** — so the destination is anything with an `add`,
-not a `List` (user decision). Verified on both backends with identical stdout,
-including a lazy chain over an **unbounded** producer that terminates only
-because the consumer breaks. Writing it was mostly *finding* things: the
-generic `?Iterable` body had never run (every caller took a `List` fast path),
-so a producer holding implicits, an implicit with a `Mut` parameter, and
-`return None` in a `None`-returning fn were all first-time paths — four
-defects, three of them pre-existing and backend-general. Details under "I5 as
-built".
+The record: what is built, the decisions already actioned, the options explored
+and abandoned, the defects found and closed, the tests that exist, and the
+lessons the work left behind. Read it to find out whether a question has already
+been answered — and how, and why — before answering it again.
 
-**The release path is plumbed everywhere (2026-09-08), which is I2c's first
-part.** A generated pass is no longer a target-language iterator — Rust gets a
-`SalvoPass<T>` trait with `advance`/`close` and Kotlin a `SalvoClosable`
-interface on its pass base — so every `for` over an `Iter<T>` mints, advances
-and closes, claiming or pure, and a nested pass is released with its outer one.
-Collections keep native loops (decision 8). **No observable behaviour change
-today**, deliberately recorded as such: after [iter-mut-param] a pure producer
-has no way to make an abandoned `defer` visible, and every route that would is a
-shape still refused — this is the protocol the un-boxing half of the split needs,
-correct in advance. Details under "I2c: the release path, everywhere".
+**Work still to do lives in [ROADMAP.md](ROADMAP.md)**: open defects, the phases
+not yet built, and the decisions and plans already made about them. The two
+documents replaced PROGRESS.md (2026-09-09); nothing was dropped in the split.
 
-**A producer may not carry mutable state — parameter or capture (2026-09-08).**
-[iter-mut-param] grew its second half the same day: a lambda handed to a
-producer's fn-typed parameter may not capture mutable state either, since a
-producer keeps its callback for as long as it can mint a pass and calls it once
-per element in *every* pass. Both kinds are refused — a capture the closure
-writes through, and one it merely reads mutable data through, because
-snapshot-vs-alias is what makes the second observable. Rust already rejected
-both (`impl Fn + 'static`) while Kotlin ran them and accumulated across passes:
-a checker-clean program only one backend could build. **And the remedy turned
-out to be broken too**: a producer's callback was emitted as a *borrowing*
-closure despite its declared `impl Fn + 'static`, so E0373 hit every capturing
-lambda — immutable ones included. One `move`, and the first test in the suite
-that hands a capturing lambda to a producer. **I5's surface is decided**
-(user): eager by default, `map_lazy` for the lazy pair, `map_to` mapping into a
-caller-provided collection with an `?add` implicit.
+What is built, in one paragraph: both backends (Kotlin, Rust) work end to end,
+verified by compiling and running the emitted code with `kotlinc` and `rustc` to
+byte-identical stdout. The language has structs, tuples, arrays, unions with
+flow-sensitive narrowing, qualifiers (state and provenance, with predicates,
+constructors, refinements and deductions), everything-is-an-expression control
+flow, `defer`, algebraic effects with handler dependencies, non-resumption
+(`throw`/`try`), implicit parameters and obligation groups, linear types with a
+designated `close`, and pull iteration reduced to a `next` that `for` drives.
+Ownership on the Rust side is derived mechanically from deductions — no
+lifetimes in emitted signatures except the one deliberate exception
+([readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
+extension, and worked [examples/](examples/).
 
-**A producer may not take a mutable parameter (user decision 2026-09-08).**
-Asking whether the *pure* producer's injected `close` is observable — the I2c
-leftover, and the natural next item after I4 — turned up a `[backend-parity]`
-defect with nothing to do with `close`: a `yield` fn taking `sink: Mut
-List<Int>` mutated a **private copy** on Rust (parameters are captured by
-clone, which is what makes the factory's state `'static`) and the **caller's
-own list** on Kotlin (a `MutableList` is a reference), so successive passes
-accumulated on one target and started fresh on the other — same source,
-different output, silently. Which backend is "wrong" is a language question, so
-the shape is **refused** [iter-mut-param] rather than sided with: transitively,
-by the same `Mut`-at-any-depth test [fate-move-mode] uses, with a diagnostic
-naming the two remedies that work everywhere (yield the values and let the
-consumer collect them, or reach the outside through an effect). Nothing in
-`std/` or the corpus did this, so it landed without a sweep. Two follow-ons
-recorded rather than decided: **`Once Iter<T>`** may be able to take one after
-all — one pass exists, so what remains is shared fate ([fate-link]), which
-needs I2c's representation split — and **sharing it properly on both backends**
-is queued as the sharpest customer of the `Cell` roadmap ("Producers: the
-`Mut`-parameter case (option C)").
+Companion documents: [LANGUAGE.md](LANGUAGE.md) is the narrative spec (source of
+truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a labeled
+rule (`[qual-erasure]` style) with the compiler decisions under it;
+`BACKEND_SPEC.<backend>.md` ([kotlin](BACKEND_SPEC.kotlin.md),
+[rust](BACKEND_SPEC.rust.md)) repeats rules with backend interpretation details
+and adds backend-prefixed rules (`kt-…`, `rs-…`) — load it only when working on
+that backend. Labels are referenced from compiler code and tests
+(`grep -rn '[rule-name]'`); backend-prefixed labels may only be referenced from
+that backend's crate. Keep all of these in sync when adding or changing
+features. Detailed feature mechanics live in the specs; these two documents keep
+the decision log, the plan, and the hard-won operational knowledge.
 
-**I4 is complete (2026-09-07): an effectful producer compiles and runs on both
-backends.** The language half landed earlier the same day — a producer's effects
-live on its type, `FileSystem Iter<Str>` [iter-effects] — and the emission half
-is now built: a **generated trait/interface per effect set**
-(`iter_effects.rs` / `iter_effects.kt`, one per set the way `UnionN` is one per
-arity), the handlers threaded into the machine's `advance`/`close`/`__run_dN` as
-*parameters* in the checker's canonical order, a `for` over a claiming producer
-lowered to **mint/advance/close** — which is what finally gives the injected
-`close` a caller — and the **variance adapter** the prototype turned up, at the
-positions the checker records it. Verified with `experiments/pull-iterators/
-effectful.sv` compiled and run by `rustc` *and* `kotlinc`: byte-identical
-stdout, no warnings from either toolchain, and the same source in both backends'
-test suites (the parity claim). The two "producer that performs effects"
-refusals are gone; four narrower ones took their place
-[backend-never-wrong]. Details under "I4 emission as built".
+How this document is ordered: the **decision log** comes first, newest entry at
+the top — it is the running narrative of what landed and what each thing cost.
+After it, the **milestone history**, the **closed defects**, and then one section
+per feature *arc* (linear types, effects, iterators, places, deductions, names,
+overloads, std). Those arc sections keep the headings they were written under —
+several still say "Roadmap:", because the prose in both documents refers to them
+by name; each is the plan *as executed*, and anything still open under it moved
+to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **gotchas** are last.
 
-**D8 decided and I4's language half built (2026-09-07): a producer's effects
-live on its type.** `FileSystem Iter<Str>` is a producer whose *driving*
-performs `FileSystem` [iter-effects] — the effect written in **qualifier
-position** (user decision: a type with no arrow has nowhere to put a `[…]`
-list, and a prefixed one reads as a deduction list in return position), on the
-**return type** rather than in the `yield` fn's own list (none of its body runs
-when it is called, so a list there would demand a handler at every call site
-for something calling it never does), and legal exactly where `Once` is legal
-(`Iter<T>` and a `canbe Once` type of one's own). Every other rule came free
-from [fn-effects]: a fn **inherits** a producer parameter's claim, *fewer*
-effects fit where more are expected, the claim never drops, and **holding** a
-producer needs nothing — only driving it does. [iter-effect-free] is gone as a
-rule. Emission followed the same day, and its **shape was fixed by a
-prototype** (`experiments/pull-iterators/effectful.{sv,rs,kt}`, byte-identical
-output on both toolchains, no warnings): a trait/interface per effect set, the
-factory still a factory, and — the finding worth having early — a *variance
-adapter*, because a pure producer used where a claiming one is expected has a
-different representation. Details under "D8 decided", "I4 emission prototyped"
-and "I4 emission as built".
+## How to build and test
 
-# Salvo Compiler — Progress & Plan
+```bash
+cargo build                 # workspace build, no warnings
+cargo test                  # 817 tests, complete: the toolchain tests are
+                            # content-cached, so an unchanged one is not
+                            # recompiled — ~8s warm, ~80s cold
+SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
+SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
+                            # out to kotlinc/rustc. Those tests still report as
+                            # *passing*, so this is never the pre-submit check.
+cargo nextest run           # the same tests with per-test timings (diagnosis only;
+                            # measured slower here — a process per test)
+INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
+
+# End-to-end:
+cargo run -- compile --src ./some_dir --target ./out        # --backend defaults to kotlin
+cargo run -- compile --backend rust --src ./some_dir --target ./out_rs
+cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
+cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
+
+# Type-check without generating code [cli-analyze]:
+cargo run -- analyze --src ./some_dir                       # text diagnostics, exit 1 on errors
+cargo run -- analyze --src ./some_dir --format json         # machine-readable diagnostics
+cargo run -- analyze --src ./some_dir --backend kotlin      # also parse kotlin define files
+
+# Generate the host side of `platform effect` declarations [cli-platform]:
+cargo run -- platform generate --backend kotlin --src ./some_dir
+# Writes ./some_dir/platform/<module>.kt once per module that declares
+# platform effects; never overwrites, so implement the stubs and re-run
+# `salvo run`.
+
+# Language server over stdio [cli-lsp] (point your editor's LSP client at it):
+cargo run -- lsp
+
+# Regenerate the VS Code extension's TextMate grammar [cli-lang]
+# (a test fails if the checked-in copy is stale):
+cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json
+
+# Verify generated Kotlin manually (the CLI prints the entry point):
+kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
+# Verify generated Rust manually (the CLI prints the exact command):
+rustc --edition 2021 out_rs/main.rs -o program && ./program
+```
+
+## Workspace layout
+
+```
+crates/
+├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir,
+│                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
+├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
+│   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
+├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
+├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
+├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
+├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
+└── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
+                          #   (once per binary) + the e2e content-hash cache
+std/                      # stdlib: core/ (basic, string, list, console) + random.sv
+vscode/                   # VS Code extension: LSP client + generated TextMate grammar
+```
+
+Adding another backend = new crate implementing `salvo_backend::Backend`,
+register it in `salvo-cli/src/main.rs`, write `*.<name>.sv` define files
+next to the std modules, and add a `BACKEND_SPEC.<name>.md`. Std embedding
+already filters define files per backend at load time
+(`SourceSet::classify`).
+
+## Decision log — newest first
+
+Each entry is one piece of work: what was decided, by whom, what it took, and
+what fell out of building it. Entries marked "(user decision …)" record a
+language-design call, which is the user's to make (AGENTS.md's first
+invariant).
+
+**The order of the remaining work is fixed (user decision 2026-09-09), and one
+roadmap item turned out to be dead.** With the plan and the record separated, the
+open items could be ranked, and the user set the sequence: **1** finish the
+iterators (including the flat-qualifier defect that blocks
+`Emitted (Ok T | Err E)`), **2** finish shared fate with places and partial moves
+(L5), **3** finish linearity with composition and conditionality, **4** build the
+filesystem on an IO stream design that uses both, **5** start the threading model
+— Erlang/Gleam/OTP. It is recorded as "The sequence" at the top of ROADMAP.md,
+with each themed section tagged by phase, so a session picks from the current
+phase rather than from a flat list.
+
+What the ranking exercise found, all of it now in ROADMAP.md:
+
+- **Nothing needed to go before phase 1**, and the phase-1 defect is
+  load-bearing for phase 4 rather than merely first: a qualifier applied to an
+  already-qualified value flattens, which is exactly the shape a stream of
+  results needs.
+- **Two decisions were re-dated to "before phase 4"** rather than left
+  unscheduled, because streams make them concrete: **operator typing and numeric
+  promotion** (offsets and sizes are `Long`, and deciding promotion after std has
+  a numeric surface means churning that surface) and **two effects sharing a
+  member name** (`read`/`write`/`close` collide across `Fs`, the stream surface
+  and `Console`, so the `println@Console(...)` question is due there instead of
+  being dodged with prefixed names).
+- **Phase 3 is three questions, not one.** L8 (obligations through containers) is
+  the same machinery question as D7 (linearity conditioned on a use-site
+  qualifier) along a different axis, and an earlier decision (2026-09-07) already
+  binds D7 to D6 (`Once` on any type). D7's *stated* motivation is stale — it was
+  written for `Once Iter<T>` versus plain `Iter<T>`, and `Iter<T>` no longer
+  exists — so the case has to be re-derived from L8. Also folded in: the linear
+  instantiation ban does not cover an **effect member's own generics**, which is a
+  hole in what already shipped.
+- **Phase 5 has a prerequisite the roadmap only hinted at.** `Sendable` was on
+  the intrinsic-capability watch list ("the moment concurrency lands"), but the
+  blocker is representational: generated Rust holds a fn-typed field as
+  `Rc<dyn Fn…>` [rs-fn-field] — every composed pass, so `map_lazy`'s result — and
+  `Rc` is not `Send`. A new "Threading and concurrency" section states the four
+  questions the existing implementation forces (sendability, what effects a
+  spawned process has, OS threads versus a runtime, whether async survives) and
+  what is already in place: message ownership transfer is ordinary consumption,
+  and linearity survives a send because moves transfer the obligation.
+- **`Cell` moves to *after* phase 5**, deliberately. It exists to make shared
+  mutable state expressible, and the OTP answer is that processes own their state
+  and message-pass — so phase 5 may remove its motivation, and deciding it
+  earlier would spend the same language-design call twice.
+- **E2 is deleted, not deferred.** It proposed heuristics that inspect "the
+  backend define template" for mutations, moves and I/O under a wrong contract —
+  and `external`/`define` were deleted in the 2026-09-05 interop redesign, so
+  there is no template to inspect. Its job is already done twice over: an
+  intrinsic's lowering is Rust code covered by tests, and a `platform effect`'s
+  host implementation is checked by the *target's* compiler, which was the point
+  of the redesign. Recorded here rather than left as an item nobody could act on.
+
+**PROGRESS.md became two documents (user decision 2026-09-09).** It had grown to
+10,400 lines in which the plan and the record were interleaved — the same section
+often holding a decision, its implementation notes and the part of it still
+unbuilt — so "what is left to do?" could not be answered without reading the
+history, and the history could not be read without stepping over the plan. The
+split is by *tense*: **COMPLETED.md** (this document) is what happened —
+features built, decisions actioned, options explored and abandoned, defects found
+and closed, the test inventory and the gotchas — and **ROADMAP.md** is what has
+not happened yet, carrying each open item together with the decisions and plans
+already made about it.
+
+- **Nothing was dropped**, and that was checked mechanically rather than by
+  reading: every line of PROGRESS.md was assigned to exactly one destination, the
+  assignment verified to be a partition, and each moved block verified to appear
+  *verbatim* in its destination. The only lines not carried over are the old
+  title, the companion-documents paragraph (rewritten in both intros) and two
+  section headers that became differently-named sections here and in ROADMAP.md.
+- **Mixed sections were split at the seam rather than paraphrased.** An arc whose
+  early phases landed and whose late ones did not — the linear-types arc, the
+  effects arc, the deduction arc — keeps its completed phases here, in the
+  headings they were written under, while the open ones moved to ROADMAP.md
+  whole, with a one-line pointer left where they used to sit.
+- **Arc headings still say "Roadmap:"** because the prose around them, in both
+  documents, refers to them by name. Each is the plan *as executed*; the open
+  remainder is in ROADMAP.md.
+- **One defect turned out to be genuinely open and had lost its heading**: the
+  flat-qualifier-list bug that makes `emitted(ok("x"))` match no arm of
+  `Emitted (Ok Str | Err Str) | Finished` sat under the *closed* defects with no
+  `###` of its own, so it read as part of the entry above it. It now has a
+  heading, in ROADMAP.md.
+- **Six leftovers were pruned rather than moved**, because later work had
+  already closed them and a roadmap carrying dead items is worse than one that
+  is short: fn-type effect lists "parse but are not enforced" (E3 step 3
+  enforces them [fn-effects]); an overloaded fn passed by name resolving to the
+  first overload, and expected fn-type contracts reaching only single-candidate
+  callees (both closed by the overload finalization — [fn-value-select] and the
+  *lead candidate*); `yield` in a value-position loop being a kotlinc
+  "restricted suspending function" error (the `iterator {}` builder it named was
+  deleted when the generator lowering landed); and the whole I4-era iterator
+  refusal list, which described `Iter<T>` machinery the reduction deleted —
+  ROADMAP.md quotes R5's own cut list instead. Their text stays here, in the
+  entries that recorded them.
+- **What the split makes visible** is the shape of what remains: one reproduced
+  defect, nine questions waiting on a language-design call, and a few dozen
+  small engineering remainders — against nine thousand lines of record.
+
 
 **The pass structs are `*Yield`, and `experiments/` became `examples/`
 (user decisions 2026-09-09).** Two housekeeping changes with one theme: the
@@ -269,6 +377,117 @@ Building the first turned up a **parity defect** worth the whole exercise —
 same program printed different things — fixed as [iter-drive-in-place]: a kept
 pass is advanced where it lives, on both backends. See "The generic drive as
 built".
+
+**The iterator design was re-evaluated and reduced (user decisions 2026-09-08);
+the next work is that reduction, not the old roadmap.** `Iter<T>` was a
+structural interface in a language with none — a factory, i.e. a function, which
+is why `Once` and effects both fit on it — and it left two protocols (`next` and
+`iter`) with `for` arbitrating, plus a combinator surface that could not see a
+hand-written pass at all. The replacement: **a pass is a user struct, tied to
+iteration by a `next`, and `for` is sugar for calling it until `Finished`.** The
+ties between functions and structs are declared with **compiler-known `params`
+obligation groups** (`: Yield<Str>`, `: Linear`), which also gives linearity a
+named discharge (`close`). See "Roadmap: iterators — **the reduction to
+`next`**" for the decisions, the six-phase plan, the unknowns to settle first,
+and what it deletes (most of I4, the boxing question, `Once` on producers).
+Everything below this line is the design it supersedes, kept because its
+prototypes and defect findings are what the reduction stands on.
+
+**I5 landed (2026-09-08): the combinator surface, and four defects behind it.**
+`map`/`filter`/`reduce` stay eager; `map_lazy`/`filter_lazy` return a producer;
+`map_to`/`filter_to` map into a collection the caller provides, reached through
+an `?add` **implicit parameter** — so the destination is anything with an `add`,
+not a `List` (user decision). Verified on both backends with identical stdout,
+including a lazy chain over an **unbounded** producer that terminates only
+because the consumer breaks. Writing it was mostly *finding* things: the
+generic `?Iterable` body had never run (every caller took a `List` fast path),
+so a producer holding implicits, an implicit with a `Mut` parameter, and
+`return None` in a `None`-returning fn were all first-time paths — four
+defects, three of them pre-existing and backend-general. Details under "I5 as
+built".
+
+**The release path is plumbed everywhere (2026-09-08), which is I2c's first
+part.** A generated pass is no longer a target-language iterator — Rust gets a
+`SalvoPass<T>` trait with `advance`/`close` and Kotlin a `SalvoClosable`
+interface on its pass base — so every `for` over an `Iter<T>` mints, advances
+and closes, claiming or pure, and a nested pass is released with its outer one.
+Collections keep native loops (decision 8). **No observable behaviour change
+today**, deliberately recorded as such: after [iter-mut-param] a pure producer
+has no way to make an abandoned `defer` visible, and every route that would is a
+shape still refused — this is the protocol the un-boxing half of the split needs,
+correct in advance. Details under "I2c: the release path, everywhere".
+
+**A producer may not carry mutable state — parameter or capture (2026-09-08).**
+[iter-mut-param] grew its second half the same day: a lambda handed to a
+producer's fn-typed parameter may not capture mutable state either, since a
+producer keeps its callback for as long as it can mint a pass and calls it once
+per element in *every* pass. Both kinds are refused — a capture the closure
+writes through, and one it merely reads mutable data through, because
+snapshot-vs-alias is what makes the second observable. Rust already rejected
+both (`impl Fn + 'static`) while Kotlin ran them and accumulated across passes:
+a checker-clean program only one backend could build. **And the remedy turned
+out to be broken too**: a producer's callback was emitted as a *borrowing*
+closure despite its declared `impl Fn + 'static`, so E0373 hit every capturing
+lambda — immutable ones included. One `move`, and the first test in the suite
+that hands a capturing lambda to a producer. **I5's surface is decided**
+(user): eager by default, `map_lazy` for the lazy pair, `map_to` mapping into a
+caller-provided collection with an `?add` implicit.
+
+**A producer may not take a mutable parameter (user decision 2026-09-08).**
+Asking whether the *pure* producer's injected `close` is observable — the I2c
+leftover, and the natural next item after I4 — turned up a `[backend-parity]`
+defect with nothing to do with `close`: a `yield` fn taking `sink: Mut
+List<Int>` mutated a **private copy** on Rust (parameters are captured by
+clone, which is what makes the factory's state `'static`) and the **caller's
+own list** on Kotlin (a `MutableList` is a reference), so successive passes
+accumulated on one target and started fresh on the other — same source,
+different output, silently. Which backend is "wrong" is a language question, so
+the shape is **refused** [iter-mut-param] rather than sided with: transitively,
+by the same `Mut`-at-any-depth test [fate-move-mode] uses, with a diagnostic
+naming the two remedies that work everywhere (yield the values and let the
+consumer collect them, or reach the outside through an effect). Nothing in
+`std/` or the corpus did this, so it landed without a sweep. Two follow-ons
+recorded rather than decided: **`Once Iter<T>`** may be able to take one after
+all — one pass exists, so what remains is shared fate ([fate-link]), which
+needs I2c's representation split — and **sharing it properly on both backends**
+is queued as the sharpest customer of the `Cell` roadmap ("Producers: the
+`Mut`-parameter case (option C)").
+
+**I4 is complete (2026-09-07): an effectful producer compiles and runs on both
+backends.** The language half landed earlier the same day — a producer's effects
+live on its type, `FileSystem Iter<Str>` [iter-effects] — and the emission half
+is now built: a **generated trait/interface per effect set**
+(`iter_effects.rs` / `iter_effects.kt`, one per set the way `UnionN` is one per
+arity), the handlers threaded into the machine's `advance`/`close`/`__run_dN` as
+*parameters* in the checker's canonical order, a `for` over a claiming producer
+lowered to **mint/advance/close** — which is what finally gives the injected
+`close` a caller — and the **variance adapter** the prototype turned up, at the
+positions the checker records it. Verified with `experiments/pull-iterators/
+effectful.sv` compiled and run by `rustc` *and* `kotlinc`: byte-identical
+stdout, no warnings from either toolchain, and the same source in both backends'
+test suites (the parity claim). The two "producer that performs effects"
+refusals are gone; four narrower ones took their place
+[backend-never-wrong]. Details under "I4 emission as built".
+
+**D8 decided and I4's language half built (2026-09-07): a producer's effects
+live on its type.** `FileSystem Iter<Str>` is a producer whose *driving*
+performs `FileSystem` [iter-effects] — the effect written in **qualifier
+position** (user decision: a type with no arrow has nowhere to put a `[…]`
+list, and a prefixed one reads as a deduction list in return position), on the
+**return type** rather than in the `yield` fn's own list (none of its body runs
+when it is called, so a list there would demand a handler at every call site
+for something calling it never does), and legal exactly where `Once` is legal
+(`Iter<T>` and a `canbe Once` type of one's own). Every other rule came free
+from [fn-effects]: a fn **inherits** a producer parameter's claim, *fewer*
+effects fit where more are expected, the claim never drops, and **holding** a
+producer needs nothing — only driving it does. [iter-effect-free] is gone as a
+rule. Emission followed the same day, and its **shape was fixed by a
+prototype** (`experiments/pull-iterators/effectful.{sv,rs,kt}`, byte-identical
+output on both toolchains, no warnings): a trait/interface per effect set, the
+factory still a factory, and — the finding worth having early — a *variance
+adapter*, because a pure producer used where a claiming one is expected has a
+different representation. Details under "D8 decided", "I4 emission prototyped"
+and "I4 emission as built".
 
 **The `yield` lowering is built (2026-09-07): one state machine, planned in
 `salvo-core`, rendered by both backends.** `generator.rs` turns a `yield` fn
@@ -2002,87 +2221,6 @@ possible unity with constructive qualifiers; D3 covers refinements — the
 general answer to D1's accepted over-strictness, after analysis showed
 blanket qualifier *polymorphism* cannot be sound.
 
-Companion documents: LANGUAGE.md is the narrative spec (source of truth);
-LANGUAGE_SPEC.md states every feature as a labeled rule (`[qual-erasure]`
-style) with the compiler decisions under it; BACKEND_SPEC.<backend>.md
-(`BACKEND_SPEC.kotlin.md`, `BACKEND_SPEC.rust.md`) repeats rules with
-backend interpretation details and adds backend-prefixed rules (`kt-…`,
-`rs-…`) — load it only when working on that backend. Labels are referenced
-from compiler code and tests (`grep -rn '\[rule-name\]'`); backend-prefixed
-labels may only be referenced from that backend's crate. Keep all of these
-in sync when adding or changing features. Detailed feature mechanics live
-in those specs; this file keeps the decision log, the plan, and the
-hard-won operational knowledge.
-
-## How to build and test
-
-```bash
-cargo build                 # workspace build, no warnings
-cargo test                  # 817 tests, complete: the toolchain tests are
-                            # content-cached, so an unchanged one is not
-                            # recompiled — ~8s warm, ~80s cold
-SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
-SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
-                            # out to kotlinc/rustc. Those tests still report as
-                            # *passing*, so this is never the pre-submit check.
-cargo nextest run           # the same tests with per-test timings (diagnosis only;
-                            # measured slower here — a process per test)
-INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
-
-# End-to-end:
-cargo run -- compile --src ./some_dir --target ./out        # --backend defaults to kotlin
-cargo run -- compile --backend rust --src ./some_dir --target ./out_rs
-cargo run -- compile --src ./some_dir --target ./out --emit-ast             # user-module AST dump
-cargo run -- compile --src ./some_dir --target ./out --emit-ast=core.list   # one module's AST
-
-# Type-check without generating code [cli-analyze]:
-cargo run -- analyze --src ./some_dir                       # text diagnostics, exit 1 on errors
-cargo run -- analyze --src ./some_dir --format json         # machine-readable diagnostics
-cargo run -- analyze --src ./some_dir --backend kotlin      # also parse kotlin define files
-
-# Generate the host side of `platform effect` declarations [cli-platform]:
-cargo run -- platform generate --backend kotlin --src ./some_dir
-# Writes ./some_dir/platform/<module>.kt once per module that declares
-# platform effects; never overwrites, so implement the stubs and re-run
-# `salvo run`.
-
-# Language server over stdio [cli-lsp] (point your editor's LSP client at it):
-cargo run -- lsp
-
-# Regenerate the VS Code extension's TextMate grammar [cli-lang]
-# (a test fails if the checked-in copy is stale):
-cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json
-
-# Verify generated Kotlin manually (the CLI prints the entry point):
-kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
-# Verify generated Rust manually (the CLI prints the exact command):
-rustc --edition 2021 out_rs/main.rs -o program && ./program
-```
-
-## Workspace layout
-
-```
-crates/
-├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir,
-│                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
-├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
-│   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
-├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
-├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
-├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
-├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
-└── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
-                          #   (once per binary) + the e2e content-hash cache
-std/                      # stdlib: core/ (basic, string, list, console) + random.sv
-vscode/                   # VS Code extension: LSP client + generated TextMate grammar
-```
-
-Adding another backend = new crate implementing `salvo_backend::Backend`,
-register it in `salvo-cli/src/main.rs`, write `*.<name>.sv` define files
-next to the std modules, and add a `BACKEND_SPEC.<name>.md`. Std embedding
-already filters define files per backend at load time
-(`SourceSet::classify`).
-
 ## History (condensed)
 
 The milestone-by-milestone detail that used to live here has been folded
@@ -2909,7 +3047,11 @@ by faithful emission. Rule [fn-contract]:
   and the checker, which must agree with them on the ident-unwrap
   predicates (`maybe_coerce`'s "effective repr").
 
-## Open defects
+## Defects found and closed
+
+Each was reproduced before it was fixed, and the repro is kept: it is the
+argument for the rule that closed it. Defects still open are in
+[ROADMAP.md](ROADMAP.md).
 
 ### ~~Narrowing does not survive an early-returning guard~~ — found and closed 2026-09-09
 
@@ -3021,10 +3163,6 @@ both remedies (move the write out, or iterate `copy(b)`); four tests in
 *before and after* its drives stays clean — the case that had to keep working.
 
 **Still open, as an optimization**: option (e), under "Mutable origins" below.
-
-
-Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
-paste and a root cause, so picking one up needs no re-investigation.
 
 ### ~~A producer's callback may capture mutable state: checker-clean, Kotlin runs it, rustc rejects it~~ — closed 2026-09-08
 
@@ -3146,62 +3284,6 @@ it a caller makes an abandoned producer's deferred blocks run, and those are
 observable only through state the pass shares with someone else — which, after
 this rule, a *pure* producer has none of. The hole is real but no longer
 reachable by the route that found it.
-
-
-Found 2026-09-07 while answering whether a fallible producer needs `Throw`
-support [iter-protocol]. Minimal repro:
-
-```
-fn b(flag: Bool) -> Emitted (Ok Str | Err Str) | Finished {
-    if flag {
-        return emitted(ok("x"))    // ERROR
-        // no arm of `Emitted (Ok Str | Err Str) | Finished` accepts a value
-        // of type `Emitted Ok Str`
-    }
-    return finished()
-}
-```
-
-**Root cause** (localized by two probes, both of which *pass*, so the fault is
-in the combination and not in either half):
-
-```
-fn d(flag: Bool) -> Emitted (Str | Int) | Finished { ... return emitted("x") }   // fine
-fn c() -> Ok Str | Err Str { return ok("x") }                                    // fine
-```
-
-`Ty::Qualified` holds a **flat** qualifier list, and `qualify` appends. So
-`emitted(ok("x"))` — a qualifier applied to an already-qualified value —
-produces `Qualified { quals: [Ok, Emitted], base: Str }`, which is
-indistinguishable from "two qualifiers on a `Str`" and is *not* `Emitted`
-applied to `Ok Str`. Matching it against the arm
-`Qualified { quals: [Emitted], base: Union[Ok Str, Err Str] }` therefore
-compares `Str` against `Ok Str | Err Str`, and a plain value never subtypes a
-constructive qualifier [qual-constructive] — hence no arm accepts it. The
-rendering ("Emitted Ok Str", no parentheses) is the same ambiguity showing
-through.
-
-So the earlier guess in this slot — "`Coercion::WrapUnion` cannot chain" — was
-wrong, though a nested wrap *is* still needed for emission once matching is
-fixed: the value would be a bare `Str` that has to be wrapped into the inner
-union's wrapper before the outer arm's.
-
-**Fix, when it is picked up**: either nest `Ty::Qualified` (a representation
-change with wide reach) or add a targeted rule where the expected arm is
-`Q (union)` — split the value's qualifier list into `Q` and the rest, and test
-whether the remainder fits the union — plus the inner wrap in both emitters.
-
-**Workaround, and it is one line**: bind the union first, so the value already
-has the arm's type.
-
-```
-let good: Ok Str | Err Str = ok("x")
-return emitted(good)
-```
-
-Verified end to end on both backends with that binding — see
-`a_fallible_pass_yields_a_result` in each backend's codegen tests. Nothing is
-blocked by it.
 
 ## Roadmap: toward full linear types
 
@@ -3429,22 +3511,8 @@ fixpoint [deduce-fixpoint].
 
 ### L5 — Places and partial moves
 
-Track paths (`x.field`, tuple/array elements), not just whole variables:
-destructuring consumes its source; moving a field out leaves the struct
-partially unusable. This is the largest analysis change (place lattice
-instead of per-variable states).
-
-- **L5a — answered by shared fate (2026-09-01):** partial moves exist
-  as *move-mode bindings* at whole-variable granularity (L1/S2); the
-  question left for L5 is only *field-disjoint precision* (using one
-  field while another is moved/borrowed), a refinement with no current
-  use case. Revisit only if whole-variable poison proves too coarse in
-  practice.
-- **Not L5: field smart-casting.** Place-based *type narrowing* (reads
-  of `h.field` narrowed by `h.field is T`) is a separate feature from
-  place-based ownership — it was roadmap phase **P1**, done 2026-09-03.
-  L5 inherits its `Place` substrate: the projection type (fields *and*
-  elements), the prefix/overlap relations, and per-root fact storage.
+**Open** — see ROADMAP.md. Largely subsumed by shared fate; what is left is
+field-disjoint precision.
 
 ### L6 — Must-use: true linearity. ✅ Done 2026-09-02
 
@@ -3548,37 +3616,10 @@ L6 landed 2026-09-02 with its own LANGUAGE.md section and the
 [linear-*] rule family. Per AGENTS.md, each phase lands with
 LANGUAGE_SPEC.md rules and tests at every affected layer.
 
-### L8 — Composition and conditional linearity (opened 2026-09-08)
+### L8 — Composition and conditional linearity
 
-Deferred deliberately, and the iterator reduction is what makes it concrete.
-`Linear` became a designated obligation group in R4 (see "Decided (user,
-2026-09-08): `Linear` becomes a compiler-known obligation group"), and with it
-came an **interim refusal**, built in R4 part 2 and now what
-`[linear-composite]` says: storing a linear value in a composite — struct or
-handler-state field, type argument, array/tuple/union component — is an error
-*at the store* rather than making the composite linear. What L8 has to answer is
-therefore not "should containers be refused" but "how does an obligation travel
-through one, and when is a container linear at all".
-
-Two things to consider together when this is picked up, both recorded from the
-decisions and the R0 prototype rather than guessed:
-
-- **A linear pass cannot be composed.** `map_lazy(open_lines("a.txt"), f)` is
-  refused, because a composed pass stores its source. So "can you `map` over a
-  file's lines?" is currently *no*, and it is the test case to design against:
-  it is the canonical reason to want lazy sequences at all. The user accepted
-  the interim uncomposability (2026-09-08) rather than widening the rule early.
-- **The fallible-open shape.** S-IO settled on `Ok InputStream | Err Str`, and a
-  linear value in a union arm is exactly what the interim rule refuses — so
-  S-IO needs either an exception for union arms or a different result shape.
-
-And two spellings that must stay distinct, decided with the group
-(2026-09-08): `: Linear` on a *type declaration* is the obligation ("provides a
-`close`"), while `canbe Linear` on a *type parameter* is permission ("may be
-instantiated with a linear type"). Conditional linearity is where the second
-grows teeth — `Wrapper<T>` being linear exactly when `T` is — and it is also
-where the composite refusal can be lifted without making every container
-linear. The presence of a `close` function never implies either.
+**Open** — see ROADMAP.md. How an obligation travels through a container, and
+when a container is linear at all.
 
 ## Roadmap: effects
 
@@ -3788,25 +3829,17 @@ passed by value needs its fusion baked in (a closure). Fn-type effect
 lists parse but are unenforced today, so this is a pre-existing hole that
 B9 turns into a decision point rather than creating.
 
-### E2 — Heuristics for validating external functions (user decision 2026-09-03)
+### E2 — Heuristics for validating external declarations (deleted 2026-09-09)
 
-An `external fn` is a trust boundary: its declared contract (effects,
-deductions, return type, qualifiers) is taken on faith, and a wrong
-declaration introduces a hole *accidentally* rather than maliciously.
-Worth building cheap checks that catch the common mistakes by inspecting
-the backend define template:
-
-- A template that mutates its argument (`.clear()`, `.push(...)`,
-  assignment) under a parameter the external declares as kept-immutable,
-  or that keeps qualifiers a mutation would invalidate.
-- A template that moves an argument (Rust: passing by value into a
-  container) while the external's deduction keeps it — the `add`
-  ownership bug this arc found, in reverse.
-- A template performing I/O (`println`, file APIs) while the external
-  declares `[]`.
-- Necessarily heuristic and backend-specific (pattern matching on native
-  source), so findings should be *warnings* with an opt-out, never hard
-  errors — a false positive must not block a legitimate define.
+**Obsolete, not deferred.** E2 proposed heuristics that read a *define template*
+and warned when it contradicted the `external fn`'s declared contract — a
+template mutating a kept-immutable parameter, moving a kept argument, or doing
+I/O under `[]`. `external`/`define` were deleted in the 2026-09-05 interop
+redesign, so there is no template to read, and the job is now done twice over
+without heuristics: an intrinsic's lowering is Rust code inside a backend, with
+tests, and a `platform effect`'s host implementation is checked against the
+generated interface by the *target's own compiler* — which was the point of the
+redesign. See the decision-log entry at the top of this file.
 
 ### E3 — Non-resumption: `defer`, `throw`, and an intrinsic `try` (user decisions 2026-09-04)
 
@@ -4081,6 +4114,11 @@ hand-build a trampoline, which is the async machinery under another name.
 The legs idea is right for rung 3, where the continuation must be reified
 anyway; there its cost (a boxed closure per call, answer-type erasure) buys
 something.
+
+#### Step 4 — effect transformers
+
+**Open** — see ROADMAP.md. The gate step 3 built is in place, so what remains is
+the surface; async arrives later as an explicit effect.
 
 ## Roadmap: iterators — `Iter<T>` laziness (**DECIDED and built 2026-09-05**)
 
@@ -5610,32 +5648,9 @@ fully the compiler's, nothing is half-owned. Two more things fall out:
 - **Generated code must be warning-free**, and both backends' `runtime_tests`
   compile the runtime modules on their own to enforce it.
 
-### Deferred: `defer` as an effect with a `defers` block (user, 2026-09-08)
+### Deferred: `defer` as an effect with a `defers` block
 
-
-The proposal: a special `defers { … }` block in which a `defer` action is
-available, a `Defer` effect for functions that register into an enclosing one,
-and all deferred work running at the end of the named block — `Throw`/`try`'s
-shape, applied to cleanup.
-
-- **For**: cleanup becomes visible in signatures, and "register cleanup on *my
-  caller's* scope" becomes expressible, which is impossible today (a `defer`
-  inside a callee runs at the callee's block end).
-- **Against**: `defer` currently has **zero runtime representation** — it is a
-  splice, "exactly the code written at each of those points" [defer], which is
-  why there is no capture question and why it can discharge a linear obligation
-  on every path. A dynamic queue costs an allocation and brings the capture
-  question back.
-- **The iterator argument for it is gone.** Its strongest motivation was
-  collapsing the generated machine's per-site flags and giving the release path
-  one shape; under the reduction that machinery is confined to generated code
-  and stops being language complexity. The restriction floated earlier — that a
-  producer may not use an *outer* `defers` block — also dissolves: `next` is an
-  ordinary call whose caller is alive for the whole loop.
-- **If it is taken**: splice when the registrations in a `defers` block are
-  static (all of today's code), and use a queue only where a `[Defer]` function
-  actually registers into someone else's block, so existing code keeps its
-  current properties.
+**Open** — see ROADMAP.md.
 
 ## Roadmap: iterators — Salvo-level pull iterators (built 2026-09-07/08, **largely superseded 2026-09-08**)
 
@@ -5843,32 +5858,8 @@ Consequences recorded with it:
 
 ### Still open
 
-- **D6** — `Once` on any type (and see the I2b collision below, which forces
-  the question in a narrower form).
-- **D7** — qualifier-conditional linearity.
-- ~~**D8**~~ — **decided 2026-09-07** (option B, the qualifier spelling): see
-  "D8 decided" below.
-
-**Leftovers from I4's emission half** (all *refused* today, none silently
-wrong — see "I4 emission as built" for the reasons):
-- a **claiming producer nested inside another producer**: the inner pass's
-  handlers would have to thread through the outer machine's own parameters, and
-  its plan slot be typed as the generated trait rather than a plain iterator.
-  The nested *pure* case works, so this is the plan's `FieldKind::Pass` and
-  `Step::Drive` learning about handlers.
-- a **generic effect claim** (`Bucket<Int> Iter<Int>`): the trait is named per
-  effect set, and the set identity would have to include the arguments — in
-  *Salvo's* rendering, since the checker's is what both backends must agree
-  with, which means `pass_effect_sets` carrying `Ty`s rather than strings.
-- a **`for` over a claiming producer in value position**.
-- a **widening between two non-empty claim sets** (`Console Iter<T>` into
-  `Console Logger Iter<T>`): only `from_pure` is generated. Doing it properly
-  means an adapter per (source, target) *pair*, which wants the pairs recorded
-  by the checker the way the sets are.
-- an **effectful `next` on a hand-written pass** (I2b's path, not a generated
-  producer's): still a codegen error on both backends. Different mechanism —
-  the handlers would thread into every turn of a `for_drivers` loop — and it
-  did not fall out of I4's work.
+**See ROADMAP.md** for the I4-era leftovers and refusals, and for the `Once`- and
+linearity-shaped questions (D6, D7) this section forwarded to.
 
 ### Producer parameters: `Mut` refused (user decision 2026-09-08)
 
@@ -7102,150 +7093,6 @@ two passes; plus the two e2e tests above.
   current errors disappears; sizing the analysis that replaces it is the
   one item that could not be bounded from reading the code.
 
-## Roadmap: shared mutable state (`Cell`)
-
-An idea developed 2026-09-03 while looking for a way to keep *immutable*
-effects testable (a recording double needs state). It stands on its own
-merits and is **not** tied to that use case — most of the patterns below
-have nothing to do with effects. Open **DECISION**.
-
-### The problem it addresses (and what it unlocks)
-
-Salvo's mutation rule is about the **handle**: you may mutate through a
-path only if that path is `Mut`, which is exclusive. Several ordinary
-patterns need the opposite — mutation through a *shared* path:
-
-- two lambdas appending to one accumulator (today the first one to mutate
-  a capture *consumes* it, so the second is an error and the original is
-  dead afterwards — verified: "`total` cannot be used here: it was
-  consumed (moved) by a lambda that captures and mutates it");
-- memoization / lazy initialization behind an immutable handle;
-- counters, metrics, id generators shared by several holders;
-- a stateful handler of an effect whose other handlers want to be shared;
-- **a producer writing to a collection its caller keeps** — refused outright
-  since 2026-09-08 [iter-mut-param], and the case with the sharpest
-  requirements of the five (see "Producers: the `Mut`-parameter case (option
-  C)" below).
-
-### The proposal: a capability qualifier, not a container type
-
-`Cell` joins the intrinsic capability qualifiers (`Mut`, `Linear`,
-`Once`, `ReadOnly`) rather than arriving as a std generic type
-`Cell<T>`. The family fits exactly — each intrinsic qualifier exists
-because it needs "a representation choice, a flow rule, a subtyping
-direction or a restricted position that no user declaration could
-supply", and `Cell` needs the first three:
-
-- `Mut T` — mutation permitted, only through *this* handle.
-- `Cell T` — mutation permitted through *any* handle.
-
-**Benefits over a container type:**
-
-- **No wrapper noise.** `count = count + 1` and `if count > 3`, rather
-  than `set(count, get(count) + 1)` and `if get(count) > 3`. Reads and
-  assignments keep ordinary syntax; only the *permission* differs.
-- **It inherits machinery instead of adding surface**: `canbe Cell`
-  opt-in on declarations, qualifier erasure, overload selection, and
-  D1's stripping rule — where `Cell`, being a capability rather than a
-  claim about contents, is never stripped (like `Mut` and provenance).
-- **Family membership is the documentation.** "Capability qualifiers say
-  what you may do with a handle" already exists as a concept; a std
-  container with its own API is a second thing to learn.
-- Danger stays visible in the type either way: `Cell Int` at every use
-  site, greppable, opt-in — unlike interior mutability hidden inside an
-  ordinary type.
-
-### Representation, and why it cannot panic
-
-- **Copyable contents → Rust `Cell<T>`**: `get`/`set` only, no borrow
-  guard exists, so no runtime check and no panic is *representable*
-  (verified: a shared id generator, `ids: 1 2 3`).
-- **Collections → Rust `RefCell<T>`**: a guard exists, but the only
-  operations are std primitives whose define templates the compiler
-  controls (`${list}.push(${value})`), so no Salvo code ever runs inside
-  the borrow (verified: a recording double shared by a capturing logger
-  *and* used directly, all three writes recorded).
-- Kotlin: a plain mutable field. No parity gap — both backends accept the
-  same programs.
-
-**The rule that keeps this true:** a cell may be mutated by assignment
-and by *standard-library* primitives, but never lent to a user-defined
-`Mut` parameter. Handing `&mut` into user code is what puts a borrow
-guard around a user call, which is precisely where B2's reentrancy panics
-came from (see E1a). One sentence to teach: "you can mutate a cell; you
-cannot hand its insides to a function you wrote."
-
-### Rules it drags in (the real design work)
-
-- **No state qualifiers on cell contents.** A claim like `NonEmpty` is
-  about contents, and contents can change through a handle the compiler
-  is not looking at — so `qualifier … of Cell …` must be rejected for
-  *state* claims. Provenance claims are fine (they are about where the
-  handle came from). This is the one genuine soundness rule, enforced at
-  the declaration.
-- **No shared-fate links.** Reads copy rather than lend, so
-  `let v = count` is an independent value: no link, no poison. Simpler
-  than the field case, and a direct consequence of "no handle into the
-  contents".
-- **Linear contents need `replace`.** Overwriting a cell holding a
-  `canbe Linear` value would silently drop an obligation; `replace(cell,
-  v) -> T` hands the old value back and transfers the obligation, while
-  plain assignment over linear contents stays an error.
-- **Deductions say nothing.** A fn taking a `Cell` and writing it needs
-  no `Mut`, so its signature cannot report the write — acceptable only
-  because the first rule leaves no claim worth preserving.
-
-### The concession being accepted
-
-`Cell` is a sanctioned hole in "no hidden shared mutable state": two
-holders can surprise each other, and the ownership analysis stops helping
-inside a cell. That is the price of shared mutable state in any language
-with an ownership discipline; what makes it defensible is that it is
-visible in the type rather than hidden behind an ordinary one.
-
-### Producers: the `Mut`-parameter case (option C)
-
-Added 2026-09-08 with the decision that refused it for now
-([iter-mut-param]; the divergence that forced that is under "Open defects").
-A producer taking `sink: Mut List<Int>` and appending to it as it yields is
-the pattern, and it is the most demanding customer this roadmap has:
-
-- **The handle outlives the call.** A producer's parameters are captured by a
-  *factory* that may mint a pass at any later time, so this is not "two
-  holders in one scope" — it is a handle stored for an unbounded period, which
-  is what makes `Rc<RefCell<…>>` (rather than a scoped `&mut`) the only Rust
-  shape that works. Every other case on the list above is at least *nameable*
-  within one scope.
-- **It multiplies.** A factory mints many passes, each capturing the same
-  cell, and they can be alive at once (`zip(p, p)`). So the borrow discipline
-  has to hold between *passes*, not just between a producer and its caller —
-  and that is exactly where a `RefCell` would panic at run time, the outcome
-  "Representation, and why it cannot panic" is written to avoid.
-- **It makes replayability a question rather than a promise.** `Iter<T>` is a
-  factory whose contract is that a second `for` starts from the beginning
-  [fn-iterator]. Sharing a cell with the caller keeps the *elements*
-  replayable while the side effect accumulates, so two loops over one factory
-  stop being interchangeable. Whether that is acceptable is a language call,
-  not a representation detail.
-
-**If `Cell` lands, this is the acceptance case to run first**, because it
-exercises the two hard parts together: a cell captured for longer than any
-scope, and several live holders derived from one capture. The narrower version
-— a producer returning `Once Iter<T>`, where exactly one pass exists — needs no
-`Cell` at all and may be answerable with **shared fate** ([fate-link]) once a
-pass *is* the state machine (roadmap I2c); that is recorded under "Producer
-parameters: `Mut` refused" and is the cheaper thing to try first.
-
-### Relationship to E1
-
-`Cell` is **not load-bearing** for effects. E1's chosen strategy (B9
-handler fusion) keeps handler members able to mutate dependencies they
-receive as parameters, so recording test doubles need no interior
-mutability and effects need no immutable/mutable distinction. `Cell`
-therefore stands on the lambda/memoization/counter cases, which are real
-limitations today, and can land independently of the effects work if it is
-wanted at all.
-
 ## Roadmap: place-based flow analysis
 
 A second flow-analysis arc, independent of linearity. Flow facts are keyed
@@ -7274,14 +7121,9 @@ subjects (P2, decided against — `when` stays variable-only).
 session to close P1a: `t.0` is a `Proj::Index` place, so it narrows,
 invalidates and merges like a field.
 
-### L5 — field-disjoint ownership (rides on this substrate)
+### L5 — field-disjoint ownership
 
-Place-based *ownership*: using one field while another is moved or
-borrowed. Lives in the linear-types roadmap above; it now inherits P1's
-`Place` type, prefix/overlap relations, and the per-root fact storage.
-Sequencing worked out as recommended (P1 first): the substrate was
-designed and validated under the monotone feature, and the element
-projection variant is already in place for ownership's benefit.
+**Open** — see ROADMAP.md; it rides on this substrate.
 
 ## Roadmap: deductions and qualifier reasoning
 
@@ -7445,350 +7287,10 @@ Rules: [qual-refn], [qual-refn-match], [qual-refn-scope],
 [qual-refn-conflict], [qual-refn-reconcile], [qual-refn-infer],
 [qual-refn-docs].
 
-### D2 — Qualifier asserts (`+Q`)
+### D2, D4, D6, D7
 
-Still deferred for a *function's own* deduction list (user decision
-2026-09-02: not even in the grammar there — the parser reports "adding
-qualifiers in a deduction (`+Qual`) is not supported yet" and names this
-item). `+Q` asserts that the body *establishes* `Q`, which is what
-`-> T as Q` does for return values — the parameter-position analogue. A
-predicate qualifier cannot be proven statically (that means reasoning
-about the algorithm), so establishment is trust (like `as Q`) or a runtime
-`qualifies` check.
-
-**D3 gave `+Q` exactly one home, and it is not this one** (2026-09-06):
-inside a `refn` [qual-refn], where it is the *qualifier author's* claim
-about someone else's call rather than a claim about your own body. That
-distinction is what kept D2 deferred through D3's implementation, and it
-is also why an inferred deduction may only re-establish a qualifier the
-parameter *declares* [qual-refn-infer] — letting inference add a new one
-would have implemented D2 by the back door, without ever deciding its
-establishment rule.
-
-- **DECISION D2a** — whether `+Q` and `as Q` unify into one notion of
-  "this function establishes a qualifier", and whether establishment is
-  trusted, runtime-checked, or restricted to fns declared in the
-  qualifier's own file (as `as Q` is today). D3's answer for refinements
-  was *trusted*, which is the precedent but not the decision: a
-  refinement is written by the party that owns the claim's meaning, and a
-  function asserting `+Q` about its own body is not.
-
-### D4 — Predicate `is` on union subjects (and qualifiers over unions)
-
-Motivated by an analysis of the `is` keyword (2026-09-03): `is` has one
-grammar and two evidence sources — union-arm identity, statically known
-[is-narrowing], and a runtime `qualifies` call [is-qualifies]. There is
-no parse ambiguity (one `Expr::Is` node; both forms are
-`subject is Qual* [Type] [binding]`), but `is_info` picks between them
-by the *subject's shape*: a `Ty::Union` subject **always** takes the
-arm-matching path. Consequence: a predicate qualifier can never be
-tested against a union-typed value. With `let x: Int | Str`,
-`x is Positive` matches no arm and reports "this check can never
-succeed"; the workaround is to narrow first (`x is Int && x is Positive`
-works, because the second test sees a non-union subject). The predicate
-form is shadowed by the union form, and the shadow is invisible in the
-surface syntax.
-
-Fixing it is not a checker patch — the narrowed type it should produce
-is a union whose arms carry a qualifier, so it needs qualifiers over
-unions in general (today [qual-union-arm] binds a qualifier to a single
-arm, and only an explicitly parenthesized group can be qualified
-[qual-group]).
-
-- **DECISION D4a — semantics of `x is Q` on a union subject.** Which
-  arms participate (recommendation: those whose qualifier-stripped type
-  satisfies `Q`'s `of` type), and what the check *is*: a conjunction of
-  the arm/tag test and the `qualifies` call (recommended — it is what
-  the two-step workaround does today), or `qualifies` alone.
-  Then-type: the participating arms with `Q` added.
-- **DECISION D4b — the else branch.** A failed predicate proves nothing
-  ([is-qualifies] already records "no else information"), so the
-  remaining set must *keep* the participating arms — unlike a pure arm
-  test, which subtracts them. That asymmetry is the load-bearing
-  difference and it propagates: a `when` whose arms are predicate checks
-  can never be exhaustive. Decide whether predicate checks are allowed
-  in `when` arms at all (recommendation: allow only when the arms are
-  exhaustive on tags alone, otherwise reject with a message pointing at
-  `if`/`elif`).
-- **D4c — qualifiers over unions.** Decide the shape of the narrowed
-  type: per-arm `Q A | Q B` (recommended — preserves [qual-union-arm]
-  and existing arm identity) versus a qualified group `Q (A | B)`
-  ([qual-group], which changes wrapper identity). Per-arm keeps the
-  positional-arm invariant that the checker and both emitters share.
-- **D4d — mixed checks.** `x is Positive Int` on a union: base-type arm
-  test *plus* the `qualifies` call, one lowering.
-- **Backend work.** `is_tests` and `predicate_tests` are separate side
-  tables and each emitter lowers one of them; a union subject with a
-  predicate needs a *combined* lowering (tag test `&&` qualifies call)
-  in both, and checker and emitters must agree exactly, per the
-  invariant. Effects on the `qualifies` fn stay subject to
-  [is-qualifies-effects] at every such site.
-- Sequencing: independent of D1–D3, but it shares the "what does a
-  qualifier mean over a composite type" question with D3's refinements;
-  do D4c's decision before either.
-- Not in scope: renaming `is`. The two readings are opposites in
-  *feel* — "already attached" versus "may be attached" — but both are
-  "test whether this holds now, and refine if it does"; conferring a
-  qualifier is what `-> T as Q` does [qual-ctor-fn]. User decision
-  2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
-  in practice.
-
-### D6 — `Once` on any type (opened 2026-09-07)
-
-`Once` is specified as *fn-type only* ([once-fn], "the language-level
-call-multiplicity qualifier"). The iterator rework generalizes it to a
-**use-multiplicity** qualifier and applies it to `Iter<T>`, with the fn
-case as the instance where using means calling (user decision
-2026-09-07; see "Roadmap: iterators — Salvo-level pull iterators"). The
-generalization was accepted; the *scope* was deliberately left narrow.
-
-- **Open question: is `Once` valid on any type?** Nothing in its
-  semantics is iterator- or fn-specific — it is an obligation-side
-  qualifier the compiler owns, never droppable, with inverted variance
-  ([qual-*]: permissions drop, obligations do not), and enforcement is
-  the existing consumption machinery [deduce-consume]. So `Once
-  FileHandle` or `Once Ticket` would already mean something coherent:
-  "use this at most once".
-- **Why it was not opened up in the same step** (user decision
-  2026-09-07): shipping a general affine qualifier as a side effect of
-  an iterator change is how a language surface grows by accident. The
-  position list stays explicit — fn types and `Iter<T>` — and widens on
-  demand.
-- **What to weigh when it comes up**: `Once T` (at most once) sits next
-  to `canbe Linear` (exactly once) and `Mut`/`ReadOnly`; a general
-  `Once` makes the affine/linear pair complete and user-reachable,
-  which is a bigger vocabulary decision than it looks. Also note
-  `Once` is *applied* at use sites while `Linear` is *declared*
-  ([linear-canbe], "linearity is declared, not applied") — a general
-  `Once` would be the first obligation a user can attach to someone
-  else's type.
-
-### D7 — Qualifier-conditional linearity (opened 2026-09-07)
-
-Today linearity is a property of a *declaration*: `canbe Linear` opts a
-type in, and every value of it carries the obligation [linear-canbe]
-[linear-obligation]. There is no way to say **"the qualified form carries
-the obligation, the plain form does not."**
-
-The iterator rework is the first concrete need. `Once Iter<T>` (a pass)
-holds a position and may hold a resource, so it must be drained or
-closed; plain `Iter<T>` (a factory) holds nothing and needs no disposal.
-`canbe Linear` on the `Iter` declaration cannot express that split, since
-it would burden the factory too.
-
-- **Not blocking**: the mandatory `close` is *compiler-injected* on every
-  exit out of a `for` (decision 4 of the iterator roadmap), so the
-  no-leak half is covered without linearity. `Once` covers the no-replay
-  half. This item is about making the obligation *visible and checked in
-  the language* rather than injected.
-- **What it would take**: linearity conditioned on a use-site qualifier —
-  i.e. the obligation set becomes a function of the qualified type, not
-  of the declaration. The existing all-paths obligation machinery
-  (`owes_linear`, `check_linear_exit`, `merge_fallthrough`) would not
-  change shape; what changes is which values enter it.
-- **Relation to D6**: if `Once` generalizes to any type, this is the
-  natural companion — the pair "at most once" (applied) and "exactly
-  once" (currently declared) would want the same application mechanism.
-  **Decide them together** (user, 2026-09-07: "I think we'll need to design
-  the 'Once on any type' (D6) and the 'optional Linear' (D7) together").
-  The 2026-09-07 iterator work took the narrow road instead — `canbe Once`,
-  an opt-in on the declaration — precisely so that this pair stays a single
-  deliberate design rather than an accumulation of special cases.
-- **Payoff beyond iterators**: it is the general shape of
-  "borrowed handle versus owned resource" without lifetimes — the same
-  question `ReadOnly[from: p]` answers for derived returns [readonly-return].
-
-
-The predicate/constructive split [qual-predicate] [qual-constructive] is
-an *evidence* axis — how a value acquires a fact. It says nothing about
-what the fact is *about*, which is why `NonEmpty` is legitimately both
-(one state claim, two evidence routes [qual-ctor-predicate]). Three
-independent axes were identified:
-
-| Axis | Values | Status |
-|---|---|---|
-| Evidence | predicate (runtime `qualifies`) / constructive (mint-only) | in the spec |
-| **Subject** | **state (contents) / provenance (the handle)** | **D5** |
-| Authority | user-declarable / compiler intrinsic | implicit |
-
-One combination is impossible and explains the shape of the intrinsics:
-a **predicate capability cannot exist** — no inspection of the bits
-reveals whether you are *permitted* to write, so `Mut` has no
-`qualifies` and never could. Capability/provenance implies constructive;
-constructive does not imply capability (`Sorted` minted by `sort()` is
-mint-only *state*).
-
-Decided (user, 2026-09-03):
-
-1. **Qualifier declarations gain a subject axis**: *state* (default,
-   today's semantics) and *provenance*. Option B of the explored set.
-2. **Provenance is a content-independent claim about where the handle
-   came from** — mint-only (no `qualifies` body; `is Q` on a non-union
-   subject stays a compile error, as [qual-constructive] already says).
-   The payoff: a provenance tag **survives an unlisted mutation**.
-   D1's stripping rule is sound only for claims about contents —
-   [deduce-syntax] says so in as many words ("mutation can invalidate a
-   caller's *state* predicates") — so exempting provenance needs no new
-   soundness argument. Without this, `Authenticated Request` loses its
-   tag to any logger declaring `[req: Mut]`, and D3 refinements would be
-   the only escape: per-qualifier-per-function boilerplate for a fact
-   that is blanket-true.
-3. **Provenance is droppable** (forgetting provenance is safe) and
-   **survives being stored into another value**.
-4. **Provenance composes without a `with` declaration**, mirroring the
-   `Mut` auto-qualifier [type-canbe-mut]: it is orthogonal to every
-   claim about contents. Tags stack freely, including several over one
-   base (`Authenticated EnvironmentId Str`). `with` [qual-with] keeps
-   its original job — two *state* claims co-applying, where explicit
-   compatibility is the whole point. Without this rule
-   `Ok EnvironmentId Str` would be inexpressible (per-tag
-   `qualifier Ok<T> of T with EnvironmentId` does not scale, and
-   `Ok (EnvironmentId Str)` is the nested-qualified case [qual-generic]
-   calls discouraged) — a newtype that cannot be returned in a `Result`
-   is half a newtype.
-5. **Hard capabilities stay compiler intrinsics** (`Mut`, `Linear`,
-   `Once`, `ReadOnly[from: p]`). Each needs something no user can write:
-   a per-backend representation choice (`Mut` is *not* erased —
-   `MutableList`, `&mut`), a rule in the flow analysis, a non-standard
-   subtyping direction (`Once` inverts it), or a restricted syntactic
-   position (`Linear` never at a use site; `ReadOnly` return-only).
-   User-authored versions would need a metalanguage for checker rules —
-   rejected as out of proportion to Simplicity/Verifiability.
-6. **Vocabulary.** What users declare is *state* or *provenance*. What
-   the compiler owns are *permissions* and *obligations*, and the
-   sub-rule is **permissions are droppable, obligations are not**:
-   `Mut Person <: Person` (`map` returns `List<T>` while knowing
-   `Mut List<T>` internally), while `Once` may never be dropped and
-   `Linear` cannot be written at all.
-
-**Motivating example (record this one — it is more legible than
-`Authenticated`): the wrapper/newtype pattern.** The Kotlin habit of
-`data class Environment(val id: Id)` with a nested
-`data class Id(val value: String)` exists so that an incomplete refactor
-is a type error instead of a silently mis-wired `String`. As a Salvo
-provenance qualifier (`qualifier EnvironmentId of Str` plus a
-constructor), it is content-independent (any string can be an id),
-mint-only, and not runtime-testable — and it delivers the protection,
-because a bare `Str` does not subtype `EnvironmentId Str`: swapping two
-tagged arguments fails to compile in both positions. Only widening is
-open, which is the approved droppability, and is the same hole Kotlin
-has whenever the target parameter is `String`.
-
-Two properties of the erased design worth knowing before revisiting it:
-
-- **In union position the tag is reified.** `Ok Str | Err Str` already
-  works — positional wrappers give arms a physical identity even when
-  they erase to the same type, and `is Err Str` matches precisely
-  [is-precise]. So `EnvironmentId Str | DeploymentId Str` discriminates
-  at runtime; erasure applies to a value in a parameter, not to a value
-  in a union.
-- **What erasure actually costs** is identity, not usability: two tags
-  over `"prod"` compare equal and collide as keys in one map. Display,
-  interpolation, base-type operations and (static) overloading all work
-  for free — the `toString` override the Kotlin pattern needs exists
-  only to undo the boxing, which Salvo never does.
-
-7. **Provenance stays erased** (user decision 2026-09-03, D5a settled):
-   uniform with [qual-erasure], so the backends are untouched by D5.
-   Reification (a wrapper type per tag per backend) was declined: it
-   needs wrap/unwrap insertion at every widening site, double wrapping
-   inside unions, and messier interop for std fns taking `Str`, while
-   the only benefit — distinct equality and map keys — is already
-   reachable with a one-field struct, which *is* the nominal flavor of
-   this pattern and needs no new feature. The decisive cost is two
-   lowering models for one concept, doubling the checker/emitter
-   agreement surface. Kotlin's own tool for this job
-   (`@JvmInline value class`) is likewise unboxed except in
-   generic/nullable/collection positions, so the erased design is the
-   idiomatic trade, not an exotic one.
-Namespacing (the former D5b) outgrew this section and is now its own
-roadmap item, **N1** — dot-names apply to structs as well as qualifiers,
-so it is a naming feature independent of the subject axis.
-
-What landed (rule [qual-subject]):
-
-- **Syntax** (user decision 2026-09-03, confirmed after implementation):
-  `provenance qualifier Q of T`, a prefix modifier matching the existing
-  `intrinsic`/`external` shape. Plain `qualifier` stays state
-  (`QualSubject::State` is the AST default), so nothing existing changed;
-  there is deliberately no `state` keyword — one keyword for the
-  non-default is enough, and the default is documented. Revisitable if it
-  reads badly in practice (there is no compatibility to preserve).
-- **Stripping exemption (the payoff)**: `QualEffect::removal_set` now
-  takes a provenance predicate and filters the removal set, so a
-  provenance tag survives any call. The *inference* side matches
-  (`remove_quals` filters, `restrict_to` re-admits the parameter's
-  declared provenance quals) so inferred signatures never claim a removal
-  that cannot happen. Deduce works from a program-wide provenance name
-  set — the deduction machinery is qualifier-name keyed throughout, and
-  [mod-collision] already rejects one name declared by two visible
-  modules; the checker uses the precise per-file scope.
-- **Mint-only**: a `provenance` qualifier with a body is an error naming
-  both halves (no `qualifies`, no field overrides). `is Q` on a non-union
-  provenance value needed no new code — provenance is bodiless, so
-  [qual-constructive]'s existing message fires.
-- **Free composition**: the pairwise `with` check in `validate_quals`
-  skips any pair where either side is provenance.
-- **No backend work**: provenance erases like every qualifier
-  [qual-erasure]. The only emitter-visible consequence is *which
-  overload* the checker picked.
-- Verified end to end on both backends with one program that makes the
-  distinction observable in program output: a `Mut List<Int>` carrying a
-  state tag and one carrying a provenance tag both go through `add`
-  (`[list: Mut]`), then dispatch — `trusted 3` (provenance survived),
-  `plain 3` (state stripped), `checked 2` (state intact without
-  mutation), identical under `kotlinc` and `rustc`.
-
-Implementation sketch (no backend work — provenance is erased, so
-emitters are untouched under D5a-as-recommended):
-
-- `QualifierDecl` gains the subject kind (parser + AST); the checker's
-  `validate_quals` enforces the provenance legality rules (no
-  `qualifies` body, no `with` needed, `is` on a non-union subject
-  rejected — the last one is already [qual-constructive] behavior).
-- The removal-set computation in the deduction machinery skips
-  provenance tags when a call strips state qualifiers; the *contagious*
-  exhaustiveness rule [deduce-syntax] narrows accordingly.
-- Stacking validation stops requiring pairwise `with` when either side
-  is provenance.
-
-**Future intrinsic capabilities (watch list, in order of how soon they
-force themselves on us).** `Sendable`/thread-safety the moment
-concurrency lands — structurally inferred, trusted-by-audit for
-externals (the `canbe Linear` pattern), and asymmetric between backends,
-so it cannot be user-authored. Then `Uniq`/`Shared` if sharing arrives
-(`Uniq` is the precondition for in-place mutation of a shared type),
-`Local`/`Escaping` (the conservative refusal of escaping closures
-becomes a contract), `Init` for two-phase initialization
-(`MaybeUninit`/`lateinit`), and `Const` if compile-time evaluation
-lands. Note that `Uniq` and `Local` are facts the fate analysis
-*already computes*: they are the user-facing side of the recorded
-"internal qualifier unification" leftover, which is the strongest reason
-to set the vocabulary up deliberately now.
-
-### Related, independent: `!is` in expressions
-
-Negated checks (`if x !is Str { … }`) — sugar over `!(x is Str)` with the
-same fact propagation, and no binding form (a failed test binds nothing:
-`x !is T name` is a parse error). Lexing (user decision 2026-09-02): `!`
-binds *adjacently* — `x!` (assert) requires no space before `!`, `!is`
-requires no space between, `!x` (not) requires no space after, and a
-floating `!` (space on both sides) is a syntax error.
-
-The disambiguating clause, refining "not preceded *and* followed by
-alphanumerics": the left neighbour must count `)` and `]` as
-value-endings, or `names.first()!is Str` stays ambiguous — and
-`first()!` is real, common code (the M2 demo interpolates
-`${names.first()!}`). So:
-
-> `!` may not be *directly* preceded by a value-ending token
-> (identifier, literal, `)`, `]`) **and** directly followed by an
-> operand-starting token (identifier, literal, `(`, `[`) or the keyword
-> `is`. Whitespace on one side resolves it.
-
-This keeps `x!.field`, `x!)`, `x!,` legal (the following token cannot
-start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
-(assert then test) and `x !is T` (negated test) as the two spellings.
+**Open** — see ROADMAP.md: qualifier asserts (`+Q`), predicate `is` on union
+subjects, `Once` on any type, and qualifier-conditional linearity.
 
 ## Roadmap: names and namespacing
 
@@ -7916,86 +7418,6 @@ What landed (rules [name-casing] [name-dot] [name-dot-import]
   identical output under `kotlinc` and `rustc`. Union arm identity needed
   no special handling — the wrapper/enum machinery keys off arm position,
   and the flattened Rust names fall out of `rs_ident`.
-
-
-
-Ownership-arc remainders (each recorded in its milestone section and/or
-spec rule; consolidated here for findability):
-
-- **Fn-type effect lists** (`(v: T) [Console] -> ...`) parse but are not
-  enforced as contracts — lambda bodies use the lexical effect
-  environment [fn-contract].
-- **`Once` inference**: a callee calling its fn param at most once does
-  not auto-promote to `Once`; written only [once-fn]. Same
-  written-validates/unwritten-infers pattern as deductions when taken.
-- **Contracted lambdas passed to *overloaded* fns**: expected fn-type
-  contracts only reach lambda literals for single-candidate callees
-  (multi-candidate arg typing stays unbiased) [fn-contract]. Related:
-  passing an *overloaded* fn by name resolves to the first overload
-  (`entries[0]`) with no signature-based selection.
-- **Returning/storing capture-carrying closures**: rustc lifetime error
-  the checker does not reject; the recorded refinement is
-  `move`-closure emission with hoisted clones, pending a treatment for
-  captured effect-handler locals [fate-lambda].
-- **Exactly-once closures**: a `Once` lambda may not consume a *linear*
-  capture (the closure would inherit the obligation) [linear-lambda];
-  supporting it means linear fn values.
-- **Reassignable borrowed locals** (accumulator bodies in derived-return
-  fns: `best = person; …; return best`) are rejected by provenance
-  validation; supporting them is the recorded [readonly-return]
-  refinement.
-- **Effect members with their own generics** are not covered by the
-  linear instantiation ban [linear-generics].
-- **Same-call borrow/move (E0505 shape)**: one call that passes a
-  borrow-emitted local *and* moves its root is checker-legal
-  (left-to-right model) but rustc-rejected — loud, rare
-  [rs-borrow-locals].
-- **Internal qualifier unification** (folding links/poison/consumed_by
-  into parameterized qualifiers with per-qualifier joins) remains
-  unforced — L7c/L7d landed on links alone; revisit only when a
-  customer needs it. L5 field-disjoint precision likewise only if
-  whole-variable granularity pinches.
-
-- `salvo lsp`: go-to-definition [lsp-definition] and doc-comment hover
-  [doc-comment] landed, including nested declarations — struct fields,
-  handler state, effect/handler/qualifier members. Still open: `[symbol]`
-  resolution is name-based over the AST rather than
-  import-visibility-exact [doc-symbol-ref]. Also still open:
-  incremental analysis if workspaces outgrow
-  re-check-everything-per-keystroke, and a `positionEncoding` negotiation
-  for UTF-8-native clients. Signature *hover* still covers fn decls only
-  — effect members and define fns have no `FnKey` (go-to-definition does
-  reach effect members, via `def_refs`).
-- **Predicate `is` on a union subject** is now roadmap phase **D4**, not
-  a leftover: a `Ty::Union` subject always takes the arm-matching path,
-  so `x is Positive` on `Int | Str` errors ("this check can never
-  succeed") instead of calling `qualifies` — narrow first
-  (`x is Int && x is Positive`). Lifting it requires qualifiers over
-  unions [is-qualifies] [qual-union-arm].
-- Struct destructuring ignores predicate-qualifier field overrides
-  (deliberate: bindings get the declared type; direct accesses get the
-  override + cast).
-- Constructing a *nested* qualified union group in one expression
-  (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
-  intermediate `let`; single-level coercion only (errors, never mis-emits).
-- Deduction inference does not track bare-parameter value flow out of
-  branch/loop tails as a move (documented leniency in [deduce-infer]).
-- **Field smart-casting landed (P1, 2026-09-03)**: after `h.field is Str`
-  a read of `h.field` *is* narrowed ([flow-place]), tuple positions
-  included ([expr-tuple-index]). What remains coarse: array elements never
-  narrow, since an unknown index may alias any element.
-- `yield` inside a *value-position* loop of an iterator body is a kotlinc
-  error ("restricted suspending functions…"): the `run {}` value lowering
-  is not an inline suspension scope. Loud, never silently wrong; the fix
-  is a lowering that keeps the loop inside the `iterator {}` builder.
-- Module reachability is name-based and conservative: a local variable
-  shadowing a std fn name still pulls that std module in (harmless
-  extra output, never a missing module).
-- **DECISION (open, for the user):**
-  - Binary operators are typed only for `None` [op-no-none]: everything
-    else is unchecked (`Str * Bool` passes, result typing is just the
-    left operand's type). Decide the operator typing rules — legal
-    operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
 
 ## Overload resolution — **FINALIZED 2026-09-07**
 
@@ -8177,29 +7599,9 @@ Deferred (nothing needs them yet): `any`/`all`/`find`/`count`/`zip`/`flat_map`
 effect-free case, which would need a way to say "this callback performs
 nothing" at the type level rather than by convention.
 
-### S-IO — streams, then the filesystem (deferred by decision)
+### S-IO — streams, then the filesystem
 
-An `Fs` effect was designed in outline (effect + `intrinsic handler
-DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
-`intrinsic type … canbe Linear`, errors in the return type because
-[effect-member-no-effects] forbids a member from declaring `[Throw<M>]`).
-**Deferred by the user 2026-09-06**: IO *streams* should be designed
-properly first, with the filesystem as their first customer, rather than
-the other way round. Two findings from the outline worth keeping for when
-it resumes:
-
-- Errors cannot use `Throw` at all — an effect member may not declare
-  effects — so every fallible member returns `Ok T | Err Str`. **Blocked as of
-  2026-09-08**: storing a linear value in a composite — a union arm included —
-  is now an interim *error* (see "`Linear` becomes a compiler-known obligation
-  group"), so this shape needs either an exception for union arms or a different
-  result shape before S-IO restarts. That makes
-  `Ok InputStream | Err Str` the normal shape, and a **linear value inside
-  a union arm** the interaction to verify first ([linear-composite] says
-  composites are contagious, but nothing exercises it).
-- Whether stream operations are *members* of the effect or free
-  `intrinsic fn`s is a testability question, not a plumbing one: only
-  members can be faked by a double.
+**Deferred by decision** — see ROADMAP.md.
 
 ## Test inventory (all green: 817)
 
@@ -9976,7 +9378,8 @@ snapshot diffs.
   to come back out, because inferring mutation from a declaration and
   overriding the author is the opposite of "the declaration is the
   contract". Catching wrong declarations belongs in a separate, opt-out
-  validation pass (roadmap E2), not in the semantics.
+  validation pass, not in the semantics — which was roadmap E2, deleted as
+  obsolete in 2026-09-09 once `define` templates no longer existed to inspect.
 - (decl-explicit) Requiring declarations exposed a second silent hole for
   free: effect-member deductions were *parsed* and ignored, so a member
   taking ownership never consumed its argument. The fix was to extract the

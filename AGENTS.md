@@ -20,17 +20,21 @@ Guidance for AI agents (and humans) contributing to this repository.
    backend-prefixed rules (`kt-…`). Backend-prefixed labels must only be
    referenced from that backend's crate; core crates
    reference backend-neutral labels only.
-3. **`PROGRESS.md`** — the living handoff document: what is built, key design
-   decisions (condensed history), known limitations and **open defects**
-   (reproduced bugs with their root cause, under "Open defects"), the
-   roadmap (currently:
-   toward full linear types, with marked language-design decision points),
-   the test inventory, and hard-won gotchas. **Consult it before starting
-   any task** to find the current roadmap phase and avoid re-solving
-   problems already documented under "Gotchas / lessons learned".
+3. **`ROADMAP.md`** — what is left to do: **"The sequence"** (the agreed order
+   of work), **open defects** (reproduced bugs with their root cause), the
+   phases not yet built, and the decisions and plans already made about each,
+   with language-design decision points marked **DECISION**. **Read it before
+   starting any task** — it is where the work is, it says what comes next, and
+   it says which choices are the user's to make.
+4. **`COMPLETED.md`** — the record: the decision log (newest first), the
+   milestone history, every option explored and abandoned, defects found and
+   closed, the test inventory, and **"Gotchas / lessons learned"**. Consult it
+   to avoid re-solving a problem or re-deciding a question, and read its
+   gotchas for the area you are about to touch.
 
-Do not begin implementation work without reading these. PROGRESS.md tells
-you *where we are and why*; LANGUAGE.md tells you *what correct means*;
+Do not begin implementation work without reading these. ROADMAP.md tells you
+*what is left and what has been decided about it*; COMPLETED.md tells you
+*where we got to and why*; LANGUAGE.md tells you *what correct means*;
 LANGUAGE_SPEC.md (+ the backend spec, when applicable) tells you *precisely
 which rules are in play and where they live in the code*.
 
@@ -42,22 +46,31 @@ which rules are in play and where they live in the code*.
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
-| `PROGRESS.md` | Status, milestones, design decisions, **open defects**, test inventory, gotchas | Always |
+| `ROADMAP.md` | What is left: open defects, unbuilt phases, decisions and plans about them | Always |
+| `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |
 | `README.md` | Public-facing overview and quick start | Rarely (keep in sync on user-visible changes) |
 
 ## Keep the documents up to date
 
-PROGRESS.md is the handoff point between sessions. After completing
-meaningful work (a milestone, a sub-item, a design decision, a new gotcha):
+COMPLETED.md and ROADMAP.md are the handoff point between sessions, and the
+split between them is by *tense*: what happened, and what has not happened yet.
+After completing meaningful work (a milestone, a sub-item, a design decision, a
+new gotcha):
 
-- Update the status snapshot, completed-milestone notes, and test counts.
-- Record new design decisions and *why* they were made.
-- Move finished items out of "Remaining leftovers" and the roadmap; add
-  newly discovered
-  leftovers to the appropriate milestone section.
-- Add lessons learned to "Gotchas / lessons learned".
+- **COMPLETED.md**: add a decision-log entry at the top of the log — what was
+  decided, by whom, what it took, and what fell out of building it. Update the
+  test counts and the "what is built" paragraph. Add lessons to "Gotchas /
+  lessons learned"; record an option you explored and rejected, with why.
+- **ROADMAP.md**: delete what you finished, or move it to COMPLETED.md if the
+  reasoning is worth keeping. Add newly discovered leftovers and any defect you
+  reproduced but did not fix (with its repro). A decision the user has now made
+  stops being a **DECISION** and becomes a plan.
+- **Do not leave an item in both.** An entry that is still open belongs in
+  ROADMAP.md only; the moment it lands, its record belongs in COMPLETED.md
+  only, with a one-line pointer left behind if a reader would otherwise look
+  for it in the old place.
 
 The spec files carry the rule labels; keep them in sync with the code:
 
@@ -68,7 +81,7 @@ The spec files carry the rule labels; keep them in sync with the code:
 - Renaming or removing a rule → `grep -rn '\[old-label\]'` and update every
   reference; a label in code that no longer exists in a spec is a bug.
 - Fixing a LANGUAGE.md spec bug → also check whether a LANGUAGE_SPEC.md
-  rule states the old behavior, and note the fix in PROGRESS.md.
+  rule states the old behavior, and note the fix in COMPLETED.md.
 
 ## Repository layout
 
@@ -87,7 +100,7 @@ examples/<name>/          # worked examples: salvo/ source, rust/ + kotlin/ gene
                           #   expected.txt (identical on both backends), README.md — see examples/README.md
 ```
 
-This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
+This is a plain Cargo workspace (not a Brazil package). See COMPLETED.md
 "Workspace layout" for architectural details and how to add a new backend.
 
 ## Build, test, verify
@@ -95,7 +108,7 @@ This is a plain Cargo workspace (not a Brazil package). See PROGRESS.md
 ```bash
 cargo build                 # must stay warning-free
 cargo test                  # the suite; toolchain tests are content-cached, so a
-                            # re-run costs seconds. See "Test inventory" in PROGRESS.md
+                            # re-run costs seconds. See "Test inventory" in COMPLETED.md
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache
 SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
@@ -155,10 +168,10 @@ Three speeds, and it matters which one you use:
 
 - **Language-design decisions belong to the user.** Any choice that shapes
   the language surface or its semantics (new syntax, what an operation
-  means, std API shape, items marked **DECISION** in PROGRESS.md's
-  roadmap) must be *presented to the user* before implementation: state
+  means, std API shape, items marked **DECISION** in ROADMAP.md) must be
+  *presented to the user* before implementation: state
   the options, trade-offs, and a recommendation, then wait for the call.
-  Record the outcome in PROGRESS.md as a user decision (there is
+  Record the outcome in COMPLETED.md as a user decision (there is
   precedent — see the decision log). Analysis engineering under decisions
   already made does not need re-approval.
 - **Backwards compatibility is not a requirement** (user decision
@@ -171,14 +184,14 @@ Three speeds, and it matters which one you use:
     `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
     `examples/**` (source *and* its checked-in generated code and expected
     output), LANGUAGE.md / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets,
-    README, and the syntax references in PROGRESS.md (it is the handoff
-    document, not a historical archive — record the change in the decision
-    log instead of leaving stale syntax in prose).
+    README, and the syntax references in COMPLETED.md and ROADMAP.md
+    (neither is a historical archive — record the change in the decision log
+    instead of leaving stale syntax in prose).
   - **An example that no longer works is deleted, not preserved.** There is
     no compatibility guarantee to document and no value in a checked-in
     program that does not compile, so rewriting it or removing it are both
     correct outcomes and removal needs no apology. History belongs in
-    PROGRESS.md's decision log, not in a directory of dead programs.
+    COMPLETED.md's decision log, not in a directory of dead programs.
   - **Flag what you cannot rewrite confidently.** Anything whose intent
     is ambiguous under the new rules, or a site that *looks* like the
     changed construct but might be a different one: list it for the user to
@@ -192,7 +205,8 @@ Three speeds, and it matters which one you use:
     repository writes Salvo yet. Default to a plain parse error.
 - **Never emit silently wrong code.** Unsupported constructs must produce a
   codegen/checker *error*, not incorrect output ([backend-never-wrong];
-  the remaining deliberate cuts are listed in PROGRESS.md's history).
+  the remaining deliberate cuts are listed in COMPLETED.md's history and in
+  ROADMAP.md where they are still open).
 - **Salvo assumes it can see everything** (user decision 2026-09-03).
   Every call, field read, subscript, and `for` subject must be justified
   by a declaration: an unresolved callee, a field on a non-struct, a
@@ -220,7 +234,7 @@ Three speeds, and it matters which one you use:
   kotlinc/rustc end-to-end tests still pass.
 - Keep the spec documents and the implementation consistent. If you find a
   spec bug, fix LANGUAGE.md (and any stale LANGUAGE_SPEC.md rule) *and*
-  note it in PROGRESS.md (there is precedent — several LANGUAGE.md/std
+  note it in COMPLETED.md (there is precedent — several LANGUAGE.md/std
   inconsistencies were fixed this way during M0–M8).
 - Backend-prefixed rule labels (`kt-…`) may only be referenced from that
   backend's crate; `salvo-core`/`salvo-syntax` reference backend-neutral
@@ -229,12 +243,14 @@ Three speeds, and it matters which one you use:
 
 ## Workflow for a typical task
 
-1. Read PROGRESS.md → identify the current roadmap phase and the
-   leftovers.
+1. Read ROADMAP.md → pick the item, and check whether it is marked
+   **DECISION** (if so, the call is the user's before any code).
 2. Read the relevant LANGUAGE.md sections for the feature, and grep the
    affected `[rule-labels]` in LANGUAGE_SPEC.md (plus the backend spec if
    the task touches a backend crate).
-3. Check "Gotchas / lessons learned" for traps in the area you're touching.
+3. Check COMPLETED.md's "Gotchas / lessons learned" for traps in the area
+   you're touching, and its decision log for whether the question was already
+   answered.
 4. Implement across the pipeline in order: syntax → resolve/types/check →
    emit. Add or extend tests at each layer you touch, tagged with the rule
    labels they verify.
@@ -244,5 +260,6 @@ Three speeds, and it matters which one you use:
    report them to the user at the end.
 6. `cargo build` (warning-free) + `cargo test`; run kotlinc/rustc e2e tests if
    available.
-7. Update PROGRESS.md with what changed, decisions made, and new gotchas;
+7. Update COMPLETED.md (a decision-log entry, new gotchas, test counts) and
+   ROADMAP.md (remove what you finished, add what you found);
    update/add the spec rules for any feature-level change.

@@ -9,7 +9,7 @@
 //! a diff of an escaped string. As real source files they are reviewable as
 //! code and verified here on their own — which is the standing form of the
 //! "hand-verify the generated shape before teaching it to the emitter"
-//! rule from PROGRESS.md's gotchas.
+//! rule from COMPLETED.md's gotchas.
 //!
 //! Each module must compile **warning-free** as a library crate: it is
 //! spliced into user output, where a warning is noise the user cannot fix.

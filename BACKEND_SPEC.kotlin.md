@@ -394,7 +394,7 @@ Conventions:
     `kotlin_ty` — which must agree with `emit_type` on the same source
     type, since the result keys the effect-environment lookup. The
     string-keyed environment with base-name matching is the fallback for
-    unchecked contexts (see PROGRESS.md "Emitter effect-environment
+    unchecked contexts (see COMPLETED.md "Emitter effect-environment
     fallback" under architectural facts).
 
 ### Effect dependencies [kt-effect-fusion]

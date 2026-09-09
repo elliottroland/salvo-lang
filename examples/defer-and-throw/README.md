@@ -65,4 +65,4 @@ whole design in one file:
 
 The nested-union bind (`let why: Str | Int = mixed`) emits an unchecked cast on
 Kotlin (`unchecked cast of 'Any?' to 'Union2<String, Int>'`) — the narrowing
-makes it unfailable, but `kotlinc` cannot see that. Recorded in PROGRESS.md.
+makes it unfailable, but `kotlinc` cannot see that. Recorded in COMPLETED.md.

@@ -12,7 +12,7 @@ compiler generated for it and the output it prints.
 
 More will be added as features land. This tree replaced `experiments/`, which
 held hand-written *prototypes* of designs not yet built; the prototypes' value
-was the findings they produced, and those live in PROGRESS.md.
+was the findings they produced, and those live in COMPLETED.md.
 
 ## Layout
 
@@ -63,7 +63,7 @@ cargo run -- run     --backend rust   --src examples/iteration/salvo > examples/
   example illustrate code that no longer works, rewrite it or delete it —
   there is no compatibility guarantee to document and no historical value in a
   program that does not compile. Deleting one is the expected outcome, not a
-  loss; the decision log in PROGRESS.md is where history belongs.
+  loss; the decision log in COMPLETED.md is where history belongs.
 - **Comment the source for a reader who knows some other language.** The
   comments are the explanation; the README says what to look for and why the
   shapes were chosen.

@@ -22,7 +22,8 @@ ownership, or borrowing in the source.
 The compiler is written in Rust. See [LANGUAGE.md](LANGUAGE.md) for the full
 specification, [examples/](examples/) for programs that compile and run today —
 each checked in with the Rust and Kotlin the compiler generated for it and the
-output it prints — and [PROGRESS.md](PROGRESS.md) for implementation status.
+output it prints — [ROADMAP.md](ROADMAP.md) for what is still to come, and
+[COMPLETED.md](COMPLETED.md) for what is built and why.
 
 ## Building
 
@@ -177,7 +178,7 @@ Both backends work end-to-end, verified by compiling and
 running the output with `kotlinc` and `rustc`: the Rust backend derives
 ownership mechanically — deductions decide whether parameters are moved or
 borrowed (`&`/`&mut` via `Mut`), unions become enums, and effects become
-traits. See [PROGRESS.md](PROGRESS.md) for details and
+traits. See [COMPLETED.md](COMPLETED.md) and [ROADMAP.md](ROADMAP.md) for details and
 [AGENTS.md](AGENTS.md) if contributing.
 
 ## License

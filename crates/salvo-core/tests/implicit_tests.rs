@@ -484,7 +484,7 @@ fn an_ambiguous_implicit_says_so() {
 // A handler with no constructor argument has nothing to infer its generics
 // from, so the `use` site's written type arguments are the only source. They
 // used to be discarded silently, which both backends then turned into invalid
-// target code — see PROGRESS.md's "Open defects" entry, fixed 2026-09-06.
+// target code — see COMPLETED.md's closed-defect entry, fixed 2026-09-06.
 
 const HANDLER_PRELUDE: &str = r#"
 effect Show<T> {

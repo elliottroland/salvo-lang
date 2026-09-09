@@ -695,7 +695,7 @@ derives them mechanically:
 * Handler resolution prefers the checker's effect tables
   (`use_effects`/`effect_calls`/`call_effects`) rendered through
   `rust_ty`, with the same string-keyed environment fallback as the
-  Kotlin backend (see PROGRESS.md "Emitter effect-environment fallback"
+  Kotlin backend (see COMPLETED.md "Emitter effect-environment fallback"
   under architectural facts).
 
 ### Effect dependencies via handler fusion [rs-effect-fusion]
@@ -703,7 +703,7 @@ derives them mechanically:
 **Implemented 2026-09-04.** A handler may declare a dependency
 ([effect-handler-deps]); Rust renders it by *fusing* the handlers of a
 scope into one value. The user decision was "B9, rebuilding, no facets in
-Rust" (2026-09-03/04); PROGRESS.md's E1a holds the decision log and the
+Rust" (2026-09-03/04); COMPLETED.md's E1a holds the decision log and the
 rejected alternatives. Every shape below was verified by compiling and
 running it with `rustc` before the emitter was taught to produce it.
 

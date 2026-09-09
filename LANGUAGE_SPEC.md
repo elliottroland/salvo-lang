@@ -13,7 +13,7 @@ Conventions:
 * Top-level bullets are *language rules* (what LANGUAGE.md means).
   Sub-bullets are *compiler decisions* (how the implementation realizes the
   rule, including deliberate cuts). When behavior is ambiguous, LANGUAGE.md
-  decides; when they conflict, fix one and note it in PROGRESS.md.
+  decides; when they conflict, fix one and note it in COMPLETED.md.
 * This file is backend-neutral. Each backend has its own
   `BACKEND_SPEC.<backend>.md` (e.g. [BACKEND_SPEC.kotlin.md](BACKEND_SPEC.kotlin.md)),
   loaded only when working on that backend. A backend spec may *repeat*
@@ -366,7 +366,7 @@ Conventions:
     tested against a union-typed value (`let x: Int | Str` then
     `x is Positive` errors with "this check can never succeed"). Narrow
     first — `x is Int && x is Positive`. Lifting this needs qualifiers
-    over unions; see roadmap D4 in PROGRESS.md.
+    over unions; see D4 in ROADMAP.md.
 * [is-qualifies-effects] `qualifies` may declare effects; at each
   predicate `is` site those effects must be available in the caller's
   scope like any call.
@@ -1986,7 +1986,7 @@ Conventions:
     detail. Presentation-only today; `ReadOnly` is not part of the type
     system and cannot be written in source. Parameterized compiler
     qualifiers as *checked* signature vocabulary are the leading design
-    for L7 (see PROGRESS.md).
+    for L7 (see COMPLETED.md, and ROADMAP.md for what is left of it).
 * [fate-derived-readonly] A fate-linked (derived) variable in
   *borrow-mode* is read-only: moving it (a call that does not keep it,
   `return`, `break value`, `yield`, a struct/array/tuple literal store,
