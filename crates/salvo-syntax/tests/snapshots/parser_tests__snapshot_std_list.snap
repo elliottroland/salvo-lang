@@ -698,17 +698,23 @@ Module {
         ),
         Fn(
             FnDecl {
-                docs: [],
-                intrinsic: true,
+                docs: [
+                    "[iter-pass] A fresh pass over the list, which is what `for x in iter(xs)`",
+                    "and every combinator walks. The list is **moved into** the pass — hence the",
+                    "empty deduction list — so iterating a list by hand consumes it; a `for`",
+                    "straight over the list keeps it, since the backends drive data natively",
+                    "[iter-for-native].",
+                ],
+                intrinsic: false,
                 is_yield: false,
                 name: Ident {
                     name: "iter",
-                    span: 1234..1238,
+                    span: 1556..1560,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 1239..1240,
+                        span: 1561..1562,
                     },
                 ],
                 generic_canbe: [],
@@ -717,14 +723,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "list",
-                            span: 1242..1246,
+                            span: 1564..1568,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "List",
-                                    span: 1248..1252,
+                                    span: 1570..1574,
                                 },
                                 args: [
                                     Named {
@@ -732,19 +738,332 @@ Module {
                                         base: TypeRef {
                                             name: Ident {
                                                 name: "T",
-                                                span: 1253..1254,
+                                                span: 1575..1576,
                                             },
                                             args: [],
-                                            span: 1253..1254,
+                                            span: 1575..1576,
                                         },
                                     },
                                 ],
-                                span: 1248..1255,
+                                span: 1570..1577,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 1242..1255,
+                        span: 1564..1577,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 1588..1591,
+                                },
+                                args: [],
+                                span: 1588..1591,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "ListPass",
+                                span: 1592..1600,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 1601..1602,
+                                        },
+                                        args: [],
+                                        span: 1601..1602,
+                                    },
+                                },
+                            ],
+                            span: 1592..1603,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    StructLit {
+                                        ty: Some(
+                                            Named {
+                                                qualifiers: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Mut",
+                                                            span: 1617..1620,
+                                                        },
+                                                        args: [],
+                                                        span: 1617..1620,
+                                                    },
+                                                ],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "ListPass",
+                                                        span: 1621..1629,
+                                                    },
+                                                    args: [
+                                                        Named {
+                                                            qualifiers: [],
+                                                            base: TypeRef {
+                                                                name: Ident {
+                                                                    name: "T",
+                                                                    span: 1630..1631,
+                                                                },
+                                                                args: [],
+                                                                span: 1630..1631,
+                                                            },
+                                                        },
+                                                    ],
+                                                    span: 1621..1632,
+                                                },
+                                            },
+                                        ),
+                                        fields: [
+                                            StructLitField {
+                                                kind: Named {
+                                                    name: Ident {
+                                                        name: "items",
+                                                        span: 1635..1640,
+                                                    },
+                                                    value: Ident(
+                                                        Ident {
+                                                            name: "list",
+                                                            span: 1642..1646,
+                                                        },
+                                                    ),
+                                                },
+                                                span: 1635..1646,
+                                            },
+                                            StructLitField {
+                                                kind: Named {
+                                                    name: Ident {
+                                                        name: "at",
+                                                        span: 1648..1650,
+                                                    },
+                                                    value: Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 1652..1653,
+                                                    },
+                                                },
+                                                span: 1648..1653,
+                                            },
+                                        ],
+                                        span: 1617..1655,
+                                    },
+                                ),
+                                span: 1610..1655,
+                            },
+                        ],
+                        span: 1604..1657,
+                    },
+                ),
+                span: 1553..1657,
+            },
+        ),
+        Struct(
+            StructDecl {
+                docs: [
+                    "[iter-protocol] The pass a list is walked by: the list plus a position in",
+                    "it. An ordinary struct with an ordinary `next` — there is no special",
+                    "container protocol, which is what \"a pass is a user struct\" means. The",
+                    "backends keep their native loop as a fast path for a `for` over a list",
+                    "[iter-for-native], so this shape is what *combinators* see.",
+                ],
+                name: Ident {
+                    name: "ListPass",
+                    span: 2028..2036,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 2037..2038,
+                    },
+                ],
+                obligations: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Yield",
+                            span: 2042..2047,
+                        },
+                        args: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "self",
+                                        span: 2048..2052,
+                                    },
+                                    args: [],
+                                    span: 2048..2052,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 2054..2055,
+                                    },
+                                    args: [],
+                                    span: 2054..2055,
+                                },
+                            },
+                        ],
+                        span: 2042..2056,
+                    },
+                ],
+                auto_qualifiers: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Mut",
+                            span: 2063..2066,
+                        },
+                        args: [],
+                        span: 2063..2066,
+                    },
+                ],
+                fields: [
+                    FieldDecl {
+                        docs: [
+                            "The list being walked. Constructing a pass moves it in, which is why",
+                            "[iter] hands nothing back.",
+                        ],
+                        name: Ident {
+                            name: "items",
+                            span: 2183..2188,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "List",
+                                    span: 2190..2194,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 2195..2196,
+                                            },
+                                            args: [],
+                                            span: 2195..2196,
+                                        },
+                                    },
+                                ],
+                                span: 2190..2197,
+                            },
+                        },
+                        default: None,
+                        span: 2183..2197,
+                    },
+                    FieldDecl {
+                        docs: [
+                            "The index of the next element to emit.",
+                        ],
+                        name: Ident {
+                            name: "at",
+                            span: 2249..2251,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2253..2256,
+                                },
+                                args: [],
+                                span: 2253..2256,
+                            },
+                        },
+                        default: None,
+                        span: 2249..2256,
+                    },
+                ],
+                span: 2021..2258,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Advances the pass, reporting the element at its position or the end of the",
+                    "list. Out of range is the end: [get] answers `None` past the last index, so",
+                    "the bound is read rather than remembered.",
+                ],
+                intrinsic: false,
+                is_yield: false,
+                name: Ident {
+                    name: "next",
+                    span: 2465..2469,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 2470..2471,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "pass",
+                            span: 2473..2477,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 2479..2482,
+                                    },
+                                    args: [],
+                                    span: 2479..2482,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "ListPass",
+                                    span: 2483..2491,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 2492..2493,
+                                            },
+                                            args: [],
+                                            span: 2492..2493,
+                                        },
+                                    },
+                                ],
+                                span: 2483..2494,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2473..2494,
                     },
                 ],
                 implicit_groups: [],
@@ -755,42 +1074,235 @@ Module {
                     [
                         Deduction {
                             param: Ident {
-                                name: "list",
-                                span: 1264..1268,
+                                name: "pass",
+                                span: 2503..2507,
                             },
-                            kind: KeepAll,
-                            span: 1264..1268,
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 2509..2512,
+                                        },
+                                        args: [],
+                                        span: 2509..2512,
+                                    },
+                                ],
+                            ),
+                            span: 2503..2512,
                         },
                     ],
                 ),
                 return_type: Some(
-                    Named {
-                        qualifiers: [],
-                        base: TypeRef {
-                            name: Ident {
-                                name: "Iter",
-                                span: 1270..1274,
-                            },
-                            args: [
-                                Named {
-                                    qualifiers: [],
-                                    base: TypeRef {
+                    Union {
+                        arms: [
+                            Named {
+                                qualifiers: [
+                                    TypeRef {
                                         name: Ident {
-                                            name: "T",
-                                            span: 1275..1276,
+                                            name: "Emitted",
+                                            span: 2514..2521,
                                         },
                                         args: [],
-                                        span: 1275..1276,
+                                        span: 2514..2521,
                                     },
+                                ],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "T",
+                                        span: 2522..2523,
+                                    },
+                                    args: [],
+                                    span: 2522..2523,
                                 },
-                            ],
-                            span: 1270..1277,
-                        },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Finished",
+                                        span: 2526..2534,
+                                    },
+                                    args: [],
+                                    span: 2526..2534,
+                                },
+                            },
+                        ],
+                        span: 2514..2534,
                     },
                 ),
                 constructs: None,
-                body: None,
-                span: 1231..1277,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "elem",
+                                        span: 2545..2549,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "get",
+                                            span: 2552..2555,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "pass",
+                                                    span: 2556..2560,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "items",
+                                                span: 2561..2566,
+                                            },
+                                            span: 2556..2566,
+                                        },
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "pass",
+                                                    span: 2568..2572,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "at",
+                                                span: 2573..2575,
+                                            },
+                                            span: 2568..2575,
+                                        },
+                                    ],
+                                    named: [],
+                                    span: 2552..2576,
+                                },
+                                span: 2541..2576,
+                            },
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "elem",
+                                                        span: 2584..2588,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "None",
+                                                            span: 2592..2596,
+                                                        },
+                                                        args: [],
+                                                        span: 2592..2596,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 2584..2596,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Return {
+                                                        value: Some(
+                                                            Call {
+                                                                callee: Ident(
+                                                                    Ident {
+                                                                        name: "finished",
+                                                                        span: 2614..2622,
+                                                                    },
+                                                                ),
+                                                                type_args: [],
+                                                                args: [],
+                                                                named: [],
+                                                                span: 2614..2624,
+                                                            },
+                                                        ),
+                                                        span: 2607..2624,
+                                                    },
+                                                ],
+                                                span: 2597..2630,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 2581..2630,
+                                },
+                            ),
+                            Assign {
+                                target: Field {
+                                    base: Ident(
+                                        Ident {
+                                            name: "pass",
+                                            span: 2635..2639,
+                                        },
+                                    ),
+                                    field: Ident {
+                                        name: "at",
+                                        span: 2640..2642,
+                                    },
+                                    span: 2635..2642,
+                                },
+                                value: Binary {
+                                    op: Add,
+                                    lhs: Field {
+                                        base: Ident(
+                                            Ident {
+                                                name: "pass",
+                                                span: 2645..2649,
+                                            },
+                                        ),
+                                        field: Ident {
+                                            name: "at",
+                                            span: 2650..2652,
+                                        },
+                                        span: 2645..2652,
+                                    },
+                                    rhs: Int {
+                                        value: 1,
+                                        long: false,
+                                        span: 2655..2656,
+                                    },
+                                    span: 2645..2656,
+                                },
+                                span: 2635..2656,
+                            },
+                            Return {
+                                value: Some(
+                                    Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "emitted",
+                                                span: 2668..2675,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "elem",
+                                                    span: 2676..2680,
+                                                },
+                                            ),
+                                        ],
+                                        named: [],
+                                        span: 2668..2681,
+                                    },
+                                ),
+                                span: 2661..2681,
+                            },
+                        ],
+                        span: 2535..2683,
+                    },
+                ),
+                span: 2462..2683,
             },
         ),
     ],

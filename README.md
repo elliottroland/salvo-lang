@@ -132,10 +132,11 @@ fn main() [use] {
   caller picks with `size@core.list(xs)` or `rename fn size2 = size(...)` —
   dot-notation
   (`list.size()` ≡ `size(list)`), variadics, lambdas, generics, and
-  `yield`-based iterator functions. `map`/`filter`/`reduce` work on anything
-  with an `iter`: `params Iterable<It, T>` is a bundle of implicit
-  parameters, not a trait, so a type of your own becomes iterable by
-  declaring one function.
+  `yield fn` producers. Iteration is ordinary Salvo: a **pass** is a struct
+  with a `next`, `for` is sugar for calling it until `Finished`, and
+  `map`/`filter`/`reduce` take a pass — `params Yield<It, T>` is a bundle of
+  implicit parameters, not a trait, so a type of your own joins in by declaring
+  one function.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible
   in signatures. A handler may itself depend on another effect (declared as

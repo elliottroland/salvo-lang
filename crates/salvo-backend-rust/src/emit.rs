@@ -125,7 +125,7 @@ pub fn emit_program_reporting(
 
     let mut errors: Vec<String> = Vec::new();
 
-    // [iter-effects] Where each effect's *trait* lives, as an absolute crate
+    // [fn-effects] Where each effect's *trait* lives, as an absolute crate
     // path prefix: the generated pass-trait file sits at the crate root and
     // mentions traits from arbitrary modules, so it names them in full
     // rather than importing them.
@@ -151,10 +151,6 @@ pub fn emit_program_reporting(
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
-    // [iter-effects] One generated trait per effect set a claiming producer
-    // (or a widening into one) needs, mapped to the Rust effect types its
-    // `advance` takes as handler parameters.
-    let mut pass_traits: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
     // [rs-iter-lazy] Generated once for the whole program, when anything
     // touches `Iter<T>`.
     let mut needs_iter = false;
@@ -187,7 +183,6 @@ pub fn emit_program_reporting(
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
-        pass_traits.extend(emitter.pass_traits);
         needs_iter |= emitter.needs_iter;
         needs_str |= emitter.needs_str;
         needs_seq |= emitter.needs_seq;
@@ -208,12 +203,6 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("iter.rs"),
             content: generate_iter_file(),
-        });
-    }
-    if !pass_traits.is_empty() {
-        files.push(EmittedFile {
-            rel_path: std::path::PathBuf::from("iter_effects.rs"),
-            content: generate_iter_effects_file(&pass_traits),
         });
     }
     if needs_str {
@@ -310,12 +299,6 @@ pub fn emit_program_reporting(
         }
         if needs_iter {
             mounts.push(("iter".to_string(), std::path::PathBuf::from("iter.rs")));
-        }
-        if !pass_traits.is_empty() {
-            mounts.push((
-                "iter_effects".to_string(),
-                std::path::PathBuf::from("iter_effects.rs"),
-            ));
         }
         if needs_str {
             mounts.push(("strings".to_string(), std::path::PathBuf::from("strings.rs")));
@@ -627,6 +610,20 @@ fn generated_imports(
             }
         }
     }
+    // [iter-protocol] The driving loop and the advance adapter are
+    // *synthesized*, and they name the protocol's own types (`Finished`) which
+    // the source need never mention — `for x in pass` is the whole of it. The
+    // module declaring them is cheap to add unconditionally here: a glob import
+    // of a module the file does not otherwise use is harmless under the crate's
+    // `unused_imports` allowance, and the alternative is a second pass over the
+    // emitted text.
+    for module in scope.name_origins.get("Finished").into_iter().flatten() {
+        if *module != own {
+            if let Some(import) = module_use(module) {
+                imports.insert(import);
+            }
+        }
+    }
     for item in &ast.items {
         let Item::Import(imp) = item else { continue };
         let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
@@ -688,7 +685,7 @@ fn generated_imports(
 ///
 /// The elements are produced *after* the call that made the iterator
 /// returned, which is precisely why an iterator fn may not perform effects
-/// [iter-effects]: a handler arrives as a borrow that could not live
+/// [fn-effects]: a handler arrives as a borrow that could not live
 /// this long, so the restriction is what keeps the captured state
 /// `'static`.
 /// The module is *source*, not a string literal: it lives in
@@ -734,96 +731,6 @@ fn generate_strings_file() -> String {
 fn generate_seq_file() -> String {
     include_str!("../runtime/seq.rs").to_string()
 }
-
-/// [iter-effects] [rs-pass-effects] The generated support file for
-/// **claiming** producers: one trait per effect set a program's producer
-/// types mention, plus the factory that mints its passes and the adapter a
-/// pure producer is widened with.
-///
-/// One trait per *set*, the way `unions.rs` gets one `UnionN` per arity — a
-/// claiming pass cannot be a `std::iter::Iterator`, because its `advance`
-/// takes the handlers as parameters. The set is the checker's
-/// (`Checked::pass_effect_sets`), so the parameter order here is the order
-/// the machine and every drive site use.
-///
-/// The effect traits are named by **absolute path**
-/// (`crate::core_console::Console`) rather than imported: this file is
-/// generated at the crate root and mentions traits from arbitrary modules,
-/// and the pure runtime files it sits beside have no cross-module reference
-/// at all, so there is no import machinery to reuse and none is needed.
-fn generate_iter_effects_file(traits: &BTreeMap<Vec<String>, Vec<String>>) -> String {
-    let mut out = String::from(
-        "// Generated by the Salvo compiler: one pass trait per effect set \
-         [iter-effects].\nuse std::rc::Rc;\n",
-    );
-    for (set, effects) in traits {
-        let suffix = pass_suffix(set);
-        let params: Vec<String> = set
-            .iter()
-            .zip(effects)
-            .map(|(name, e)| format!("{}: &mut dyn {e}", effect_param_name(name)))
-            .collect();
-        let params = params.join(", ");
-        let ignored: Vec<String> = set
-            .iter()
-            .zip(effects)
-            .map(|(name, e)| format!("_{}: &mut dyn {e}", effect_param_name(name)))
-            .collect();
-        let ignored = ignored.join(", ");
-        out.push_str(&format!(
-            "\n/// One pass whose driving performs {}.\npub trait SalvoPass{suffix}<T> {{\n    \
-             fn advance(&mut self, {params}) -> Option<T>;\n    /// The release path: pending \
-             deferred blocks, latest first. Idempotent.\n    fn close(&mut self, {params});\n}}\n",
-            set.iter()
-                .map(|e| format!("`{e}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-        out.push_str(&format!(
-            "\n/// `{} Iter<T>`: a factory of those, so it stays replayable.\npub struct \
-             SalvoIter{suffix}<T>(Rc<dyn Fn() -> Box<dyn SalvoPass{suffix}<T>>>);\n",
-            set.join(" ")
-        ));
-        out.push_str(&format!(
-            "\nimpl<T: 'static> SalvoIter{suffix}<T> {{\n    pub fn from_factory(factory: \
-             Rc<dyn Fn() -> Box<dyn SalvoPass{suffix}<T>>>) -> Self {{\n        \
-             SalvoIter{suffix}(factory)\n    }}\n\n    pub fn mint(&self) -> Box<dyn \
-             SalvoPass{suffix}<T>> {{\n        (self.0)()\n    }}\n\n    /// [iter-effects] The \
-             variance adapter: a producer performing *fewer* effects fits\n    /// where more \
-             are expected, and here that is a representation change, so\n    /// the compiler \
-             inserts this at the boundary.\n    pub fn from_pure(pure: crate::iter::SalvoIter<T>) \
-             -> Self {{\n        SalvoIter{suffix}(Rc::new(move || {{\n            \
-             Box::new(SalvoPureAs{suffix}(pure.mint()))\n        }}))\n    }}\n}}\n"
-        ));
-        out.push_str(&format!(
-            "\nimpl<T> Clone for SalvoIter{suffix}<T> {{\n    fn clone(&self) -> Self {{\n        \
-             SalvoIter{suffix}(self.0.clone())\n    }}\n}}\n"
-        ));
-        out.push_str(&format!(
-            "\nimpl<T> std::fmt::Debug for SalvoIter{suffix}<T> {{\n    fn fmt(&self, f: &mut \
-             std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        \
-             f.write_str(\"Iter\")\n    }}\n}}\n"
-        ));
-        out.push_str(&format!(
-            "\nstruct SalvoPureAs{suffix}<T>(Box<dyn crate::iter::SalvoPass<T>>);\n\nimpl<T> \
-             SalvoPass{suffix}<T> for SalvoPureAs{suffix}<T> {{\n    fn advance(&mut self, \
-             {ignored}) -> Option<T> {{\n        self.0.advance()\n    }}\n    fn close(&mut self, \
-             {ignored}) {{\n        self.0.close()\n    }}\n}}\n"
-        ));
-    }
-    out
-}
-
-/// [iter-effects] The name suffix of the generated trait/factory pair for one
-/// effect set: the effect names, sanitized and concatenated, in the canonical
-/// order the checker recorded (`{Console}` -> `SalvoPassConsole`).
-fn pass_suffix(set: &[String]) -> String {
-    set.iter()
-        .map(|e| sanitize_ident(e))
-        .collect::<Vec<_>>()
-        .join("")
-}
-
 fn generate_unions_file(sizes: &BTreeSet<usize>) -> String {    let mut out = String::from(
         "// Generated by the Salvo compiler: enums for union types.\n",
     );
@@ -1081,12 +988,7 @@ struct Emitter<'p> {
     /// `main`), so a path to a top-level fn can be spelled correctly:
     /// `crate::…` for it, `crate::<mounted>::…` for every other module.
     root_module: Option<&'p salvo_core::ModulePath>,
-    /// [iter-effects] Every effect set whose generated pass trait this file
-    /// mentions, mapped to the *Rust* effect types the trait's `advance`
-    /// takes as handler parameters. Merged program-wide into
-    /// `iter_effects.rs`, the way `union_sizes` drives `unions.rs`.
-    pass_traits: BTreeMap<Vec<String>, Vec<String>>,
-    /// [iter-effects] Absolute crate-path prefix per effect name, for the
+    /// [fn-effects] Absolute crate-path prefix per effect name, for the
     /// generated pass-trait file (which imports nothing).
     effect_paths: HashMap<String, String>,
     /// [rs-none-unit] The fn being emitted returns `None`, i.e. Rust `()`:
@@ -1148,6 +1050,16 @@ struct Emitter<'p> {
     pending_mints: Vec<(String, String, String)>,
     /// Counter for the hoisted mint locals of the current fn.
     mint_counter: usize,
+    /// [yield-fn-origin] The machine types minted at the call being emitted, in
+    /// argument order: the advance adapter has to annotate its closure
+    /// parameter with one, since rustc cannot infer it through the `&mut dyn
+    /// FnMut` coercion the implicit position renders.
+    mint_machines: Vec<String>,
+    /// [iter-protocol] This file names the protocol's own types (`Finished`) in
+    /// code the emitter *synthesized* — a driving loop or an advance adapter —
+    /// so the module declaring them has to be imported even when the source
+    /// never mentions them.
+    needs_protocol: bool,
     /// [rs-mut-str] This file calls a string helper, so the program needs
     /// the generated string support file.
     needs_str: bool,
@@ -1170,7 +1082,7 @@ struct Emitter<'p> {
     /// [iter-generator] Of those, the ones held in an `Option` because their
     /// type has no zero value (`BindKind::SelfSlot`).
     gen_slots: HashSet<String>,
-    /// [iter-effects] The handler arguments the machine being rendered
+    /// [fn-effects] The handler arguments the machine being rendered
     /// forwards to its own methods (`, console`), empty for a pure producer.
     /// A `defer` discharge is a call to `__run_dN`, and a deferred block may
     /// itself perform effects.
@@ -1235,7 +1147,6 @@ impl<'p> Emitter<'p> {
             imports: BTreeSet::new(),
             errors: Vec::new(),
             union_sizes: BTreeSet::new(),
-            pass_traits: BTreeMap::new(),
             effect_paths: HashMap::new(),
             ret_is_unit: false,
             effect_env: Vec::new(),
@@ -1266,6 +1177,8 @@ impl<'p> Emitter<'p> {
             needs_iter: false,
             pending_mints: Vec::new(),
             mint_counter: 0,
+            mint_machines: Vec::new(),
+            needs_protocol: false,
             needs_str: false,
             needs_seq: false,
             in_iterator_fn: false,
@@ -1482,79 +1395,6 @@ impl<'p> Emitter<'p> {
             close,
         )
     }
-
-    /// [iter-effects] [iter-generator] [rs-pass-effects] The loop header for a
-    /// `for` over a **producer**, and the `close` that ends it:
-    ///
-    /// ```text
-    /// let mut __loop0_pass = chatty(3).mint();
-    /// while let Some(mut v) = __loop0_pass.advance(console) {
-    /// ```
-    ///
-    /// One lowering whether the producer claims effects or not — the handler
-    /// list is simply empty for a pure one, and the emitted text differs only
-    /// by those arguments. What the pure case *gains* by going through here is
-    /// the `close`: an `Iter<T>` reached as a target-language iterator had
-    /// nowhere to put one, so an abandoned producer skipped its deferred
-    /// blocks.
-    ///
-    /// The handlers come from the subject's claim set in the checker's
-    /// canonical order, which is the order the generated trait declares them
-    /// in — the one table shared by the trait, the machine and this call
-    /// [iter-effects].
-    ///
-    /// The returned `close` call is spliced after the loop *and* registered as
-    /// a deferred entry, so a `return` out of the body releases the producer
-    /// too. It is idempotent, so landing there twice costs nothing.
-    fn emit_producer_loop_header(
-        &mut self,
-        claims: &[Ty],
-        pattern: &Pattern,
-        iterable: &Expr,
-        indent: usize,
-    ) -> (String, String) {
-        let pad = "    ".repeat(indent);
-        let names = self.claim_names(claims);
-        let args: Vec<String> = claims
-            .iter()
-            .map(|ty| self.thread_effect_by_ty(ty))
-            .collect();
-        let args = args.join(", ");
-        if names.is_empty() {
-            // The pure runtime is what a plain `Iter<T>` mints from.
-            self.needs_iter = true;
-        } else {
-            // Registers the trait this drive site names, for a program that
-            // only ever *receives* a claiming producer.
-            let elem = match self.ty_of(iterable.span()).map(|t| t.strip_quals().clone()) {
-                Some(Ty::Named { args, .. }) => match args.first() {
-                    Some(t) => {
-                        let t = t.clone();
-                        self.rust_ty(&t)
-                    }
-                    None => "()".to_string(),
-                },
-                _ => "()".to_string(),
-            };
-            let _ = self.producer_repr(&names, &elem);
-        }
-        let place = format!("{}_pass", self.fresh_loop_var());
-        // A *place*, not an owned value: `mint` takes `&self`, so nothing is
-        // cloned — a producer's factory is an `Rc`, and the loop only needs to
-        // read it.
-        let subject = self.emit_place(iterable);
-        let var = self.for_pattern_var(pattern, false);
-        let close = format!("{place}.close({args});");
-        self.defers.push(close.clone());
-        (
-            format!(
-                "{pad}let mut {place} = {subject}.mint();\n\
-                 {pad}while let Some({var}) = {place}.advance({args}) {{\n"
-            ),
-            close,
-        )
-    }
-
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
         match self.program.modules.get(key.file)?.items.get(key.item)? {
             Item::Fn(f) => Some(f),
@@ -1568,6 +1408,46 @@ impl<'p> Emitter<'p> {
         self.fn_by_key(key)
             .and_then(|f| f.body.as_ref())
             .is_some_and(contains_yield)
+    }
+
+    /// [rs-fn-field] Whether a fn's **callbacks outlive the call**, and so
+    /// arrive owned and `'static` rather than borrowed: a `yield fn` (its
+    /// machine calls them after the constructor returns), or a fn that **stores**
+    /// a fn-typed parameter in a struct it builds — a composed pass holding the
+    /// callback it maps with, which then calls it once per element for as long as
+    /// the pass lives. A borrow could not survive either.
+    ///
+    /// The store is read from the body rather than from the deduction list: a
+    /// callback is commonly *moved* without being kept (`apply(f: (T) -> U, …)`
+    /// calls it and drops it), so "not in the deduction list" says nothing about
+    /// lifetime. What does is the struct literal. A callback handed *onward* to
+    /// another storing fn is the known gap: it stays borrowed here and rustc
+    /// reports the lifetime, rather than this predicate guessing transitively.
+    ///
+    /// The convention has to be read the same way on both sides of a call, which
+    /// is why the signature, the lambda's `move` and the implicit adapters all
+    /// ask this one question.
+    fn owns_callbacks(&self, key: salvo_core::FnKey) -> bool {
+        if self.is_iterator_fn(key) {
+            return true;
+        }
+        let Some(decl) = self.fn_by_key(key) else {
+            return false;
+        };
+        // A fn-typed parameter, and a **struct with a fn-typed field** as the
+        // result: the callback lands in the field, and the struct outlives the
+        // call. That is the composed-pass shape, and nothing else in the
+        // language stores a callback yet.
+        if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) {
+            return false;
+        }
+        let Some(ret) = decl.return_type.as_ref().and_then(type_base_name) else {
+            return false;
+        };
+        self.symbols
+            .structs
+            .get(ret)
+            .is_some_and(|s| s.fields.iter().any(|f| matches!(f.ty, Type::Fn { .. })))
     }
 
     /// The stable key of a checker-resolved fn declaration (needed to look
@@ -1623,9 +1503,6 @@ impl<'p> Emitter<'p> {
         }
         if self.needs_iter {
             imports.insert("use crate::iter::*;".to_string());
-        }
-        if !self.pass_traits.is_empty() {
-            imports.insert("use crate::iter_effects::*;".to_string());
         }
         if self.needs_str {
             imports.insert("use crate::strings::*;".to_string());
@@ -1705,7 +1582,7 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         if !fn_fields.is_empty() {
-            out.push_str(&self.emit_fn_field_debug(s, &generics, &fn_fields));
+            out.push_str(&self.emit_fn_field_debug(s, &fn_fields));
         }
         self.generics = saved;
         out
@@ -1716,12 +1593,7 @@ impl<'p> Emitter<'p> {
     /// as `<fn>`. Written rather than derived because `dyn Fn` has no
     /// `Debug` — and needed rather than dropped, since `{:?}` on a struct is
     /// how `${…}` interpolation renders one [rs-display].
-    fn emit_fn_field_debug(
-        &mut self,
-        s: &StructDecl,
-        generics: &str,
-        fn_fields: &[String],
-    ) -> String {
+    fn emit_fn_field_debug(&mut self, s: &StructDecl, fn_fields: &[String]) -> String {
         let name = rs_ident(&s.name.name);
         let args = if s.generics.is_empty() {
             String::new()
@@ -1731,6 +1603,22 @@ impl<'p> Emitter<'p> {
                 s.generics
                     .iter()
                     .map(|g| g.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        // A derive would have bounded every type parameter by `Debug`; this
+        // impl prints the same fields, so it needs the same bound — a
+        // composed pass holds its source as a `T`, and `{:?}` on it is only
+        // available where the source has one.
+        let generics = if s.generics.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                s.generics
+                    .iter()
+                    .map(|g| format!("{}: Clone + 'static + std::fmt::Debug", g.name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -2361,10 +2249,11 @@ impl<'p> Emitter<'p> {
             return ParamMode::Owned; // `Once` closures pass by value
         }
         if matches!(param.ty, Type::Fn { .. }) {
-            // [rs-iter-lazy] An iterator fn keeps its fn-typed parameters
-            // alive in every pass, so they arrive owned (and `Rc`-shared
-            // internally) rather than borrowed for the call.
-            if key.is_some_and(|k| self.is_iterator_fn(k)) {
+            // [rs-iter-lazy] [rs-fn-field] A callback that outlives the call
+            // arrives owned (and `Rc`-shared internally) rather than borrowed
+            // for it: an iterator fn keeps its callbacks alive in every pass,
+            // and a moved fn-typed parameter is one the body stores.
+            if key.is_some_and(|k| self.owns_callbacks(k)) {
                 return ParamMode::Owned;
             }
             // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
@@ -2515,7 +2404,7 @@ impl<'p> Emitter<'p> {
                 return format!("{pad}    unimplemented!()\n");
             }
         };
-        // [iter-effects] A producer that performs effects takes its handlers
+        // [fn-effects] A producer that performs effects takes its handlers
         // as *parameters* of the machine — nothing is captured, which is
         // what lets a pass perform effects at all.
         //
@@ -2527,7 +2416,7 @@ impl<'p> Emitter<'p> {
         // normally: nothing calls it, so there is no call site to burden, and
         // `fn_effects` is the same list an ordinary fn's leading handler
         // parameters come from. The `Iter<T>` form keeps the claim-on-the-type
-        // table [iter-effects].
+        // table [fn-effects].
         let claimed: Vec<Ty> = if is_origin {
             self.key_of_fn(f)
                 .and_then(|k| self.checked.fn_effects.get(&k))
@@ -2537,10 +2426,7 @@ impl<'p> Emitter<'p> {
                 .filter(|t| !is_throw_effect_ty(t))
                 .collect()
         } else {
-            self.key_of_fn(f)
-                .and_then(|k| self.checked.producer_effects.get(&k))
-                .cloned()
-                .unwrap_or_default()
+            Vec::new()
         };
         let claim_names = self.claim_names(&claimed);
         // `(handler_params, handler_args)`: the leading parameters of
@@ -2676,7 +2562,7 @@ impl<'p> Emitter<'p> {
                 }
                 FieldKind::Pass { subject, span } => {
                     let rendered = self.gen_elem_type(subject, *span);
-                    // [iter-effects] A *claiming* inner producer would need
+                    // [fn-effects] A *claiming* inner producer would need
                     // its handlers threaded through the outer machine's own
                     // parameters and its slot typed as the generated trait —
                     // the nested case the prototype does not cover. Refused
@@ -2713,7 +2599,7 @@ impl<'p> Emitter<'p> {
             self.gen_field_names.push(rs_ident(&field.name));
         }
         let saved_slots = std::mem::replace(&mut self.gen_slots, slots);
-        // [iter-effects] The machine's handler parameters are the effect
+        // [fn-effects] The machine's handler parameters are the effect
         // environment its body's calls resolve against — the same lookup a
         // declared effect's leading parameter gets [rs-effects].
         let saved_env = std::mem::take(&mut self.effect_env);
@@ -2741,7 +2627,7 @@ impl<'p> Emitter<'p> {
         // idempotent — so one `close` after the consumer's loop covers
         // `break`, `return` and exhaustion alike. A claiming producer's
         // `close` takes the handlers too, because a deferred block may
-        // itself perform effects [iter-effects].
+        // itself perform effects [fn-effects].
         let close = self.emit_gen_steps(&plan.close, 2, usize::MAX, fin);
 
         self.bindings = saved_bindings;
@@ -2779,7 +2665,20 @@ impl<'p> Emitter<'p> {
         // parameter carries `Clone + 'static` [rs-generics], so the machine
         // has to satisfy it. Its fields are Salvo values and `Rc`-held
         // callbacks, both `Clone`.
-        let derive = if is_origin { "#[derive(Clone)]\n" } else { "" };
+        // A machine holding a **nested pass** cannot be `Clone` (its slot is a
+        // `Box<dyn SalvoPass<T>>`), so it is not derivable there — which also
+        // means such an origin cannot be a type argument: composing a producer
+        // that itself drives a *suspending* loop is a Rust-side cut, reported by
+        // rustc's own bound rather than emitted wrongly [backend-never-wrong].
+        let holds_pass = plan
+            .fields
+            .iter()
+            .any(|f| matches!(f.kind, FieldKind::Pass { .. }));
+        let derive = if is_origin && !holds_pass {
+            "#[derive(Clone)]\n"
+        } else {
+            ""
+        };
         let mut item = format!("\n{derive}{vis}struct {pass}{generic_decl} {{\n");
         for d in &decls {
             item.push_str(d);
@@ -2810,113 +2709,11 @@ impl<'p> Emitter<'p> {
         ));
         item.push_str(&runners);
         item.push_str("}\n");
-        // [yield-fn-origin] The origin machine implements nothing: the
-        // drive site knows its concrete type, so there is no trait to go
-        // through and no boxing.
-        if is_origin {
-        } else if claim_names.is_empty() {
-            // [iter-generator] A pass, not a `std::iter::Iterator`: an
-            // iterator has nowhere to put `close`, and a producer's deferred
-            // blocks have to run on the path the consumer abandoned.
-            item.push_str(&format!(
-                "\nimpl{generic_decl} SalvoPass<{elem}> for {pass}{generic_args} {{\n    \
-                 fn advance(&mut self) -> Option<{elem}> {{\n        \
-                 self.__advance()\n    }}\n    fn close(&mut self) {{\n        \
-                 self.__close()\n    }}\n}}\n"
-            ));
-        } else {
-            // [iter-effects] A claiming pass is *not* a `std::iter::Iterator`
-            // — its `advance` takes the handlers — so it implements the trait
-            // generated for its effect set instead.
-            let suffix = pass_suffix(&claim_names);
-            let args = handler_args.join(", ");
-            item.push_str(&format!(
-                "\nimpl{generic_decl} SalvoPass{suffix}<{elem}> for {pass}{generic_args} {{\n    \
-                 fn advance(&mut self{handler_sig}) -> Option<{elem}> {{\n        \
-                 self.__advance({args})\n    }}\n    fn close(&mut self{handler_sig}) {{\n        \
-                 self.__close({args})\n    }}\n}}\n"
-            ));
-        }
+        // [yield-fn-origin] The machine implements nothing: the drive site
+        // knows its concrete type, so there is no trait to go through and no
+        // boxing.
         item
     }
-
-    /// [rs-iter-lazy] [fn-iterator] The `Iter<T>`-returning form: the
-    /// machine plus the factory that mints one per `for`.
-    fn emit_generator(&mut self, f: &FnDecl, elem: &str, indent: usize) -> String {
-        let pass = format!("__Pass_{}", self.rust_fn_name(f));
-        let item = self.emit_generator_machine(f, elem, &pass, false);
-        self.generated_items.push(item);
-        let pad = "    ".repeat(indent);
-        let implicits = self.implicits_of(f);
-        let claimed: Vec<Ty> = self
-            .key_of_fn(f)
-            .and_then(|k| self.checked.producer_effects.get(&k))
-            .cloned()
-            .unwrap_or_default();
-        let claim_names = self.claim_names(&claimed);
-
-        // The fn itself: a factory. Every parameter is captured once and
-        // cloned per pass, so each pass starts from the beginning.
-        let mut out = String::new();
-        let mut captures: Vec<(String, String, bool)> = f
-            .params
-            .iter()
-            .map(|p| {
-                let name = rs_ident(&p.name.name);
-                (
-                    format!("__c_{name}"),
-                    name,
-                    matches!(p.ty, Type::Fn { .. }) || is_fn_group(&p.ty),
-                )
-            })
-            .collect();
-        // [implicit-param] The implicits the signature ends with, in the
-        // checker's order: captured into the factory exactly as a written
-        // callback is.
-        for imp in &implicits {
-            if f.params.iter().any(|p| p.name.name == imp.name) {
-                continue;
-            }
-            let name = rs_ident(&imp.name);
-            captures.push((format!("__c_{name}"), name, true));
-        }
-        for (capture, name, is_fn) in &captures {
-            let owned = if *is_fn {
-                format!("std::rc::Rc::new({name})")
-            } else {
-                match self.bindings.get(name.as_str()) {
-                    Some(BindKind::Ref) | Some(BindKind::RefMut) => format!("{name}.clone()"),
-                    _ => name.clone(),
-                }
-            };
-            out.push_str(&format!("{pad}    let {capture} = {owned};\n"));
-        }
-        // The factory type is the one the return type renders as: the pure
-        // `SalvoIter<T>`, or the generated factory of this producer's effect
-        // set [iter-effects].
-        let factory = if claim_names.is_empty() {
-            "SalvoIter".to_string()
-        } else {
-            let names = claim_names.clone();
-            let _ = self.producer_repr(&names, elem);
-            format!("SalvoIter{}", pass_suffix(&names))
-        };
-        out.push_str(&format!(
-            "{pad}    {factory}::from_factory(std::rc::Rc::new(move || {{\n"
-        ));
-        let args: Vec<String> = captures
-            .iter()
-            .map(|(capture, _, _)| format!("{capture}.clone()"))
-            .collect();
-        out.push_str(&format!(
-            "{pad}        Box::new({pass}::new({}))\n{pad}    }}))\n",
-            args.join(", ")
-        ));
-        self.needs_iter = true;
-        out
-    }
-
-    /// One state's (or the release path's) steps.
     fn emit_gen_steps(
         &mut self,
         steps: &[Step<'_>],
@@ -2939,21 +2736,15 @@ impl<'p> Emitter<'p> {
                 Step::OpenPass { slot, subject } => {
                     let name = self.gen_field_name(*slot);
                     let code = self.emit_expr(subject);
-                    // [iter-generator] A nested `for`'s subject becomes a pass
-                    // in a slot: an `Iter<T>` mints one (so the inner
-                    // producer's own `close` is reachable), and a collection
-                    // or string is walked — there is nothing to release
-                    // there, which is what `SalvoWalk`'s default `close`
-                    // says.
-                    let opened = if self
-                        .ty_of(subject.span())
-                        .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"))
-                    {
-                        // `mint` already hands over a boxed pass.
-                        format!("{code}.mint()")
-                    } else {
-                        format!("Box::new(SalvoWalk(IntoIterator::into_iter({code})))")
-                    };
+                    // The slot is a `Box<dyn SalvoPass<T>>`, so the support
+                    // module has to be there — a *suspending* loop is the one
+                    // place a machine holds another walk.
+                    self.needs_iter = true;
+                    // [iter-generator] A nested `for`'s subject becomes a walk
+                    // in a slot. Only data reaches here — a pass as the subject
+                    // of a *suspending* loop is refused — so there is nothing to
+                    // release, which is what `SalvoWalk`'s default `close` says.
+                    let opened = format!("Box::new(SalvoWalk(IntoIterator::into_iter({code})))");
                     out.push_str(&format!("{pad}self.{name} = Some({opened});\n"));
                 }
                 Step::ClosePass(slot) => {
@@ -3044,7 +2835,7 @@ impl<'p> Emitter<'p> {
         };
         let elem = match ty.strip_quals() {
             Ty::Array(elem) => Some((**elem).clone()),
-            Ty::Named { name, args } if name == "Iter" || name == "List" => args.first().cloned(),
+            Ty::Named { name, args } if name == "List" => args.first().cloned(),
             _ => None,
         };
         match elem {
@@ -3064,9 +2855,16 @@ impl<'p> Emitter<'p> {
         let Some(body) = &f.body else {
             return String::new();
         };
-        // [rs-iter-lazy] Set before the signature is rendered: an iterator
-        // fn's fn-typed parameters arrive owned and `'static`.
-        let saved_in_iterator = std::mem::replace(&mut self.in_iterator_fn, contains_yield(body));
+        // [rs-iter-lazy] [rs-fn-field] Set before the signature is rendered: a
+        // fn whose callbacks outlive the call takes them owned and `'static` —
+        // an iterator fn, or one that *moves* a fn-typed parameter (it stores
+        // it, so a borrow could not survive).
+        let owns_callbacks = contains_yield(body)
+            || (matches!(style, FnStyle::TopLevel)
+                && self
+                    .key_of_fn(f)
+                    .is_some_and(|k| self.owns_callbacks(k)));
+        let saved_in_iterator = std::mem::replace(&mut self.in_iterator_fn, owns_callbacks);
         let saved_generics = self.enter_generics(&f.generics);
         let saved_env = std::mem::take(&mut self.effect_env);
         let saved_bindings = std::mem::take(&mut self.bindings);
@@ -3163,7 +2961,7 @@ impl<'p> Emitter<'p> {
             params.push(format!("{var}: {param_ty}"));
         } else if (!is_main || self.declares_platform_effect(f))
             && handler_of_style.is_none()
-            // [iter-effects] A producer's effects belong to its *machine*, not
+            // [fn-effects] A producer's effects belong to its *machine*, not
             // to the call that mints one: none of the body runs here, so the
             // factory takes no handler and its call sites supply none (the
             // checker's `call_effects` is empty for it).
@@ -3439,40 +3237,7 @@ impl<'p> Emitter<'p> {
         let saved_defer_floor = std::mem::replace(&mut self.defer_floor, 0);
         let saved_loop_floors = std::mem::take(&mut self.loop_defer_floors);
 
-        // [iter-generator] [rs-iter-lazy] [fn-iterator] An iterator fn
-        // returns a *factory* of passes, and a pass is a struct the compiler
-        // wrote: the shared plan, rendered. See `emit_generator`.
-        if contains_yield(body) {
-            let elem = match f.return_type.as_ref() {
-                Some(Type::Named { base, .. }) if base.name.name == "Iter" => base
-                    .args
-                    .first()
-                    .map(|t| self.emit_type(t))
-                    .unwrap_or_else(|| "()".to_string()),
-                Some(Type::QualifiedGroup { base, .. }) => match base.as_ref() {
-                    Type::Named { base, .. } if base.name.name == "Iter" => base
-                        .args
-                        .first()
-                        .map(|t| self.emit_type(t))
-                        .unwrap_or_else(|| "()".to_string()),
-                    _ => {
-                        self.error(format!(
-                            "fn `{}` uses `yield` but does not return Iter<T>",
-                            f.name.name
-                        ));
-                        "()".to_string()
-                    }
-                },
-                _ => {
-                    self.error(format!(
-                        "fn `{}` uses `yield` but does not return Iter<T>",
-                        f.name.name
-                    ));
-                    "()".to_string()
-                }
-            };
-            out.push_str(&self.emit_generator(f, &elem, indent));
-        } else {
+        {
             out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
             // [rs-throw-controlflow] A `None`-returning fn that may throw
             // still has to produce a `ControlFlow` value on the way out.
@@ -3716,7 +3481,7 @@ impl<'p> Emitter<'p> {
                 // rather than `FnMut`: a pass may run more than once, so a
                 // callback with mutable state of its own would depend on
                 // how many times the iterator was consumed — which is
-                // exactly the divergence [iter-effects] rules out for
+                // exactly the divergence [fn-effects] rules out for
                 // effects.
                 if self.in_iterator_fn {
                     return format!("impl Fn({}){ret} + 'static", all.join(", "));
@@ -3777,19 +3542,6 @@ impl<'p> Emitter<'p> {
 
     fn emit_named_type(&mut self, qualifiers: &[TypeRef], base: &TypeRef) -> String {
         let name = base.name.name.clone();
-        // [iter-effects] An effect claim is the one qualifier that does *not*
-        // erase: a claiming producer's pass takes the handlers as parameters,
-        // so it cannot be a `dyn Iterator` and its factory is a type of its
-        // own.
-        let claims = self.ast_effect_claims(qualifiers);
-        if !claims.is_empty() && name == "Iter" {
-            let arg = base
-                .args
-                .first()
-                .map(|t| self.emit_type(t))
-                .unwrap_or_else(|| "()".to_string());
-            return self.producer_repr(&claims, &arg);
-        }
         // [type-canbe-mut] `Mut` erases here: on Rust, mutability lives in
         // the binding, not the type [rs-borrows], so `Mut List<T>` and
         // `List<T>` render identically and the deduction-driven parameter
@@ -3797,61 +3549,6 @@ impl<'p> Emitter<'p> {
         let _ = qualifiers;
         self.emit_type_ref_named(&name, &base.args)
     }
-
-    /// [iter-effects] The effect claims of a written type's qualifier list,
-    /// in canonical order: the qualifiers that name an **effect** rather than
-    /// a qualifier declaration (the checker's precedence — a qualifier
-    /// declaration of that name wins).
-    ///
-    /// A *generic* effect claim (`Random<Int> Iter<Int>`) is refused rather
-    /// than rendered: the set identity here would be this backend's
-    /// rendering of the arguments while the checker's is Salvo's, and two
-    /// spellings of one set would generate two traits that fit neither
-    /// [backend-never-wrong].
-    fn ast_effect_claims(&mut self, qualifiers: &[TypeRef]) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for q in qualifiers {
-            let name = q.name.name.as_str();
-            if self.symbols.qualifiers.contains_key(name) {
-                continue;
-            }
-            if !self.symbols.effects.contains_key(name) {
-                continue;
-            }
-            if !q.args.is_empty() {
-                self.error(format!(
-                    "a producer claiming a *generic* effect (`{name}<…> Iter<…>`) is not \
-                     supported yet: the generated pass trait is named per effect set, and \
-                     the arguments would have to be part of that name"
-                ));
-                continue;
-            }
-            if !out.contains(&name.to_string()) {
-                out.push(name.to_string());
-            }
-        }
-        out.sort();
-        out
-    }
-
-    /// [iter-effects] The Rust type of a claiming producer: the generated
-    /// factory for its effect set, registered so `iter_effects.rs` gets the
-    /// trait it names.
-    fn producer_repr(&mut self, claims: &[String], elem: &str) -> String {
-        let effects: Vec<String> = claims
-            .iter()
-            .map(|name| {
-                let prefix = self.effect_paths.get(name).cloned().unwrap_or_default();
-                format!("{prefix}{}", rs_ident(name))
-            })
-            .collect();
-        self.pass_traits.insert(claims.to_vec(), effects);
-        // The adapter mints from a pure `SalvoIter<T>`, so the pure runtime
-        // is needed wherever the claiming one is.
-        self.needs_iter = true;
-        format!("SalvoIter{}<{elem}>", pass_suffix(claims))
-    }
-
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
         self.emit_type_ref_named(&r.name.name, &r.args)
     }
@@ -3895,11 +3592,6 @@ impl<'p> Emitter<'p> {
             format!("<{}>", arg_strs.join(", "))
         };
         if let Some(rs) = crate::intrinsics::type_name(name) {
-            // [rs-iter-lazy] Mentioning `Iter<T>` anywhere pulls in the
-            // generated support file.
-            if name == "Iter" {
-                self.needs_iter = true;
-            }
             return format!("{rs}{args}");
         }
         if name == "Any" {
@@ -3998,26 +3690,7 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // [iter-effects] An effect claim on a producer is the
-                // exception: it names the generated factory for its effect
-                // set, so it is a different *type*, not a forgotten claim.
-                let claims = ty.effect_claims();
-                if !claims.is_empty() {
-                    if let Ty::Named { name, args } = base.as_ref() {
-                        if name == "Iter" {
-                            let names = self.claim_names(&claims);
-                            let elem = match args.first() {
-                                Some(t) => {
-                                    let t = t.clone();
-                                    self.rust_ty(&t)
-                                }
-                                None => "()".to_string(),
-                            };
-                            return self.producer_repr(&names, &elem);
-                        }
-                    }
-                }
-                // [type-canbe-mut] Every other qualifier erases here, `Mut`
+                // [type-canbe-mut] Every qualifier erases here, `Mut`
                 // included: Rust carries mutability in the binding, not the
                 // type [rs-borrows].
                 let _ = quals;
@@ -4062,7 +3735,7 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [iter-effects] The canonical set identity of a claim list: the effect
+    /// [fn-effects] The canonical set identity of a claim list: the effect
     /// names, already in the checker's order. A generic effect claim is
     /// refused for the reason `ast_effect_claims` gives.
     fn claim_names(&mut self, claims: &[Ty]) -> Vec<String> {
@@ -5226,20 +4899,13 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                // [iter-generator] [iter-effects] A **producer** is driven, not
+                // [iter-generator] [fn-effects] A **producer** is driven, not
                 // iterated: minted, advanced, and closed. That is where the
                 // injected `close` gets its caller — an `Iter<T>` reached as a
                 // target-language iterator had nowhere to put one, so an
                 // abandoned producer skipped its deferred blocks. The handler
                 // list is empty for a pure producer and the claimed set for a
                 // claiming one; nothing else differs.
-                let claims: Vec<Ty> = self
-                    .ty_of(iterable.span())
-                    .map(|t| t.effect_claims())
-                    .unwrap_or_default();
-                let is_producer = self
-                    .ty_of(iterable.span())
-                    .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
                 // [yield-fn-origin] An origin comes first: its machine is
                 // constructed here rather than minted from a factory, and it
                 // closes like a producer does.
@@ -5254,9 +4920,6 @@ impl<'p> Emitter<'p> {
                 let producer = match origin_driver {
                     Some(driver) => {
                         Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
-                    }
-                    None if is_producer => {
-                        Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
                     }
                     None => raw_closing.map(|driver| {
                         self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
@@ -5287,19 +4950,13 @@ impl<'p> Emitter<'p> {
                     .checked
                     .binding_modes
                     .contains(&(self.file_idx, iterable.span()));
-                // [rs-iter-lazy] An `Iter<T>` subject is a *factory*:
-                // iterating borrows it (so a second `for` can run the
-                // producer again, as on Kotlin) while the elements it
-                // hands over are owned. That is the opposite pairing from
-                // a collection, where borrowing the subject is what makes
-                // the loop variable a reference.
-                let iter_subject = self
-                    .ty_of(iterable.span())
-                    .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Iter"));
+                // A native `for` iterates data: borrowing the subject is what
+                // makes the loop variable a reference [rs-borrow-locals].
+                let iter_subject = false;
                 let elem_ok = self
                     .ty_of(iterable.span())
                     .map(|t| match t.strip_quals() {
-                        Ty::Named { name, args } if name == "List" || name == "Iter" => {
+                        Ty::Named { name, args } if name == "List" => {
                             args.first().is_some_and(|e| {
                                 matches!(e.strip_quals(), Ty::Named { .. })
                                     && !matches!(e.strip_quals(), Ty::Union(_))
@@ -5328,6 +4985,7 @@ impl<'p> Emitter<'p> {
                         Some(code) => code,
                         None => self.emit_bound_value(iterable, iterable.span()),
                     };
+                    let iter = self.native_for_subject(iterable, iter);
                     (var, iter)
                 };
                 let mut out = String::new();
@@ -5348,7 +5006,7 @@ impl<'p> Emitter<'p> {
                 self.loop_defer_floors.pop();
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
-                // [iter-effects] The injected `close`, once: `break` and
+                // [fn-effects] The injected `close`, once: `break` and
                 // exhaustion both land here, and the flags inside make it
                 // idempotent. A `return` out of the body ran it already,
                 // through the deferred entry the header registered — which is
@@ -6464,57 +6122,9 @@ impl<'p> Emitter<'p> {
                 Some(inner) => self.render_coercion(*inner, code),
                 None => code,
             },
-            // [iter-effects] The variance adapter: a pure producer wrapped
-            // for a claiming position. The displaced change (a union wrap,
-            // say) applies to the *widened* value, so it goes outside.
-            Coercion::WidenProducer { from, to, then } => {
-                let code = self.widen_producer(&from, &to, code);
-                match then {
-                    Some(inner) => self.render_coercion(*inner, code),
-                    None => code,
-                }
-            }
         }
     }
 
-    /// [iter-effects] [rs-pass-effects] Wraps a producer for a position that
-    /// claims more effects than it does. Only a *pure* source is renderable:
-    /// widening one claim set into a larger one would need an adapter per
-    /// pair, which nothing in the program asks for yet — refused rather than
-    /// mis-rendered [backend-never-wrong].
-    fn widen_producer(&mut self, from: &Ty, to: &Ty, code: String) -> String {
-        let want = to.effect_claims();
-        let have = from.effect_claims();
-        if !have.is_empty() {
-            self.error(format!(
-                "widening a producer from `{from}` to `{to}` is not supported yet: an \
-                 adapter exists for a *pure* producer only, and this one already claims \
-                 effects"
-            ));
-            return code;
-        }
-        let names = self.claim_names(&want);
-        if names.is_empty() {
-            return code;
-        }
-        // Registers the trait/factory/adapter trio the call needs.
-        let elem = match to.strip_quals() {
-            Ty::Named { args, .. } => match args.first() {
-                Some(t) => {
-                    let t = t.clone();
-                    self.rust_ty(&t)
-                }
-                None => "()".to_string(),
-            },
-            _ => "()".to_string(),
-        };
-        let _ = self.producer_repr(&names, &elem);
-        format!("SalvoIter{}::from_pure({code})", pass_suffix(&names))
-    }
-
-    /// Wraps a value into arm `arm` of a wrapper union
-    /// [union-arm-identity]: `Union2::<i32, String>::U1(value)`, in a
-    /// `Some(...)` when the target also has a `None` arm.
     fn wrap_union_value(&mut self, target: &Ty, arm: usize, code: String) -> String {
         let value_arms = target.value_arms();
         let n = value_arms.len();
@@ -6893,6 +6503,21 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [iter-for-native] The subject of a *native* `for`, as Rust iterates it.
+    /// A `Vec` (a list or an array) is an iterator already; a `Str` is not —
+    /// `String` has no `IntoIterator`, so the characters are asked for. The
+    /// pass protocol never reaches here: a pass is driven by its own header.
+    fn native_for_subject(&mut self, iterable: &Expr, code: String) -> String {
+        let is_str = self
+            .ty_of(iterable.span())
+            .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Str"));
+        if is_str {
+            format!("{code}.chars()")
+        } else {
+            code
+        }
+    }
+
     /// Lowers a value-position loop [while-value] [rs-loop-value] to a
     /// block expression with an `Option` result local. When the checked
     /// join type is itself optional, the local *is* the join type (tail
@@ -6943,7 +6568,7 @@ impl<'p> Emitter<'p> {
             out.push_str(&format!("let mut {ran} = false;\n"));
         }
         if is_for {
-            // [iter-effects] A claiming producer in *value* position would
+            // [fn-effects] A claiming producer in *value* position would
             // need its `close` spliced into a block that is also producing a
             // value; refused rather than driven without one
             // [backend-never-wrong].
@@ -6977,6 +6602,7 @@ impl<'p> Emitter<'p> {
             } else {
                 let var = self.for_pattern_var(pattern.unwrap(), false);
                 let iter = self.emit_expr(cond_or_iter);
+                let iter = self.native_for_subject(cond_or_iter, iter);
                 out.push_str(&format!("for {var} in {iter} {{\n"));
             }
         } else {
@@ -7167,11 +6793,36 @@ impl<'p> Emitter<'p> {
             }
             None => rs_ident(&p.name.name),
         }));
-        // [rs-iter-lazy] A producer's callback owns its captures.
+        // [rs-fn-field] A **stored** callback outlives the call, so it owns its
+        // captures: `move`. And it owns a *copy* of each — the clone is what lets
+        // two stored callbacks read the same local, which is legal Salvo (an
+        // immutable read) and would otherwise be E0382 at the second `move`.
+        // The clones are shadowing `let`s in a block around the closure, so the
+        // body needs no rewriting.
         let mv = if std::mem::take(&mut self.pending_lambda_move) {
             "move "
         } else {
             ""
+        };
+        let capture_clones: String = if mv.is_empty() {
+            String::new()
+        } else {
+            self.checked
+                .lambda_captures
+                .get(&(self.file_idx, span))
+                .map(|caps| {
+                    caps.iter()
+                        .filter(|c| {
+                            matches!(self.bindings.get(c.name.as_str()), Some(BindKind::Owned))
+                        })
+                        .map(|c| {
+                            let name = rs_ident(&c.name);
+                            format!("let mut {name} = {name}.clone(); ")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .unwrap_or_default()
         };
         let out = match body {
             LambdaBody::Expr(expr) => {
@@ -7227,7 +6878,10 @@ impl<'p> Emitter<'p> {
                 None => self.bindings.remove(&name),
             };
         }
-        out
+        if capture_clones.is_empty() {
+            return out;
+        }
+        format!("{{ {capture_clones}{out} }}")
     }
 
     /// A struct literal [struct-decl] [struct-defaults] [struct-spread]:
@@ -7697,7 +7351,7 @@ impl<'p> Emitter<'p> {
         // function"), even for an immutable capture the parity rules call
         // free. The *type* said `'static` from the start; the closure has to
         // say `move`.
-        let producer = fn_key.is_some_and(|k| self.is_iterator_fn(k));
+        let producer = fn_key.is_some_and(|k| self.owns_callbacks(k));
         let variadic_at = params.iter().position(|p| p.variadic);
         let fixed = variadic_at.unwrap_or(params.len());
         for (i, param) in params.iter().enumerate().take(fixed) {
@@ -7757,6 +7411,21 @@ impl<'p> Emitter<'p> {
                 self.mint_counter += 1;
                 format!("__mint{}", self.mint_counter)
             };
+            self.mint_machines.push(machine.clone());
+            // [yield-fn-origin] The release belongs where the *driving* ends. A
+            // kept position (`it: Mut It` with `[it: Mut]`) is drained during
+            // the call, so the machine closes after it returns. A **moved** one
+            // is stored by the callee — a lazy combinator keeps it in the
+            // composed pass it hands back — and closing it here handed the pass
+            // a finished machine, so the loop saw nothing.
+            if matches!(mode, ParamMode::Owned) {
+                self.pending_mints.push((
+                    var.clone(),
+                    format!("let mut {var} = {machine}::new({value});"),
+                    String::new(),
+                ));
+                return var;
+            }
             self.pending_mints.push((
                 var.clone(),
                 format!("let mut {var} = {machine}::new({value});"),
@@ -7858,15 +7527,6 @@ impl<'p> Emitter<'p> {
         if f.name.name != "copy" || args.len() != 1 {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             let arg_code = self.intrinsic_arg_code(f, args);
-            // [rs-iter-lazy] An intrinsic that *produces* an iterator names
-            // the generated type in its lowering, so the file needs the
-            // support module even when no `Iter` type is written in it.
-            if f.return_type
-                .as_ref()
-                .is_some_and(ast_type_mentions_iter)
-            {
-                self.needs_iter = true;
-            }
             // [rs-mut-str] The same for the string helper trait: `set`'s
             // lowering is a method from the generated support module.
             if f.name.name == "set" && recv == Some("Str") {
@@ -7898,6 +7558,20 @@ impl<'p> Emitter<'p> {
         }
         let _ = span;
         let arg = args[0];
+        // [rs-fn-field] `copy` of a **function value** is the value itself: a
+        // callback is shared, not duplicated — an owned `impl Fn` parameter has
+        // no `clone`, and an `Rc`-held field's clone is the share the store
+        // makes anyway. Salvo asks for the `copy` because the position *keeps*
+        // the callback [fn-contract]; in Rust there is nothing to copy.
+        if self
+            .ty_of(arg.span())
+            .is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. }))
+        {
+            return match arg {
+                Expr::Field { .. } => self.emit_owned(arg),
+                other => self.emit_expr(other),
+            };
+        }
         match arg {
             Expr::Ident(id) => {
                 if let Some(unwrapped) = self.ident_unwrap(id) {
@@ -8006,13 +7680,6 @@ impl<'p> Emitter<'p> {
     /// [backend-never-wrong].
     fn intrinsic_fn_value_body(&mut self, decl: &FnDecl, params: &[String]) -> String {
         let recv = decl.params.first().and_then(|p| type_base_name(&p.ty));
-        if decl
-            .return_type
-            .as_ref()
-            .is_some_and(ast_type_mentions_iter)
-        {
-            self.needs_iter = true;
-        }
         if decl.name.name == "set" && recv == Some("Str") {
             self.needs_str = true;
         }
@@ -8051,7 +7718,7 @@ impl<'p> Emitter<'p> {
             .checked
             .call_fn
             .get(&(self.file_idx, span))
-            .is_some_and(|k| self.is_iterator_fn(*k));
+            .is_some_and(|k| self.owns_callbacks(*k));
         // [implicit-param] How the *position* hands each parameter over: a
         // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
         // so the adapter must not borrow it a second time — `next(&mut __i0)`
@@ -8211,8 +7878,19 @@ impl<'p> Emitter<'p> {
                         .collect();
                     let hs = hs.join(", ");
                     self.union_sizes.insert(2);
+                    self.needs_protocol = true;
+                    // The machine's type: rustc cannot infer the closure's
+                    // parameter through the `&mut dyn FnMut` coercion, and the
+                    // mint at this call is what names it.
+                    let ann = match self.mint_machines.last() {
+                        Some(machine) => format!("__p: &mut {machine}"),
+                        None => "__p".to_string(),
+                    };
+                    // [rs-fn-field] A callee that *keeps* the adapter takes it
+                    // owned and `'static`, like any stored callback.
+                    let lead = if producer { "move " } else { "&mut " };
                     out.push(format!(
-                        "&mut |__p| match __p.__advance({hs}) {{ \
+                        "{lead}|{ann}| match __p.__advance({hs}) {{ \
                          Some(__v) => Union2::<{elem}, Finished>::U1(__v), \
                          None => Union2::<{elem}, Finished>::U2(Finished {{}}) }}"
                     ));
@@ -8232,7 +7910,7 @@ impl<'p> Emitter<'p> {
         span: Span,
     ) -> String {
         let mut all: Vec<String> = Vec::new();
-        // [iter-effects] A producer call mints a pass and runs none of the
+        // [fn-effects] A producer call mints a pass and runs none of the
         // body, so it takes no handlers — even though `call_effects` records
         // the claim at this span when the call is a `for` subject: that entry
         // is the *drive* site's, and the drive site is where it is read.
@@ -8276,6 +7954,7 @@ impl<'p> Emitter<'p> {
             all.truncate(1);
         }
         let outer_mints = std::mem::take(&mut self.pending_mints);
+        let outer_machines = std::mem::take(&mut self.mint_machines);
         let (mut prelude, args) = {
             let rendered = self.emit_args_for_params(&f.params, args, key);
             if all.is_empty() {
@@ -8338,7 +8017,19 @@ impl<'p> Emitter<'p> {
                 .cloned()
                 .filter(|args| args.len() == f.generics.len() && args.iter().all(ty_is_concrete))
             {
-                let rendered: Vec<String> = args.iter().map(|t| self.rust_ty(t)).collect();
+                let mut rendered: Vec<String> = args.iter().map(|t| self.rust_ty(t)).collect();
+                // [yield-fn-origin] Where an argument is an **origin**, the
+                // value is the hidden machine, so the type argument is the
+                // machine's — the origin struct itself is only the recipe.
+                for machine in &self.mint_machines {
+                    if let Some(origin) = machine.strip_prefix("__Pass_") {
+                        for r in rendered.iter_mut() {
+                            if r == origin {
+                                *r = machine.clone();
+                            }
+                        }
+                    }
+                }
                 rs_name = format!("{rs_name}::<{}>", rendered.join(", "));
             }
         }
@@ -8346,6 +8037,7 @@ impl<'p> Emitter<'p> {
         // [yield-fn-origin] A minted pass is released here: the mint is the
         // compiler's value, so a combinator that abandons it early cannot
         // leak it. `__close` is idempotent, so a drained pass pays nothing.
+        self.mint_machines = outer_machines;
         let mints = std::mem::replace(&mut self.pending_mints, outer_mints);
         if mints.is_empty() {
             return call;
@@ -8736,26 +8428,6 @@ fn ast_fn_param_contract(
     };
     (kept, is_mut)
 }
-
-/// [rs-iter-lazy] Whether an AST type mentions `Iter<T>` anywhere, which is
-/// what decides that a file needs the generated iterator module.
-fn ast_type_mentions_iter(ty: &Type) -> bool {
-    match ty {
-        Type::Named { base, .. } => {
-            base.name.name == "Iter" || base.args.iter().any(ast_type_mentions_iter)
-        }
-        Type::Nullable { inner, .. } => ast_type_mentions_iter(inner),
-        Type::Array { elem, .. } => ast_type_mentions_iter(elem),
-        Type::Union { arms, .. } => arms.iter().any(ast_type_mentions_iter),
-        Type::Tuple { elems, .. } => elems.iter().any(ast_type_mentions_iter),
-        Type::QualifiedGroup { base, .. } => ast_type_mentions_iter(base),
-        Type::Fn { params, ret, .. } => {
-            params.iter().any(ast_type_mentions_iter) || ast_type_mentions_iter(ret)
-        }
-    }
-}
-
-/// A qualified group over a fn type (`Once (A) -> B`) [once-fn].
 fn is_fn_group(ty: &Type) -> bool {
     matches!(
         ty,

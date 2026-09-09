@@ -219,12 +219,13 @@ fn missing_return_is_an_error() {
         "stderr: {stderr}"
     );
 
-    // All-paths-return via if/else, iterator fns, and None-returning fns
-    // are fine.
+    // All-paths-return via if/else, a `yield fn` (its body produces elements,
+    // not a return value) and None-returning fns are fine.
     fs::write(
         dir.join("bad.sv"),
         "fn sign(x: Int) -> Int {\n    if x < 0 {\n        return -1\n    } else {\n        return 1\n    }\n}\n\
-         fn nums() -> Iter<Int> {\n    yield 1\n    yield 2\n}\n\
+         struct Nums : Yield<self, Int> {\n    from: Int\n}\n\
+         yield fn next(n: Nums) -> Int {\n    yield 1\n    yield 2\n}\n\
          fn nothing(x: Int) {\n    let y = x\n}\n",
     )
     .unwrap();
@@ -891,7 +892,8 @@ fn l2_move_sites_consume_roots() {
          read(b.item)\n}\n\n\
          fn break_in_branch() {\n    let s = \"x\"\n    let r = while true {\n        \
          if true {\n            break s\n        }\n    }\n    read(s)\n}\n\n\
-         fn yield_in_loop() -> Iter<Str> {\n    let s = \"x\"\n    \
+         struct Yielding : Yield<self, Str> {\n    seed: Str\n}\n\n\
+         yield fn next(y: Yielding) -> Str {\n    let s = \"x\"\n    \
          for i in [1, 2] {\n        yield s\n    }\n}\n\n\
          fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n\n\
          fn store_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
@@ -974,7 +976,8 @@ fn l2_move_sites_remedies_stay_clean() {
          let b = Box {item: copy(s)}\n    let c = Box {...copy(b)}\n    \
          use FixedGreeter(copy(s))\n    read(s)\n    read(b.item)\n}\n\n\
          fn revive() {\n    let s = \"x\"\n    let t = (s, 1)\n    s = \"y\"\n    read(s)\n}\n\n\
-         fn yield_then_reassign() -> Iter<Str> {\n    let s = \"x\"\n    \
+         struct Reassigning : Yield<self, Str> {\n    seed: Str\n}\n\n\
+         yield fn next(r: Reassigning) -> Str {\n    let s = \"x\"\n    \
          for i in [1, 2] {\n        yield s\n        s = \"y\"\n    }\n}\n\n\
          fn break_consumes_only_its_operand() {\n    let s = \"x\"\n    let n = 0\n    \
          let r = while n < 3 {\n        if n == 2 {\n            break n\n        }\n        \
@@ -1480,11 +1483,11 @@ fn l7b_once_fns() {
         ),
         "stderr: {stderr}"
     );
-    // `Once` applies to fn types and `Iter<T>`; a type of one's own opts in
-    // with `canbe Once` [canbe-optin]. Widening it to *any* type is roadmap
-    // D6, to be designed with D7.
+    // `Once` applies to fn types; a type of one's own opts in with
+    // `canbe Once` [canbe-optin]. Widening it to *any* type is roadmap D6, to
+    // be designed with D7.
     assert!(
-        stderr.contains("`Once` applies to function types and `Iter<T>`")
+        stderr.contains("`Once` applies to function types")
             && stderr.contains("`canbe Once`"),
         "stderr: {stderr}"
     );

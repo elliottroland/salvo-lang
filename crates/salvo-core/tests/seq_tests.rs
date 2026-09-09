@@ -1,16 +1,17 @@
-//! [seq-iterable] [implicit-group] [implicit-infer] [fn-overload-rank] The sequence
+//! [seq-pass] [implicit-group] [implicit-infer] [fn-overload-rank] The sequence
 //! functions — `map`, `filter`, `reduce` — and what makes them work over
-//! *anything iterable*.
+//! *any pass*.
 //!
-//! There is no `Iterable` trait: `params Iterable<It, T> { fn iter(it: It) ->
-//! Iter<T> }` is a bundle of implicit parameters, and a call fills it with
-//! whichever `iter` fits its subject. Two inference facts carry the whole
-//! design:
+//! There is no `Iterable` trait, and since R5 there is no `Iterable` group
+//! either: a combinator's subject **is** the pass, and its `next` arrives
+//! through a `?Yield<It, T>` spread [iter-protocol] that each call fills with
+//! whichever `next` fits. A container is iterated by writing its `iter`
+//! (`map(iter(xs), f)`), which is what keeps the inference ordinary. Two facts
+//! carry the design:
 //!
-//! * the *implicit* resolution has to feed back into the call's type
-//!   arguments — `It` comes from the subject, and `T` comes from **which
-//!   `iter` filled the implicit** — or a bare lambda would be typed against
-//!   an unbound `T` and `U` would be undeterminable [call-type-args];
+//! * `It` is bound by an ordinary argument, so the spread resolves with the
+//!   plain implicit machinery — and `T` comes from **which `next` filled the
+//!   implicit**, which is what lets a bare lambda be typed [call-type-args];
 //! * expected types have to reach a lambda even though the name is
 //!   *overloaded* (each function also has a `List` fast path), which is what
 //!   the specificity ranking's *lead candidate* is for — re-narrowed per
@@ -29,30 +30,80 @@ intrinsic type Int\n\
 intrinsic type Bool\n\
 intrinsic type Char\n\
 intrinsic type Str\n\
-intrinsic type Iter<T>\n\
 intrinsic type List<T> canbe Mut\n\
+intrinsic fn copy<T>(value: T) [] -> [value] T\n\
 intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n\
 intrinsic fn list<T>(...elems: T[]) [] -> [] List<T>\n\
 intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
 intrinsic fn size<T>(list: List<T>) [] -> [list] Int\n\
-intrinsic fn iter<T>(list: List<T>) [] -> [list] Iter<T>\n\
-intrinsic fn iter<T>(array: T[]) [] -> [array] Iter<T>\n\
-intrinsic fn iter(str: Str) [] -> [str] Iter<Char>\n\
-intrinsic fn iter<T>(it: Iter<T>) [] -> [it] Iter<T>\n\
-params Iterable<It, T> {\n\
-    fn iter(it: It) -> Iter<T>\n\
+intrinsic fn get<T>(list: List<T>, index: Int) [] -> [list, index] T?\n\
+intrinsic fn char_at(str: Str, index: Int) [] -> [str, index] Char?\n\
+qualifier Emitted<T> of T\n\
+struct Finished {}\n\
+fn emitted<T>(value: T) [] -> [] T as Emitted { return value }\n\
+fn finished() [] -> [] Finished { return Finished {} }\n\
+params Yield<It, T> {\n\
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n\
 }\n\
-fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) [] -> [xs, f] Mut List<U> {\n\
+struct ListPass<T> : Yield<self, T> canbe Mut {\n\
+    items: List<T>,\n\
+    at: Int\n\
+}\n\
+fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T> {\n\
+    return Mut ListPass<T> { items: list, at: 0 }\n\
+}\n\
+fn next<T>(pass: Mut ListPass<T>) [] -> [pass: Mut] Emitted T | Finished {\n\
+    let elem = get(pass.items, pass.at)\n\
+    if elem is None {\n\
+        return finished()\n\
+    }\n\
+    pass.at = pass.at + 1\n\
+    return emitted(elem)\n\
+}\n\
+struct StrPass : Yield<self, Char> canbe Mut {\n\
+    text: Str,\n\
+    at: Int\n\
+}\n\
+fn iter(str: Str) [] -> [] Mut StrPass {\n\
+    return Mut StrPass { text: str, at: 0 }\n\
+}\n\
+fn next(pass: Mut StrPass) [] -> [pass: Mut] Emitted Char | Finished {\n\
+    let chr = char_at(pass.text, pass.at)\n\
+    if chr is None {\n\
+        return finished()\n\
+    }\n\
+    pass.at = pass.at + 1\n\
+    return emitted(chr)\n\
+}\n\
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {\n\
     let out = mutable_list<U>()\n\
-    for x in iter(xs) {\n\
-        add(out, f(x))\n\
+    let going = true\n\
+    while going {\n\
+        let step = next(it)\n\
+        when step {\n\
+            is Emitted {\n\
+                add(out, f(step))\n\
+            }\n\
+            is Finished {\n\
+                going = false\n\
+            }\n\
+        }\n\
     }\n\
     return out\n\
 }\n\
-fn reduce<It, T, A>(xs: It, init: A, f: (A, T) -> A, ?Iterable<It, T>) [] -> [xs, f] A {\n\
+fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [it: Mut, f] A {\n\
     let acc = init\n\
-    for x in iter(xs) {\n\
-        acc = f(acc, x)\n\
+    let going = true\n\
+    while going {\n\
+        let step = next(it)\n\
+        when step {\n\
+            is Emitted {\n\
+                acc = f(acc, step)\n\
+            }\n\
+            is Finished {\n\
+                going = false\n\
+            }\n\
+        }\n\
     }\n\
     return acc\n\
 }\n\
@@ -126,106 +177,104 @@ fn picked_fast_path(src: &str, callee: &str) -> bool {
     found.unwrap_or_else(|| panic!("no call to `{callee}` was resolved"))
 }
 
-// ===== the generic path: anything with an `iter` =====
+// ===== the generic path: any pass =====
 
-/// [implicit-infer] A `List` subject: `It` from the argument, `T` from the
-/// `iter` that fills the implicit, `U` from the lambda's body.
+/// [implicit-infer] A list, iterated by writing its `iter`: `It` from the
+/// argument, `T` from the `next` that fills the implicit, `U` from the
+/// lambda's body.
 #[test]
-fn a_list_subject_infers_everything() {
-    let src = probe("    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(xs, n -> n * 2)");
-    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-}
-
-/// An **array** subject — the case that failed before implicit resolution
-/// fed back into the call's type arguments, while the identical `List` call
-/// worked.
-#[test]
-fn an_array_subject_infers_everything() {
-    let src = probe("    let arr = [1, 2]\n    let ys: Mut List<Int> = map(arr, n -> n + 1)");
-    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-}
-
-/// A `Str` subject iterates its *characters*, so the lambda's parameter is a
-/// `Char` — which is only knowable from the `iter` that fills the implicit.
-#[test]
-fn a_str_subject_iterates_characters() {
-    let src = probe("    let ys: Mut List<Bool> = map(\"ab\", c -> c == 'a')");
-    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-    // ... and the element really is a `Char`, not a `Str`.
-    let bad = probe("    let ys: Mut List<Int> = map(\"ab\", c -> size(c))");
-    assert!(!messages(&bad).is_empty(), "a `Char` is not a `List`");
-}
-
-/// An `Iter<T>` is iterable through the identity overload, which is what
-/// makes a chain compose: `map`'s result is a `Mut List`, and that has an
-/// `iter` too.
-#[test]
-fn iterators_and_chains_compose() {
+fn a_pass_subject_infers_everything() {
     let src = probe(
-        "    let xs = list(1, 2)\n    \
-         let ys: Mut List<Int> = map(iter(xs), n -> n * 2)\n    \
-         let zs: Mut List<Int> = map(map(xs, n -> n * 2), n -> n + 1)",
+        "    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n * 2)",
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
-/// A type of your own becomes iterable by declaring `fn iter` for it —
+/// A `Str` pass yields *characters*, so the lambda's parameter is a `Char` —
+/// which is only knowable from the `next` that fills the implicit.
+#[test]
+fn a_str_pass_iterates_characters() {
+    let src = probe("    let ys: Mut List<Bool> = map(iter(\"ab\"), c -> c == 'a')");
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+    // ... and the element really is a `Char`, not a `Str`.
+    let bad = probe("    let ys: Mut List<Int> = map(iter(\"ab\"), c -> size(c))");
+    assert!(!messages(&bad).is_empty(), "a `Char` is not a `List`");
+}
+
+/// Chains compose, because `map`'s result is a `Mut List` and that has an
+/// `iter` like any other list — one call more than the old `?Iterable` surface,
+/// and no cross-implicit inference (user decision 2026-09-09).
+#[test]
+fn chains_compose_through_iter() {
+    let src = probe(
+        "    let xs = list(1, 2)\n    \
+         let zs: Mut List<Int> = map(iter(map(xs, n -> n * 2)), n -> n + 1)",
+    );
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+}
+
+/// A type of your own joins in by declaring an `iter` that answers a pass —
 /// nothing else, and no trait.
 #[test]
 fn a_user_type_becomes_iterable_by_declaring_iter() {
     let src = format!(
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
-         fn iter(bag: Bag) -> [bag] Iter<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
+         fn iter(bag: Bag) -> [] Mut ListPass<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
             "    let b = Bag {items: list(1, 2)}\n    \
-             let total: Int = reduce(b, 0, (a, x) -> a + x)"
+             let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
-/// A subject with no `iter` at all is an error naming the implicit — the
-/// diagnostic [implicit-resolve] already had, now reached by the thing most
-/// likely to trip on it.
+/// A subject that is not a pass is an error. It surfaces as *no matching
+/// overload* rather than as the missing implicit: the pass position is
+/// `Mut It`, and an `Int` cannot be `Mut`, so the candidate is out before its
+/// spread is ever resolved.
 #[test]
-fn a_subject_with_no_iter_is_an_error() {
+fn a_subject_that_is_not_a_pass_is_an_error() {
     let src = probe("    let ys = map(1, n -> n)");
     let msgs = messages(&src);
     assert!(
-        msgs.iter().any(|m| m.contains("`iter`")),
-        "the diagnostic should name the missing `iter`: {msgs:?}"
+        msgs.iter().any(|m| m.contains("no matching overload for `map(Int")),
+        "expected the overload rejection: {msgs:?}"
     );
 }
 
 // ===== the fast path, and what picks it =====
 
-/// [fn-overload-rank] With a `List` subject the *intrinsic* overload
-/// wins: `List<T>` is more specific than a bare `It`. This is the case O1
-/// was taken for.
+/// [fn-overload-rank] With a `List` subject the *intrinsic* overload wins:
+/// `List<T>` is more specific than a bare `It`. It is also what keeps the short
+/// spelling for the type people map most.
 #[test]
 fn a_list_subject_picks_the_fast_path() {
     let src = probe("    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(xs, n -> n * 2)");
     assert!(picked_fast_path(&src, "map"), "expected the `List` overload");
 }
 
-/// And with any other subject the generic body takes it — the fast path is
-/// not viable, so specificity never gets to prefer it.
+/// And with a pass subject the generic body takes it — the fast path is not
+/// viable, so specificity never gets to prefer it.
 #[test]
-fn other_subjects_pick_the_generic_body() {
-    let src = probe("    let arr = [1, 2]\n    let ys: Mut List<Int> = map(arr, n -> n + 1)");
-    assert!(!picked_fast_path(&src, "map"), "expected the generic overload");
+fn a_pass_subject_picks_the_generic_body() {
+    let src = probe(
+        "    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n + 1)",
+    );
+    assert!(
+        !picked_fast_path(&src, "map"),
+        "expected the generic overload"
+    );
 }
 
-/// [fn-overload-rank] The lead candidate is re-narrowed *per argument*,
-/// which is what makes the array case above work at all: the `List`
-/// candidate leads on specificity, and typing the subject has to drop it
+/// [fn-overload-rank] The lead candidate is re-narrowed *per argument*: the
+/// `List` candidate leads on specificity, and typing the subject has to drop it
 /// before the lambda is checked against `List<T>`'s element type.
 #[test]
 fn the_lead_narrows_before_the_lambda_is_typed() {
-    // A `Str` subject with a `Char` lambda: if the `List` fast path had
-    // still been leading, the lambda would have been typed against `T` from
-    // `List<T>` — unbound — and `U` would not have been inferable.
-    let src = probe("    let ys: Mut List<Bool> = map(\"ab\", c -> c == 'a')");
+    // A `Str` pass with a `Char` lambda: if the `List` fast path had still been
+    // leading, the lambda would have been typed against `T` from `List<T>` —
+    // unbound — and `U` would not have been inferable.
+    let src = probe("    let ys: Mut List<Bool> = map(iter(\"ab\"), c -> c == 'a')");
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     assert!(!picked_fast_path(&src, "map"));
 }

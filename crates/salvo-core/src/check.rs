@@ -126,6 +126,14 @@ pub struct PassDriver {
     /// is bookkeeping, not release. `None` for the origin form, whose machine
     /// has its own `__close`.
     pub close_fn: Option<FnKey>,
+    /// [iter-pass] The `iter` overload that **mints** the pass, when the
+    /// subject is a container rather than a pass itself (`for x in bag`, where
+    /// `iter(bag)` answers a pass). The emitters call it once, before the
+    /// driving loop, and drive its result. `None` when the subject *is* the
+    /// pass — and also for the intrinsic containers (a list, an array, a
+    /// `Str`), which record no driver at all because the backends iterate
+    /// their own data natively [iter-for-native].
+    pub mint_iter_fn: Option<FnKey>,
 }
 
 /// A representation change the emitter must apply to an expression.
@@ -157,24 +165,6 @@ pub enum Coercion {
     /// the wrap is about the *plain* type.
     DropMut {
         from: Ty,
-        then: Option<Box<Coercion>>,
-    },
-    /// [iter-effects] The **variance adapter**: a producer performing
-    /// *fewer* effects is used where more are expected. Nothing in the type
-    /// rules hints at a conversion — fewer effects simply fit — but on both
-    /// backends a claiming producer has a *different representation* from a
-    /// pure one (its `advance` takes a handler), so the widening is a real
-    /// wrapper. Recorded here rather than guessed at from types by each
-    /// emitter, the standing checker/emitter agreement, and for the same
-    /// reason [str-drop-mut] is recorded: one side deciding is one place to
-    /// fix.
-    ///
-    /// `from`/`to` are the two producer types, so a backend reads both
-    /// effect sets off them; `then` carries the representation change this
-    /// displaced, exactly as `DropMut` does.
-    WidenProducer {
-        from: Ty,
-        to: Ty,
         then: Option<Box<Coercion>>,
     },
 }
@@ -290,28 +280,6 @@ pub struct Checked {
     /// the primary source for the emitters' effect-parameter
     /// environments, keyed by checker types rather than type renderings.
     pub fn_effects: HashMap<FnKey, Vec<Ty>>,
-    /// [iter-effects] The effects a **producer** claims on its return type,
-    /// **sorted by rendered name** — the one source of truth for the *handler
-    /// parameter order* of a generated pass. Three sites have to agree on it
-    /// (the generated trait per effect set, the pass's own `advance`/`close`,
-    /// and every `for` that drives one), which is exactly the
-    /// checker/emitter agreement the invariants require: derived once here
-    /// rather than re-read from the AST by each backend.
-    ///
-    /// Sorted rather than *written*, because the trait is generated per effect
-    /// **set**: `Counter Logger Iter<Int>` and `Logger Counter Iter<Int>` are
-    /// the same type (`Ty::qualify` normalizes qualifier order), so two
-    /// producers written the two ways must agree on their parameter order or
-    /// the shared trait would fit neither.
-    ///
-    /// Keyed by the producer's `FnKey`. Present only for a `yield` fn whose
-    /// return type carries a claim — an effect-free producer has no entry.
-    pub producer_effects: HashMap<FnKey, Vec<Ty>>,
-    /// [iter-effects] Every distinct effect *set* the program's producers
-    /// claim, each in its canonical (written) order: one generated
-    /// trait/interface per entry, the way `union_sizes` drives one `UnionN`
-    /// per arity.
-    pub pass_effect_sets: BTreeSet<Vec<String>>,
     /// [call-type-args] The type arguments a generic call resolved to, in
     /// the callee's declaration order (keyed by the call span). Inferred
     /// from the arguments, an explicit type-argument list, or the expected
@@ -659,6 +627,7 @@ fn check_once<'p>(
             locals: Vec::new(),
             generics: HashSet::new(),
             ret_ty: Ty::none(),
+            in_yield_fn: false,
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             can_use: false,
@@ -950,6 +919,10 @@ struct Checker<'p, 'r> {
     generics: HashSet<String>,
     /// Return type of the function being checked.
     ret_ty: Ty,
+    /// [yield-fn-origin] Whether the function being checked is a `yield fn`:
+    /// its `return`s and `yield`s read differently — a bare `return` finishes
+    /// the pass, and `ret_ty` is the *element* type each `yield` produces.
+    in_yield_fn: bool,
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
@@ -3239,101 +3212,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(key) = self.own_fn {
             self.out.fn_effects.insert(key, fn_effects.clone());
         }
-        // [iter-effects] A producer's claim, recorded for the emitters in the
-        // order it is written: the handler parameters of its machine, and the
-        // identity of the effect set whose trait it needs.
-        if f.body.as_ref().is_some_and(block_contains_yield) {
-            if let Some(ret) = &f.return_type {
-                let mut claimed = self.claimed_effects(ret);
-                // Canonical order: the *set* is what identifies the trait.
-                claimed.sort_by_key(|t| t.to_string());
-                if !claimed.is_empty() {
-                    if let Some(key) = self.own_fn {
-                        self.out.producer_effects.insert(key, claimed.clone());
-                    }
-                    self.out
-                        .pass_effect_sets
-                        .insert(claimed.iter().map(|t| t.to_string()).collect());
-                }
-            }
-        }
         let Some(body) = &f.body else {
             self.generics = saved_generics;
             return;
         };
-        // [iter-effects] An iterator fn's body runs in pieces, driven by
-        // whoever consumes the elements — *none* of it at the call that
-        // created the pass. So its effects do not belong in its own list,
-        // where they would make every call site supply a handler for
-        // something calling it never does: they belong on the **return
-        // type**, in qualifier position (user decision 2026-09-07), where
-        // they are the claim whoever drives the pass inherits.
+        // [yield-fn-origin] A producer is an **origin**: a struct declaring
+        // `: Yield<self, T>` plus a `yield fn next(origin) -> T`, which is
+        // where its effects are declared like any function's [fn-effects].
+        // The `Iter<T>`-returning form went with `Iter<T>` (R5), so a `yield`
+        // anywhere else is a declaration error naming the replacement.
         if f.is_yield {
             self.check_yield_fn_decl(f);
-        }
-        // [fn-iterator] The `Iter<T>`-returning form, whose effects live on
-        // its return type. A `yield fn` [yield-fn-origin] declares them
-        // normally — nothing calls it, so there is no call site to burden —
-        // so it is exempt from this block.
-        if block_contains_yield(body) && !f.is_yield {
-            for eff in f.effects.iter().flatten() {
-                match eff {
-                    EffectRef::Effect(r) => self.error(
-                        r.span,
-                        format!(
-                            "an iterator function declares its effects on its return type, \
-                             not in its own list: none of `{}`'s body runs when it is \
-                             called, so write `-> {} Iter<…>` and whoever drives the pass \
-                             will supply the handler",
-                            f.name.name, r.name.name
-                        ),
-                    ),
-                    // `use` would let the body register its own handler,
-                    // which the pass would have to carry across every
-                    // suspension: not part of the I4 decision.
-                    EffectRef::Use(span) => self.error(
-                        *span,
-                        format!(
-                            "an iterator function cannot `use` a handler of its own \
-                             (`{}`): register it where the pass is driven",
-                            f.name.name
-                        ),
-                    ),
-                }
-            }
-            // [iter-mut-param] A producer's parameters are **captured** — by
-            // the factory, and again by each pass it mints — so a
-            // transitively mutable one is state a suspended body shares with
-            // whoever passed it, and the two backends do not agree on what
-            // that means: Rust captures by clone (the pass mutates a private
-            // copy, so the caller sees nothing and every pass starts fresh),
-            // Kotlin hands the reference over (the caller's collection
-            // receives the writes and successive passes accumulate into it).
-            // Same source, different output [backend-parity], so it is
-            // refused rather than sided with (user decision 2026-09-08,
-            // option A: refuse now, revisit as shared state when `Cell`
-            // lands).
-            //
-            // Uses the same transitive test as [fate-move-mode]: `Mut`
-            // anywhere at any depth counts, since that is exactly what makes
-            // clone-vs-alias observable.
-            for p in extra_params.iter().chain(&f.params) {
-                let mut visited = HashSet::new();
-                if !self.ast_type_mut(&p.ty, &mut visited) {
-                    continue;
-                }
-                self.error(
-                    p.name.span,
-                    format!(
-                        "an iterator function cannot take a mutable parameter \
-                         (`{}`): its parameters are captured by the pass, so a write \
-                         through one would mean different things on different \
-                         backends. Yield the values and let the consumer collect \
-                         them, or reach the outside through an effect",
-                        p.name.name
-                    ),
-                );
-            }
+        } else if block_contains_yield(body) {
+            self.error(
+                f.name.span,
+                format!(
+                    "`{}` yields, so it has to be a `yield fn`: a producer is a \
+                     `yield fn next(origin) -> T` on a struct that declares \
+                     `: Yield<self, T>` — there is no `Iter<T>` to return",
+                    f.name.name
+                ),
+            );
         }
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
         let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
@@ -3347,6 +3246,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
+        let saved_in_yield_fn = std::mem::replace(&mut self.in_yield_fn, f.is_yield);
 
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
@@ -3458,6 +3358,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.effect_env = saved_env;
         self.can_use = saved_can_use;
+        self.in_yield_fn = saved_in_yield_fn;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
     }
@@ -3482,7 +3383,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [iter-effects] A `yield` fn's effects live on its **return type**
+        // [fn-effects] A `yield` fn's effects live on its **return type**
         // (user decision 2026-09-07), because none of its body runs when it
         // is called: the effects are performed while the *consumer* drives
         // the pass. Putting them in the fn's own list would make every call
@@ -5140,7 +5041,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn inherited_fn_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         match ty {
             ast::Type::Fn { effects, .. } => self.lower_fn_effects(effects.as_deref()),
-            // [iter-effects] A producer parameter is inherited from for the
+            // [fn-effects] A producer parameter is inherited from for the
             // same reason a fn-typed one is: the only reason to take it is to
             // drive it, and driving it performs what its type claims. The
             // claim is written in qualifier position, so it is read off the
@@ -5165,7 +5066,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [iter-effects] The effects a type *claims*: the names in qualifier
+    /// [fn-effects] The effects a type *claims*: the names in qualifier
     /// position that resolve to effect declarations, lowered to instances.
     /// Reaches through nullability and union arms like [fn-effects]'s
     /// inheritance does, so `FileSystem Iter<Str>?` claims `FileSystem`.
@@ -5204,7 +5105,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Why a *written* qualifier name may not be removed with `^`, if it may
     /// not [qual-widen]. Consults the effect namespace first: an effect claim
-    /// on a producer never drops [iter-effects], and the name-based list
+    /// on a producer never drops [fn-effects], and the name-based list
     /// cannot know an arbitrary effect's name.
     fn removal_block(&self, name: &str) -> Option<&'static str> {
         if !self.scope.qualifiers.contains_key(name) && self.scope.effects.contains_key(name) {
@@ -6364,7 +6265,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
                 Qual {
-                    // [iter-effects] A name in qualifier position that
+                    // [fn-effects] A name in qualifier position that
                     // resolves to an *effect* is an effect claim on a
                     // producer, not a qualifier: same spelling, different
                     // rules (inverted variance, never dropped, never
@@ -6480,7 +6381,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn qual_name_exists(&self, name: &str) -> bool {
         matches!(name, "Mut" | "Linear" | "Once")
             || self.scope.is_qualifier(name)
-            // [iter-effects] An effect claims what driving a producer
+            // [fn-effects] An effect claims what driving a producer
             // performs, and it is written where a qualifier goes. Where it
             // may be written is `validate_quals`' business; that it *is* a
             // name in this position is settled here.
@@ -6791,37 +6692,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // "any type": a general affine qualifier is a vocabulary
                 // decision of its own, kept as roadmap D6 rather than
                 // shipped as a side effect of this one.
-                // [iter-effects] An effect name in qualifier position claims
-                // what *driving* this value performs (user decision
-                // 2026-09-07). Its position rule is `Once`'s — position rule
-                // 2 of the D8 options: the things whose invocation performs
-                // effects are exactly the things `Once` marks as used up by
-                // invoking them, and I2b's collision is the argument for one
-                // predicate rather than two that drift. A fn type is excluded
-                // because it has the `[…]` spelling already.
+                // [fn-effects] An **effect** name is not a qualifier. It was
+                // one for as long as a producer was a *type* (`FileSystem
+                // Iter<Str>` claimed what driving it performed); with the
+                // reduction to `next` a producer is a struct and its effects
+                // are the effects of a *function*, where `[…]` already says
+                // them. So the claim-on-a-type spelling is gone, and saying
+                // so names the replacement.
                 if decl.is_none() && self.scope.effects.contains_key(q.name.name.as_str()) {
                     let fn_type = matches!(base, Ty::Fn { .. });
-                    if fn_type {
-                        self.error(
-                            q.span,
+                    self.error(
+                        q.span,
+                        if fn_type {
                             format!(
                                 "a function type declares its effects in its own list \
                                  (`(…) [{}] -> …`), not in qualifier position",
                                 q.name.name
-                            ),
-                        );
-                    } else if !crate::types::once_position(base) && !self.has_auto_once(base) {
-                        self.error(
-                            q.span,
+                            )
+                        } else {
                             format!(
-                                "`{}` in qualifier position claims what *driving* a \
-                                 producer performs, so it applies to `Iter<T>` and to a \
-                                 type of your own that says `canbe Once` (found \
-                                 `{base}`)",
-                                q.name.name
-                            ),
-                        );
-                    }
+                                "`{}` is an effect, not a qualifier: a pass performs its \
+                                 effects in its `next`, so declare them there \
+                                 (`yield fn next(…) [{}] -> …`) rather than on the type",
+                                q.name.name, q.name.name
+                            )
+                        },
+                    );
                     continue;
                 }
                 if q.name.name == "Once" {
@@ -6829,9 +6725,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             q.span,
                             format!(
-                                "`Once` applies to function types and `Iter<T>`; a \
-                                 type of your own opts in with `canbe Once` (found \
-                                 `{base}`)"
+                                "`Once` applies to function types; a type of your own \
+                                 opts in with `canbe Once` (found `{base}`)"
                             ),
                         );
                     }
@@ -7928,10 +7823,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         });
                     }
                     None => {
-                        if !expected.is_none_ty()
-                            && !expected.is_unknown()
-                            && !matches!(expected, Ty::Named { ref name, .. } if name == "Iter")
-                        {
+                        // [yield-fn-origin] A bare `return` inside a `yield fn`
+                        // finishes the pass rather than returning an element.
+                        if !expected.is_none_ty() && !expected.is_unknown() && !self.in_yield_fn {
                             self.error(
                                 *span,
                                 format!("bare `return` in a function returning `{expected}`"),
@@ -8021,11 +7915,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Nothing
             }
             Stmt::Yield { value, span } => {
-                let elem = match &self.ret_ty {
-                    Ty::Named { name, args } if name == "Iter" && !args.is_empty() => {
-                        args[0].clone()
-                    }
-                    _ => Ty::Unknown,
+                // [yield-fn-origin] A `yield fn`'s return type *is* the element
+                // type — no `Iter<T>` wrapper to unwrap. A `yield` anywhere else
+                // has already been reported at the declaration.
+                let elem = if self.in_yield_fn {
+                    self.ret_ty.clone()
+                } else {
+                    Ty::Unknown
                 };
                 self.check_expr(value, Some(&elem));
                 // Yielding a value moves it into the produced iterator:
@@ -8745,22 +8641,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty, iterable.span());
-                // [iter-effects] Driving a producer performs what its type
-                // claims, so the handlers have to be here — the same check a
-                // fn *value*'s call makes, and recorded the same way so the
-                // emitters can thread them (roadmap I4's emission half).
-                let claimed: Vec<Ty> = iter_ty
-                    .quals()
-                    .iter()
-                    .filter(|q| q.effect)
-                    .map(|q| Ty::Named {
-                        name: q.name.clone(),
-                        args: q.args.clone(),
-                    })
-                    .collect();
-                if !claimed.is_empty() {
-                    self.check_fn_value_effects(&claimed, iterable.span());
-                }
                 // [once-fn] Driving a **pass** consumes it: `Once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
@@ -9135,6 +9015,47 @@ impl<'p, 'r> Checker<'p, 'r> {
         out
     }
 
+    /// The `(state, element)` type-variable pairs a signature spreads as
+    /// `?Yield<It, T>` — what a combinator's element type can be *inferred*
+    /// from [implicit-group].
+    fn yield_spread_pairs(&self, decl: &'p FnDecl) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for g in &decl.implicit_groups {
+            if g.name.name != "Yield" || g.args.len() < 2 {
+                continue;
+            }
+            let (
+                Some(ast::Type::Named { base: state, .. }),
+                Some(ast::Type::Named { base: elem, .. }),
+            ) = (g.args.first(), g.args.get(1))
+            else {
+                continue;
+            };
+            out.push((state.name.name.clone(), elem.name.name.clone()));
+        }
+        out
+    }
+
+    /// The element type of a pass **or** of the origin behind a minted machine
+    /// [yield-fn-origin]: read from the `: Yield<self, T>` clause, which is
+    /// where a pass declares what it yields [group-obligation].
+    fn pass_or_origin_elem_ty(&mut self, state: &Ty) -> Option<Ty> {
+        let bare = state.strip_quals().clone();
+        if let Some(elem) = self.pass_declared_elem_ty(&bare) {
+            return Some(elem);
+        }
+        // A machine stands for its origin, whose declaration carries the clause.
+        let Ty::Named { name, args } = &bare else {
+            return None;
+        };
+        let origin = name.strip_prefix(ORIGIN_PASS_PREFIX)?;
+        let origin_ty = Ty::Named {
+            name: origin.to_string(),
+            args: args.clone(),
+        };
+        self.pass_declared_elem_ty(&origin_ty)
+    }
+
     /// [linear-group] The `close` of a pass, if one is visible: a single
     /// parameter that unifies with the subject's bare type. Not required —
     /// most passes own nothing — and never *implied* by anything: a `close`
@@ -9209,6 +9130,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the declared element type is returned so the one mistake does not
     /// cascade [type-unknown-lenient].
     fn pass_elem_ty(&mut self, stripped: &Ty, span: Span) -> Option<Ty> {
+        self.pass_elem_ty_minted(stripped, span, None)
+    }
+
+    /// The same, for a pass the loop **mints** from a container through the
+    /// `iter` overload `mint` [iter-pass]: the driving is identical, and the
+    /// emitters get told to call `iter` once before the loop.
+    fn pass_elem_ty_minted(
+        &mut self,
+        stripped: &Ty,
+        span: Span,
+        mint: Option<FnKey>,
+    ) -> Option<Ty> {
         let (decl, ob) = self.yield_obligation(stripped)?;
         // [yield-fn-origin] Satisfied by the sugar: the subject is an origin,
         // and the loop drives the hidden machine minted from it. The `yield
@@ -9237,6 +9170,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     arms: 0,
                     origin: true,
                     close_fn: None,
+                    mint_iter_fn: mint,
                 },
             );
             return Some(elem);
@@ -9270,6 +9204,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     arms,
                     origin: false,
                     close_fn,
+                    mint_iter_fn: mint,
                 },
             );
             return Some(elem);
@@ -9293,9 +9228,76 @@ impl<'p, 'r> Checker<'p, 'r> {
         Some(elem)
     }
 
+    /// [iter-pass] The `iter` overload that turns this container into a pass,
+    /// with the pass type it answers (substituted for the subject). Passes are
+    /// looked for *first* by the caller: a value that is already a position in
+    /// a sequence must not have a second pass minted from it.
+    fn iter_pass_for(&mut self, subject: &Ty) -> Option<(FnKey, Ty)> {
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("iter")?.clone();
+        for entry in entries {
+            let decl = entry.decl;
+            if decl.params.len() != 1 {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pt = self.lower_type(&decl.params[0].ty);
+            let ret = decl
+                .return_type
+                .as_ref()
+                .map(|t| self.lower_type(t))
+                .unwrap_or_else(Ty::none);
+            self.generics = saved;
+            let mut subst = HashMap::new();
+            if !unify(&pt, subject, &mut subst) {
+                continue;
+            }
+            let callee_generics: HashSet<String> =
+                decl.generics.iter().map(|g| g.name.clone()).collect();
+            let ret = substitute_vars(&ret, &subst, &callee_generics);
+            if self.yield_obligation(ret.strip_quals()).is_some() {
+                return Some((entry.key, ret.strip_quals().clone()));
+            }
+        }
+        None
+    }
+
+    /// The element type a pass *declares* it yields, read from the obligation
+    /// alone [group-obligation] — no `next` resolved and no driver recorded,
+    /// which is what the native container loop needs [iter-for-native].
+    fn pass_declared_elem_ty(&mut self, pass: &Ty) -> Option<Ty> {
+        let (decl, ob) = self.yield_obligation(pass)?;
+        let subst: HashMap<String, Ty> = decl
+            .generics
+            .iter()
+            .map(|g| g.name.clone())
+            .zip(match pass {
+                Ty::Named { args, .. } => args.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let saved = self.enter_generics(&decl.generics);
+        let elem = yield_elem_arg(ob).map(|a| self.lower_type_subst(a, &subst, 0));
+        self.generics = saved;
+        elem
+    }
+
+    /// Whether a `for` subject is one of the containers a backend iterates
+    /// natively [iter-for-native]: an `intrinsic type` (a list, a `Str`; an
+    /// array is a language-level type and never reaches here). Every other
+    /// container is walked through the pass its `iter` mints.
+    fn is_intrinsic_container(&self, subject: &Ty) -> bool {
+        match subject {
+            Ty::Named { name, .. } => self
+                .scope
+                .opaque_types
+                .get(name.as_str())
+                .is_some_and(|d| d.intrinsic),
+            _ => false,
+        }
+    }
+
     fn iter_elem_ty(&mut self, iter_ty: &Ty, span: Span) -> Ty {
         match iter_ty.strip_quals() {
-            Ty::Named { name, args } if name == "Iter" && !args.is_empty() => args[0].clone(),
             Ty::Array(elem) => (**elem).clone(),
             other => {
                 let other = other.clone();
@@ -9308,33 +9310,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(elem) = self.pass_elem_ty(&other, span) {
                     return elem;
                 }
-                // `for x in list` implicitly calls `iter(list)`.
-                if let Some(entries) = self.scope.fns.get("iter") {
-                    let entries: Vec<crate::resolve::FnEntry<'p>> = entries.clone();
-                    for entry in entries {
-                        let decl = entry.decl;
-                        if decl.params.len() != 1 {
-                            continue;
+                // [iter-pass] `for x in xs` iterates a **container**: its
+                // `iter` answers a fresh pass, and the loop drives that. For
+                // an *intrinsic* container (a list, an array, a `Str`) no
+                // driver is recorded at all — the backends iterate their own
+                // data natively, which is both faster and non-consuming
+                // [iter-for-native]; for anything else the `iter` call is the
+                // mint, made once before the loop.
+                if let Some((iter_key, pass_ty)) = self.iter_pass_for(&other) {
+                    if self.is_intrinsic_container(&other) {
+                        if let Some(elem) = self.pass_declared_elem_ty(&pass_ty) {
+                            return elem;
                         }
-                        let saved = self.enter_generics(&decl.generics);
-                        let pt = self.lower_type(&decl.params[0].ty);
-                        let ret = decl
-                            .return_type
-                            .as_ref()
-                            .map(|t| self.lower_type(t))
-                            .unwrap_or_else(Ty::none);
-                        self.generics = saved;
-                        let mut subst = HashMap::new();
-                        if unify(&pt, &other, &mut subst) {
-                            let callee_generics: HashSet<String> =
-                                decl.generics.iter().map(|g| g.name.clone()).collect();
-                            let ret = substitute_vars(&ret, &subst, &callee_generics);
-                            if let Ty::Named { name, args } = ret.strip_quals() {
-                                if name == "Iter" && !args.is_empty() {
-                                    return args[0].clone();
-                                }
-                            }
-                        }
+                    } else if let Some(elem) =
+                        self.pass_elem_ty_minted(&pass_ty, span, Some(iter_key))
+                    {
+                        return elem;
                     }
                 }
                 // [iter-resolve] Nothing makes this value iterable: no
@@ -10469,7 +10460,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [str-drop-mut] A `Mut` qualifier dropped on the way is recorded too,
     /// wrapping whatever the representation math decided.
     ///
-    /// [iter-effects] So is a producer *widening* — a pure producer used
+    /// [fn-effects] So is a producer *widening* — a pure producer used
     /// where a claiming one is expected — for the same reason: the two have
     /// different representations on both backends. Which positions need the
     /// adapter is therefore not a separate question: it is every position
@@ -10480,7 +10471,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         if expected.is_unknown() || logical.is_unknown() {
             return;
         }
-        self.maybe_widen_producer(span, logical, repr, expected);
         // A `Mut` arm anywhere in the expected type means the value may
         // stay a builder: `Mut Str`, `Mut Str?`, and a generic position
         // (whose pattern is substituted to the argument's own type) all
@@ -10499,72 +10489,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         self.record_mut_drop(span, from);
-    }
-
-    /// [iter-effects] Whether the value at `span` needs the **variance
-    /// adapter**: it is a producer claiming *fewer* effects than the
-    /// position expects, which fits by the rule and yet is a different
-    /// representation on both backends.
-    ///
-    /// Only a top-level claim is recorded. A producer nested inside a union
-    /// arm or an optional would need the adapter one level down, which no
-    /// backend can render yet — the emitters refuse that shape rather than
-    /// widening the wrong value [backend-never-wrong].
-    fn maybe_widen_producer(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
-        let want = expected.effect_claims();
-        if want.is_empty() {
-            return;
-        }
-        // The value's own type, preferring the logical one: a narrowing
-        // never removes a claim (it never drops [iter-effects]).
-        let from = if matches!(logical, Ty::Nothing | Ty::Unknown | Ty::Any | Ty::Var(_)) {
-            return;
-        } else if matches!(logical.strip_quals(), Ty::Named { .. }) {
-            logical
-        } else if matches!(repr.strip_quals(), Ty::Named { .. }) {
-            repr
-        } else {
-            return;
-        };
-        // Same base type, or this is not a producer flowing into a producer
-        // position at all.
-        let (Ty::Named { name: have_base, .. }, Ty::Named { name: want_base, .. }) =
-            (from.strip_quals(), expected.strip_quals())
-        else {
-            return;
-        };
-        if have_base != want_base {
-            return;
-        }
-        let have = from.effect_claims();
-        if have == want {
-            return;
-        }
-        let key = self.key(span);
-        let then = match self.out.coerce.remove(&key) {
-            // Already recorded: keep it, and do not nest a widening in a
-            // widening.
-            Some(Coercion::WidenProducer { from, to, then }) => {
-                self.out
-                    .coerce
-                    .insert(key, Coercion::WidenProducer { from, to, then });
-                return;
-            }
-            other => other.map(Box::new),
-        };
-        self.out.coerce.insert(
-            key,
-            Coercion::WidenProducer {
-                from: from.clone(),
-                to: expected.clone(),
-                then,
-            },
-        );
-        // The target set needs its generated trait even when no producer in
-        // the program *claims* it — an adapter's `advance` implements it.
-        self.out
-            .pass_effect_sets
-            .insert(want.iter().map(|t| t.to_string()).collect());
     }
 
     /// Whether a type carries the `Mut` qualifier at its top level.
@@ -10830,7 +10754,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
             // [once-fn] A `Once` requirement is satisfied by any fn
             // (inverted subtyping: plain fns may be treated as
-            // once-callable). [iter-effects] An effect claim is the same
+            // once-callable). [fn-effects] An effect claim is the same
             // direction: a producer that performs *fewer* effects fits a
             // position expecting more, so the claim need not be present on
             // the argument — while an effect the argument *does* claim must
@@ -11719,18 +11643,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.origin_mints.insert(key, (origin, yf));
             }
         }
-        // [iter-mut-param] The callback half of the rule: a producer holds its
-        // fn-typed parameters for as long as it can mint a pass, and calls one
-        // *once per element in every pass* — so a lambda carrying mutable
-        // state into it is the same hazard as a mutable parameter, reached
-        // through a capture instead. Rust already refuses it (a producer's
-        // callback arrives as `impl Fn + 'static` [rs-iter-lazy], so neither a
-        // write nor a borrow of outer mutable data compiles) while Kotlin runs
-        // it happily, accumulating across passes: a checker-clean program only
-        // one backend can build. Owned here rather than left to rustc.
-        if self.inferred.is_some() && decl.body.as_ref().is_some_and(block_contains_yield) {
+        // [iter-mut-param] The callback half of the rule: a callee that
+        // **keeps** a fn-typed parameter calls it long after this call returns
+        // — a composed pass calls it once per element, for as long as the pass
+        // lives — so a lambda carrying mutable state into such a position is
+        // the same hazard as a mutable parameter, reached through a capture
+        // instead. Rust refuses it structurally (a stored callback arrives as
+        // `impl Fn + 'static` [rs-fn-field], so neither a write nor a borrow of
+        // outer mutable data compiles) while Kotlin runs it happily,
+        // accumulating across passes: a checker-clean program only one backend
+        // can build. Owned here rather than left to rustc.
+        //
+        // The trigger is the *deduction*, not the callee's shape: R5 removed the
+        // producer factory, so "held past the call" is exactly "moved into the
+        // callee" — which is what a composed combinator's `-> []` says.
+        if self.inferred.is_some() {
+            let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
+                Some(list) => {
+                    Some(crate::deduce::from_written(decl, list, &HashSet::new(), |_, _| {}))
+                }
+                None => best_key
+                    .and_then(|key| self.inferred.and_then(|table| table.get(&key).cloned())),
+            };
             for (i, arg) in args.iter().enumerate() {
                 if !matches!(arg, Expr::Lambda { .. }) {
+                    continue;
+                }
+                let stored = decl.params.get(i).is_some_and(|p| {
+                    matches!(p.ty, ast::Type::Fn { .. })
+                        && facts.as_ref().is_some_and(|fs| {
+                            fs.iter().any(|d| d.param == p.name.name && !d.kept)
+                        })
+                });
+                if !stored {
                     continue;
                 }
                 let Some(captures) = self.out.lambda_captures.get(&self.key(arg.span())) else {
@@ -12121,6 +12066,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     {
                         subst.insert(g, ty);
                     }
+                }
+            }
+        }
+        // [implicit-group] [iter-protocol] A `?Yield<It, T>` spread teaches `T`
+        // from the *declaration* of whatever `It` turned out to be: a pass says
+        // what it yields at its `: Yield<self, T>` clause, so a combinator's
+        // element type never has to be written and a bare lambda can be typed
+        // against it. Reaches through an origin mint, whose machine type stands
+        // for the origin [yield-fn-origin].
+        for (state_var, elem_var) in self.yield_spread_pairs(decl) {
+            if subst.contains_key(&elem_var) || !callee_generics.contains(&elem_var) {
+                continue;
+            }
+            let Some(state) = subst.get(&state_var).cloned() else {
+                continue;
+            };
+            if let Some(elem) = self.pass_or_origin_elem_ty(&state) {
+                if !elem.is_unknown() {
+                    subst.insert(elem_var, elem);
                 }
             }
         }

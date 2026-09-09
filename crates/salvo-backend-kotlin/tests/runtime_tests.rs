@@ -12,7 +12,7 @@
 use std::process::Command;
 
 /// Every static runtime module. A new one belongs here as soon as it exists.
-const RUNTIME_MODULES: &[&str] = &["throw.kt", "iter.kt"];
+const RUNTIME_MODULES: &[&str] = &["throw.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.

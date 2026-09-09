@@ -81,12 +81,12 @@ fn snapshot_std_console() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("console.sv")));
 }
 
-/// [implicit-group] The `params` group and the sequence functions that spread
-/// it: the one place std declares a group, and the one place a fn signature
-/// carries `?Group<...>`.
+/// [implicit-group] [iter-protocol] The `params` group `for` and every
+/// combinator read: the one place std declares a group, and — with `seq.sv` —
+/// the two places a fn signature carries `?Group<...>`.
 #[test]
-fn snapshot_std_iterable() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("iterable.sv")));
+fn snapshot_std_iterator() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("iterator.sv")));
 }
 
 #[test]

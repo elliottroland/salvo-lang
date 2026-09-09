@@ -2,7 +2,33 @@
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
 expression: combined
 ---
+// ===== core/array.rs =====
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::unions::*;
+
+pub fn iter<T: Clone + 'static>(array: Vec<T>) -> ArrayPass<T> {
+    return ArrayPass { items: array, at: 0 };
+}
+
+#[derive(Clone, Debug)]
+pub struct ArrayPass<T: Clone + 'static> {
+    pub items: Vec<T>,
+    pub at: i32,
+}
+
+pub fn next<T: Clone + 'static>(pass: &mut ArrayPass<T>) -> Union2<T, Finished> {
+    let mut elem = pass.items.get((pass.at) as usize).cloned();
+    if elem.is_none() {
+        return Union2::<T, Finished>::U2(finished());
+    }
+    pass.at = pass.at + 1;
+    return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
+}
+
 // ===== core/console.rs =====
+use crate::core_iterator::*;
+use crate::core_string::*;
 
 pub trait Console {
     fn print(&mut self, message: &String);
@@ -28,15 +54,88 @@ pub fn println(console: &mut dyn Console, message: &String) {
     console.print(&("\n".to_string()));
 }
 
+// ===== core/iterator.rs =====
+
+#[derive(Clone, Debug)]
+pub struct Finished {
+}
+
+pub fn emitted<T: Clone + 'static>(value: T) -> T {
+    return value;
+}
+
+pub fn finished() -> Finished {
+    return Finished {  };
+}
+
+// ===== core/list.rs =====
+use crate::core_array::*;
+use crate::core_iterator::*;
+use crate::unions::*;
+
+pub fn iter__2<T: Clone + 'static>(list: Vec<T>) -> ListPass<T> {
+    return ListPass { items: list, at: 0 };
+}
+
+#[derive(Clone, Debug)]
+pub struct ListPass<T: Clone + 'static> {
+    pub items: Vec<T>,
+    pub at: i32,
+}
+
+pub fn next__2<T: Clone + 'static>(pass: &mut ListPass<T>) -> Union2<T, Finished> {
+    let mut elem = pass.items.get((pass.at) as usize).cloned();
+    if elem.is_none() {
+        return Union2::<T, Finished>::U2(finished());
+    }
+    pass.at = pass.at + 1;
+    return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
+}
+
+// ===== core/string.rs =====
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::unions::*;
+
+pub fn iter__3(str: String) -> StrPass {
+    return StrPass { text: str, at: 0 };
+}
+
+#[derive(Clone, Debug)]
+pub struct StrPass {
+    pub text: String,
+    pub at: i32,
+}
+
+pub fn next__5(pass: &mut StrPass) -> Union2<char, Finished> {
+    let mut chr = pass.text.chars().nth((pass.at) as usize);
+    if chr.is_none() {
+        return Union2::<char, Finished>::U2(finished());
+    }
+    pass.at = pass.at + 1;
+    return Union2::<char, Finished>::U1(emitted(chr.unwrap()));
+}
+
 // ===== main.rs =====
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
-#[path = "iter.rs"]
-pub mod iter;
+#[path = "unions.rs"]
+pub mod unions;
+#[path = "core/array.rs"]
+pub mod core_array;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/iterator.rs"]
+pub mod core_iterator;
+#[path = "core/list.rs"]
+pub mod core_list;
+#[path = "core/string.rs"]
+pub mod core_string;
 
+use crate::core_array::*;
 use crate::core_console::*;
-use crate::iter::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_string::*;
 
 #[derive(Clone, Debug)]
 pub struct Person {
@@ -55,19 +154,21 @@ pub fn full_name(person: &Person) -> String {
 
 pub fn greet(console: &mut dyn Console, person: &Person) {
     println(console, &(format!("Hello, {}!", full_name(person))));
-    let mut __loop1_pass = range(1, 4).mint();
-    while let Some(mut i) = __loop1_pass.advance() {
+    let mut __loop1_pass = __Pass_Range::new(range(1, 4));
+    while let Some(mut i) = __loop1_pass.__advance() {
         println(console, &(format!("  {}: {}", i, person.age + i)));
     }
-    __loop1_pass.close();
+    __loop1_pass.__close();
 }
 
-pub fn range(start: i32, end: i32) -> SalvoIter<i32> {
-    let __c_start = start;
-    let __c_end = end;
-    SalvoIter::from_factory(std::rc::Rc::new(move || {
-        Box::new(__Pass_range::new(__c_start.clone(), __c_end.clone()))
-    }))
+#[derive(Clone, Debug)]
+pub struct Range {
+    pub start: i32,
+    pub end: i32,
+}
+
+pub fn range(start: i32, end: i32) -> Range {
+    return Range { start: start, end: end };
 }
 
 pub fn main() {
@@ -83,33 +184,32 @@ pub fn main() {
     println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));
 }
 
-struct __Pass_range {
-    start: i32,
-    end: i32,
+#[derive(Clone)]
+pub struct __Pass_Range {
+    r: Range,
     i: i32,
     __state: u32,
 }
 
-impl __Pass_range {
-    fn new(start: i32, end: i32) -> Self {
+impl __Pass_Range {
+    pub fn new(r: Range) -> Self {
         Self {
-            start,
-            end,
+            r,
             i: 0,
             __state: 0,
         }
     }
 
-    fn __advance(&mut self) -> Option<i32> {
+    pub fn __advance(&mut self) -> Option<i32> {
         loop {
             match self.__state {
                 0 => {
-                    self.i = self.start;
+                    self.i = self.r.start;
                     self.__state = 1;
                     continue;
                 }
                 1 => {
-                    if !((({ let __t = self.i; self.i += 1; __t }) < self.end)) {
+                    if !((({ let __t = self.i; self.i += 1; __t }) < self.r.end)) {
                         self.__state = 2;
                         continue;
                     }
@@ -126,126 +226,44 @@ impl __Pass_range {
         }
     }
 
-    fn __close(&mut self) {
+    pub fn __close(&mut self) {
         self.__state = 2;
     }
 }
 
-impl SalvoPass<i32> for __Pass_range {
-    fn advance(&mut self) -> Option<i32> {
-        self.__advance()
+// ===== unions.rs =====
+// Generated by the Salvo compiler: enums for union types.
+
+#[derive(Clone, Debug)]
+pub enum Union2<T1, T2> {
+    U1(T1),
+    U2(T2),
+}
+
+impl<T1, T2> Union2<T1, T2> {
+    pub fn u1(&self) -> &T1 {
+        match self {
+            Union2::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
     }
-    fn close(&mut self) {
-        self.__close()
+    pub fn u2(&self) -> &T2 {
+        match self {
+            Union2::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
     }
 }
 
-// ===== iter.rs =====
-// Generated by the Salvo compiler: the lazy iterator type.
-use std::rc::Rc;
-
-/// One **pass** — one walk over a producer's elements.
-///
-/// `advance` hands over the next element, and `close` releases what the body
-/// still holds: pending `defer` blocks, latest first, and any nested pass
-/// [iter-generator]. `close` is **idempotent** (the machine guards each
-/// deferred block with its own flag), which is what lets a single call after
-/// the consumer's loop cover `break`, `return` and exhaustion alike.
-///
-/// A pass is not a `std::iter::Iterator`, because an iterator has nowhere to
-/// put `close`: dropping one runs no Salvo code, and a producer's deferred
-/// block is Salvo code that must run on the path the consumer abandoned.
-/// `SalvoPassIter` adapts one *to* an iterator where a Rust iterator is what
-/// is wanted.
-pub trait SalvoPass<T> {
-    fn advance(&mut self) -> Option<T>;
-    /// The release path. The default is right for a walk over data that is
-    /// already there: there is nothing held and nothing to release.
-    fn close(&mut self) {}
-}
-
-/// A walk over elements that already exist (a collection's, a string's).
-/// Nothing is suspended, so `close` is the default no-op.
-pub struct SalvoWalk<I>(pub I);
-
-impl<T, I: Iterator<Item = T>> SalvoPass<T> for SalvoWalk<I> {
-    fn advance(&mut self) -> Option<T> {
-        self.0.next()
-    }
-}
-
-/// `Iter<T>`: a factory of passes, which is what Kotlin's `Iterable<T>` is.
-///
-/// A *pass* — one walk over the elements — is a struct the compiler writes
-/// for each `yield` function [iter-generator], or a collection's own
-/// iterator; this type is what mints one on demand, so two `for` loops over
-/// the same value both start from the beginning.
-pub struct SalvoIter<T>(Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>);
-
-impl<T: Clone + 'static> SalvoIter<T> {
-    pub fn from_factory(factory: Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>) -> Self {
-        SalvoIter(factory)
-    }
-
-    /// A collection's `iter()`: the elements are already there, so a pass
-    /// is a walk over a copy of them.
-    pub fn from_vec(items: Vec<T>) -> Self {
-        SalvoIter(Rc::new(move || {
-            Box::new(SalvoWalk(items.clone().into_iter()))
-        }))
-    }
-
-    /// Every element, for the places that need them all at once.
-    pub fn to_vec(&self) -> Vec<T> {
-        self.into_iter().collect()
-    }
-}
-
-impl<T> SalvoIter<T> {
-    /// One pass. The caller drives it and closes it — which is what a `for`
-    /// over an `Iter<T>` lowers to.
-    pub fn mint(&self) -> Box<dyn SalvoPass<T>> {
-        (self.0)()
-    }
-}
-
-impl<T> Clone for SalvoIter<T> {
-    fn clone(&self) -> Self {
-        SalvoIter(self.0.clone())
-    }
-}
-
-impl<T> std::fmt::Debug for SalvoIter<T> {
+impl<T1, T2> std::fmt::Display for Union2<T1, T2>
+where
+    T1: std::fmt::Display,
+    T2: std::fmt::Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Iter")
-    }
-}
-
-/// A pass as a Rust iterator, for the positions that want one (`collect`, a
-/// `for` over a subject with nothing to release). Dropping it does *not*
-/// close the pass: a consumer that may abandon a producer part-way drives the
-/// pass directly, so that the `close` is written where the loop ends.
-pub struct SalvoPassIter<T>(Box<dyn SalvoPass<T>>);
-
-impl<T> Iterator for SalvoPassIter<T> {
-    type Item = T;
-    fn next(&mut self) -> Option<T> {
-        self.0.advance()
-    }
-}
-
-impl<T> IntoIterator for SalvoIter<T> {
-    type Item = T;
-    type IntoIter = SalvoPassIter<T>;
-    fn into_iter(self) -> Self::IntoIter {
-        SalvoPassIter((self.0)())
-    }
-}
-
-impl<T> IntoIterator for &SalvoIter<T> {
-    type Item = T;
-    type IntoIter = SalvoPassIter<T>;
-    fn into_iter(self) -> Self::IntoIter {
-        SalvoPassIter((self.0)())
+        match self {
+            Union2::U1(v) => write!(f, "{}", v),
+            Union2::U2(v) => write!(f, "{}", v),
+        }
     }
 }

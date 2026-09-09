@@ -68,7 +68,7 @@ Conventions:
   one value namespace, so the bare name is the local (E0618: "call expression
   requires function"); Kotlin needs nothing, which is why this rule is
   backend-prefixed.
-* [rs-seq] std's sequence functions [seq-iterable]: the `List` fast paths
+* [rs-seq] std's sequence functions [seq-pass]: the `List` fast paths
   lower to the generated helpers in `strings.rs`'s sibling `seq.rs` —
   `salvo_map`/`salvo_filter`/`salvo_reduce`, taking `&[T]` so a call splices
   its receiver as `&place[..]` and works for an owned `Vec`, a `&Vec` and a
@@ -123,139 +123,80 @@ Conventions:
 * [type-array] `T[]` maps to `Vec<T>`; literals emit `vec![...]`;
   `Int[5] { i: Int -> 0 }` emits an iterator-map-collect; indexing casts
   the `i32` index (`v[(i) as usize]`).
-* [rs-iter-lazy] `Iter<T>` maps to the generated `SalvoIter<T>`, and
-  iterator functions (`yield`) are **lazy and repeatable**, matching
-  Kotlin's `Iterable<T>` element for element [fn-iterator].
-  * `SalvoIter<T>` is a **factory** — `Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>`
-    with a `mint()` — so a second `for` re-runs the producer as on Kotlin,
-    `for` never consumes its subject, and nothing about linearity changes. Its
-    manual `Clone` and `Debug` impls are what let an `Iter<T>` sit in a
-    `#[derive(Clone, Debug)]` struct field.
-  * **A pass is not a `std::iter::Iterator`**: `trait SalvoPass<T>` has
-    `advance(&mut self) -> Option<T>` *and* `close(&mut self)`, because an
-    iterator has nowhere to put the release path — dropping one runs no Salvo
-    code, and a producer's deferred block is Salvo code that must run on the
-    path the consumer abandoned. `SalvoWalk<I>` wraps a plain Rust iterator
-    (a collection's elements) and takes the default no-op `close`;
-    `SalvoPassIter<T>` adapts a pass *to* an iterator for `to_vec` and
-    `IntoIterator`.
-  * A `for` over an `Iter<T>` therefore **mints, advances and closes**:
-    `let mut p = subject.mint();`, `while let Some(v) = p.advance(<handlers>)`,
-    then `p.close(<handlers>)` — spliced after the loop *and* registered as a
-    deferred entry so a `return` out of the body releases it. The handler list
-    is empty for a pure producer, so one lowering serves both. A subject that
-    is a list, array or `Str` keeps a **native** `for` (decision 8): there is
-    nothing to release.
-  * [rs-generator] **A pass is a struct the compiler writes**, from the
-    shared plan [iter-generator]: `struct __Pass_<fn> { <params>, <the
-    body's locals>, __state: u32, __d<i>: bool }` with `fn __advance(&mut
-    self) -> Option<T>` — one `loop { match self.__state { … } }` — a
-    `__close` running the pending deferred blocks, and an
-    `impl SalvoPass<T>` (or the generated per-effect-set trait
-    [rs-pass-effects]) forwarding to both. A nested pass lives in an
-    `Option<Box<dyn SalvoPass<T>>>` slot, which the release path *closes*
-    before clearing. The body's names are `self.` fields
-    (`BindKind::SelfField`), so a `let` *assigns* one.
+* [rs-iter-lazy] Iteration is **lazy** and matches Kotlin element for element
+  [fn-iterator]. There is no iterator type to map: R5 deleted `Iter<T>` and with
+  it `SalvoIter` — a pass is a struct with a `next`, and a `yield fn` is a
+  machine the compiler writes.
+  * A `for` over **data** (a `Vec` from a list or an array, a `String`) is a
+    native Rust `for`; a `String` is not an iterator, so the subject becomes
+    `.chars()` [iter-for-native]. Everything else is driven by its `next`:
+    `let mut p = <subject>; while let Union2::U1(v) = next(&mut p) { … }`, with a
+    raw pass's `close` spliced after the loop and registered as a deferred entry
+    so a `return` out of the body releases it.
+  * `trait SalvoPass<T>` and `SalvoWalk<I>` survive in `iter.rs` for **one**
+    purpose: a *suspending* loop inside a `yield fn` holds its walk in an
+    `Option<Box<dyn SalvoPass<T>>>` slot. Only data reaches there (a pass as the
+    subject of a suspending loop is refused), so `SalvoWalk`'s default no-op
+    `close` is the whole release path. The file is mounted like `unions.rs`,
+    only when a machine needs a slot.
+  * [rs-generator] **A machine is a struct the compiler writes**, from the
+    shared plan [iter-generator]: `pub struct __Pass_<Origin> { <origin>, <the
+    body's locals>, __state: u32, __d<i>: bool }` with `pub fn new`, `fn
+    __advance(&mut self, <handlers>) -> Option<T>` — one
+    `loop { match self.__state { … } }` — and a `__close` running the pending
+    deferred blocks. It implements **nothing**: the drive site knows the
+    concrete type, so an element costs an inlined call and no allocation. The
+    body's names are `self.` fields (`BindKind::SelfField`), so a `let`
+    *assigns* one.
     * The `async` borrowing is **gone** (2026-09-07), and with it
       `SalvoGen`, `SalvoYield`, `Pin`, `Future` and `Waker`: rustc used to
       build the state machine, and the price was that the machine captured
-      its environment `'static`, which is what forced the old
-      effect-free rule. A struct's `__advance` takes the handlers as
-      parameters [rs-pass-effects].
+      its environment `'static`, which is what forced the old effect-free rule.
+      Handlers are parameters of `__advance`/`__close`/`__run_d<i>` instead, in
+      the checker's order [fn-effects].
     * A field whose type has **no zero value** — a generic element, a
       struct, a union — is held in an `Option` instead
       (`BindKind::SelfSlot`): reads clone out of it, `&`/`&mut` borrow
       through it (`as_ref()`/`as_mut()`), and assignments re-wrap. The
       zero-able types get plain fields, which is what keeps the common
       machine readable.
-    * The body becomes `SalvoIter::from_factory(Rc::new(move ||
-      Box::new(__Pass_f::new(<captures>.clone(), …))))`.
-    * [yield-fn-origin] **The origin form renders the same machine with
-      nothing around it.** A `yield fn next(c: Counter) -> Int` emits
-      `pub struct __Pass_Counter { c: Counter, <locals>, __state, __d<i> }`
-      with `pub fn new`/`__advance`/`__close` and **no** `impl SalvoPass`,
-      no factory and no `Box` — the drive site knows the concrete type, so
-      an element costs an inlined call and no allocation. Named after the
-      *origin* because every `yield fn` is called `next`, and `pub` because
-      the `for` that drives it may be in another module (the same module the
-      origin type came from, so the glob import is already there). The fn
-      itself emits nothing: it is not callable.
-      * `for` becomes `let mut p = __Pass_Counter::new(<origin>.clone());`
-        then `while let Some(v) = p.__advance(<handlers>)`, with
-        `p.__close(<handlers>);` spliced after the loop *and* registered as
-        a deferred entry so a `return` out of the body releases it too. A
-        **place** subject is cloned — driving mints a fresh machine, so a
-        second `for` over the same origin replays — while a temporary is
-        moved.
-      * **The clone is unobservable** because the checker refuses mutation of
-        an origin while its loop is open [yield-fn-origin] — the clone is
-        therefore also, since that rule landed, *removable*: the machine
-        holding the origin at all is what roadmap option (e) drops.
-      * Handlers come from the `yield fn`'s own `fn_effects` (minus
-        `Throw`), which is the list an ordinary fn's leading parameters come
-        from: the origin form declares its effects normally, so
-        [rs-pass-effects]' per-effect-set traits are not involved.
-  * Every parameter is captured once into the factory and cloned per
-    pass, so each pass starts from the beginning and the captured state is
-    `'static`. Nothing else is captured — a handler is a *parameter* of
-    `advance`, never a field [rs-pass-effects] — which is what lets a pass
-    perform effects at all while a `&mut dyn E` borrowed for the call could
-    never have lived this long.
-  * A fn-typed parameter of an iterator fn is the one convention
-    exception to [rs-fn-param-convention]: it arrives **owned** as
-    `impl Fn(…) + 'static` (wrapped in an `Rc` internally, so it is shared
-    by every pass) rather than `&mut impl FnMut(…)`, and its own
-    parameters keep the ordinary convention. `Fn` rather than `FnMut`
-    because a pass may run more than once [iter-effects].
+    * `#[derive(Clone)]` **unless the machine holds a nested pass slot**: a
+      `Box<dyn SalvoPass<T>>` is not `Clone`, and the derive would fail at
+      rustc. The cost is stated rather than hidden: such a machine cannot be a
+      type argument, so a producer that drives a suspending loop cannot be
+      *composed* — rustc reports the missing bound [backend-never-wrong].
+    * [yield-fn-origin] `for` becomes `let mut p = __Pass_Counter::new(<origin>.clone());`
+      then `while let Some(v) = p.__advance(<handlers>)`, with
+      `p.__close(<handlers>);` spliced after the loop *and* registered as a
+      deferred entry. A **place** subject is cloned — driving mints a fresh
+      machine, so a second `for` over the same origin replays — while a
+      temporary is moved. The clone is unobservable because the checker refuses
+      mutation of an origin while its loop is open [yield-fn-origin].
+    * **A minted origin at an argument position** is hoisted:
+      `let mut __mintN = __Pass_Counter::new(<origin>);`. It is closed after the
+      call only when the callee **keeps** the pass (a kept-`Mut` position,
+      `&mut __mintN`); a callee that *moves* it takes it by value and closes
+      nothing — a lazy combinator stores it and drives it long afterwards, and
+      closing it at the call handed the pass a finished machine. The turbofish
+      substitutes the machine type for the origin type, since that is what the
+      value is.
+  * A fn-typed parameter is **owned** — `impl Fn(…) + 'static`, `Rc`-held once
+    stored — exactly when the callee keeps it past the call [rs-fn-field]:
+    a `yield fn`'s machine calls it on every turn, and a composed pass calls it
+    once per element. `Fn` rather than `FnMut` because a shared `Rc` can only
+    offer `Fn`.
     * A **lambda** in that position is emitted as a `move` closure, since
       `'static` is what the declared type promises: a borrowing closure is
-      E0373 for *any* capture, immutable ones included. What it may capture
-      is the checker's business [iter-mut-param] — mutable state is refused
-      there, so a `move` here only ever takes ownership of immutable data.
+      E0373 for *any* capture, immutable ones included. Its captures are
+      **cloned** into a block around it (`{ let mut x = x.clone(); move |…| … }`),
+      which is what lets two stored callbacks read the same local — legal Salvo
+      (an immutable read), and E0382 without the clone. What may be captured at
+      all is the checker's business [iter-mut-param].
+    * `copy(f)` on a function value lowers to the value itself: a callback is
+      shared, not duplicated, and an owned `impl Fn` parameter has no `clone`.
   * Generic parameters carry `'static` alongside the blanket `Clone`
     bound: every Salvo type is owned data with no lifetime of its own, and
     a captured element type has to outlive the call.
-  * The support code is generated once per program into `iter.rs` and
-    mounted like `unions.rs`, only when the program touches `Iter<T>`.
-* [rs-pass-effects] A **claiming** producer (`Console Iter<T>`
-  [iter-effects]) has a representation of its own, because a pass whose
-  `advance` takes a handler cannot be a `std::iter::Iterator`. Generated
-  into `iter_effects.rs`, one set of items per effect *set* the program
-  needs — the way `unions.rs` gets one `UnionN` per arity — and mounted the
-  same way:
-  * `pub trait SalvoPass<Suffix><T>` with `advance(&mut self, <handlers>) ->
-    Option<T>` and `close(&mut self, <handlers>)`; the suffix is the effect
-    names concatenated, and the **handler order is the checker's**
-    (`Checked::producer_effects` / `pass_effect_sets`), shared by the trait,
-    the machine and every drive site.
-  * `pub struct SalvoIter<Suffix><T>(Rc<dyn Fn() -> Box<dyn
-    SalvoPass<Suffix><T>>>)` — still a **factory**, so the claim costs no
-    replayability — with `mint()`, `Clone` and `Debug` like `SalvoIter<T>`.
-  * `SalvoPureAs<Suffix><T>` plus `SalvoIter<Suffix>::from_pure`: the
-    **variance adapter**, an `advance` that ignores the handler. Inserted
-    where the checker recorded `Coercion::WidenProducer`, which is every
-    position `maybe_coerce` sees.
-  * The generated file names effect traits by **absolute path**
-    (`crate::core_console::Console`) and imports nothing: it sits at the
-    crate root and mentions traits from arbitrary modules, and the pure
-    runtime files beside it have no cross-module reference to copy from.
-  * The machine renders as it does for a pure producer, with the handlers
-    prepended to `__advance`, `__close` and each `__run_d<i>` — a deferred
-    block may itself perform effects — and an `impl SalvoPass<Suffix><T>`
-    forwarding to them in place of the `impl Iterator`. The producer fn
-    itself takes **no** effect parameter: none of the body runs when it is
-    called.
-  * A `for` over a claiming subject is `let mut p = <subject>.mint();`,
-    `while let Some(v) = p.advance(<handlers>) { … }`, then
-    `p.close(<handlers>)`. The `close` is *also* registered as a deferred
-    entry of the loop, so a `return` out of the body releases the producer;
-    it is idempotent, so landing there twice costs nothing.
-  * Refused rather than mis-rendered [backend-never-wrong]: a claiming
-    producer nested inside another producer (its handlers would have to
-    thread through the outer machine), a generic effect claim (the set
-    identity would be this backend's rendering of the arguments while the
-    checker's is Salvo's), a `for` over one in value position, and a
-    widening between two *non-empty* claim sets (only `from_pure` exists).
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
   spells out its type arguments (`map_to::<Vec<i32>, Vec<i32>, i32, i32>(…)`),
   from `Checked::call_type_args`. Each implicit arrives as an adapter *closure*
@@ -268,10 +209,13 @@ Conventions:
     position is `&mut T`, because a callback cannot append to a destination
     handed over by value. Narrowed to kept-`Mut` positions deliberately —
     everything else keeps the by-value convention implicits have always had.
-  * Inside an iterator fn an implicit follows the same convention exception a
-    written callback does [rs-iter-lazy]: owned `impl Fn(…) + 'static` in the
-    signature, `Rc`-held as a pass field, called through `self`, and passed by
-    a `move` adapter at the call site.
+  * An implicit a callee **keeps** follows the same convention a written stored
+    callback does [rs-fn-field]: owned `impl Fn(…) + 'static` in the signature,
+    `Rc`-held once stored, and passed by a `move` adapter at the call site. For
+    a *minted origin* the adapter wraps the machine's own advance
+    (`move |__p: &mut __Pass_X| match __p.__advance() { … }`), and its parameter
+    is annotated because rustc cannot infer it through the `&mut dyn FnMut`
+    coercion an unkept position renders.
 * [rs-none-unit] `None` is Rust's `()`, and a fn returning it has no return
   type — so `return None` emits a **bare** `return`. The test is the *fn's*
   rendered return type, not the value's: `return None` in an

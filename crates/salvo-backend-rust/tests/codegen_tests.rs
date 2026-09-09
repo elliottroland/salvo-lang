@@ -137,9 +137,18 @@ fn greet(person: Person) [Console] -> [person] None {
     }
 }
 
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
+struct Range : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> [] Range {
+    return Range {start: start, end: end}
+}
+
+yield fn next(r: Range) -> Int {
+    let i = copy(r.start)
+    while i++ < r.end {
         yield i - 1
     }
 }
@@ -547,9 +556,18 @@ fn rustc_compiles_and_runs_effects() {
 // ===== loops as values =====
 
 const LOOPS: &str = r#"
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
+struct Range : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> [] Range {
+    return Range {start: start, end: end}
+}
+
+yield fn next(r: Range) -> Int {
+    let i = copy(r.start)
+    while i++ < r.end {
         yield i - 1
     }
 }
@@ -573,7 +591,7 @@ fn main() [use] -> [] None {
     }
     println("never: ${never}")
 
-    let found = for x in range(0, 10) {
+    let found = for x in [0, 1, 2, 3, 4, 5] {
         if x * x > 10 {
             break x
         }
@@ -3580,12 +3598,6 @@ fn rustc_compiles_and_runs_a_platform_effect() {
 /// lambda, an *annotated* one, and a named fn — over a `Copy` element type
 /// (`Int`) and a non-`Copy` one (`Str`).
 const GENERIC_HOF: &str = r#"
-fn map<T, U>(it: Iter<T>, f: (T) -> U) -> Iter<U> {
-    for x in it {
-        yield f(x)
-    }
-}
-
 fn apply<T, U>(value: T, f: (T) -> U) -> U {
     return f(value)
 }
@@ -3597,12 +3609,12 @@ fn shout(word: Str) -> Str {
 fn main() [use] {
     use StdOutConsole()
     let ns = list(1, 2)
-    for v in map(ns.iter(), n -> n * 2) { println("bare=${v}") }
-    for v in map(ns.iter(), (n: Int) -> n * 3) { println("ann=${v}") }
+    for v in map(iter(copy(ns)), n -> n * 2) { println("bare=${v}") }
+    for v in map(iter(ns), (n: Int) -> n * 3) { println("ann=${v}") }
     let ws = list("hi")
-    for w in map(ws.iter(), (s: Str) -> shout(s)) { println("str=${w}") }
-    for w in map(ws.iter(), shout) { println("named=${w}") }
-    for n in map(ws.iter(), s -> size(s)) { println("size=${n}") }
+    for w in map(iter(copy(ws)), (s: Str) -> shout(s)) { println("str=${w}") }
+    for w in map(iter(copy(ws)), shout) { println("named=${w}") }
+    for n in map(iter(ws), s -> size(s)) { println("size=${n}") }
     println("applied=${apply(2, (n: Int) -> n + 1)}")
 }
 "#;
@@ -3619,9 +3631,10 @@ const GENERIC_HOF_OUTPUT: &str =
 /// with `E0631`, while the un-annotated form compiled — so the bug was
 /// invisible until a lambda was annotated.
 ///
-/// [rs-iter-lazy] An *iterator* fn's callback is the exception on the outer
-/// level only: it arrives owned and `'static`, since it is called in every
-/// pass rather than during the call. The inner convention is the same.
+/// [rs-fn-field] A callback the callee *keeps* is the exception on the outer
+/// level only: it arrives owned and `'static`, since it is called after the
+/// call returns — from the composed pass that stored it. The inner convention is
+/// the same.
 #[test]
 fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
     let files = generate(&[("main.sv", GENERIC_HOF)]);
@@ -3630,12 +3643,20 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs")
         .content;
+    let seq = &files
+        .iter()
+        .find(|f| f.rel_path.ends_with("seq.rs"))
+        .expect("core/seq.rs")
+        .content;
+    // The stored-callback convention, on std's lazy combinator.
+    assert!(
+        seq.contains("f: impl Fn(&T) -> U + 'static"),
+        "expected the owned callback of a composed pass in:\n{seq}"
+    );
     for expected in [
         // The plain generic higher-order fn: borrowed `FnMut`.
         "f: &mut impl FnMut(&T) -> U",
-        // The iterator fn: owned, `'static`, and `Fn`.
-        "f: impl Fn(&T) -> U + 'static",
-        // Both give the lambda the same *inner* convention.
+        // The lambda's *inner* convention follows the declaration.
         "|n: &i32|",
         "|s: &String|",
     ] {
@@ -3659,41 +3680,45 @@ fn rustc_compiles_and_runs_a_generic_higher_order_fn() {
     run_rust_files(&files, "generic-hof", GENERIC_HOF_OUTPUT);
 }
 
-// ===== [rs-iter-lazy] `Iter<T>` is lazy on both backends =====
+// ===== [iter-protocol] laziness, now a property of the pass =====
 
-/// An effect-free producer of an *unbounded* stream, a filter over it, and
-/// two passes: the program only terminates if the elements are produced on
-/// demand, and only prints twice from the start if the iterator is a
-/// factory rather than a one-shot. The Kotlin backend asserts the same
-/// stdout for the same source.
+/// An unbounded **origin**, filtered lazily by std's `filter_lazy`, and driven
+/// twice: the program only terminates if elements are produced on demand, and
+/// the second pair of loops only replays because a `for` mints a fresh machine
+/// from the origin [yield-fn-origin]. The Kotlin backend asserts the same stdout
+/// for the same source.
 pub const LAZY_ITER_DEMO: &str = r#"
-fn naturals(from: Int) -> Iter<Int> {
-    let i = from
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals(from: Int) -> [] Naturals {
+    return Naturals {from: from}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
     while true {
         yield copy(i)
         i = i + 1
     }
 }
 
-fn evens(it: Iter<Int>) -> [it] Iter<Int> {
-    for x in it {
-        if x % 2 == 0 {
-            yield copy(x)
-        }
-    }
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
 }
 
 fn main() [use] {
     use StdOutConsole()
     let unconsumed = naturals(100)
     println("created")
-    for v in evens(naturals(0)) {
+    for v in filter_lazy(naturals(0), is_even) {
         if v > 6 {
             break
         }
         println("even ${v}")
     }
-    let twice = evens(naturals(0))
+    let twice = naturals(0)
     for v in twice {
         if v > 2 {
             break
@@ -3710,17 +3735,16 @@ fn main() [use] {
 "#;
 
 pub const LAZY_ITER_OUTPUT: &str = "created\neven 0\neven 2\neven 4\neven 6\n\
-                                    first 0\nfirst 2\nsecond 0\nsecond 2\n";
+                                    first 0\nfirst 1\nfirst 2\nsecond 0\nsecond 1\nsecond 2\n";
 
-/// [iter-generator] [fn-iterator] An iterator fn lowers to a *factory* of
-/// passes, and a pass is a **struct the compiler wrote**: the shared plan
-/// (`salvo_core::generator`) rendered as fields plus a flat `match` on a
-/// state number. The parameters are captured once and cloned per pass, so a
-/// second `for` starts from the beginning; what is gone is the `async` block
-/// rustc used to transform for us — and with it `SalvoGen`, `SalvoYield`,
-/// `Pin`, `Future` and `Waker`.
+/// [iter-generator] A `yield fn` lowers to a **struct the compiler wrote**: the
+/// shared plan (`salvo_core::generator`) rendered as fields plus a flat `match`
+/// on a state number. The origin is held and read, so each `for` builds a fresh
+/// machine and replays; what is gone is the `async` block rustc used to
+/// transform for us — and with it `SalvoGen`, `SalvoYield`, `Pin`, `Future` and
+/// `Waker` — and, since R5, the factory the machine used to be minted from.
 #[test]
-fn an_iterator_fn_lowers_to_a_state_machine() {
+fn an_origin_lowers_to_a_state_machine() {
     let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
     let src = &files
         .iter()
@@ -3728,72 +3752,40 @@ fn an_iterator_fn_lowers_to_a_state_machine() {
         .expect("main.rs")
         .content;
     for expected in [
-        "-> SalvoIter<i32>",
-        "SalvoIter::from_factory(std::rc::Rc::new(move || {",
-        "Box::new(__Pass_naturals::new(__c_from.clone()))",
-        // The machine: the body's local as a field, the dispatch loop, and
-        // the resume point written back before the element is handed over.
-        "struct __Pass_naturals {",
+        "struct __Pass_Naturals {",
         "    i: i32,",
         "    __state: u32,",
         "fn __advance(&mut self) -> Option<i32> {",
         "match self.__state {",
         "self.__state = 1;",
         "return Some(__v);",
-        // A pass, not a `std::iter::Iterator`: an iterator has nowhere to put
-        // `close`, and a producer's deferred blocks must run on the path the
-        // consumer abandoned [iter-generator].
-        "impl SalvoPass<i32> for __Pass_naturals {",
-        "fn close(&mut self) {",
-        // The nested `for` in `evens` drives a pass held as a field, and the
-        // release path closes it.
-        "x__pass: Option<Box<dyn SalvoPass<i32>>>,",
-        "self.x__pass.as_mut().and_then(|__p| __p.advance())",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-    for gone in ["SalvoGen", "SalvoYield", "async move", ".await"] {
-        assert!(
-            !src.contains(gone),
-            "`{gone}` should be gone from:\n{src}"
-        );
+    for gone in ["SalvoGen", "SalvoYield", "async move", ".await", "SalvoIter"] {
+        assert!(!src.contains(gone), "`{gone}` should be gone from:\n{src}");
     }
-    // The support module is generated and mounted only when needed.
-    assert!(
-        files
-            .iter()
-            .any(|f| f.rel_path == std::path::Path::new("iter.rs")),
-        "expected a generated iter.rs"
-    );
-    assert!(
-        src.contains("#[path = \"iter.rs\"]") && src.contains("use crate::iter::*;"),
-        "expected the support module mounted and imported in:\n{src}"
-    );
 }
 
-/// An `Iter<T>` subject is borrowed by a `for` loop while its elements
-/// arrive owned — the opposite pairing from a collection, and what lets a
-/// second `for` run the producer again.
+/// A **composed** pass built from an origin keeps the machine: the mint is
+/// hoisted into a `let` and *not* closed after the call, because the callee
+/// stores it and drives it later [yield-fn-origin]. Closing it there handed the
+/// pass a finished machine and the loop saw nothing.
 #[test]
-fn a_for_loop_borrows_an_iter_subject() {
+fn a_stored_mint_is_not_closed_at_the_call() {
     let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
     let src = &files
         .iter()
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs")
         .content;
-    // [iter-generator] A producer is *driven*: minted from the factory (which
-    // is only read, so `twice` stays usable and a second `for` starts over),
-    // advanced, and closed. Before the release path was plumbed this was
-    // `for mut v in &twice` — native iteration, which had nowhere to put the
-    // `close`.
     assert!(
-        src.contains("= twice.mint();") && src.contains(".advance()"),
-        "expected the second pass to mint from the factory in:\n{src}"
+        src.contains("let mut __mint1 = __Pass_Naturals::new("),
+        "expected the hoisted mint in:\n{src}"
     );
     assert!(
-        src.contains("_pass.close();"),
-        "expected the injected close after the loop in:\n{src}"
+        !src.contains("__mint1.__close()"),
+        "a moved mint must not be closed at the call in:\n{src}"
     );
 }
 
@@ -3820,15 +3812,15 @@ fn main() [use] -> None {
     let xs = list(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
-    for v in map_lazy(xs, double) {
+    for v in map_lazy(iter(copy(xs)), double) {
         println("lazy ${v}")
     }
-    for v in filter_lazy(xs, is_even) {
+    for v in filter_lazy(iter(copy(xs)), is_even) {
         println("kept ${v}")
     }
-    let out = map_to(mutable_list<Int>(), xs, double)
+    let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
-    let chained = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
+    let chained = filter_to(map_to(mutable_list<Int>(), iter(copy(xs)), double), iter(xs), is_even)
     println("chained ${chained.size()}")
 }
 "#;
@@ -3844,16 +3836,12 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
         .find(|f| f.rel_path == std::path::Path::new("core/seq.rs"))
         .expect("core/seq.rs")
         .content;
-    // A lazy combinator is a producer, so its implicits become pass fields —
-    // `Rc`-held and called through `self`, because the pass calls them long
-    // after the call that filled them [implicit-param] [rs-iter-lazy].
+    // A lazy combinator returns a **composed pass**: the source's `next` is a
+    // field of it, `Rc`-held like any stored callback [rs-fn-field], and called
+    // through the local the body binds it to.
     assert!(
-        seq.contains("iter: std::rc::Rc<dyn Fn(It) -> SalvoIter<T>>"),
-        "expected the implicit as an Rc-held pass field in:\n{seq}"
-    );
-    assert!(
-        seq.contains("(self.iter)("),
-        "expected the implicit called through `self` in:\n{seq}"
+        seq.contains("step: std::rc::Rc<dyn Fn(&mut It) -> Union2<T, Finished>>"),
+        "expected the stored `next` as an Rc-held field in:\n{seq}"
     );
     // [fn-contract] A kept `Mut` position of an implicit's fn type borrows
     // mutably: `add` cannot append to a destination handed over by value.
@@ -3885,8 +3873,16 @@ fn rustc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
 }
 
 pub const LAZY_CHAIN_DEMO: &str = r#"
-fn naturals() -> Iter<Int> {
-    let i = 0
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals() -> [] Naturals {
+    return Naturals {from: 0}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
     while true {
         yield copy(i)
         i = i + 1
@@ -3914,26 +3910,26 @@ fn main() [use] -> None {
 
 pub const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 
-/// [rs-iter-lazy] A producer's fn-typed parameter is `impl Fn(…) + 'static`,
-/// so a lambda handed to one must be a **`move`** closure: it outlives the call
-/// that minted the pass. Emitting a borrowing closure was E0373 ("closure may
-/// outlive the current function") for *every* capturing callback, immutable
-/// ones included — the case the parity rules call free — and nothing in the
-/// suite passed a capturing lambda to a producer, which is why it went unseen
-/// until [iter-mut-param]'s callback half was written.
+/// [rs-fn-field] A **stored** callback is `impl Fn(…) + 'static`, so a lambda
+/// handed to one must be a **`move`** closure: it outlives the call that built
+/// the pass. Emitting a borrowing closure was E0373 ("closure may outlive the
+/// current function") for *every* capturing callback, immutable ones included —
+/// the case the parity rules call free.
 ///
 /// Same source and stdout as the Kotlin backend's twin. The capture is
-/// immutable on purpose: a *mutable* one is now a checker error.
+/// immutable on purpose: a *mutable* one is a checker error [iter-mut-param].
 pub const PRODUCER_CALLBACK_DEMO: &str = r#"
-fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
-    for x in xs {
-        yield f(x)
-    }
+struct Upto : Yield<self, Int> {
+    limit: Int
 }
 
-fn upto(n: Int) -> Iter<Int> {
+fn upto(limit: Int) -> [] Upto {
+    return Upto {limit: limit}
+}
+
+yield fn next(u: Upto) -> Int {
     let i = 0
-    while i < n {
+    while i < u.limit {
         yield copy(i)
         i = i + 1
     }
@@ -3946,11 +3942,10 @@ fn scale_by(factors: List<Int>, v: Int) -> [factors] Int {
 fn main() [use] -> None {
     use StdOutConsole()
     let factors = list(10)
-    let source = tagged(upto(3), (v) -> scale_by(factors, v))
-    for s in source {
+    for s in map_lazy(upto(3), (v: Int) -> scale_by(factors, v)) {
         println("a ${s}")
     }
-    for s in source {
+    for s in map_lazy(upto(3), (v: Int) -> scale_by(factors, v)) {
         println("b ${s}")
     }
 }
@@ -3967,305 +3962,10 @@ fn rustc_compiles_and_runs_a_producer_with_a_capturing_callback() {
         .expect("main.rs")
         .content;
     assert!(
-        src.contains("move |v|"),
-        "expected a `move` closure for the producer's callback in:\n{src}"
+        src.contains("move |v"),
+        "expected a `move` closure for the stored callback in:\n{src}"
     );
     run_rust_files(&files, "producer-callback", PRODUCER_CALLBACK_OUTPUT);
-}
-
-/// [iter-effects] The **effectful producer**, end to end: the I4 prototype
-/// (`experiments/pull-iterators/effectful.sv`) as the emitter produces it.
-///
-/// One source and one expected stdout, shared with the Kotlin backend's
-/// `kotlinc_compiles_and_runs_an_effectful_producer` — the parity claim. What
-/// it covers, in the order it matters: a producer performing `Console` while
-/// the consumer drives it; a `defer` inside the producer that itself performs
-/// an effect (which is what makes the injected `close` *observable*); a
-/// consumer that `break`s after two elements and one that drains, so `close`
-/// is proved idempotent; a fn inheriting the claim from a producer parameter;
-/// and a *pure* producer passed where a claiming one is expected, which is the
-/// variance adapter's only site here.
-pub const EFFECTFUL_DEMO: &str = r#"
-fn chatty(limit: Int) -> Console Iter<Int> {
-    println("open")
-    defer { println("close") }
-    let i = 0
-    while i < limit {
-        println("make ${i}")
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn plain(limit: Int) -> Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn total(xs: Console Iter<Int>) -> Int {
-    let sum = 0
-    for v in xs {
-        sum = sum + v
-    }
-    return sum
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    for v in chatty(3) {
-        println("got ${v}")
-        if v == 1 {
-            break
-        }
-    }
-    println("sum ${total(chatty(2))}")
-    println("plain ${total(plain(4))}")
-}
-"#;
-
-/// The interleaving is the point: the producer's work happens *while* the
-/// consumer drives it, and the deferred `close` runs on the abandoned path as
-/// well as the drained one.
-pub const EFFECTFUL_OUTPUT: &str =
-    "open\nmake 0\ngot 0\nmake 1\ngot 1\nclose\nopen\nmake 0\nmake 1\nclose\nsum 1\nplain 6\n";
-
-#[test]
-fn rustc_compiles_and_runs_an_effectful_producer() {
-    let files = generate(&[("main.sv", EFFECTFUL_DEMO)]);
-    let src = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
-        .expect("main.rs")
-        .content;
-    // The handlers are *parameters* of the machine, not captured state — the
-    // whole reason a pass may perform effects [iter-effects].
-    assert!(
-        src.contains("fn __advance(&mut self, console: &mut dyn crate::core_console::Console)"),
-        "expected the handler as a leading parameter in:\n{src}"
-    );
-    // A claiming pass is not a `dyn Iterator`: it implements the trait
-    // generated for its effect set.
-    assert!(
-        src.contains("impl SalvoPassConsole<i32> for __Pass_chatty"),
-        "expected the pass-trait impl in:\n{src}"
-    );
-    // The producer's factory takes no handler: calling it runs none of the
-    // body.
-    assert!(
-        src.contains("pub fn chatty(limit: i32) -> SalvoIterConsole<i32>"),
-        "expected a handler-free factory in:\n{src}"
-    );
-    // Mint / advance / close — and the close is what waited for this phase.
-    assert!(
-        src.contains(".mint();")
-            && src.contains(".advance(&mut console)")
-            && src.contains("__loop2_pass.close(&mut console);"),
-        "expected the drive sequence in:\n{src}"
-    );
-    // The variance adapter, at the one boundary that needs it.
-    assert!(
-        src.contains("SalvoIterConsole::from_pure(plain(4))"),
-        "expected the variance adapter in:\n{src}"
-    );
-    // A deferred block may itself perform effects, so the runner takes the
-    // handlers too.
-    assert!(
-        src.contains("fn __run_d0(&mut self, console: &mut dyn crate::core_console::Console)"),
-        "expected the defer runner to take the handler in:\n{src}"
-    );
-    let traits = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("iter_effects.rs"))
-        .expect("iter_effects.rs emitted")
-        .content;
-    // The generated file names effect traits by absolute path: it sits at the
-    // crate root and imports nothing [rs-pass-effects].
-    assert!(
-        traits.contains("pub trait SalvoPassConsole<T>")
-            && traits.contains("&mut dyn crate::core_console::Console")
-            && !traits.contains("use crate::core_console"),
-        "expected an import-free pass trait in:\n{traits}"
-    );
-    run_rust_files(&files, "effectful-producer", EFFECTFUL_OUTPUT);
-}
-
-/// [iter-effects] The injected `close` on the *`return`* path: it is a
-/// deferred entry of the driving loop, so leaving the body early releases the
-/// producer exactly as `break` and exhaustion do — and the flags make landing
-/// there twice harmless.
-#[test]
-fn rustc_releases_a_claiming_producer_on_a_return() {
-    let files = generate(&[(
-        "main.sv",
-        r#"
-fn noisy(limit: Int) -> Console Iter<Int> {
-    defer { println("released") }
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn first_odd(xs: Console Iter<Int>) -> Int {
-    for v in xs {
-        if v % 2 == 1 {
-            return v
-        }
-    }
-    return 0
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    println("odd ${first_odd(noisy(5))}")
-}
-"#,
-    )]);
-    let src = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
-        .expect("main.rs")
-        .content;
-    assert!(
-        src.matches("__loop1_pass.close(console);").count() == 2,
-        "expected the close on the return path and after the loop in:\n{src}"
-    );
-    run_rust_files(&files, "claiming-return", "released\nodd 1\n");
-}
-
-/// [iter-effects] A claiming producer **held in a struct field** — the case
-/// that decided D8 (with the effects in the *type*, a field is fine; the
-/// alternative would have had to forbid it). What it exercises that the demo
-/// does not is the generated factory's `Clone` and `Debug` impls, which is what
-/// lets it sit in a `#[derive(Clone, Debug)]` struct [rs-pass-effects].
-///
-/// Note the explicit `[Console]` on `drain`: inheritance is from a producer
-/// *parameter*, and a struct field is not one, so the fn says what driving its
-/// field performs.
-#[test]
-fn rustc_compiles_and_runs_a_claiming_producer_in_a_field() {
-    let files = generate(&[("main.sv", CLAIMING_FIELD_DEMO)]);
-    let src = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
-        .expect("main.rs")
-        .content;
-    assert!(
-        src.contains("items: SalvoIterConsole<i32>"),
-        "expected the claiming factory as a field type in:\n{src}"
-    );
-    run_rust_files(&files, "claiming-field", CLAIMING_FIELD_OUTPUT);
-}
-
-pub const CLAIMING_FIELD_DEMO: &str = r#"
-struct Source {
-    name: Str,
-    items: Console Iter<Int>
-}
-
-fn chatty(limit: Int) -> Console Iter<Int> {
-    let i = 0
-    while i < limit {
-        println("make ${i}")
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn drain(s: Source) [Console] -> Int {
-    let sum = 0
-    for v in s.items {
-        sum = sum + v
-    }
-    return sum
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    let s = Source {name: "two", items: chatty(2)}
-    println("${s.name} ${drain(s)}")
-}
-"#;
-
-pub const CLAIMING_FIELD_OUTPUT: &str = "make 0\nmake 1\ntwo 1\n";
-
-/// [iter-effects] [backend-never-wrong] The shapes the prototype did not fix,
-/// refused rather than emitted without their handlers: a *claiming* producer
-/// nested inside another producer, a generic effect claim, and a `for` over a
-/// claiming producer in value position.
-#[test]
-fn unsupported_claiming_producer_shapes_are_refused() {
-    let nested = expect_errors(
-        "fn inner(n: Int) -> Console Iter<Int> {\n\
-         println(\"one\")\n\
-         yield n\n\
-         }\n\
-         fn outer(n: Int) -> Console Iter<Int> {\n\
-         for v in inner(n) {\n\
-         yield v\n\
-         }\n\
-         }\n",
-    );
-    assert!(
-        nested
-            .iter()
-            .any(|e| e.contains("nested inside another producer")),
-        "expected the nested refusal, got: {nested:?}"
-    );
-    let value_position = expect_errors(
-        "fn chatty(n: Int) -> Console Iter<Int> {\n\
-         println(\"one\")\n\
-         yield n\n\
-         }\n\
-         fn main() [use] -> None {\n\
-         use StdOutConsole()\n\
-         let last = for v in chatty(2) { copy(v) }\n\
-         when last {\n\
-         is Int { println(\"${last}\") }\n\
-         is None { println(\"none\") }\n\
-         }\n\
-         }\n",
-    );
-    assert!(
-        value_position
-            .iter()
-            .any(|e| e.contains("not supported in value position")),
-        "expected the value-position refusal, got: {value_position:?}"
-    );
-    let generic = expect_errors(
-        "effect Bucket<T> {\n\
-         fn take() -> [] T\n\
-         }\n\
-         handler IntBucket of Bucket<Int> {\n\
-         fn take() -> Int {\n\
-         return 7\n\
-         }\n\
-         }\n\
-         fn gen(limit: Int) -> Bucket<Int> Iter<Int> {\n\
-         let i = 0\n\
-         while i < limit {\n\
-         yield take()\n\
-         i = i + 1\n\
-         }\n\
-         }\n\
-         fn main() [use] -> None {\n\
-         use IntBucket()\n\
-         use StdOutConsole()\n\
-         for v in gen(2) {\n\
-         println(\"v ${v}\")\n\
-         }\n\
-         }\n",
-    );
-    assert!(
-        generic
-            .iter()
-            .any(|e| e.contains("claiming a *generic* effect")),
-        "expected the generic-claim refusal, got: {generic:?}"
-    );
 }
 
 /// [iter-generator] [defer] The parts of a producer only the state machine
@@ -4278,10 +3978,18 @@ fn unsupported_claiming_producer_shapes_are_refused() {
 /// is what makes the flag-and-discharge lowering a parity claim rather than
 /// two implementations that happen to agree.
 pub const GENERATOR_DEFER_DEMO: &str = r#"
-fn upto(n: Int) -> Iter<Int> {
+struct Upto : Yield<self, Int> {
+    limit: Int
+}
+
+fn upto(limit: Int) -> [] Upto {
+    return Upto {limit: limit}
+}
+
+yield fn next(u: Upto) -> Int {
     let last = 0
     let i = 0
-    while i < n {
+    while i < u.limit {
         defer { last = i }
         if i == 4 {
             return
@@ -4292,15 +4000,23 @@ fn upto(n: Int) -> Iter<Int> {
     yield last * 100
 }
 
-fn tagged(xs: Iter<Int>) -> [xs] Iter<Str> {
-    for x in xs {
+struct Tagged : Yield<self, Str> {
+    items: List<Int>
+}
+
+fn tagged(items: List<Int>) -> [] Tagged {
+    return Tagged {items: items}
+}
+
+yield fn next(t: Tagged) -> Str {
+    for x in t.items {
         yield "<${x}>"
     }
 }
 
 fn main() [use] -> None {
     use StdOutConsole()
-    for s in tagged(upto(3)) {
+    for s in tagged(map(upto(3), (v: Int) -> copy(v))) {
         println(s)
     }
     for v in upto(2) {
@@ -4427,73 +4143,6 @@ fn rustc_compiles_and_runs_a_lazy_iterator() {
     }
     let files = generate(&[("main.sv", LAZY_ITER_DEMO)]);
     run_rust_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
-}
-
-/// [once-fn] A **pass** — `Once Iter<T>` — driven once, a **factory** driven
-/// twice, and a factory handed to a pass parameter (the inverted `Once`
-/// variance). The qualifier erases [qual-erasure], so this is the *same*
-/// emission as the unqualified form: what `Once` buys is the checker
-/// rejecting a second drive, which `once_tests.rs` covers. The e2e test is
-/// here to prove the erasure — that a pass-returning producer is not a
-/// codegen error and behaves identically.
-pub const ONCE_ITER_DEMO: &str = r#"
-fn pass_of(limit: Int) -> Once Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn factory_of(limit: Int) -> Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn total(xs: Once Iter<Int>) -> Int {
-    let sum = 0
-    for n in xs {
-        sum = sum + n
-    }
-    return sum
-}
-
-fn main() [use] {
-    use StdOutConsole()
-    let p = pass_of(4)
-    let seen = 0
-    for n in p {
-        seen = seen + n
-    }
-    println("pass ${seen}")
-    let f = factory_of(4)
-    let first = 0
-    for n in f {
-        first = first + n
-    }
-    let second = 0
-    for n in f {
-        second = second + n
-    }
-    println("factory ${first} ${second}")
-    println("total ${total(factory_of(4))}")
-    println("total ${total(pass_of(4))}")
-}
-"#;
-
-pub const ONCE_ITER_OUTPUT: &str = "pass 6\nfactory 6 6\ntotal 6\ntotal 6\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_once_iterator() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ONCE_ITER_DEMO)]);
-    run_rust_files(&files, "once-iter", ONCE_ITER_OUTPUT);
 }
 
 // ===== [implicit-param] [implicit-group] implicit parameters =====
@@ -4862,16 +4511,16 @@ fn rustc_compiles_and_runs_two_mints_in_one_call() {
 }
 
 pub const YIELD_SPREAD_DEMO: &str = r#"
-struct ListPass<T> : Yield<self, T> canbe Mut {
+struct Slice<T> : Yield<self, T> canbe Mut {
     items: List<T>,
     at: Int
 }
 
-fn iter2<T>(items: List<T>) -> [] Mut ListPass<T> {
-    return Mut ListPass<T> { items: items, at: 0 }
+fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+    return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut ListPass<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -4904,7 +4553,7 @@ fn double(n: Int) -> Int {
 fn main() [use] {
     use StdOutConsole()
     let xs = list(1, 2, 3)
-    let doubled = map2(iter2(xs), double)
+    let doubled = map2(slice(xs), double)
     for d in doubled {
         println("d ${d}")
     }
@@ -4923,7 +4572,7 @@ fn a_mut_implicit_position_is_not_borrowed_twice() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("&mut |__i0| next(__i0)"),
+        main.content.contains("&mut |__i0| next"),
         "expected the adapter to pass the `&mut` parameter through, got:\n{}",
         main.content
     );
@@ -5768,19 +5417,19 @@ fn rustc_compiles_and_runs_mut_str_places() {
     run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
 }
 
-// ===== [rs-seq] [seq-iterable] [implicit-group] the sequence functions =====
+// ===== [rs-seq] [seq-pass] [implicit-group] the sequence functions =====
 
 /// The same source and stdout as the Kotlin backend's
-/// `kotlinc_compiles_and_runs_sequences`: `map`/`filter`/`reduce` over a
-/// `List` (the intrinsic fast path), an array, a `Str`, an `Iter` from an
-/// iterator function, a chain, and a struct of the program's own with
-/// nothing but an `iter` declared.
+/// `kotlinc_compiles_and_runs_sequences`: `map`/`filter`/`reduce` over a `List`
+/// (the intrinsic fast path), and over the *passes* an array, a `Str`, an origin
+/// and a struct of the program's own hand out — `iter` written at each use site
+/// [seq-pass].
 const SEQ_DEMO: &str = r#"
 struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [bag] Iter<Int> {
+fn iter(bag: Bag) -> [] Mut ListPass<Int> {
     return iter(bag.items)
 }
 
@@ -5788,9 +5437,17 @@ fn double(n: Int) -> Int {
     return n * 2
 }
 
-fn naturals(from: Int) -> Iter<Int> {
-    let i = from
-    while i < from + 4 {
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals(from: Int) -> [] Naturals {
+    return Naturals {from: from}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
+    while i < n.from + 4 {
         yield copy(i)
         i = i + 1
     }
@@ -5806,20 +5463,20 @@ fn main() [use] {
     let named = map(xs, double)
     println("named: ${size(named)}")
     let arr = [10, 20, 30]
-    let arr_sum = reduce(arr, 0, (a, b) -> a + b)
-    let arr_mapped = map(arr, n -> n + 1)
+    let arr_sum = reduce(iter(copy(arr)), 0, (a, b) -> a + b)
+    let arr_mapped = map(iter(arr), n -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")
-    let letters = filter("hello", c -> c == 'l')
+    let letters = filter(iter("hello"), c -> c == 'l')
     println("chars: ${size(letters)}")
     let lazy_sum = reduce(naturals(1), 0, (a, b) -> a + b)
-    let chained = filter(map(xs, n -> n * 3), n -> n > 6)
+    let chained = filter(iter(map(xs, n -> n * 3)), n -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
     let names = list("ann", "bob", "carol")
     let lens = map(names, n -> size(n))
     let long = filter(names, n -> size(n) > 3)
     println("names: ${size(lens)} ${size(long)}")
     let bag = Bag {items: list(5, 6)}
-    println("bag: ${reduce(bag, 0, (a, b) -> a + b)}")
+    println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
 }
 "#;
 
@@ -5849,11 +5506,16 @@ fn sequence_functions_lower_to_helpers() {
     // A named fn as the callback wraps in an adapter: a fn item's own
     // convention is by value, and the helper hands it `&T` [fn-contract].
     assert!(main.contains("let mut named = salvo_map(&xs[..], |"), "unexpected:\n{main}");
-    // [implicit-intrinsic] The array subject's `iter` is the intrinsic
-    // lowering, not a call to a function named `iter`.
+    // A pass subject's `next` arrives as the implicit argument, and an *origin*
+    // is minted into its machine at the call with an adapter over its advance
+    // [yield-fn-origin].
     assert!(
-        main.contains("SalvoIter::from_vec(__i0.clone())"),
-        "unexpected:\n{main}"
+        main.contains("__Pass_Naturals::new(naturals(1))"),
+        "expected the origin mint in:\n{main}"
+    );
+    assert!(
+        main.contains("__p.__advance()"),
+        "expected the advance adapter in:\n{main}"
     );
     // The support file is there, and only because something needed it.
     assert!(

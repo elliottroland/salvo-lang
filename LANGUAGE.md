@@ -738,12 +738,12 @@ let f = tag          // ERROR: nothing here says which `tag` — annotate, or re
 **Filling an implicit parameter** is the same query against a type rather than an argument list, so it obeys the ladder and the ranking too — and a renamed overload no longer fills an implicit of its old name:
 
 ```
-params Iterable<It, T> {
-    fn iter(it: It) -> Iter<T>
+params Yield<It, T> {
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 
-// `map(xs, f)` fills `iter` with whichever `iter` fits `xs` — yours, if you
-// declared one for your own type, since this module beats core.
+// `map(p, f)` fills `next` with whichever `next` fits `p` — yours, if you
+// declared one for a pass of your own, since this module beats core.
 ```
 
 We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
@@ -834,75 +834,95 @@ Details worth knowing:
   ways to fix it.
 - **What the implicit resolves to can determine the call's type arguments.**
   Resolution runs *between* the arguments, not after them, so a variable that
-  appears only in the implicit's type is still inferred — see
-  `Iterable` below, where the element type comes from *which* `iter` filled
-  the parameter.
+  appears only in the implicit's type is still inferred. A `?Yield<It, T>`
+  spread goes one step further: `T` is read off `It`'s own declaration (see
+  [Iterating anything](#iterating-anything-yield)), so the element type of a
+  combinator is never written.
 
-### Iterating anything: `Iterable`
+### Iterating anything: `Yield`
 
 `params` groups are how Salvo says what a Rust programmer would say with a
 trait bound. The standard library's own example is iteration:
 
 ```
-params Iterable<It, T> {
-    fn iter(it: It) -> Iter<T>
+params Yield<It, T> {
+    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }
 
-fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> Mut List<U> {
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> [it: Mut, f] Mut List<U> {
     let out = mutable_list<U>()
-    for x in iter(xs) {
-        add(out, f(x))
+    let going = true
+    while going {
+        let step = next(it)
+        when step {
+            is Emitted { add(out, f(step)) }
+            is Finished { going = false }
+        }
     }
     return out
 }
 ```
 
-There is no `Iterable` *type* and nothing implements it: `map` needs an
-`iter` for whatever `xs` is, and the call site supplies one. So `map` works
-on a list, an array, a string (its characters), an `Iter<T>` from an iterator
-function — and on a type of your own the moment you declare `fn iter` for it:
+There is no `Yield` *type* and nothing implements it: `map` needs a `next` for
+whatever `it` is, and the call site supplies one. The subject is a **pass** — a
+position in a sequence — so a container is iterated by writing its `iter`:
+
+```
+let doubled = map(iter(xs), double)         // a list
+let letters = filter(iter("hello"), keep)   // a string's characters
+let capped = map(counter(3), double)        // a `yield fn`'s origin
+```
+
+A type of your own joins in by declaring an `iter` that hands back a pass:
 
 ```
 struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [bag] Iter<Int> {
+fn iter(bag: Bag) -> [] Mut ListPass<Int> {
     return iter(bag.items)
 }
 
-let total = reduce(bag, 0, (acc, n) -> acc + n)   // Bag is iterable now
+let total = reduce(iter(bag), 0, (acc, n) -> acc + n)
 ```
 
 Inference runs *through* the group: `It` comes from the subject, and `T` — the
-element type — comes from which `iter` fills the implicit. That is what lets
+element type — is read from `It`'s `: Yield<self, T>` clause. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 
-`map`, `filter` and `reduce` are **eager**: they return a `Mut List<U>`, not a
-lazy `Iter<U>`. Chaining works because a list is iterable like anything else.
-Two named variants cover the rest:
+`map`, `filter` and `reduce` are **eager**: they return a `Mut List<U>`.
+Chaining works because a list has an `iter` like anything else. Each also has a
+`List` overload, so `map(xs, f)` — no `iter` — keeps the short spelling for the
+type people map most. Two named variants cover the rest:
 
-- `map_lazy` and `filter_lazy` return an `Iter<U>`, computing nothing until the
-  result is driven — so an unbounded subject is fine. Laziness is asked for
-  rather than inherited, which also keeps it visible that a lazy combinator's
-  callback runs once per element on *every* pass over the result.
+- `map_lazy` and `filter_lazy` return a **composed pass**, computing nothing
+  until the result is driven — so an unbounded subject is fine. Laziness is
+  asked for rather than inherited, which also keeps it visible that a lazy
+  combinator's callback runs once per element as the result is pulled.
 - `map_to` and `filter_to` put their results in a collection you provide, given
   first because it is what the call is about, and **hand it back** so a chain
   can carry on from it. Appending goes through an `?add` implicit parameter, so
   the destination is anything with an `add` — not just a `List`.
 
 ```
-let doubled = map(xs, double)              // Mut List<Int>
-for v in map_lazy(naturals(), double) {    // computed as you pull
+let doubled = map(xs, double)                       // Mut List<Int>
+for v in map_lazy(naturals(), double) {             // computed as you pull
     if v > 100 { break }
 }
-let out = map_to(mutable_list<Int>(), xs, double)
-let kept = filter_to(map_to(mutable_list<Int>(), xs, double), ys, is_even)
+let out = map_to(mutable_list<Int>(), iter(xs), double)
+let kept = filter_to(map_to(mutable_list<Int>(), iter(xs), double), iter(ys), is_even)
 ```
 
 The destination is moved in and returned, which is what makes the nested form
 work. If you want to keep hold of one across the call, rebind it:
-`let sink = map_to(sink, xs, double)`.
+`let sink = map_to(sink, iter(xs), double)`.
+
+**Iterating a container consumes it**, because the pass holds it: `iter(xs)`
+moves `xs` into the pass it builds. A `for` straight over the container does
+not — that is data, and the backends walk it in place — so the copy is only
+needed where you walk the same container twice through `iter`:
+`map(iter(copy(xs)), f)`.
 
 ### Obligations: `params` groups on a type
 
@@ -959,6 +979,13 @@ Two things keep this a where-clause rather than a trait:
   adds no scope and no dispatch: `advance` is an ordinary function, found and
   overloaded like any other. The clause only moves the check to the
   declaration.
+
+Two groups are **designated**: the compiler knows them by name and reads the
+clause itself. `Yield<self, T>` is what makes a type a pass, so `for` resolves
+its `next` from the declaration ([Iteration](#iteration-passes-next-and-yield-fn)),
+and `Linear<self>` is what makes a value linear, so its `close` is the
+discharge ([Linearity](#linearity)). Both are ordinary `params` groups
+otherwise — declared in std, spreadable with `?`.
 
 ### Variadic arguments
 
@@ -1055,165 +1082,11 @@ The rules follow from "the caller supplies it":
 - **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
 - `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.
 
-### Iterator functions
+### Iteration: passes, `next` and `yield fn`
 
-A special kind of function called an "iterator" allows us to define a sequence of values rather than returning a single value. An iterator supports two functions:
-
-```
-type Iter<T>
-fn has_next<T>(iter: Iter<T>) -> Bool
-fn next<T>(iter: Iter<T>) -> T
-```
-
-These are used internally when iterating in `for`-loops. The way to build iterators is by defining a function which returns the `Iter<T>` type. Such a function is called an "iterator function". In an iterator function, the `return` keyword can be used only for short-circuiting, and cannot be provided a value. Additionally, there is a `yield` keyword, which "returns" the next value for the `Iter<T>` returned. Thus, every `yield` must be given a value of type `T`. This is used to implement the standard range 
-
-```
-// Exclusive iterator
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
-        yield i
-    }
-}
-
-// Inclusive iterator
-fn rangeIncl(start: Int, end: Int) -> Iter<Int> {
-    // Empty range will not yield anything
-    if start > end {
-        return
-    }
-    for i in range(start, end) {
-        yield i
-    }
-    yield end
-}
-```
-
-An iterator is **lazy**: an element is produced when whatever consumes it asks for the next one, so a producer's work interleaves with the loop that drives it, creating an iterator runs none of its body, and an unbounded generator (`while true { yield ... }`) is a normal thing to write — the consumer decides when to stop. Both backends behave identically in all of this.
-
-Whether an iterator can be consumed *more than once* is the producer's choice, written in its return type:
-
-```
-Iter<T>        // a factory: replayable; each use mints a fresh pass
-Once Iter<T>   // a pass: a position in a sequence, consumed by driving it
-```
-
-```
-fn counted(limit: Int) -> Iter<Int> { ... }        // replayable
-fn drained(limit: Int) -> Once Iter<Int> { ... }   // one-shot
-
-let f = counted(4)
-for n in f { ... }      // `for` mints a pass from the factory
-for n in f { ... }      // fine — f is still a factory, and the producer re-runs
-
-let p = drained(4)
-for n in p { ... }      // drives p, consuming it
-for n in p { ... }      // ERROR: p was consumed by the loop above
-```
-
-`Once` is the same qualifier that marks a function value callable at most once ([Consuming a capture](#consuming-a-capture)) — it says a value may be *used* once, and driving is how an iterator is used. Its rules follow from that. `Once` never drops, so a pass can never be forgotten back into a replayable recipe; and a value with *fewer* restrictions fits where a restricted one is expected, so a factory may be passed where a pass is wanted but never the reverse:
-
-```
-fn total(xs: Once Iter<Int>) -> Int { ... }
-total(counted(4))       // fine: a factory fits where a pass is wanted
-
-fn twice(xs: Iter<Int>) -> Int { ... two loops ... }
-twice(drained(4))       // ERROR: `Once` never drops
-```
-
-Which to write is a judgement about the producer, not a default: a one-shot type is what a producer *holding* something — a file, a connection — wants, because a replay would re-open it. A producer that merely computes has nothing to protect, and a factory is friendlier.
-
-A producer **may** perform effects, and it says so on its *type* rather than in its own effect list:
-
-```
-fn lines_of(path: Str) -> FileSystem Iter<Str> {
-    let handle = open(path)
-    defer { close(handle) }
-    while has_more(handle) { yield read_line(handle) }
-}
-```
-
-`FileSystem Iter<Str>` is a producer whose *driving* performs `FileSystem`. The effect sits in qualifier position because a type with no arrow has nowhere to put a `[...]` list, and a prefixed one would read as a deduction list in return position.
-
-It is on the return type and not on the function because **none of the body runs when the function is called**: the effects happen while the consumer drives the pass. A list on the function would ask every call site for a handler that building the pass never needs. So a `yield` function declares no effect list of its own — writing one is an error naming the remedy — and its body is checked against what the return type claims.
-
-Everything else about the claim is what function values already do: a function that takes a producer **inherits** its effects (`fn take<T>(xs: FileSystem Iter<T>, n: Int)` needs no list of its own, and its callers supply the handler); a producer performing *fewer* effects fits where more are expected, never the reverse; the claim never drops, so `^ FileSystem` is an error; and **holding** a producer needs nothing at all — only driving it does, which is why a `for` over one requires the claimed effects in scope. The claim may be written on `Iter<T>` and on a type of your own that says `canbe Once`; a function type is excluded, since it has the bracket spelling already.
-
-`use` stays barred inside a producer: it would register a handler the pass then has to carry across every suspension.
-
-A producer also **may not take a mutable parameter** — `Mut` at any depth, so a struct with a mutable field counts too. Its parameters are captured by the pass, so a mutable one would be state a suspended body shares with whoever passed it, and there is no answer to "who owns it" that means the same thing on every target: captured by copy, the pass writes to its own private version; captured by reference, the caller's own value changes and a second pass carries on where the first left off. Rather than pick one silently, the shape is rejected — the same reasoning that bars `use`. Yield the values and let the consumer collect them, or reach the outside through an effect.
-
-```
-// Rejected: the pass would capture it.
-fn tally(limit: Int, sink: Mut List<Int>) -> Iter<Int> { ... }   // ERROR
-
-// Fine: the elements are the channel.
-fn tally(limit: Int) -> Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-```
-
-```
-// Rejected: the effects belong on the type, not in the list.
-fn naturals() [Console] -> Iter<Int> { ... }   // ERROR: write `-> Console Iter<Int>`
-
-// Fine: the effect is where the elements are used.
-fn show(limit: Int) [Console] -> None {
-    for n in naturals() {
-        if n > limit { break }
-        println("${n}")
-    }
-}
-```
-
-When a `for`-loop is used over a data type `T`, then this is assumed to be using a function `iter(T)`. If no such function exists, or the resolution is ambiguous, then it is a compile-time error. For example, the `List<T>` type has an `iter` function:
-
-```
-fn iter<T>(list: List<T>) -> Iter<T>
-```
-
-So, when we loop over the list the following are equivalent:
-
-```
-let list: List<Str> = get_list()
-
-// Implicit call to iter(list)
-for str in list {
-    // Do something
-}
-
-// Dot-notation call to iter(list)
-for str in list.iter() {
-    // Do something
-}
-
-// Explicit call to iter(list)
-for str in iter(list) {
-    // Do something
-}
-```
-
-#### Planned change: Salvo-level pull iterators
-
-> **In progress.** Everything above describes the language as it is today —
-> including the factory/pass distinction, which shipped with the first phase
-> of this work. Below, the `next` protocol and hand-written passes *also*
-> work already; what is not yet built is the `yield` half — a state struct
-> instead of the target languages' coroutines, and with it effectful
-> iterator functions and the released-on-every-path guarantee. Those parts
-> are decided but unbuilt: here to be thought about, not built against. The costing, the phases and the still-open questions
-> live in PROGRESS.md under "Roadmap: iterators — Salvo-level pull
-> iterators (decided 2026-09-07)".
-
-The iteration protocol becomes ordinary Salvo instead of a pair of
-intrinsics. `next` returns an `Emitted T | Finished` union and takes the
-pass it advances, so `has_next`/`next` above are retired and an iterator
-can be written *by hand* — which is how you get the ones `yield` cannot
-express, like `zip` and `merge`, since they read two sources at once:
+Iteration is ordinary Salvo, not a built-in protocol. A **pass** is a value
+that holds a position in a sequence, and a pass is advanced by a `next`
+returning either an element or the end:
 
 ```
 qualifier Emitted<T> of T
@@ -1224,66 +1097,70 @@ params Yield<It, T> {
 }
 ```
 
-`Emitted` is a qualifier so the element keeps its own type, which is also
-what keeps the end of a sequence of optionals distinguishable: `Emitted
-None | Finished` has two arms where `None | None` would have one.
-`Finished` is a fieldless struct because it has nothing to qualify.
+`Emitted` is a qualifier so the element keeps its own type, which is also what
+keeps the end of a sequence of optionals distinguishable: `Emitted None |
+Finished` has two arms where `None | None` would have one. `Finished` is a
+fieldless struct because it has nothing to qualify.
 
-An iterator function's body still uses `yield`; the compiler lowers it to
-a state struct with a `next` of its own, rather than borrowing the target
-language's coroutines — *this part is built*. Two consequences: effects
-thread into `next` like they do into any other function, which is what lets
-a producer perform them at all (the claim on its type, above, is the
-language part; threading the handlers through is what remains); and
-iteration is monomorphic — nothing is suspended, boxed, or dynamically
-dispatched.
+**`for` is sugar for calling `next` until `Finished`.** There is one protocol
+and one lowering. A `for` over *data* — a list, an array, a string — is walked
+natively by the backend; anything else is a pass, driven by its `next`.
 
-The factory/pass distinction above is *already* the language — what is
-still planned is the representation behind it. Today both forms emit the
-same thing, since `Once` erases; under the rework a pass becomes the state
-struct itself while a factory keeps the arguments it re-mints from.
+```
+for x in xs { ... }             // a list: walked in place
+for c in "hi" { ... }           // its characters
+for x in iter(xs) { ... }       // the pass an `iter` hands back
+for pair in zip(names, ages) { ... }   // a pass of your own
+```
 
-A pass is also *finished* rather than abandoned: the compiler releases it
-on every path that leaves the loop — exhaustion, `break`, `return`, a
-`throw` passing through — so the `defer` blocks a producer registered run
-even when the consumer stops early. Nothing in the source says so, and
-nothing has to.
+A pass is **consumed by driving it**: the position it holds has moved, so a
+second `for` over the same value is the ordinary consumed-use error. Data is
+not — a `for` over a list leaves the list alone.
 
-A hand-written iterator declares the tie itself. Declaring a `next` for a
-struct of your own is what makes `zip` and `merge` writable — this part
-*works today*, ahead of the rest of this subsection — but the method alone
-does not make the struct a pass: the tie is stated as an obligation,
-`: Yield<self, T>`, and checked at the struct (declaring it without a matching
-`next` is an error naming the missing signature). `for` reads the
-declaration — it does not scan overloads for a `next` and guess:
+#### Writing a pass by hand
+
+Declaring a `next` is what makes the iterators `yield` cannot express writable
+— `zip`, `merge`, anything reading two sources at once. The method alone does
+not make a struct a pass: the tie is stated as an obligation, `: Yield<self,
+T>`, and checked at the struct (declaring it without a matching `next` is an
+error naming the missing signature). `for` reads the declaration — it does not
+scan overloads for a `next` and guess:
 
 ```
 struct Zip<A, B> : Yield<self, (A, B)> canbe Mut {
-    ...
+    left: List<A>,
+    right: List<B>,
+    at: Int
 }
 
 fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished { ... }
-
-fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
-
-for pair in zip(names, ages) { ... }   // drives the pass, consuming it
 ```
 
 Leave the clause off `Zip` and the `for` reports it:
 ``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
 `: Yield<self, (A, B)>` on it to make it a pass) ```.
 
-**Or let the compiler write the state for you.** Writing `next` by hand means
-writing the position out as fields. A `yield fn` says the same thing as a
-body, and the state machine stays the compiler's:
+A pass that owns something may declare a `close`, and the `for` sugar calls it
+on every exit — exhaustion, `break`, `return`, a `throw` passing through. A
+`close` does not make a type linear; `: Linear<self>` does that
+([Linearity](#linearity)), and then the obligation is checked as well as called.
+
+#### Letting the compiler write the state: `yield fn`
+
+Writing `next` by hand means writing the position out as fields. A **`yield
+fn`** says the same thing as a body, and the state machine stays the
+compiler's. The subject is an **origin** — the starting data — and the return
+type is the element type:
 
 ```
 struct Counter : Yield<self, Int> {
     start: Int
 }
 
-// `yield` says this is doing more work. The subject is the *origin* — the
-// starting data — and the return type is what it yields.
+fn counter(start: Int) -> [] Counter {
+    return Counter { start: start }
+}
+
 yield fn next(c: Counter) [Console] -> Int {
     println("counting down from ${c.start}")
     defer { println("done counting") }
@@ -1296,6 +1173,12 @@ yield fn next(c: Counter) [Console] -> Int {
 
 for n in counter(2) { ... }   // 2, 1, 0
 ```
+
+An iterator is **lazy**: an element is produced when whatever consumes it asks
+for the next one, so a producer's work interleaves with the loop that drives
+it, and an unbounded generator (`while true { yield ... }`) is a normal thing
+to write — the consumer decides when to stop. Both backends behave identically
+in all of this.
 
 Both forms discharge the same obligation, and a type declares one of them, not
 both — the sugar *generates* the struct a hand-written `next` would be. What
@@ -1310,43 +1193,58 @@ differs is what you can hold:
   iterate the origin instead). If you need to hold an iteration in progress —
   to write `zip`, or to hand one to a function — that is what the raw form is
   for: there, the state struct is yours too.
-- **Effects go where they always go.** `[Console]` on the `yield fn` means
-  driving performs it, since nothing calls the function; the `for` is what
-  needs the handler. A `defer` inside runs when the loop ends *however* it
-  ends, including a `break` — the machine is closed on every path out.
+- **Effects go where they always go.** A `yield fn` declares them in its own
+  list, like any function, and *driving* is what performs them: the `for` is
+  what needs the handler, since nothing calls the function. A `defer` inside
+  runs when the loop ends *however* it ends, including a `break` — the machine
+  is closed on every path out.
 - **The origin may not be mutated while it is being driven.** It does not have
   to be immutable — a `Counter` holding a `Mut List<Int>` is a perfectly good
   origin — but for as long as a `for` over it is running, it has to hold still:
   the machine reads it as it goes, so a write in the middle has no answer that
   means the same thing everywhere. Write before the loop, after it, or drive
   `copy(origin)` to work from a snapshot.
+- **`use` is barred inside a `yield fn`**: it would register a handler the
+  machine then has to carry across every suspension.
 
-**Where two iterators meet, the compiler boxes.** Each iterator function
-gets its *own* state type. A position that must hold either of two
-different producers therefore has nothing concrete to be, and the compiler
-inserts the indirection exactly there:
+#### What a container hands you
+
+A container is iterated through its `iter`, which builds a fresh pass:
 
 ```
-fn primes(limit: Int) -> Iter<Int> { ... }
+fn iter<T>(list: List<T>) [] -> [] Mut ListPass<T>
+fn iter<T>(array: T[]) [] -> [] Mut ArrayPass<T>
+fn iter(str: Str) [] -> [] Mut StrPass
+```
 
-// One producer, so the representation is `counted`'s own state: an
-// element costs an inlined call and no allocation.
-let xs = counted(100)
+Each is an ordinary struct with an ordinary `next` — `ListPass` holds the list
+and an index — so nothing about container iteration is special-cased in the
+language. The backends keep their native loop as a fast path for a `for`
+straight over a list, an array or a string, which is why *that* form neither
+allocates a pass nor consumes the container.
 
-// A meeting point: one variable, two possible state types.
-let ys = if fast { counted(100) } else { primes(100) }
+A type of your own becomes iterable by declaring either half: an `iter` that
+hands back a pass (so combinators reach it) or its own `: Yield<self, T>` plus
+`next` (so it *is* a pass). `for x in bag` works as soon as `iter(bag)` does.
 
-struct Report {
-    // A meeting point too: a field holds whatever it is given.
-    source: Iter<Int>
+#### There is no iterator *type*
+
+Every pass is its own struct and every `yield fn` its own machine, so two
+producers have unrelated types. A position that has to hold either of two
+different producers is therefore a union — `when` reads it like any other — or
+a re-wrap: drive the one you have inside a `yield fn` of your own and yield its
+elements. Nothing is boxed behind your back, and nothing is dynamically
+dispatched: an element costs an inlined call.
+
+```
+// Two producers, two types.
+let ys = if fast { counter(100) } else { primes(100) }   // Counter | Primes
+
+when ys {
+    is Counter { for n in ys { ... } }
+    is Primes { for n in ys { ... } }
 }
 ```
-
-The type is `Iter<Int>` in all three cases — the difference is
-representation, not meaning, and it is the compiler's to make. What a
-boxed iterator costs is an indirect call per element instead of an
-inlined one; nothing else about it changes. A `for` loop over a call
-never meets anything, which is the common case.
 
 ### Effects
 
@@ -1668,7 +1566,7 @@ size(xs)             // ERROR: xs was consumed by the lambda; copy first
 
 **Function types carry contracts.** A higher-order function can state what the function it receives does to its arguments, using the same deduction syntax as ordinary signatures — name the parameter and write the list: `fn apply(f: (v: List<Int>) -> [] Int, data: List<Int>)` demands a function that *consumes* its argument (so `f(data)` consumes `data`, and calling it twice with the same value is an error), while `f: (v: List<Int>) -> [v] Int` demands one that *keeps* it (call it as often as you like; the caller keeps the argument). An unannotated function type keeps everything. A lambda checked against a keeping contract cannot consume its parameters (`copy` if needed), and a named function passed by value is checked with its real deductions — a consuming function never sneaks into a keeping position (the reverse is fine: keeping more than required never hurts). On the Rust backend this decides the physical calling convention — borrowed argument types for keeping contracts, owned for consuming, `&mut impl FnMut` for the function value itself — while Kotlin's aliases need no change.
 
-A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it, and an `Iter<T>` is used by driving it, which is how a one-shot iterator is spelled (`Once Iter<Int>`; see [Iterator functions](#iterator-functions)). A type of your own reaches the same place by opting in — `struct Countdown canbe Mut, Once` — the way it opts into mutability; those three are the only places `Once` may be written, and the opt-in is the author's call because an obligation should not attach to a type on the strength of a method name. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
+A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it. A type of your own reaches the same place by opting in — `struct Ticket canbe Once` — the way it opts into mutability; those two are the only places `Once` may be written, and the opt-in is the author's call because an obligation should not attach to a type on the strength of a method name. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
 
 One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
 
@@ -2123,7 +2021,7 @@ The `intrinsic` layer sits in a backend specific module inside the compiler. Thi
 
 `intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through a `platform effect`; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). There is no bodyless declaration form for customer code — `intrinsic` (and the bodyless `intrinsic handler`) is precisely what lets the standard library state a contract the compiler fulfils in place of one.
 
-For example, the basic types (`Int`, `Str`, `Iter<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
+For example, the basic types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
 
 ```
 intrinsic type Str
@@ -2222,7 +2120,7 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * When `None` is the only return type of a function, it should be translated to `Unit`.
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
-* The `Iter<T>` type should map to the `Iterable<T>` type in Kotlin, since this is what can be looped over in for-loops. A custom iterable type can be defined for dynamic `iterator {}` blocks in Kotlin.
+* A `yield fn` becomes a class the compiler writes — the body as a flat state machine — rather than Kotlin's `iterator { … }` builder, so that a machine can take its effect handlers per resume instead of capturing them at creation.
 * `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
 
 ### Rust
@@ -2232,5 +2130,5 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
 * Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
 * `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
-* The `Iter<T>` type maps to a generated factory type: iterator functions are lazy and repeatable, as on Kotlin. Stable Rust has no generators, so the compiler writes the state machine itself — a struct with the body's locals as fields and a flat dispatch on a state number — which is also what lets a producer take its effect handlers per resume rather than capturing them.
+* A `yield fn` becomes a struct the compiler writes: stable Rust has no generators, so the machine is explicit — the body's locals as fields and a flat dispatch on a state number — which is also what lets it take its effect handlers per resume rather than capturing them.
 * See BACKEND_SPEC.rust.md for the full rules.

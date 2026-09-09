@@ -70,13 +70,6 @@ pub fn fn_call(
         ("size", Some("List")) | ("size", Some("[]")) => {
             format!("({}.len() as i32)", a(0))
         }
-        // Iterators are lazy: `Iter<T>` is the generated factory type
-        // [rs-iter-lazy].
-        ("iter", Some("List")) | ("iter", Some("[]")) => {
-            // [rs-iter-lazy] The elements are already there, so a pass is a
-            // walk over a copy of them.
-            format!("SalvoIter::from_vec({}.clone())", a(0))
-        }
 
         // core.seq -------------------------------------------------------
         // The `List` fast paths [fn-overload-rank] go through the
@@ -89,11 +82,6 @@ pub fn fn_call(
         ("reduce", Some("List")) => {
             format!("salvo_reduce(&{}[..], {}, {})", a(0), a(1), a(2))
         }
-        // core.iterable --------------------------------------------------
-        // [rs-iter-lazy] `Iter<T>` is a factory of passes, and the identity
-        // that makes it satisfy `Iterable` clones the factory (a borrowed
-        // one cannot be returned).
-        ("iter", Some("Iter")) => format!("{}.clone()", a(0)),
 
         // core.string ----------------------------------------------------
         // [rs-mut-str] `Mut Str` and `Str` are both `String`: mutability
@@ -114,11 +102,6 @@ pub fn fn_call(
         ("size", Some("Str")) => format!("({}.chars().count() as i32)", a(0)),
         ("char_at", Some("Str")) => {
             format!("{}.chars().nth(({}) as usize)", a(0), a(1))
-        }
-        // [rs-iter-lazy] The characters are already there, so a pass is a
-        // walk over a copy of them.
-        ("iter", Some("Str")) => {
-            format!("SalvoIter::from_vec({}.chars().collect::<Vec<char>>())", a(0))
         }
         ("split", Some("Str")) => format!(
             "{}.split(&{}[..]).map(|__p| __p.to_string()).collect::<Vec<String>>()",
@@ -199,9 +182,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "None" => "()",
         // Only reachable in dead positions.
         "Nothing" => "()",
-        // Iterators are lazy [rs-iter-lazy]: a factory of passes, like
-        // Kotlin's `Iterable<T>`.
-        "Iter" => "SalvoIter",
         "List" => "Vec",
         _ => return None,
     })

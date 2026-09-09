@@ -17,8 +17,13 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str =
-    "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Iter<T>\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
+     intrinsic fn copy<T>(value: T) [] -> [value] T\n\
+     qualifier Emitted<T> of T\n\
+     struct Finished {}\n\
+     fn emitted<T>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
+     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -320,259 +325,94 @@ fn use_in_a_fn_type_is_rejected() {
     );
 }
 
-// ===== [iter-effects] a producer declares its effects on its return type =====
+// ===== [fn-effects] a pass performs its effects in its `next` =====
 //
-// None of a `yield` fn's body runs when it is called: the effects happen
-// while the *consumer* drives the pass. So the list does not belong on the
-// function, where [fn-effects] would make every call site supply a handler
-// for something calling it never does — it belongs on the return type, in
-// qualifier position (user decision 2026-09-07, D8).
+// A producer used to be a *type* (`Logger Iter<Int>`) whose driving performed
+// the claim, so its effects were written in qualifier position on the return
+// type (D8, 2026-09-07). With the reduction to `next` a producer is a struct
+// and its `next` is an ordinary function, so there is nothing special left:
+// `[fn-effects]` says it all, and the old spellings are refused.
 
-/// [iter-effects] An effect in the fn's *own* list is rejected, and the
-/// diagnostic names the remedy: write it on the return type.
+/// An effect name in qualifier position is refused, naming the replacement:
+/// the effect list of the `next` that performs it.
 #[test]
-fn an_iterator_fn_declares_its_effects_on_its_return_type() {
+fn an_effect_in_qualifier_position_is_refused() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn counted(n: Int) [Logger] -> Iter<Int> {{\n\
-         log(\"start\")\n\
-         yield n\n\
+         fn f(n: Logger Int) -> [] None {{\n\
+         return None\n\
          }}\n"
     ));
     assert!(
         errs.iter().any(|e| {
-            e.contains("declares its effects on its return type")
-                && e.contains("-> Logger Iter<…>")
+            e.contains("is an effect, not a qualifier") && e.contains("yield fn next")
         }),
-        "expected the relocation diagnostic with its remedy, got: {errs:?}"
+        "expected the effect-position refusal, got: {errs:?}"
     );
 }
 
-/// And with the claim in the right place, the body may perform it.
+/// A fn type is redirected to its own bracket list, as it always was: two
+/// spellings of one thing is how they drift.
 #[test]
-fn a_producer_may_perform_what_its_return_type_claims() {
+fn an_effect_on_a_fn_type_names_the_bracket_form() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn counted(n: Int) -> Logger Iter<Int> {{\n\
-         log(\"start\")\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
-/// A claim it does not make is still an error — the relocation moves the
-/// declaration, it does not remove it.
-#[test]
-fn a_producer_may_not_perform_what_it_does_not_claim() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn counted(n: Int) -> Iter<Int> {{\n\
-         log(\"start\")\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("Logger")),
-        "expected the undeclared-effect error, got: {errs:?}"
-    );
-}
-
-/// `use` is a hole of its own: it would let the body register a handler the
-/// pass then has to carry across every suspension.
-#[test]
-fn an_iterator_fn_cannot_declare_use() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn counted(n: Int) [use] -> Iter<Int> {{\n\
-         use QuietLogger()\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("cannot `use` a handler of its own")),
-        "expected the `use` rejection, got: {errs:?}"
-    );
-}
-
-/// [iter-mut-param] A producer's parameters are *captured* — by the factory
-/// and again by each pass — so a mutable one is state a suspended body shares
-/// with its caller, and the backends did not agree on what a write through it
-/// meant: Rust captured by clone (a private copy, invisible to the caller,
-/// fresh per pass), Kotlin handed the reference over (the caller's collection
-/// mutated, and successive passes accumulating). Refused rather than sided
-/// with (user decision 2026-09-08); the reproduction that forced it is under
-/// "Open defects" in PROGRESS.md.
-#[test]
-fn an_iterator_fn_cannot_take_a_mutable_parameter() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
-         }}\n\
-         fn counted(n: Int, sink: Mut Buffer) -> Iter<Int> {{\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("cannot take a mutable parameter")),
-        "expected the mutable-parameter rejection, got: {errs:?}"
-    );
-}
-
-/// And it is the **transitive** test [fate-move-mode] uses, not a look at the
-/// written qualifiers: `Mut` reachable through a struct field counts, since
-/// that is equally what makes clone-vs-alias observable.
-#[test]
-fn a_producers_mutable_parameter_is_caught_through_a_field() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
-         }}\n\
-         struct Holder {{\n\
-         buffer: Mut Buffer\n\
-         }}\n\
-         fn counted(n: Int, holder: Holder) -> Iter<Int> {{\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("cannot take a mutable parameter")),
-        "expected the transitive rejection, got: {errs:?}"
-    );
-}
-
-/// The control, so the rule is not "a producer may take nothing": an
-/// immutable parameter of the same shape is fine, and so is a mutable
-/// parameter on an ordinary fn.
-#[test]
-fn an_immutable_producer_parameter_is_fine() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
-         }}\n\
-         fn counted(n: Int, buffer: Buffer) -> Iter<Int> {{\n\
-         yield n\n\
-         }}\n\
-         fn bump(buffer: Mut Buffer) -> [buffer: Mut] None {{\n\
-         buffer.at = buffer.at + 1\n\
-         }}\n"
-    ));
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
-/// [iter-mut-param] The **callback** half of the rule: a producer holds its
-/// fn-typed parameters for as long as it can mint a pass, and calls one once
-/// per element in *every* pass — so a lambda carrying mutable state in is the
-/// same hazard as a mutable parameter, reached through a capture. Rust already
-/// refused it (`impl Fn + 'static`) while Kotlin ran it and accumulated across
-/// passes: a checker-clean program only one backend could build.
-#[test]
-fn a_producers_callback_cannot_write_through_a_capture() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
-         }}\n\
-         fn raise(b: Mut Buffer) -> [b: Mut] Int {{\n\
-         b.at = b.at + 1\n\
-         return b.at\n\
-         }}\n\
-         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
-         for x in xs {{\n\
-         yield f(x)\n\
-         }}\n\
-         }}\n\
-         fn drive(xs: Iter<Int>, buf: Mut Buffer) -> [] None {{\n\
-         let source = tagged(xs, (v) -> raise(buf))\n\
-         return None\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("writes through `buf`")),
-        "expected the write-capture rejection, got: {errs:?}"
-    );
-}
-
-/// And a *read* of mutable data is refused too, for [iter-mut-param]'s own
-/// reason rather than for `FnMut`: whether the closure holds a snapshot or an
-/// alias is observable, so the two backends would not agree on what the
-/// callback sees on a later pass.
-#[test]
-fn a_producers_callback_cannot_read_mutable_data_through_a_capture() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
-         }}\n\
-         fn peek(b: Buffer) -> [b] Int {{\n\
-         return b.at\n\
-         }}\n\
-         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
-         for x in xs {{\n\
-         yield f(x)\n\
-         }}\n\
-         }}\n\
-         fn drive(xs: Iter<Int>, buf: Mut Buffer) -> [buf] None {{\n\
-         let source = tagged(xs, (v) -> peek(buf))\n\
+         fn f(g: Logger (Int) -> Int) -> [] None {{\n\
          return None\n\
          }}\n"
     ));
     assert!(
         errs.iter()
-            .any(|e| e.contains("reads mutable data through `buf`")),
-        "expected the read-capture rejection, got: {errs:?}"
+            .any(|e| e.contains("declares its effects in its own list")),
+        "expected the fn-type redirection, got: {errs:?}"
     );
 }
 
-/// The control, and the remedy the diagnostic names: an **immutable** capture
-/// is free — clone-vs-alias is unobservable, which is the standing parity
-/// argument — so a snapshot at a non-`Mut` type goes through. The same lambda
-/// against a *non*-producer is fine too, since only a pass keeps its callback
-/// past the call.
+/// And `yield` outside a `yield fn` is a declaration error: the
+/// `Iter<T>`-returning producer is gone, so there is one form left
+/// [yield-fn-origin].
 #[test]
-fn a_producers_callback_may_capture_immutable_data() {
+fn a_yield_outside_a_yield_fn_is_refused() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         struct Buffer canbe Mut {{\n\
-         at: Int\n\
+         fn counted(n: Int) -> [] Int {{\n\
+         yield n\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("it has to be a `yield fn`")),
+        "expected the yield-form error, got: {errs:?}"
+    );
+}
+
+/// A `yield fn` declares its effects like any function, and driving it is
+/// what performs them — checked at the loop, which
+/// `yield_origin_tests::drive_site_effects_are_required_at_the_loop` covers.
+/// Here: the declaration itself is legal, effects and all.
+#[test]
+fn a_yield_fn_declares_its_effects_in_its_own_list() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Chatty : Yield<self, Int> {{\n\
+         limit: Int\n\
          }}\n\
-         fn peek(b: Buffer) -> [b] Int {{\n\
-         return b.at\n\
-         }}\n\
-         fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {{\n\
-         for x in xs {{\n\
-         yield f(x)\n\
-         }}\n\
-         }}\n\
-         fn eager(xs: Iter<Int>, f: (Int) -> Int) -> Int {{\n\
-         return f(1)\n\
-         }}\n\
-         fn drive(xs: Iter<Int>, snapshot: Buffer) -> [snapshot] None {{\n\
-         let lazy = tagged(xs, (v) -> peek(snapshot))\n\
-         let now = eager(xs, (v) -> peek(snapshot))\n\
-         return None\n\
+         yield fn next(c: Chatty) [Logger] -> Int {{\n\
+         log(\"one\")\n\
+         yield copy(c.limit)\n\
          }}\n"
     ));
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-/// The restriction is on *producing*, not consuming: a `for` loop over an
-/// iterator sits in an ordinary fn and may perform whatever it declares.
+/// The restriction is on *producing*, not consuming: a `for` loop sits in an
+/// ordinary fn and may perform whatever that fn declares.
 #[test]
-fn consuming_an_iterator_may_perform_effects() {
+fn consuming_a_pass_may_perform_effects() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn counted(n: Int) -> Iter<Int> {{\n\
-         yield n\n\
-         }}\n\
-         fn report(n: Int) [Logger] -> [] None {{\n\
-         for v in counted(n) {{\n\
+         fn report(xs: Int[]) [Logger] -> [xs] None {{\n\
+         for v in xs {{\n\
          log(\"one\")\n\
          }}\n\
          }}\n"

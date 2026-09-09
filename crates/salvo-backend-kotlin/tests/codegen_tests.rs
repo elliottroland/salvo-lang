@@ -39,9 +39,18 @@ fn greet(person: Person) [Console] -> [person] None {
     }
 }
 
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
+struct Range : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> [] Range {
+    return Range {start: start, end: end}
+}
+
+yield fn next(r: Range) -> Int {
+    let i = copy(r.start)
+    while i++ < r.end {
         yield i - 1
     }
 }
@@ -507,7 +516,7 @@ fn a_pass_lowers_to_a_guarded_while_loop() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("_pass = countdown(3)") && src.contains("_step = next("),
+        src.contains("_pass = countdown(3)") && src.contains("_step = next"),
         "expected the driving loop in:\n{src}"
     );
     assert!(
@@ -1030,16 +1039,16 @@ fn kotlinc_compiles_and_runs_two_mints_in_one_call() {
 }
 
 const YIELD_SPREAD_DEMO: &str = r#"
-struct ListPass<T> : Yield<self, T> canbe Mut {
+struct Slice<T> : Yield<self, T> canbe Mut {
     items: List<T>,
     at: Int
 }
 
-fn iter2<T>(items: List<T>) -> [] Mut ListPass<T> {
-    return Mut ListPass<T> { items: items, at: 0 }
+fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+    return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut ListPass<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1072,7 +1081,7 @@ fn double(n: Int) -> Int {
 fn main() [use] {
     use StdOutConsole()
     let xs = list(1, 2, 3)
-    let doubled = map2(iter2(xs), double)
+    let doubled = map2(slice(xs), double)
     for d in doubled {
         println("d ${d}")
     }
@@ -1741,9 +1750,18 @@ fn cache_stamp(
 /// in value and statement position, bare `break` (optional value), and a
 /// union-typed loop value re-wrapped to the declared type [while-value].
 const LOOPS: &str = r#"
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
+struct Range : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> [] Range {
+    return Range {start: start, end: end}
+}
+
+yield fn next(r: Range) -> Int {
+    let i = copy(r.start)
+    while i++ < r.end {
         yield i - 1
     }
 }
@@ -1770,7 +1788,7 @@ fn main() [use] -> [] None {
     println("never: ${never}")
 
     // `break value` short-circuits; no `else` makes the value optional.
-    let found = for x in range(0, 10) {
+    let found = for x in [0, 1, 2, 3, 4, 5] {
         if x * x > 10 {
             break x
         }
@@ -1780,7 +1798,7 @@ fn main() [use] -> [] None {
         println("found: ${f}")
     }
 
-    // Statement-position loop with `else`.
+    // Statement-position loop with `else`, over a producer.
     for x in range(0, 0) {
         println("unreachable")
     } else {
@@ -2788,10 +2806,18 @@ fn kotlinc_compiles_and_runs_precedence() {
 /// (`yield` itself cannot appear inside the `run {}` lowering — Kotlin's
 /// restricted suspension scope forbids it; separate known leftover.)
 const ITER_RETURN_DEMO: &str = r#"
-fn nums(limit: Int) -> Iter<Int> {
+struct Nums : Yield<self, Int> {
+    limit: Int
+}
+
+fn nums(limit: Int) -> [] Nums {
+    return Nums {limit: limit}
+}
+
+yield fn next(n: Nums) -> Int {
     let i = 0
     yield 0
-    while i++ < limit {
+    while i++ < n.limit {
         if i == 3 {
             return
         }
@@ -2834,7 +2860,7 @@ fn iterator_bare_return_finishes_the_pass() {
     );
     let machine = main
         .content
-        .split("override fun __advance(): Boolean {")
+        .split("fun __advance(): Boolean {")
         .nth(1)
         .expect("a generated machine");
     let bare_returns = machine.lines().filter(|l| l.trim() == "return").count();
@@ -3848,7 +3874,7 @@ fn array_std_functions_lower() {
         "nums.size",
         "nums.getOrNull(2)",
         "nums.firstOrNull()",
-        "nums.asIterable()",
+        "__loop1_pass = iter(nums)",
         "values.size",
     ] {
         assert!(
@@ -5032,20 +5058,18 @@ fn run_kotlin_entry(
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====
 
-/// Two overloads the *checker* tells apart by Salvo types that have no
-/// subtype relation — `Iter<Int>` and `List<Int>` — where the emitted
-/// Kotlin types do have one (`List` *is* an `Iterable`). The `List`
-/// overload delegates to the `Iter` one, which is the shape that turns a
-/// second opinion into a crash rather than a wrong answer.
+/// Two overloads the *checker* tells apart by Salvo types — a pass and the
+/// `List` it walks — where the `List` overload **delegates** to the pass one.
+/// That is the shape that turns a second opinion into a crash rather than a
+/// wrong answer: before the mangling rule, a delegation whose argument lowered
+/// to the same Kotlin type re-resolved to the delegating overload itself.
 const OVERLOAD_DELEGATION: &str = r#"
-fn twice(it: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
-    for x in it {
-        yield f(x)
-    }
+fn twice(p: Mut ListPass<Int>, f: (Int) -> Int) -> [p: Mut, f] Mut List<Int> {
+    return map(p, f)
 }
 
-fn twice(xs: List<Int>, f: (Int) -> Int) -> Iter<Int> {
-    return twice(xs.iter(), f)
+fn twice(xs: List<Int>, f: (Int) -> Int) -> [f] Mut List<Int> {
+    return twice(iter(xs), f)
 }
 
 fn double(n: Int) -> Int {
@@ -5080,13 +5104,13 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
         .expect("main.kt emitted")
         .content;
     assert!(
-        main.contains("fun twice(it: Iterable<Int>") && main.contains("fun twice__2(xs: List<Int>"),
+        main.contains("fun twice(p: ListPass<Int>") && main.contains("fun twice__2(xs: List<Int>"),
         "expected the second overload to be renamed in:\n{main}"
     );
     // The delegation calls the *other* overload, by its own name.
     assert!(
-        main.contains("return twice(xs,"),
-        "expected the delegation to reach the `Iter` overload in:\n{main}"
+        main.contains("return twice("),
+        "expected the delegation to reach the pass overload in:\n{main}"
     );
 }
 
@@ -5105,43 +5129,45 @@ fn kotlinc_compiles_and_runs_overload_delegation() {
     run_kotlin_files(&files, "overload-delegation", "v=2\nv=4\nv=6\n");
 }
 
-// ===== [fn-iterator] `Iter<T>` is lazy on both backends =====
+// ===== [iter-protocol] laziness, now a property of the pass =====
 
 /// The same source and the same expected stdout as the Rust backend's
-/// `rustc_compiles_and_runs_a_lazy_iterator` — an unbounded producer that
-/// only terminates because elements are made on demand, and a factory that
-/// a second `for` runs again from the start. Kotlin needed no change for
-/// this: `Iterable { iterator { … } }` was already both. What it gained is
-/// the guarantee that Rust now agrees, which is why the two tests share
-/// their source and their assertion.
+/// `rustc_compiles_and_runs_a_lazy_iterator`: an **unbounded** origin that only
+/// terminates because elements are made on demand, filtered lazily by std's
+/// `filter_lazy`, and driven twice — an origin replays, since each `for` mints a
+/// fresh machine from it [yield-fn-origin].
 const LAZY_ITER_DEMO: &str = r#"
-fn naturals(from: Int) -> Iter<Int> {
-    let i = from
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals(from: Int) -> [] Naturals {
+    return Naturals {from: from}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
     while true {
         yield copy(i)
         i = i + 1
     }
 }
 
-fn evens(it: Iter<Int>) -> [it] Iter<Int> {
-    for x in it {
-        if x % 2 == 0 {
-            yield copy(x)
-        }
-    }
+fn is_even(n: Int) -> Bool {
+    return n % 2 == 0
 }
 
 fn main() [use] {
     use StdOutConsole()
     let unconsumed = naturals(100)
     println("created")
-    for v in evens(naturals(0)) {
+    for v in filter_lazy(naturals(0), is_even) {
         if v > 6 {
             break
         }
         println("even ${v}")
     }
-    let twice = evens(naturals(0))
+    let twice = naturals(0)
     for v in twice {
         if v > 2 {
             break
@@ -5158,12 +5184,15 @@ fn main() [use] {
 "#;
 
 const LAZY_ITER_OUTPUT: &str = "created\neven 0\neven 2\neven 4\neven 6\n\
-                                first 0\nfirst 2\nsecond 0\nsecond 2\n";
+                                first 0\nfirst 1\nfirst 2\nsecond 0\nsecond 1\nsecond 2\n";
 
-/// [fn-iterator] The lowering that was already lazy, pinned: a `sequence`-
-/// style `Iterable { iterator { … } }` whose body suspends at each `yield`.
+/// [iter-generator] The lowering that makes it lazy, pinned: a class the
+/// compiler wrote, whose `__advance` is the body as a flat dispatch loop and
+/// whose resume point is written back before the element is handed over. The
+/// `iterator { … }` coroutine builder is gone, and so is the factory it minted
+/// passes from — an origin *is* the recipe.
 #[test]
-fn an_iterator_fn_lowers_to_a_lazy_iterable() {
+fn an_origin_lowers_to_a_lazy_machine() {
     let program = build_program(&[("main.sv", LAZY_ITER_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -5174,29 +5203,32 @@ fn an_iterator_fn_lowers_to_a_lazy_iterable() {
         .expect("main.kt emitted")
         .content;
     for expected in [
-        "fun naturals(from: Int): Iterable<Int> {",
-        "return Iterable<Int> { __Pass_naturals(from) }",
-        // The machine: the body's local as a property, the dispatch loop, and
-        // the resume point written back before the element is handed over.
-        "private class __Pass_naturals(private var from: Int) : SalvoPass<Int>() {",
+        "class __Pass_Naturals(private var n: Naturals) {",
         "    private var i: Int = 0",
         "    private var __state: Int = 0",
-        "override fun __advance(): Boolean {",
+        "fun __advance(): Boolean {",
         "when (__state) {",
         "__current = i",
         "return true",
-        // The nested `for` in `evens` drives a pass held as a property.
-        "private var x__pass: Iterator<Int>? = null",
-        "x = x__pass!!.next()",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
-    for gone in ["iterator {", "yield("] {
-        assert!(
-            !main.contains(gone),
-            "`{gone}` should be gone from:\n{main}"
-        );
+    for gone in ["iterator {", "yield(", "Iterable<Int> {"] {
+        assert!(!main.contains(gone), "`{gone}` should be gone from:\n{main}");
     }
+}
+
+/// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
+#[test]
+fn kotlinc_compiles_and_runs_a_lazy_iterator() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", LAZY_ITER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
 }
 
 /// [seq-lazy] [seq-into] The combinator surface (user decision 2026-09-08) —
@@ -5217,15 +5249,15 @@ fn main() [use] -> None {
     let xs = list(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
-    for v in map_lazy(xs, double) {
+    for v in map_lazy(iter(copy(xs)), double) {
         println("lazy ${v}")
     }
-    for v in filter_lazy(xs, is_even) {
+    for v in filter_lazy(iter(copy(xs)), is_even) {
         println("kept ${v}")
     }
-    let out = map_to(mutable_list<Int>(), xs, double)
+    let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
-    let chained = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
+    let chained = filter_to(map_to(mutable_list<Int>(), iter(copy(xs)), double), iter(xs), is_even)
     println("chained ${chained.size()}")
 }
 "#;
@@ -5244,12 +5276,12 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() {
         .find(|f| f.rel_path.ends_with("seq.kt"))
         .expect("core/seq.kt emitted")
         .content;
-    // A lazy combinator is a producer, so its implicits become constructor
-    // properties of the pass: the body calls them on every turn, long after
-    // the call that filled them [implicit-param].
+    // A lazy combinator returns a **composed pass**: a struct holding the
+    // source, the callback and the source's `next`, which is the implicit
+    // resolved at the call that built it [implicit-group].
     assert!(
-        seq.contains("private var iter: (It) -> Iterable<T>"),
-        "expected the implicit as a pass property in:\n{seq}"
+        seq.contains("class MapPass<It, T, U>") && seq.contains("var step: (It) -> Union2<T, Finished>"),
+        "expected the composed pass with its stored `next` in:\n{seq}"
     );
     run_kotlin_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
 }
@@ -5267,8 +5299,16 @@ fn kotlinc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
 }
 
 const LAZY_CHAIN_DEMO: &str = r#"
-fn naturals() -> Iter<Int> {
-    let i = 0
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals() -> [] Naturals {
+    return Naturals {from: 0}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
     while true {
         yield copy(i)
         i = i + 1
@@ -5296,22 +5336,25 @@ fn main() [use] -> None {
 
 const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 
-/// The Kotlin half of the parity claim for a producer holding a **capturing
-/// callback** — same source and stdout as the Rust backend's
-/// `rustc_compiles_and_runs_a_producer_with_a_capturing_callback`. Kotlin needs
+/// The Kotlin half of the parity claim for a **stored** callback — same source
+/// and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_pass_with_a_capturing_callback`. Kotlin needs
 /// nothing special (a JVM closure captures by reference and the JVM keeps it
 /// alive), which is exactly why the Rust side's missing `move` went unnoticed:
-/// this side always worked.
+/// this side always worked. A composed pass calls its callback long after the
+/// call that built it, which is what makes the capture observable at all.
 const PRODUCER_CALLBACK_DEMO: &str = r#"
-fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
-    for x in xs {
-        yield f(x)
-    }
+struct Upto : Yield<self, Int> {
+    limit: Int
 }
 
-fn upto(n: Int) -> Iter<Int> {
+fn upto(limit: Int) -> [] Upto {
+    return Upto {limit: limit}
+}
+
+yield fn next(u: Upto) -> Int {
     let i = 0
-    while i < n {
+    while i < u.limit {
         yield copy(i)
         i = i + 1
     }
@@ -5324,11 +5367,10 @@ fn scale_by(factors: List<Int>, v: Int) -> [factors] Int {
 fn main() [use] -> None {
     use StdOutConsole()
     let factors = list(10)
-    let source = tagged(upto(3), (v) -> scale_by(factors, v))
-    for s in source {
+    for s in map_lazy(upto(3), (v: Int) -> scale_by(factors, v)) {
         println("a ${s}")
     }
-    for s in source {
+    for s in map_lazy(upto(3), (v: Int) -> scale_by(factors, v)) {
         println("b ${s}")
     }
 }
@@ -5345,281 +5387,23 @@ fn kotlinc_compiles_and_runs_a_producer_with_a_capturing_callback() {
     run_kotlin_files(&files, "producer-callback", PRODUCER_CALLBACK_OUTPUT);
 }
 
-/// [iter-effects] The **effectful producer**, end to end — the same source and
-/// the same expected stdout as the Rust backend's
-/// `rustc_compiles_and_runs_an_effectful_producer`. That the two agree byte
-/// for byte on *this* program is the parity claim of I4's emission half: the
-/// handler order, when a handler is bound, the interleaving of producer and
-/// consumer, and the release path all show up in the output.
-const EFFECTFUL_DEMO: &str = r#"
-fn chatty(limit: Int) -> Console Iter<Int> {
-    println("open")
-    defer { println("close") }
-    let i = 0
-    while i < limit {
-        println("make ${i}")
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn plain(limit: Int) -> Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn total(xs: Console Iter<Int>) -> Int {
-    let sum = 0
-    for v in xs {
-        sum = sum + v
-    }
-    return sum
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    for v in chatty(3) {
-        println("got ${v}")
-        if v == 1 {
-            break
-        }
-    }
-    println("sum ${total(chatty(2))}")
-    println("plain ${total(plain(4))}")
-}
-"#;
-
-const EFFECTFUL_OUTPUT: &str =
-    "open\nmake 0\ngot 0\nmake 1\ngot 1\nclose\nopen\nmake 0\nmake 1\nclose\nsum 1\nplain 6\n";
-
-#[test]
-fn kotlinc_compiles_and_runs_an_effectful_producer() {
-    let program = build_program(&[("main.sv", EFFECTFUL_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = &files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .expect("main.kt emitted")
-        .content;
-    // The handler is a *parameter* of the machine, not captured state: Kotlin
-    // could have kept the `iterator { … }` builder and captured it, and must
-    // not, because when a handler is bound is observable.
-    assert!(
-        main.contains("private fun __advance(console: Console): Boolean"),
-        "expected the handler as a leading parameter in:\n{main}"
-    );
-    // A claiming pass is not a Kotlin `Iterator`: it implements the generated
-    // interface, holding its element for `current()`.
-    assert!(
-        main.contains("private class __Pass_chatty(private var limit: Int) : SalvoPassConsole<Int>")
-            && main.contains("override fun current(): Int = __current as Int"),
-        "expected the pass-interface implementation in:\n{main}"
-    );
-    // The factory stays a factory, and takes no handler.
-    assert!(
-        main.contains("fun chatty(limit: Int): SalvoIterConsole<Int>")
-            && main.contains("return SalvoIterConsole<Int> { __Pass_chatty(limit) }"),
-        "expected a handler-free factory in:\n{main}"
-    );
-    // Mint / advance / close, with the close in a `finally` so `break`,
-    // `return` and exhaustion all reach it [kt-defer-finally].
-    assert!(
-        main.contains(".mint()")
-            && main.contains("while (__loop2_pass.advance(console))")
-            && main.contains("} finally {\n        __loop2_pass.close(console)"),
-        "expected the drive sequence in:\n{main}"
-    );
-    // The variance adapter, at the one boundary that needs it.
-    assert!(
-        main.contains("SalvoPureAsConsole(plain(4))"),
-        "expected the variance adapter in:\n{main}"
-    );
-    // A deferred block may itself perform effects, so the runner takes the
-    // handlers too.
-    assert!(
-        main.contains("private fun __run_d0(console: Console)"),
-        "expected the defer runner to take the handler in:\n{main}"
-    );
-    let traits = &files
-        .iter()
-        .find(|f| f.rel_path == std::path::Path::new("iter_effects.kt"))
-        .expect("iter_effects.kt emitted")
-        .content;
-    // The generated file names effect interfaces in full: it lives in the root
-    // `salvo` package and imports nothing [kt-pass-effects].
-    assert!(
-        traits.contains("interface SalvoPassConsole<T>")
-            && traits.contains("console: salvo.core.console.Console")
-            && !traits.contains("import salvo.core.console"),
-        "expected an import-free pass interface in:\n{traits}"
-    );
-    run_kotlin_files(&files, "effectful-producer", EFFECTFUL_OUTPUT);
-}
-
-/// [iter-effects] The injected `close` on the *`return`* path, with the same
-/// source and stdout as the Rust backend's
-/// `rustc_releases_a_claiming_producer_on_a_return`. Here it comes free from
-/// the `finally`, where Rust splices the call at each exit — two mechanisms,
-/// one observable behaviour.
-#[test]
-fn kotlinc_releases_a_claiming_producer_on_a_return() {
-    let program = build_program(&[(
-        "main.sv",
-        r#"
-fn noisy(limit: Int) -> Console Iter<Int> {
-    defer { println("released") }
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn first_odd(xs: Console Iter<Int>) -> Int {
-    for v in xs {
-        if v % 2 == 1 {
-            return v
-        }
-    }
-    return 0
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    println("odd ${first_odd(noisy(5))}")
-}
-"#,
-    )]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_kotlin_files(&files, "claiming-return", "released\nodd 1\n");
-}
-
-/// [iter-effects] A claiming producer **held in a struct field** — the case that
-/// decided D8 — with the same source and stdout as the Rust backend's
-/// `rustc_compiles_and_runs_a_claiming_producer_in_a_field`.
-#[test]
-fn kotlinc_compiles_and_runs_a_claiming_producer_in_a_field() {
-    let program = build_program(&[("main.sv", CLAIMING_FIELD_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = &files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .expect("main.kt emitted")
-        .content;
-    assert!(
-        main.contains("val items: SalvoIterConsole<Int>"),
-        "expected the claiming factory as a property type in:\n{main}"
-    );
-    run_kotlin_files(&files, "claiming-field", CLAIMING_FIELD_OUTPUT);
-}
-
-const CLAIMING_FIELD_DEMO: &str = r#"
-struct Source {
-    name: Str,
-    items: Console Iter<Int>
-}
-
-fn chatty(limit: Int) -> Console Iter<Int> {
-    let i = 0
-    while i < limit {
-        println("make ${i}")
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn drain(s: Source) [Console] -> Int {
-    let sum = 0
-    for v in s.items {
-        sum = sum + v
-    }
-    return sum
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    let s = Source {name: "two", items: chatty(2)}
-    println("${s.name} ${drain(s)}")
-}
-"#;
-
-const CLAIMING_FIELD_OUTPUT: &str = "make 0\nmake 1\ntwo 1\n";
-
-/// [iter-effects] [backend-never-wrong] The shapes the prototype did not fix,
-/// refused on this backend too and with the same wording: a *claiming*
-/// producer nested inside another producer, and a `for` over one in value
-/// position.
-#[test]
-fn unsupported_claiming_producer_shapes_are_refused() {
-    let errors_for = |src: &str| -> Vec<String> {
-        let program = build_program(&[("bad.sv", src)]);
-        salvo_backend_kotlin::emit_program(&program)
-            .err()
-            .expect("expected codegen errors")
-    };
-    let nested = errors_for(
-        r#"
-fn inner(n: Int) -> Console Iter<Int> {
-    println("one")
-    yield n
-}
-
-fn outer(n: Int) -> Console Iter<Int> {
-    for v in inner(n) {
-        yield v
-    }
-}
-"#,
-    );
-    assert!(
-        nested
-            .iter()
-            .any(|e| e.contains("nested inside another producer")),
-        "expected the nested refusal, got: {nested:?}"
-    );
-    let value_position = errors_for(
-        r#"
-fn chatty(n: Int) -> Console Iter<Int> {
-    println("one")
-    yield n
-}
-
-fn main() [use] -> None {
-    use StdOutConsole()
-    let last = for v in chatty(2) { copy(v) }
-    when last {
-        is Int { println("${last}") }
-        is None { println("none") }
-    }
-}
-"#,
-    );
-    assert!(
-        value_position
-            .iter()
-            .any(|e| e.contains("not supported in value position")),
-        "expected the value-position refusal, got: {value_position:?}"
-    );
-}
-
 /// The same source and the same expected stdout as the Rust backend's
 /// `rustc_compiles_and_runs_a_generator_with_defers` [iter-generator]: a
 /// `defer` inside a suspending loop body, a bare `return` out of the middle
 /// of the nest, a nested producer, and a second pass that starts over.
 const GENERATOR_DEFER_DEMO: &str = r#"
-fn upto(n: Int) -> Iter<Int> {
+struct Upto : Yield<self, Int> {
+    limit: Int
+}
+
+fn upto(limit: Int) -> [] Upto {
+    return Upto {limit: limit}
+}
+
+yield fn next(u: Upto) -> Int {
     let last = 0
     let i = 0
-    while i < n {
+    while i < u.limit {
         defer { last = i }
         if i == 4 {
             return
@@ -5630,15 +5414,23 @@ fn upto(n: Int) -> Iter<Int> {
     yield last * 100
 }
 
-fn tagged(xs: Iter<Int>) -> [xs] Iter<Str> {
-    for x in xs {
+struct Tagged : Yield<self, Str> {
+    items: List<Int>
+}
+
+fn tagged(items: List<Int>) -> [] Tagged {
+    return Tagged {items: items}
+}
+
+yield fn next(t: Tagged) -> Str {
+    for x in t.items {
         yield "<${x}>"
     }
 }
 
 fn main() [use] -> None {
     use StdOutConsole()
-    for s in tagged(upto(3)) {
+    for s in tagged(map(upto(3), (v: Int) -> copy(v))) {
         println(s)
     }
     for v in upto(2) {
@@ -5669,86 +5461,6 @@ fn kotlinc_compiles_and_runs_a_generator_with_defers() {
         "generator-defers",
         "<0>\n<1>\n<2>\n<300>\nagain 0\nagain 1\nagain 200\n",
     );
-}
-
-/// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
-#[test]
-fn kotlinc_compiles_and_runs_a_lazy_iterator() {
-    if !kotlin_toolchain() {
-        return;
-    }
-    let program = build_program(&[("main.sv", LAZY_ITER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_kotlin_files(&files, "lazy-iter", LAZY_ITER_OUTPUT);
-}
-
-/// [once-fn] The pass/factory distinction, same source and same expected
-/// stdout as the Rust backend's `rustc_compiles_and_runs_a_once_iterator`.
-/// `Once` erases [qual-erasure], so what is being proved here is that a
-/// pass-returning producer emits and behaves identically — the one-shot rule
-/// itself is the checker's, in `once_tests.rs`.
-const ONCE_ITER_DEMO: &str = r#"
-fn pass_of(limit: Int) -> Once Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn factory_of(limit: Int) -> Iter<Int> {
-    let i = 0
-    while i < limit {
-        yield copy(i)
-        i = i + 1
-    }
-}
-
-fn total(xs: Once Iter<Int>) -> Int {
-    let sum = 0
-    for n in xs {
-        sum = sum + n
-    }
-    return sum
-}
-
-fn main() [use] {
-    use StdOutConsole()
-    let p = pass_of(4)
-    let seen = 0
-    for n in p {
-        seen = seen + n
-    }
-    println("pass ${seen}")
-    let f = factory_of(4)
-    let first = 0
-    for n in f {
-        first = first + n
-    }
-    let second = 0
-    for n in f {
-        second = second + n
-    }
-    println("factory ${first} ${second}")
-    println("total ${total(factory_of(4))}")
-    println("total ${total(pass_of(4))}")
-}
-"#;
-
-const ONCE_ITER_OUTPUT: &str = "pass 6\nfactory 6 6\ntotal 6\ntotal 6\n";
-
-#[test]
-fn kotlinc_compiles_and_runs_a_once_iterator() {
-    if !kotlin_toolchain() {
-        return;
-    }
-    let program = build_program(&[("main.sv", ONCE_ITER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_kotlin_files(&files, "once-iter", ONCE_ITER_OUTPUT);
 }
 
 // ===== [implicit-param] [implicit-group] implicit parameters =====
@@ -6324,18 +6036,17 @@ fn kotlinc_compiles_and_runs_mut_str_places() {
 
 // ===== [implicit-group] [rs-seq]-equivalent: the sequence functions =====
 
-/// `map`/`filter`/`reduce` over a `List` (the intrinsic fast path), an
-/// array, a `Str`, an `Iter` from an iterator function, a chain, and a
-/// struct of the program's own with nothing but an `iter` declared. Shared
-/// with the Rust backend's `rustc_compiles_and_runs_sequences`: the
-/// *checker* picks the overloads, so the two targets must agree element for
-/// element.
+/// `map`/`filter`/`reduce` over a `List` (the intrinsic fast path), and over
+/// the *passes* an array, a `Str`, an origin and a struct of the program's own
+/// hand out — `iter` written at each use site [seq-pass]. Shared with the Rust
+/// backend's `rustc_compiles_and_runs_sequences`: the *checker* picks the
+/// overloads, so the two targets must agree element for element.
 const SEQ_DEMO: &str = r#"
 struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [bag] Iter<Int> {
+fn iter(bag: Bag) -> [] Mut ListPass<Int> {
     return iter(bag.items)
 }
 
@@ -6343,9 +6054,17 @@ fn double(n: Int) -> Int {
     return n * 2
 }
 
-fn naturals(from: Int) -> Iter<Int> {
-    let i = from
-    while i < from + 4 {
+struct Naturals : Yield<self, Int> {
+    from: Int
+}
+
+fn naturals(from: Int) -> [] Naturals {
+    return Naturals {from: from}
+}
+
+yield fn next(n: Naturals) -> Int {
+    let i = copy(n.from)
+    while i < n.from + 4 {
         yield copy(i)
         i = i + 1
     }
@@ -6361,27 +6080,27 @@ fn main() [use] {
     let named = map(xs, double)
     println("named: ${size(named)}")
     let arr = [10, 20, 30]
-    let arr_sum = reduce(arr, 0, (a, b) -> a + b)
-    let arr_mapped = map(arr, n -> n + 1)
+    let arr_sum = reduce(iter(copy(arr)), 0, (a, b) -> a + b)
+    let arr_mapped = map(iter(arr), n -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")
-    let letters = filter("hello", c -> c == 'l')
+    let letters = filter(iter("hello"), c -> c == 'l')
     println("chars: ${size(letters)}")
     let lazy_sum = reduce(naturals(1), 0, (a, b) -> a + b)
-    let chained = filter(map(xs, n -> n * 3), n -> n > 6)
+    let chained = filter(iter(map(xs, n -> n * 3)), n -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
     let names = list("ann", "bob", "carol")
     let lens = map(names, n -> size(n))
     let long = filter(names, n -> size(n) > 3)
     println("names: ${size(lens)} ${size(long)}")
     let bag = Bag {items: list(5, 6)}
-    println("bag: ${reduce(bag, 0, (a, b) -> a + b)}")
+    println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
 }
 "#;
 
 const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
                                iter: 10 2\nnames: 3 1\nbag: 11\n";
 
-/// [kt-seq] [seq-iterable] A `params` group emits nothing, and the `List` fast
+/// [kt-seq] [seq-pass] A `params` group emits nothing, and the `List` fast
 /// paths lower to Kotlin's own collection operations; the generic body is a
 /// plain generic function whose implicit parameter arrives as a trailing
 /// argument — an *adapter lambda* when the resolved `iter` is an intrinsic,
@@ -6403,19 +6122,23 @@ fn sequence_functions_lower_to_collection_operations() {
             && main.contains("xs.fold(0, { a, b -> a + b })"),
         "unexpected:\n{main}"
     );
-    // The generic overload for an array subject, with the `iter` intrinsic
-    // passed as an adapter lambda rather than an unrenderable `::iter`.
+    // The generic overload for a pass subject gets the resolved `next` as its
+    // implicit argument, and an *origin* subject is minted into its machine at
+    // the call, with an adapter that reads the machine's advance
+    // [yield-fn-origin].
     assert!(
-        main.contains("{ __i0 -> __i0.asIterable() }"),
-        "unexpected:\n{main}"
+        main.contains("map(iter(arr), { n -> n + 1 }, ::next)"),
+        "expected the resolved `next` as the implicit in:\n{main}"
     );
-    // A `params` group is not a value: nothing *declares* `Iterable`
-    // (Kotlin's own `Iterable<T>` is what `Iter<T>` maps to, and appears
-    // all over the output — the group itself does not).
     assert!(
-        !files.iter().any(|f| f.content.contains("class Iterable")
-            || f.content.contains("interface Iterable")
-            || f.content.contains("object Iterable")),
+        main.contains("__Pass_Naturals(naturals(1))") && main.contains("__p.__advance()"),
+        "expected the origin mint and its adapter in:\n{main}"
+    );
+    // A `params` group is not a value: nothing *declares* `Yield`.
+    assert!(
+        !files.iter().any(|f| f.content.contains("class Yield")
+            || f.content.contains("interface Yield")
+            || f.content.contains("object Yield")),
         "a `params` group must emit nothing"
     );
 }

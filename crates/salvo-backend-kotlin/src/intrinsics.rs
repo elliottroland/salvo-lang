@@ -53,9 +53,6 @@ pub fn fn_call(
         ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),
         ("first", Some("List")) => format!("{}.firstOrNull()", a(0)),
         ("size", Some("List")) => format!("{}.size", a(0)),
-        // `List<T>` is already `Iterable<T>`, which is what `Iter<T>` maps
-        // to, so iterating a list is the identity.
-        ("iter", Some("List")) => a(0).to_string(),
 
         // core.seq -------------------------------------------------------
         // [kt-seq] The `List` fast paths [fn-overload-rank]: Kotlin's own
@@ -66,10 +63,6 @@ pub fn fn_call(
             format!("{}.filter({}).toMutableList()", a(0), a(1))
         }
         ("reduce", Some("List")) => format!("{}.fold({}, {})", a(0), a(1), a(2)),
-        // core.iterable --------------------------------------------------
-        // An `Iter<T>` is already an `Iterable<T>`, so the identity that
-        // makes it satisfy `Iterable` is the identity here too.
-        ("iter", Some("Iter")) => a(0).to_string(),
 
         // core.array -----------------------------------------------------
         // `T[]` maps to `Array<T>`, which is *not* `Iterable`, hence the
@@ -77,7 +70,6 @@ pub fn fn_call(
         ("get", Some("[]")) => format!("{}.getOrNull({})", a(0), a(1)),
         ("first", Some("[]")) => format!("{}.firstOrNull()", a(0)),
         ("size", Some("[]")) => format!("{}.size", a(0)),
-        ("iter", Some("[]")) => format!("{}.asIterable()", a(0)),
 
         // core.string ----------------------------------------------------
         // [kt-mut-str] `Mut Str` is a `StringBuilder`, so construction is
@@ -90,8 +82,6 @@ pub fn fn_call(
         }
         ("size", Some("Str")) => format!("{}.length", a(0)),
         ("char_at", Some("Str")) => format!("{}.getOrNull({})", a(0), a(1)),
-        // A `CharSequence` is not `Iterable<Char>` by itself.
-        ("iter", Some("Str")) => format!("{}.asIterable()", a(0)),
         ("split", Some("Str")) => format!("{}.split({})", a(0), a(1)),
         // No `-1` sentinel: absence is `null` [type-nullable].
         ("index_of", Some("Str")) => {
@@ -150,7 +140,6 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "None" => "Unit",
         "Any" => "Any",
         "Nothing" => "Nothing",
-        "Iter" => "Iterable",
         "List" => "List",
         _ => return None,
     })

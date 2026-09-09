@@ -15,7 +15,7 @@ use std::fmt;
 pub struct Qual {
     pub name: String,
     pub args: Vec<Ty>,
-    /// [iter-effects] This "qualifier" names an **effect**, not a qualifier
+    /// [fn-effects] This "qualifier" names an **effect**, not a qualifier
     /// declaration: `FileSystem Iter<Str>` is a producer whose *driving*
     /// performs `FileSystem` (user decision 2026-09-07 — effects on a
     /// producer are spelled in qualifier position, since a type with no
@@ -40,7 +40,7 @@ impl Qual {
         }
     }
 
-    /// An effect claim in qualifier position [iter-effects].
+    /// An effect claim in qualifier position [fn-effects].
     pub fn effect(name: impl Into<String>, args: Vec<Ty>) -> Self {
         Qual {
             name: name.into(),
@@ -52,7 +52,7 @@ impl Qual {
     /// Why this qualifier may not be dropped from a type, if it may not.
     pub fn drop_block(&self) -> Option<&'static str> {
         if self.effect {
-            // [iter-effects] Dropping the claim would let a producer that
+            // [fn-effects] Dropping the claim would let a producer that
             // performs effects into a position that supplies none.
             return Some(
                 "an effect on a producer restricts rather than refines: dropping it \
@@ -219,7 +219,7 @@ impl Ty {
         }
     }
 
-    /// [iter-effects] The effect claims this producer type carries, as
+    /// [fn-effects] The effect claims this producer type carries, as
     /// effect types, in the **canonical order**: sorted, because the
     /// generated trait is per effect *set* and `qualify` normalizes
     /// qualifier order anyway, so two producers written the two ways must
@@ -373,7 +373,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 && qb
                     .iter()
                     .all(|q| q.name == "Once" || q.effect || qa.contains(q))
-                // [iter-effects] An effect claim runs the *other* way, like
+                // [fn-effects] An effect claim runs the *other* way, like
                 // [fn-effects] on a fn type: every effect the supplied
                 // producer performs must be one the position expects, and a
                 // producer performing fewer fits a position expecting more.
@@ -399,7 +399,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // and not here. An `Once` on a base that never opted in has
         // already been reported, so accepting it in this direction costs
         // nothing and keeps one mistake to one diagnostic.
-        // [iter-effects] The same shape, for the same reason: a producer that
+        // [fn-effects] The same shape, for the same reason: a producer that
         // performs *no* effects fits a position that expects some.
         (_, Ty::Qualified { quals, base })
             if quals.iter().all(|q| q.name == "Once" || q.effect)
@@ -994,7 +994,7 @@ mod tests {
         assert!(!spec_dominates(&empty_variadic, &empty_fixed));
         assert_eq!(most_specific(&[empty_variadic, empty_fixed]), Some(1));
     }
-    /// [iter-effects] The two rules an effect claim does *not* share with an
+    /// [fn-effects] The two rules an effect claim does *not* share with an
     /// ordinary qualifier: it is never dropped, and its variance is inverted —
     /// a producer performing fewer effects fits where more are expected.
     #[test]

@@ -35,21 +35,41 @@ fn do_something() {
     transform(list, i -> { return "${i}" })
 }
 
-fn range(start: Int, end: Int) -> Iter<Int> {
-    let i = start
-    while i++ < end {
-        yield i
+// A producer is an *origin* struct plus a `yield fn next` [yield-fn-origin]:
+// the state machine is the compiler's, and it is not nameable.
+struct Range : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> [] Range {
+    return Range {start: start, end: end}
+}
+
+yield fn next(range: Range) -> Int {
+    let i = range.start
+    while i++ < range.end {
+        yield copy(i)
     }
 }
 
-fn rangeIncl(start: Int, end: Int) -> Iter<Int> {
-    if start > end {
+struct RangeIncl : Yield<self, Int> {
+    start: Int,
+    end: Int
+}
+
+fn range_incl(start: Int, end: Int) -> [] RangeIncl {
+    return RangeIncl {start: start, end: end}
+}
+
+yield fn next(range: RangeIncl) -> Int {
+    if range.start > range.end {
         return
     }
-    for i in range(start, end) {
+    for i in range(range.start, range.end) {
         yield i
     }
-    yield end
+    yield copy(range.end)
 }
 
 fn arrays() {

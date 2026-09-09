@@ -94,9 +94,11 @@ Conventions:
   would fracture generics, varargs/spread, and interop pass-through;
   boxing cost is accepted until profiling says otherwise (revisit with
   the Rust backend, where `T[]` maps to native arrays anyway).
-* [kt-iter-iterable] `Iter<T>` maps to `Iterable<T>` (what Kotlin
-  `for`-loops accept), and a `yield` fn's own pass is a generated
-  `SalvoPass<T>` subclass behind it [kt-generator].
+* [kt-iter-native] A `for` over **data** — a `List<T>`, an `Array<T>` or a
+  `String` — is Kotlin's own `for`, which accepts all three [iter-for-native].
+  Everything else is a **pass**, driven by the `next` the checker resolved
+  [kt-pass-loop]: there is no iterator type to map, since R5 deleted
+  `Iter<T>`.
 * [fn-overload-at] [fn-rename] Both ways a caller can override overload
   resolution are **erased**: the checker records which declaration a call
   means, and mangling already keeps Kotlin from re-resolving it
@@ -110,15 +112,16 @@ Conventions:
   * A named fn passed *by value* emits the resolved declaration's mangled
     name too, which is what makes `::name` right when the name is overloaded
     [fn-value-select].
-* [kt-seq] std's sequence functions [seq-iterable]: the `List` fast paths
+* [kt-seq] std's sequence functions [seq-pass]: the `List` fast paths
   lower to Kotlin's own operations — `map`/`filter` with
   `.toMutableList()`, since the result is a `Mut List<U>`, and `reduce` to
   `.fold(init, op)`. The generic bodies are ordinary generic functions whose
-  implicit `iter` arrives as a trailing argument.
+  implicit `next` arrives as a trailing argument (`::next`, or an anonymous
+  function for a minted origin — see [kt-pass-loop]).
 * [implicit-intrinsic] An `intrinsic fn` filling an implicit parameter
   cannot be `::name`d — there is no Kotlin function — so it is passed as an
   adapter lambda whose body is the intrinsic's lowering
-  (`{ __i0 -> __i0.asIterable() }` for `iter(T[])`). A lowering that needs
+  (`{ __i0 -> __i0.getOrNull(__i1) }` for `get(T[], Int)`). A lowering that needs
   the call's *type arguments* has none as a value, so it is a codegen error
   rather than a guess [backend-never-wrong].
 * [type-alias] Aliases expand structurally in the emitter too
@@ -319,12 +322,10 @@ Conventions:
   * Sharing a name is unsound even when the erased parameter *strings*
     differ, because Kotlin then resolves by **Kotlin's** type lattice:
     two Salvo types with no subtype relation at all can map onto Kotlin
-    types that have one (`Iter<T>` → `Iterable<T>`, `List<T>` → `List<T>`,
-    and Kotlin's `List` *is* an `Iterable`). A `twice(xs.iter(), f)` in
-    the `List` overload of `twice` emitted `twice(xs, f)` — `iter(List)`
-    lowers to the identity — whose most specific Kotlin candidate is that
-    same `List` overload: infinite recursion, with no diagnostic anywhere
-    [backend-never-wrong].
+    types that have one (`List<T>` → `List<T>`, which *is* an `Iterable`, and
+    what a former `Iter<T>` mapped to). A delegation whose argument lowered to
+    the same Kotlin type therefore re-resolved to the *delegating* overload:
+    infinite recursion, with no diagnostic anywhere [backend-never-wrong].
   * Unchecked (arity-fallback) calls to a mangled overload would emit the
     base name — known leftover, shared with [rs-fn-mangling].
 * [kt-qual-mangling] The suffix itself: overloads identical after erasure
@@ -478,30 +479,24 @@ same programs running ([rs-effect-fusion]).
     lowering and the generated host skeleton all take them — one helper
     renders a member's parameter list, so they cannot drift — and a member
     call passes them as trailing arguments after the receiver's own.
-* [fn-iterator] Iterator fns emit `return Iterable<T> { __Pass_f(args) }`:
-  the `Iterable` is the **factory** (its lambda runs per `iterator()` call,
-  so a second `for` starts from the beginning) and the pass is a class the
-  compiler writes.
+* [fn-iterator] A `yield fn` emits **no function at all**: it *is* the machine
+  the drive site constructs [yield-fn-origin]. There is no factory and no
+  `Iterable` wrapper — R5 removed both with `Iter<T>`.
   * [kt-generator] The class renders the shared plan [iter-generator]:
-    `private class __Pass_f(private var <params>) : SalvoPass<T>()` with the
-    body's locals as properties, `override fun __advance(): Boolean` as one
-    `while (true) { when (__state) { … } }`, and a `__close` running the
-    pending deferred blocks. An element is handed over by writing
-    `__current` and returning `true`.
-    * `SalvoPass<T>` is a hand-written runtime class (`runtime/iter.kt`,
-      generated into `iter.kt` when a program has an iterator fn): it turns
-      "advance and report" into Kotlin's `hasNext`/`next` by holding one
-      element of lookahead. `__current` is `Any?` so a **null element** is
-      an element like any other.
-    * It implements `SalvoClosable { fun __close() }`, which is how a drive
-      site releases the pass it holds: a `for` over an `Iter<T>` reaches the
-      pass as a plain `Iterator` (a collection's iterator is one too, with
-      nothing to release), so the site asks — `val p = (subject).iterator()`,
-      `try { while (p.hasNext()) { … } } finally { if (p is SalvoClosable)
-      p.__close() }`. A list, array or `Str` subject keeps a **native** `for`
-      (decision 8). The plan's `ClosePass` closes a nested slot the same way,
-      binding it to a local first because kotlinc will not smart-cast a
-      mutable property.
+    `class __Pass_<Origin>(private var <origin>)` with the body's locals as
+    properties, `fun __advance(<handlers>): Boolean` as one
+    `while (true) { when (__state) { … } }`, and a `__close(<handlers>)`
+    running the pending deferred blocks. An element is handed over by writing
+    `__current` and returning `true`; `__current` is `Any?` so a **null
+    element** is an element like any other, with a `__current()` accessor
+    casting it back.
+    * There is no supertype and no runtime base class: the drive site knows the
+      concrete machine, so nothing is dispatched through an interface. (The
+      former `SalvoPass<T>`/`SalvoClosable` runtime module is gone.)
+    * A **nested** `for` inside a suspending body keeps its walk in a property
+      (`private var x__pass: Iterator<T>? = null`), and the plan's `ClosePass`
+      drops it. Only data reaches there — a pass as the subject of a suspending
+      loop is refused [iter-generator] — so there is nothing to release.
     * Reads need no rewriting — a Kotlin property is in scope in its own
       class's methods — so only a `let` changes: it assigns the property.
       A property whose type has no zero value is nullable, and reads of it
@@ -515,13 +510,12 @@ same programs running ([rs-effect-fusion]).
   * [yield-fn-origin] **The origin form renders the same machine as a public
     class with nothing around it.** A `yield fn next(c: Counter) -> Int`
     emits `class __Pass_Counter(private var c: Counter)` — no supertype, so
-    no `SalvoPass<T>` lookahead is inherited and the class holds its own
-    `__current: Any?` with a `__current()` accessor (`Any?` for the reason
-    the protocol tags its end: a null element is an element). `fun
-    __advance(<handlers>): Boolean` and `fun __close(<handlers>)` are public;
-    the `yield fn` emits no function and no `Iterable` factory. Named after
-    the *origin*, since every `yield fn` is called `next`, and not `private`
-    because the drive site names it.
+    nothing is dispatched through and the class holds its own `__current: Any?`
+    with a `__current()` accessor (`Any?` for the reason the protocol tags its
+    end: a null element is an element). `fun __advance(<handlers>): Boolean` and
+    `fun __close(<handlers>)` are public. Named after the *origin*, since every
+    `yield fn` is called `next`, and not `private` because the drive site names
+    it — which may be another module.
     * `for` becomes `val p = __Pass_Counter(<origin>)`, then
       `try { while (p.__advance(<handlers>)) { val v = p.__current() … } }
       finally { p.__close(<handlers>) }` — the `close` in a `finally`, which
@@ -532,52 +526,29 @@ same programs running ([rs-effect-fusion]).
       origin while its loop is open [yield-fn-origin]. That rule is what lets
       the two backends keep different conventions here, as [backend-parity]
       allows — not an immutability requirement on the origin's type.
-  * [iter-effects] A captured handler is what the parity principle rules
-    out here: Kotlin could happily perform an effect from inside the builder
-    long after the call returned, and Rust could not, so the program would
-    mean two different things. The handlers are parameters instead
-    [kt-pass-effects].
-* [kt-pass-effects] A **claiming** producer (`Console Iter<T>`
-  [iter-effects]) has a representation of its own, because a pass whose
-  `advance` takes a handler cannot be a Kotlin `Iterator<T>`. Generated into
-  `iter_effects.kt` in the root `salvo` package, one set of declarations per
-  effect *set* the program needs — the way `unions.kt` gets one wrapper per
-  arity:
-  * `interface SalvoPass<Suffix><T>` with `advance(<handlers>): Boolean`,
-    `current(): T` and `close(<handlers>)`; the suffix is the effect names
-    concatenated, and the **handler order is the checker's**
-    (`Checked::producer_effects` / `pass_effect_sets`), shared by the
-    interface, the machine and every drive site.
-  * **Advance-and-report, not `next()`**: `advance` says whether there is an
-    element and leaves it in `current()`, because a `T?` return could not
-    tell "no more" from "the element is null" — the same reason
-    `SalvoPass<T>` holds `Any?` and the protocol tags its end.
-  * `fun interface SalvoIter<Suffix><T> { fun mint(): SalvoPass<Suffix><T> }`
-    — still a **factory**, so the claim costs no replayability.
-  * `class SalvoPureAs<Suffix><T>(source: Iterable<T>)`: the **variance
-    adapter**, whose `advance` ignores the handler. Inserted where the
-    checker recorded `Coercion::WidenProducer`, which is every position
-    `maybe_coerce` sees.
-  * The generated file names effect interfaces in **full**
-    (`salvo.core.console.Console`) and imports nothing: it lives in the root
-    package and mentions interfaces from arbitrary module packages.
-  * The pass class implements the interface instead of extending
-    `SalvoPass<T>`, holding `__current` itself; the handlers are prepended to
-    `__advance`, `__close` and each `__run_d<i>` — a deferred block may
-    itself perform effects — and `advance`/`current`/`close` forward to
-    them. The producer fn itself takes **no** effect parameter: none of the
-    body runs when it is called.
-  * A `for` over a claiming subject is `val p = <subject>.mint()`, then
-    `try { while (p.advance(<handlers>)) { val v = p.current(); … } } finally
-    { p.close(<handlers>) }`. The `finally` is what makes `break`, `return`
-    and exhaustion all release the producer — the same mechanism `defer` uses
-    here [kt-defer-finally], where the Rust backend splices the call at each
-    exit. `close` is idempotent, so the release happens exactly once either
-    way.
-  * Refused rather than mis-rendered [backend-never-wrong], with the same
-    wording as the Rust backend: a claiming producer nested inside another
-    producer, a generic effect claim, a `for` over one in value position, and
-    a widening between two *non-empty* claim sets.
+  * A captured handler is what the parity principle rules out here: Kotlin
+    could happily perform an effect from inside a builder long after the call
+    returned, and Rust could not, so the program would mean two different
+    things. The handlers are **parameters** of `__advance`/`__close`/`__run_dN`
+    instead, in the checker's order [fn-effects].
+  * [kt-pass-loop] A pass is driven by a guarded `while`, since Kotlin has no
+    pattern-matching loop condition: `var p = <subject>`, then
+    `while (true) { val step = next(p); if (step !is U2_1<…>) break; val v =
+    step.value as E; … }`. The arm is spelled with its *real* type arguments
+    where it can be (a non-generic `next`), which keeps the element read free of
+    an unchecked cast; a generic `next` falls back to star projections plus a
+    cast. A raw pass with a `close` is released in a `finally`, like an origin's
+    machine.
+  * **A minted origin at an argument position** (`map_lazy(counter(2), f)`)
+    becomes `val __mintN = __Pass_Counter(<origin>)` hoisted before the call,
+    with the implicit `next` an **anonymous function** rather than a lambda —
+    `fun(__p: __Pass_Counter): Union2<E, Finished> { … }` — because kotlinc
+    cannot infer the callee's element type from two `U2_n` branches. The mint is
+    closed after the call only when the callee **keeps** it: a callee that moves
+    it (a lazy combinator storing it in the pass it returns) drives it long
+    afterwards, and closing it there handed the pass a finished machine.
+  * A file that drives *or* mints a pass imports the module declaring the
+    protocol (`Finished`), which its own source need never mention.
 * [kt-none-unit] `None` is Kotlin's `Unit`, and a fn returning it renders no
   return type — so `return None` emits a **bare** `return`. The test is the
   *fn's* rendered return type, not the value's: `return None` in a

@@ -111,10 +111,10 @@ and "I4 emission as built".
 
 # Salvo Compiler — Progress & Plan
 
-**The iterator reduction is under way (2026-09-08): R0–R4 of six phases are
-done, R5 is next.** The user decided a wholesale simplification — a pass is a
+**The iterator reduction is complete (2026-09-09): all six phases are done and
+`Iter<T>` is gone.** The user decided a wholesale simplification — a pass is a
 user struct, `for` is sugar for `next` until `Finished`, `Iter<T>` goes away —
-and the day's work landed, in order: **R0**, the hand-written prototype on
+and it landed in order: **R0**, the hand-written prototype on
 both backends (`experiments/next-reduction/`, six shapes, one byte-identical
 stdout), which settled unknown 2 (composition renders the group member as an
 *implicit*, not a bound — an effectful `next` cannot implement a fixed trait
@@ -128,22 +128,31 @@ not a trait);
 **R2**, `Yield<T>` designated in std and `for` reading the declaration —
 the `Once`-on-passes requirement is gone, a matching `next` without the
 clause gets a remedy hint, and driving still consumes (drive-in-place waits
-for R5); and **R3**, the origin-struct sugar [yield-fn-origin] on both
+for R5); **R3**, the origin-struct sugar [yield-fn-origin] on both
 backends — `yield fn next(c: Counter) [Console] -> Int` discharges the
 obligation, the machine is hidden and uncallable, driving mints a fresh one
 per loop so an origin replays, and one program plus one stdout proves the
-parity; and **R4**, `Linear` as a designated obligation group
+parity; **R4**, `Linear` as a designated obligation group
 ([linear-group]: `: Linear<self>` with its mandatory `close`, `discard` no
 longer discharging) plus the interim composite refusal ([linear-composite]:
 a struct field, array, tuple, union arm or type argument may not *hold* a
 linear value — refused at the store, which also turned two diagnostics per
-mistake into one). Decisions taken along the way, all the user's: a `close`
+mistake into one); and **R5**, the flip itself — `iter` returns a pass
+[iter-pass], std's combinators take a pass through a `?Yield<It, T>` spread
+[seq-pass], and the whole `Iter<T>` apparatus is deleted: the intrinsic type,
+`SalvoIter`/`Iterable` as its representation, `Once` on producers, the
+effect-claim-on-a-type ([iter-effects] is now a *deleted* rule), the variance
+adapter, the per-effect-set traits, `params Iterable`, and the factory tail of
+both generators. Decisions taken along the way, all the user's: a `close`
 never
 implies `Linear` (roadmap L8 records the composition casualty), `canbe
-Linear` keeps its spelling beside `: Linear`, and the Rust fn-typed-field
-refusal is lifted (R5's first piece, [rs-fn-field]: `Rc<dyn Fn…>` fields, so a
-hand-written composed pass builds on both targets). See "Roadmap: iterators — the reduction
-to `next`" for the phase notes and the three R3 sub-answers already settled.
+Linear` keeps its spelling beside `: Linear`, the Rust fn-typed-field
+refusal is lifted ([rs-fn-field]: `Rc<dyn Fn…>` fields, so a
+hand-written composed pass builds on both targets), and a combinator's subject
+**is** the pass (so a container is iterated by writing `iter(xs)`, which is
+what keeps the inference ordinary). See "Roadmap: iterators — the reduction
+to `next`" for the phase notes, "R5 part 2 as built" for what the flip forced,
+and the known cuts listed there.
 
 **The `yield` lowering is built (2026-09-07): one state machine, planned in
 `salvo-core`, rendered by both backends.** `generator.rs` turns a `yield` fn
@@ -4004,7 +4013,7 @@ preserves Kotlin's repeatable semantics exactly. It is back on the table
 under the next section, which supersedes this one's *implementation*
 (the semantics it chose — lazy, both backends — are kept).
 
-## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; R0–R3 done, R4 part 1 done, R5 next)
+## Roadmap: iterators — **the reduction to `next`** (user decisions 2026-09-08; **all six phases done 2026-09-09**)
 
 **Standing back from what was built.** After I4/I5 landed, the user asked for an
 evaluation of the whole iterator design rather than the next increment, and the
@@ -4682,7 +4691,8 @@ into the container. It was sequenced before R5 because std's `List` is where the
 shape shows up; the one thing the plan got wrong is noted above (the transitive
 predicate did not survive — it became unnecessary).
 
-**R5 — demolish `Iter<T>`.** Remove the type and everything that existed to
+**R5 — demolish `Iter<T>`. ✅ Built 2026-09-09** (see "R5 part 2 as built").
+Remove the type and everything that existed to
 support it: the `SalvoIter`/`Iterable` representations, `Once` on producers, the
 effect claim with `producer_effects`/`pass_effect_sets`/the per-effect-set
 traits/the variance adapter, and `params Iterable`. Rewrite std: a pass struct
@@ -4725,10 +4735,97 @@ refused; the refusal is gone.
   source's `next` as a function value), and R0 finding 5's "the difference
   between std may compose passes and anyone may".
 
-**R5 part 2, still to do**: the atomic flip. `iter` returning a pass instead of
-an `Iter<T>` cannot be staged additively — two `iter` overloads for `List<T>`
-differing only in return type are a duplicate — so std's rewrite, the combinator
-signatures, and the removal of the `Iter` machinery land together.
+#### R5 part 2 as built (2026-09-09): the flip
+
+Done and green: 799 tests, `cargo build` warning-free, both toolchains running
+the same programs to the same stdout. `iter` hands back a pass, std's
+combinators take one, and the `Iter<T>` world is deleted. The plan below was
+followed in its six steps; what it did not predict is recorded here.
+
+**std as built.** `ListPass<T>`/`ArrayPass<T>`/`StrPass` are ordinary structs
+(`items`/`text` plus `at`) declaring `: Yield<self, T> canbe Mut`, each with a
+Salvo `next` — the `is None` guard shape [is-narrow-guard] is what made them
+writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `-> []`
+(constructing the pass *moves* the container in, probe finding 4), and
+`iterable.sv` is gone. `seq.sv`'s `map`/`filter`/`reduce`/`map_to`/`filter_to`
+drive `it: Mut It` through a `?Yield<It, T>` spread with `while` + `next` +
+`when`; `map_lazy`/`filter_lazy` return **composed passes** (`MapPass`,
+`FilterPass`) holding the source, the callback and the source's `next`.
+
+**What the flip forced, in the order it turned up:**
+
+- **`for` over a container is mint-then-drive, except for the intrinsic ones.**
+  The checker records the `iter` to call beside the `next` to drive
+  (`PassDriver::mint_iter_fn`), and records *nothing* for a list, array or
+  `Str` — those keep the native loop [iter-for-native], which is also why a
+  `for` over a list still does not consume it. The predicate is "the subject is
+  an `intrinsic type`", not a name list.
+- **Rendering (B) needed three things on Rust.** A composed pass stores its
+  callback, so: a fn-typed parameter arrives **owned** when the callee keeps it
+  past the call; `copy(f)` on a function value lowers to the value itself (an
+  owned `impl Fn` has no `clone`); and the hand-written `Debug` for a struct
+  with a fn field bounds its generics by `Debug`, as a derive would.
+  * The *trigger* for "owned" took two tries. The deduction list looked right —
+    a moved fn-typed parameter is one the body keeps — but a callback is
+    commonly moved without being stored (`apply(f, data)` calls it and drops
+    it), and that convention change broke `apply_keeping`. What holds: a
+    fn-typed parameter **and** a return type that is a struct with a fn-typed
+    field. That is the composed-pass shape, and nothing else in the language
+    stores a callback yet.
+- **A `move` closure has to clone its captures.** Two lazy combinators reading
+  one local is legal Salvo (an immutable read) and E0382 in Rust, so a stored
+  lambda renders as `{ let mut x = x.clone(); move |…| … }` — shadowing, so the
+  body needs no rewriting.
+- **A minted origin is released by whoever drives it.** The mint at an argument
+  position used to close after the call; a *lazy* combinator stores the machine
+  and drives it later, so closing there handed the pass a finished machine and
+  the loop saw nothing. The rule both backends now use: close after the call
+  only when the callee **keeps** the pass (Rust: a kept-`Mut` position, so
+  `&mut __mintN`; Kotlin: the callee's deduction list). A moved mint is the
+  callee's, and is not closed here.
+- **The synthesized code needs imports the source does not.** A driving loop
+  spells `Finished`; Kotlin adds the protocol module when a file drives *or
+  mints* a pass, and Rust adds the glob unconditionally (harmless under the
+  crate's `unused_imports` allowance).
+- **Both backends needed the adapter's parameter type written.** Kotlin cannot
+  infer a callee's element type from two `U2_n` branches, so the origin-mint
+  adapter is an anonymous *function* with a declared return type; rustc cannot
+  infer the closure parameter through the `&mut dyn FnMut` coercion, so it is
+  annotated with the machine type. The turbofish substitutes the machine type
+  for the origin type, since that is what the value is.
+- **One new inference rule, and it earns its keep**: a `?Yield<It, T>` spread
+  teaches `T` from `It`'s own `: Yield<self, T>` clause, reaching through the
+  machine an origin mints. Without it a *bare* lambda over an origin subject
+  could not be typed (there is no declared `next` to read `T` off) and the
+  turbofish above was missing. `yield_spread_pairs` + `pass_or_origin_elem_ty`.
+- **[iter-mut-param] survived by changing its trigger** from "the callee is a
+  producer" (there are no producer factories any more) to "the callee moves a
+  fn-typed parameter" — which is exactly "keeps it past the call".
+
+**Known cuts and gaps, all with a diagnostic rather than wrong output:**
+
+- **A *suspending* loop may not iterate a pass**: inside a `yield fn`, a `for`
+  takes an array, a `List<T>` or a `Str`. The nested-pass slot machinery was
+  built for `Iter<T>`, and driving a pass from a slot is unbuilt. This is the
+  one capability the flip *lost* (a nested producer used to work), and the
+  workaround is to collect first (`map(upto(3), f)` into a list) — the
+  generator-defer demo does exactly that.
+- **A machine holding a nested pass slot is not `Clone` on Rust**, so such an
+  origin cannot be a type argument: a producer that drives a suspending loop
+  cannot be composed there. rustc reports the missing bound.
+- **A callback handed *onward*** to another storing fn stays borrowed on Rust
+  (the predicate is deliberately non-transitive); rustc reports the lifetime.
+- **Value-position `for` over an origin** is still unsupported on both backends
+  (the machine has nowhere to be closed).
+- **Kotlin's generic union arm reads warn** (`unchecked cast of 'Any?' to 'T'`)
+  in std's `seq.kt`: a `when` arm over a generic union must use star
+  projections, so the element read casts. Cosmetic, in code the user cannot
+  edit — a `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
+  and it is the first thing to do in a polish pass.
+- **A user type named like one of std's passes collides**: implicit resolution
+  matches by name, so a program declaring its own `ListPass` plus `next` makes
+  the `next` ambiguous. Nominal types are not module-qualified in that match;
+  worth fixing when someone hits it (the demos were renamed instead).
 
 ##### R5 part 2 probe (2026-09-08): what the flip needs, from a real program
 
@@ -7911,7 +8008,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 837)
+## Test inventory (all green: 799)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -7919,7 +8016,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 403 - 19 unit tests (file classification, including the
+- `salvo-core`: 375 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8062,7 +8159,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   [effect-handler-generics]: a `use` writing its handler's type arguments, a
   constructor argument still binding them, the two disagreeing reported, and
   the wrong number of them rejected)
-  + 20 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
+  + 16 fn-type-effect tests (`tests/fn_effect_tests.rs` [fn-effects]: a
   declared effect available in a lambda body while an undeclared one is
   rejected even with the effect in lexical scope; a fn *inheriting* its
   fn-typed parameters' effects, through a qualifier too, with its caller
@@ -8071,16 +8168,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   un-annotated lambda's effects inferred from its body; each declared effect
   required at the call, and a fn value called where its effect is
   unavailable rejected — the reason "forbid escape" was unnecessary; and
-  `use` in a fn type rejected; plus 3 iterator tests [iter-effects]: an
-  iterator fn declaring an effect rejected with its remedy, the same for
-  `use` (the hole that would let the body register its own handler), and a
-  `for` loop over an iterator performing effects freely — the restriction is
-  on producing, not consuming;
-  plus 3 mutable-parameter tests [iter-mut-param]: a producer taking a `Mut`
-  parameter rejected, the same *transitively* through a struct field — the
-  test is [fate-move-mode]'s, not a look at the written qualifiers — and the
-  control that an immutable parameter of the same shape is fine and a `Mut`
-  parameter on an ordinary fn is untouched;
+  `use` in a fn type rejected; plus 5 iteration tests: an **effect in
+  qualifier position** refused with the `yield fn next(…) [E]` remedy and a fn
+  type redirected to its own bracket list (the two halves of [iter-effects]'
+  deletion), a `yield` outside a `yield fn` reported at the declaration
+  [fn-iterator], a `yield fn` declaring its effects normally accepted, and a
+  `for` loop performing effects freely — the restriction is on producing, not
+  consuming;
   plus 3 callback-capture tests, the same rule's other half: a lambda handed to
   a producer rejected for writing through a capture and for merely reading
   mutable data through one, with the control that an *immutable* capture is
@@ -8223,15 +8317,16 @@ and `cargo nextest run` when you want to see which tests cost what.
   the target keeps `Mut` — a `Mut Str` parameter, an optional `Mut Str?`, a
   generic position (which is what makes `copy(builder)` a builder) — nor
   for a plain `Str`).
-- **9 sequence-function tests** (`tests/seq_tests.rs` [seq-iterable]
-  [implicit-infer] [fn-overload-rank]: everything inferred for a `List`,
-  an **array** (the recorded gap) and a `Str` subject — with a `Char`
-  element proved by rejecting a `Str` operation on it; iterators and chains
-  composing through the identity `iter`; a customer struct made iterable by
-  declaring `fn iter`; a subject with no `iter` reported as the missing
-  implicit; and the *selection* facts — a `List` subject resolving to the
-  intrinsic fast path, every other subject to the generic body, and the lead
-  candidate narrowing before the lambda is typed).
+- **8 sequence-function tests** (`tests/seq_tests.rs` [seq-pass]
+  [implicit-infer] [fn-overload-rank]: everything inferred for a list pass and
+  for a `Str` pass — with a `Char` element proved by rejecting a `Str`
+  operation on it; chains composing through `iter` over the previous result; a
+  customer struct joining in by declaring an `iter` that answers a pass; a
+  subject that is not a pass reported as *no matching overload* (the `Mut It`
+  position rules an `Int` out before its spread is resolved); and the
+  *selection* facts — a `List` subject resolving to the intrinsic fast path, a
+  pass subject to the generic body, and the lead candidate narrowing before the
+  lambda is typed).
 - **14 generator-plan tests** (`tests/generator_tests.rs` [iter-generator]:
   the I3 acceptance test — the plan for the checked-in
   `experiments/pull-iterators/gnarly.sv`, rendered as text and compared with
@@ -8243,17 +8338,6 @@ and `cargo nextest run` when you want to see which tests cost what.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
-- **13 producer-effect tests** (`tests/iter_effect_tests.rs` [iter-effects]:
-  the claim recorded per producer in *canonical* order with one entry per
-  distinct effect set (the table both emitters read);
-  the claim accepted on `Iter<T>` and on a `canbe Once` type, refused on an
-  ordinary type and redirected to the bracket form on a fn type; fewer effects
-  fitting where more are expected and the reverse rejected; `^` refused; a fn
-  inheriting a producer parameter's claim and its caller having to supply it;
-  driving needing the handler where *holding* needs nothing;
-  and the **variance adapter recorded as a coercion** at exactly the positions
-  `maybe_coerce` sees — a call argument and an annotated `let`, and not at an
-  argument whose value already claims the set).
 - `salvo-cli`: 80 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -8422,7 +8506,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 70 (three parser tests for the scope selector and
+- `salvo-syntax`: 69 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -8485,7 +8569,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 154 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 150 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8577,7 +8661,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   and 2 overload-dispatch tests ([kt-fn-mangling] [fn-overload]:
   `every_emitted_overload_gets_its_own_kotlin_name` asserting the second
   overload is renamed and the delegation reaches its sibling; plus the
-  kotlinc run of a `List`→`Iter` delegation, which before the rule
+  kotlinc run of a `List`→pass delegation, which before the rule
   recursed until the stack ran out);
   and 2 implicit-parameter tests ([implicit-param] [implicit-group]:
   `implicit_parameters_lower_to_trailing_fn_parameters` asserting the trailing
@@ -8587,26 +8671,14 @@ and `cargo nextest run` when you want to see which tests cost what.
   and 2 effect-member-implicit tests ([implicit-param]: the interface method,
   every handler's `override` and the member call all carrying the member's
   implicits; plus the kotlinc run of the shared demo);
-  and 2 lazy-iterator tests ([fn-iterator]:
-  `an_iterator_fn_lowers_to_a_lazy_iterable` pinning the builder that was
-  already lazy; plus the kotlinc run of the *same source* the Rust backend
-  runs, asserting the *same stdout* — which is the parity claim itself, not
-  a Kotlin property)
-  and 4 claiming-producer tests ([iter-effects] [kt-pass-effects]:
-  `kotlinc_compiles_and_runs_an_effectful_producer` — the I4 prototype's own
-  source, asserting the handler as a leading parameter of `__advance`, the
-  `SalvoPassConsole` implementation with `current()` in place of a Kotlin
-  `Iterator`, a handler-free factory, mint/advance/close with the close in a
-  `finally`, the variance adapter, a defer runner taking the handler, and an
-  `iter_effects.kt` that names the effect interface in full and imports
-  nothing — then compiling and running it for the *same stdout the Rust
-  backend asserts*, which is I4's parity claim;
-  `kotlinc_releases_a_claiming_producer_on_a_return`, the same program and
-  stdout as the Rust twin, reached through the `finally` rather than a
-  splice; `kotlinc_compiles_and_runs_a_claiming_producer_in_a_field`, the
-  case that decided D8, same source and stdout as the Rust twin;
-  `unsupported_claiming_producer_shapes_are_refused`, the same wording as the
-  Rust backend's)
+  and 2 laziness tests ([fn-iterator] [yield-fn-origin]:
+  `an_origin_lowers_to_a_lazy_machine` pinning the generated class — the
+  body's locals as properties, the dispatch loop, the resume point written
+  back before the element is handed over — and asserting the `iterator { … }`
+  builder and every `Iterable<Int> {` factory are *gone*; plus the kotlinc run
+  of the *same source* the Rust backend runs (an unbounded origin, `filter_lazy`
+  over it, and an origin driven twice to prove it replays), asserting the *same
+  stdout* — which is the parity claim itself, not a Kotlin property)
   and 2 subject-less `when` tests ([when-condition] [kt-when-cond]:
   `a_subjectless_when_emits_a_subjectless_kotlin_when` asserting the
   Kotlin `when {` with `cond ->` arms, a plain `else ->` with no optional
@@ -8658,9 +8730,10 @@ and `cargo nextest run` when you want to see which tests cost what.
   plus the kotlinc run of that program); and 2 sequence tests ([kt-seq] [implicit-group] [implicit-intrinsic]:
   `sequence_functions_lower_to_collection_operations` asserting
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
-  the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
-  `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 125 - golden snapshots of the same five demos
+  the resolved `next` passed as `::next` at a pass subject, the origin mint and
+  its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
+  of the seven-subject demo).
+- `salvo-backend-rust`: 122 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -8778,29 +8851,15 @@ and `cargo nextest run` when you want to see which tests cost what.
   what closed the divergence); and 2 effect-member-implicit tests ([implicit-param]: the trait
   method, its implementation and the call site rendered from one helper, with
   `dyn` for object safety; plus the rustc run of the shared demo); and 3
-  lazy-iterator
-  tests ([rs-iter-lazy] [fn-iterator] [rs-generator]:
-  `an_iterator_fn_lowers_to_a_state_machine` asserting the factory, the
-  generated pass struct, the flat state dispatch and the
-  generated-and-mounted `iter.rs`;
-  `a_for_loop_borrows_an_iter_subject`, the pairing that makes a second pass
-  possible; plus the rustc run of an *unbounded* producer that terminates
-  because the consumer `break`s and a factory consumed twice — the same
-  source and stdout the Kotlin backend asserts);
-  and 4 claiming-producer tests ([iter-effects] [rs-pass-effects]:
-  `rustc_compiles_and_runs_an_effectful_producer` — the I4 prototype's own
-  source, asserting the handler as a leading parameter of `__advance`, the
-  `impl SalvoPassConsole` in place of `impl Iterator`, a handler-free
-  factory, mint/advance/close, the variance adapter at its one boundary, a
-  defer runner taking the handler, and an `iter_effects.rs` that names the
-  effect trait by absolute path and imports nothing — then compiling and
-  running it for the stdout the Kotlin backend asserts byte for byte;
-  `rustc_releases_a_claiming_producer_on_a_return`, the close spliced on the
-  return path *and* after the loop;
-  `rustc_compiles_and_runs_a_claiming_producer_in_a_field`, the case that
-  decided D8 — and the only test that exercises the generated factory's
-  `Clone`/`Debug` impls;
-  `unsupported_claiming_producer_shapes_are_refused` — nested claiming
+  laziness tests ([rs-iter-lazy] [fn-iterator] [rs-generator] [yield-fn-origin]:
+  `an_origin_lowers_to_a_state_machine` asserting the generated struct, the flat
+  state dispatch and the *absence* of `SalvoIter`, `SalvoGen`, `async move` and
+  `.await`; `a_stored_mint_is_not_closed_at_the_call`, the rule a lazy
+  combinator forced — the hoisted mint with no `__close` after the call, because
+  the callee drives it later; plus the rustc run of an *unbounded* origin that
+  terminates because the consumer `break`s and an origin driven twice to prove
+  it replays — the same source and stdout the Kotlin backend asserts);
+  and 2 refinement tests  `unsupported_claiming_producer_shapes_are_refused` — nested claiming
   producer, value-position `for`, generic effect claim); and 2 refinement tests
   ([qual-refn] [qual-erasure] [qual-refn-conflict]:
   `rustc_compiles_and_runs_a_refined_program`, the same source and stdout the
@@ -8854,6 +8913,44 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **(R5) A convention flag read from the deduction list is not the same as
+  "the callee stores it".** Rust renders a callback owned (`impl Fn + 'static`)
+  when the callee keeps it past the call, and "moved by the deduction list"
+  looked like the right trigger — a moved value is one the body keeps. It is
+  not: `apply(f: (v: List<P>) -> Int, data: List<P>) -> [data] Int` moves `f`
+  and merely *calls* it, so the whole convention changed under a passing test.
+  What holds is the *shape of the result*: a fn-typed parameter plus a return
+  type that is a struct with a fn-typed field. When a backend convention needs
+  "does this outlive the call", look at what the fn *builds*, not at what it
+  consumes.
+- **(R5) Release belongs where the driving ends, not where the call returns.**
+  A mint hoisted at an argument position was closed after the call — right for
+  an eager combinator that drains the pass, silently wrong for a lazy one that
+  stores it: the loop then drove a *finished* machine and printed nothing. The
+  symptom is the worst kind (no output, no error), and the rule that fixes it
+  is the callee's deduction: close only what the callee **keeps**.
+- **(R5) Two `move` closures reading one local is legal Salvo and E0382 in
+  Rust.** An immutable read is free by the parity rules, so nothing in the
+  checker objects; ownership is Rust's problem, and the fix is the emitter's —
+  clone the captures into a block around the closure. A rule that is "free" in
+  one language is a rendering obligation in the other.
+- **(R5) Kotlin cannot infer a callee's type argument from two union-arm
+  branches.** `{ __p -> if (…) U2_1<Int, Finished>(…) else U2_2<Int, Finished>(…) }`
+  leaves `T` unresolved ("cannot infer type for type parameter 'T'"); an
+  anonymous *function* with a declared return type pins it. Where an adapter's
+  type has to be known, declare it rather than build it out of arms.
+- **(R5) Synthesized code needs imports the source cannot ask for.** A driving
+  loop spells `Finished`, which the user's file need never mention, so
+  reachability-by-name misses it. Any lowering that names a std type has to add
+  that module itself — and the test that catches it is an e2e compile, not a
+  shape assertion.
+- **(R5) "Iterating consumes the container" is the flip's one user-visible
+  cost.** `iter(xs)` moves `xs` into the pass, so walking the same container
+  twice needs `copy`. It surfaced first in the *test demos* (`reduce(iter(arr),
+  …)` then `map(iter(arr), …)`), which is a good sign the diagnostic is clear —
+  but it is worth stating in the language docs, since the `for` form does not
+  consume and the asymmetry is otherwise surprising.
+
 - **(R4 part 2) "Refuse the store" needs two different predicates, and mixing
   them up breaks std.** A declaration-site check must be *blind* to
   `<T canbe Linear>` type parameters — `add(list: Mut List<T>, elem: T)` is a
@@ -8880,7 +8977,7 @@ snapshot diffs.
 
 - **A fast path can hide the slow path for months.** `map`/`filter`/`reduce`
   each have a `List` overload that overload specificity always picked, so the
-  *generic* `?Iterable` body — the one the whole "iterable is a function, not a
+  *generic* spread body — the one the whole "iterable is a function, not a
   trait" design rests on — had never been emitted for a real call. Adding
   `map_to` (no fast path) ran it for the first time and three long-standing
   defects surfaced at once. When a declaration exists in two forms and one is

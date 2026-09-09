@@ -8,9 +8,6 @@ intrinsic type Bool
 intrinsic type Any
 intrinsic type Nothing
 
-// The iterator type driving `for`-loops and `yield` functions
-intrinsic type Iter<T>
-
 type Number = Int | Long | Double | Float
 
 // [intrinsic-fn] [copy-fn] Duplicates a value: the argument is kept

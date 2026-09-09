@@ -11,6 +11,14 @@ qualifier NonEmpty<T> of List<T> {
     refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
 }
 
+fn remove_first<T>(list: List<T>) -> T? {
+    return list.get(0)
+}
+
+fn remove_first<T>(list: NonEmpty List<T>) -> T {
+    return list.get(0)!
+}
+
 provenance qualifier ThreadId of Int
 
 fn thread_id(int: Int) -> Int as ThreadId {
@@ -28,13 +36,23 @@ qualifier Positive of Int {
     }
 }
 
+handler CyclicRandom(arr: Double[]) of Random {
+    i: Int = 0
+
+    fn random() -> [] Double {
+        return arr[i++]
+    }
+}
+
 fn main() [use, ThreadEff] {
     use StdOutConsole
-    use DefaultRandom
+    use CyclicRandom([1.2, 5.7, 2.4])
 
     let list = mutable_list(1,2,3)
     list.add(3)
     list
+
+    random_number()
 
     println("Starting thread...")
     let id = spawn(() -> {
@@ -42,4 +60,8 @@ fn main() [use, ThreadEff] {
     })
     join(id)
     println("Done")
+}
+
+fn random_number() [Random] -> Double {
+    return random()
 }

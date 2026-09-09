@@ -1,0 +1,391 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"iterator.sv\"))"
+---
+Module {
+    items: [
+        Qualifier(
+            QualifierDecl {
+                docs: [
+                    "[qual-constructive] The element arm of a `next` result. A qualifier rather",
+                    "than a struct so the element keeps its own type — `Emitted Int` *is* an",
+                    "`Int`, tagged — and so a sequence of optionals still has a distinguishable",
+                    "end: `Emitted None | Finished` has two arms where `None | None` would",
+                    "have one. Erased in generated code [qual-erasure].",
+                ],
+                intrinsic: false,
+                subject: State,
+                name: Ident {
+                    name: "Emitted",
+                    span: 1088..1095,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1096..1097,
+                    },
+                ],
+                of: Named {
+                    qualifiers: [],
+                    base: TypeRef {
+                        name: Ident {
+                            name: "T",
+                            span: 1102..1103,
+                        },
+                        args: [],
+                        span: 1102..1103,
+                    },
+                },
+                with: [],
+                field_overrides: [],
+                fns: [],
+                refns: [],
+                has_body: false,
+                span: 1078..1103,
+            },
+        ),
+        Struct(
+            StructDecl {
+                docs: [
+                    "The end arm. A fieldless struct rather than a qualifier because there is",
+                    "nothing for it to qualify: it carries no element, and reusing `None` would",
+                    "say \"absent\" where the claim is \"the sequence ended\".",
+                ],
+                name: Ident {
+                    name: "Finished",
+                    span: 1323..1331,
+                },
+                generics: [],
+                obligations: [],
+                auto_qualifiers: [],
+                fields: [],
+                span: 1316..1334,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[qual-ctor-fn] Tags a value as the element arm. The value is moved into the",
+                    "result, so nothing is kept ([] deductions); linear values may be tagged,",
+                    "since the obligation travels with them [linear-generics].",
+                ],
+                intrinsic: false,
+                is_yield: false,
+                name: Ident {
+                    name: "emitted",
+                    span: 1555..1562,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 1563..1564,
+                    },
+                ],
+                generic_canbe: [
+                    (
+                        Ident {
+                            name: "T",
+                            span: 1563..1564,
+                        },
+                        TypeRef {
+                            name: Ident {
+                                name: "Linear",
+                                span: 1571..1577,
+                            },
+                            args: [],
+                            span: 1571..1577,
+                        },
+                    ),
+                ],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 1579..1584,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 1586..1587,
+                                },
+                                args: [],
+                                span: 1586..1587,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1579..1587,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "T",
+                                span: 1598..1599,
+                            },
+                            args: [],
+                            span: 1598..1599,
+                        },
+                    },
+                ),
+                constructs: Some(
+                    TypeRef {
+                        name: Ident {
+                            name: "Emitted",
+                            span: 1603..1610,
+                        },
+                        args: [],
+                        span: 1603..1610,
+                    },
+                ),
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    Ident(
+                                        Ident {
+                                            name: "value",
+                                            span: 1624..1629,
+                                        },
+                                    ),
+                                ),
+                                span: 1617..1629,
+                            },
+                        ],
+                        span: 1611..1631,
+                    },
+                ),
+                span: 1552..1631,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The end of a sequence.",
+                ],
+                intrinsic: false,
+                is_yield: false,
+                name: Ident {
+                    name: "finished",
+                    span: 1662..1670,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Finished",
+                                span: 1682..1690,
+                            },
+                            args: [],
+                            span: 1682..1690,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    StructLit {
+                                        ty: Some(
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "Finished",
+                                                        span: 1704..1712,
+                                                    },
+                                                    args: [],
+                                                    span: 1704..1712,
+                                                },
+                                            },
+                                        ),
+                                        fields: [],
+                                        span: 1704..1715,
+                                    },
+                                ),
+                                span: 1697..1715,
+                            },
+                        ],
+                        span: 1691..1717,
+                    },
+                ),
+                span: 1659..1717,
+            },
+        ),
+        Params(
+            ParamsDecl {
+                docs: [
+                    "[iter-protocol] [group-obligation] What a **pass** is: a type that",
+                    "declares `: Yield<self, T>`, tied to iteration by its `next`. The",
+                    "obligation is checked at the declaring struct — a misspelled or missing",
+                    "`next` is an error where the promise is written, not a puzzling \"not",
+                    "iterable\" at some loop — and `for` reads the declaration rather than",
+                    "scanning overloads.",
+                    "",
+                    "The state comes *first* and the element second, and the state is an",
+                    "ordinary type parameter rather than a magic `Self`: that is what keeps this",
+                    "an ordinary group, so the same declaration also spreads as",
+                    "`?Yield<It, T>` implicit parameters — which is how a generic combinator",
+                    "reaches a source pass's `next` [implicit-group]. At an obligation the",
+                    "declaring type is written `self` [group-self].",
+                    "",
+                    "The state is taken as `Mut`: advancing a pass is a mutation of its",
+                    "position. A group emits nothing on any backend [implicit-group].",
+                ],
+                name: Ident {
+                    name: "Yield",
+                    span: 2667..2672,
+                },
+                generics: [
+                    Ident {
+                        name: "It",
+                        span: 2673..2675,
+                    },
+                    Ident {
+                        name: "T",
+                        span: 2677..2678,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        intrinsic: false,
+                        is_yield: false,
+                        name: Ident {
+                            name: "next",
+                            span: 2689..2693,
+                        },
+                        generics: [],
+                        generic_canbe: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                name: Ident {
+                                    name: "it",
+                                    span: 2694..2696,
+                                },
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Mut",
+                                                span: 2698..2701,
+                                            },
+                                            args: [],
+                                            span: 2698..2701,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "It",
+                                            span: 2702..2704,
+                                        },
+                                        args: [],
+                                        span: 2702..2704,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                span: 2694..2704,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: Some(
+                            [
+                                Deduction {
+                                    param: Ident {
+                                        name: "it",
+                                        span: 2710..2712,
+                                    },
+                                    kind: Exhaustive(
+                                        [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Mut",
+                                                    span: 2714..2717,
+                                                },
+                                                args: [],
+                                                span: 2714..2717,
+                                            },
+                                        ],
+                                    ),
+                                    span: 2710..2717,
+                                },
+                            ],
+                        ),
+                        return_type: Some(
+                            Union {
+                                arms: [
+                                    Named {
+                                        qualifiers: [
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "Emitted",
+                                                    span: 2719..2726,
+                                                },
+                                                args: [],
+                                                span: 2719..2726,
+                                            },
+                                        ],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "T",
+                                                span: 2727..2728,
+                                            },
+                                            args: [],
+                                            span: 2727..2728,
+                                        },
+                                    },
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "Finished",
+                                                span: 2731..2739,
+                                            },
+                                            args: [],
+                                            span: 2731..2739,
+                                        },
+                                    },
+                                ],
+                                span: 2719..2739,
+                            },
+                        ),
+                        constructs: None,
+                        body: None,
+                        span: 2686..2739,
+                    },
+                ],
+                span: 2660..2741,
+            },
+        ),
+    ],
+}

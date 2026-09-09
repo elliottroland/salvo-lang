@@ -24,9 +24,31 @@ intrinsic fn size(str: Str) [] -> [str] Int
 // of the string.
 intrinsic fn char_at(str: Str, index: Int) [] -> [str, index] Char?
 
-// The characters of [str], in order — which is what makes every sequence
-// function over `Iter<T>` work on strings.
-intrinsic fn iter(str: Str) [] -> [str] Iter<Char>
+// [iter-pass] A fresh pass over the characters of [str], in order — which is
+// what makes every sequence function work on strings.
+fn iter(str: Str) [] -> [] Mut StrPass {
+    return Mut StrPass { text: str, at: 0 }
+}
+
+// [iter-protocol] The pass a string is walked by: the string plus a position
+// in it. A `Str` is immutable, so the pass holds it and moves the index.
+struct StrPass : Yield<self, Char> canbe Mut {
+    // The string being walked.
+    text: Str,
+    // The index of the next character to emit.
+    at: Int
+}
+
+// Advances the pass, reporting the character at its position or the end of the
+// string.
+fn next(pass: Mut StrPass) [] -> [pass: Mut] Emitted Char | Finished {
+    let chr = char_at(pass.text, pass.at)
+    if chr is None {
+        return finished()
+    }
+    pass.at = pass.at + 1
+    return emitted(chr)
+}
 
 // Splits [str] around every occurrence of [sep]. An empty [str] yields one
 // (empty) part; a [sep] that never occurs yields [str] whole.

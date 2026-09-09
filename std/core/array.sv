@@ -17,4 +17,28 @@ intrinsic fn get<T>(array: T[], index: Int) [] -> [array, index] T?
 
 intrinsic fn first<T>(array: T[]) [] -> [array] ReadOnly[from: array] T?
 
-intrinsic fn iter<T canbe Linear>(array: T[]) [] -> [array] Iter<T>
+// [iter-pass] A fresh pass over the array; the array is moved into it.
+fn iter<T>(array: T[]) [] -> [] Mut ArrayPass<T> {
+    return Mut ArrayPass<T> { items: array, at: 0 }
+}
+
+// [iter-protocol] The pass an array is walked by — `core.list`'s [ListPass]
+// with an array inside. The backends keep their native loop for a `for` over
+// an array [iter-for-native]; this shape is what combinators see.
+struct ArrayPass<T> : Yield<self, T> canbe Mut {
+    // The array being walked.
+    items: T[],
+    // The index of the next element to emit.
+    at: Int
+}
+
+// Advances the pass, reporting the element at its position or the end of the
+// array.
+fn next<T>(pass: Mut ArrayPass<T>) [] -> [pass: Mut] Emitted T | Finished {
+    let elem = get(pass.items, pass.at)
+    if elem is None {
+        return finished()
+    }
+    pass.at = pass.at + 1
+    return emitted(elem)
+}
