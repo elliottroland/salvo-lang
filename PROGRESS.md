@@ -2785,9 +2785,9 @@ by faithful emission. Rule [fn-contract]:
 
 ## Open defects
 
-### Narrowing does not survive an early-returning guard — found 2026-09-08
+### ~~Narrowing does not survive an early-returning guard~~ — found and closed 2026-09-09
 
-**Reproduced** (`analyze`, both a concrete and a generic element type):
+**Was reproduced** (`analyze`, both a concrete and a generic element type):
 
 ```
 fn head(xs: List<Int>) -> [xs] Int {
@@ -2802,20 +2802,39 @@ fn head(xs: List<Int>) -> [xs] Int {
 
 The then-branch cannot fall through, so the statements after the `if` are on the
 else-path, where [is-narrowing] already says the remaining arms hold. The
-equivalent `when e { is None { return 0 } is Int { return e } }` is accepted, so
-the fact exists and is computed — what is missing is *carrying* a branch's
-negative fact past an `if` whose branch diverges (`return`, `break`,
-`continue`, `throw`).
+equivalent `when e { is None { return 0 } is Int { return e } }` was accepted, so
+the fact existed and was computed — what was missing was *carrying* a branch's
+negative fact past an `if` whose branches diverge.
 
-**Why it matters now**: the early-return guard is how anyone writes a `next`
-over a container (`get` returns `T?`), so R5's std rewrite meets it on the first
-line — the R5 part 2 probe found it that way. Workaround: use `when` with both
-arms, or an `else` block.
+**Fixed as [is-narrow-guard]** (user decision 2026-09-09: "early-returning
+guards should produce narrowing properly"). `check_if` already computed
+`acc_else` — the facts of every condition being false — and already knew which
+branches exit (`block_exits`, the same predicate the consumption merge uses). It
+threw the facts away at the join. Now: if every branch exits, `acc_else` is
+*installed* (a new `install_narrows`, the application half of `with_narrows`
+without the restore) after the fall-through merge and before the assignment
+resets.
 
-**Not investigated yet**: whether the flow analysis already knows the branch
-diverges (it must, for [linear-obligation]'s exit checks and `Nothing`
-narrowing) and simply does not join the fact back, or whether the join discards
-it deliberately.
+- **Two lines of it are the whole feature**; the interesting part was that all
+  the machinery was already there, keyed on the same predicate.
+- **A second imprecision fell out with it**: `reset_assigned` ran for *every*
+  branch, so an assignment inside a branch that exits reset the narrowing for
+  code that branch can never reach. It is now skipped for exiting branches — the
+  same reason `merge_fallthrough` ignores them.
+- **Consumed stays consumed**: `install_narrows` skips a variable narrowed to
+  `Nothing`, exactly as the restore half does — a flow fact outranks a
+  narrowing [deduce-consume].
+- **One existing test asserted the old behavior** and became the new rule's
+  test: `place_tests`' "outside the branch the fact does not hold" is now
+  `a_guard_narrows_the_fall_through_path`, and the interesting part is *which*
+  error it gets — the read after the guard is no longer a maybe-`None`
+  interpolation but a known-`None` one, so the diagnostic changes from "may be
+  `None`" to "cannot interpolate `None`". Both are refusals; the fact is what
+  moved.
+- **Tests**: `guard_tests.rs` (10) — `return`/`break`/`continue`/diverging-call
+  guards, an `elif` chain leaving the third arm, an explicit non-exiting `else`,
+  and the negatives (a branch that falls through, a mixed `if`, an assignment on
+  the surviving path resetting vs one in the exiting branch not resetting).
 
 ### ~~A `yield fn`'s origin may be transitively mutable: checker-clean, and the two backends disagree~~ — found and closed 2026-09-08
 
@@ -4717,7 +4736,8 @@ Two throwaway programs (a `ListPass<T>` container pass plus a generic
 combinator; and a narrowing probe) were run through `analyze` before touching
 std, and they turn the sequencing question into five facts:
 
-1. **A combinator cannot take `xs: It` plus `?iter: (It) -> P` today.** The
+1. **A combinator cannot take `xs: It` plus `?iter: (It) -> P` today** — which
+   is what the surface decision below routes around, so this stays unbuilt. The
    implicit resolver fills each implicit against the *declared* signature, so
    `P` is still unbound when it reaches `?Yield<P, Int>`: `no next fits ?next:
    (Mut ?) -> Emitted Int | Finished`, while the `next` in scope is
@@ -4743,12 +4763,65 @@ std, and they turn the sequencing question into five facts:
    the caller, but the body moves it"), so std's `iter` will be `-> []`. Worth
    knowing before the rewrite: iterating a list *consumes* the list unless the
    pass borrows, which is drive-in-place (R5's own open question) territory.
-5. **A container `next` cannot be written in Salvo yet** — see the defect
-   below: `let e = get(p.items, p.at)`, `if e is None { return finished() }`,
-   then `emitted(e)` fails with `Emitted (T?)`, because narrowing does not
-   survive an early-returning `if`. The `when` form works, so this is a
-   workaround away — but it decides whether std's container passes are Salvo
-   code or `intrinsic`.
+5. **A container `next` cannot be written in Salvo yet** — narrowing did not
+   survive an early-returning guard, so `let e = get(p.items, p.at)`, `if e is
+   None { return finished() }`, then `emitted(e)` failed with `Emitted (T?)`.
+   **Closed 2026-09-09** as [is-narrow-guard] (see the defect entry): the guard
+   shape works, so std's container passes can be ordinary Salvo code.
+
+##### The combinator surface — DECIDED (user, 2026-09-09), and validated
+
+`?Iterable` goes away entirely and a combinator's subject **is** the pass:
+
+```
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U>
+```
+
+A container is iterated by writing the `iter` call — `map(iter(xs), double)` —
+and a custom pass type arrives the same way, from whatever call produces it. Two
+things this settles at once:
+
+- **No cross-implicit inference is needed** (probe finding 1): `It` is bound by
+  an ordinary argument, so the `?Yield<It, T>` spread resolves with today's
+  machinery. The gap found in the probe stays a gap, and nothing depends on it.
+- **`params Iterable` and every `iter`-returning-`Iter<T>` overload disappear**
+  rather than being rewritten, which is a large part of R5's demolition list
+  turning into deletion.
+- The cost, accepted: `map(xs, f)` over a `List` becomes `map(iter(xs), f)` —
+  one call more at every use site, and the eager `List` fast paths
+  ([seq-iterable]'s `intrinsic` overloads) are the ones that keep the short
+  spelling for the common case.
+- Only the parameter mode had to be pinned down beyond the sketch: the pass is
+  `Mut It` with `[it: Mut]`, since advancing it is a mutation.
+
+**Validated end to end on both backends before touching std** (2026-09-09): a
+`ListPass<T>` with a hand-written `next`, a `map2` over the `?Yield` spread
+driving with `while` + `next` + `when`, `map2(iter2(xs), double)` printing
+`d 2 / d 4 / d 6` under rustc and kotlinc. Doing that first was worth it — the
+surface works, but **nothing had ever exercised a spread member that mutates
+its subject or returns a union**, and each backend was broken in a different
+way:
+
+- **Checker: a group member's fn type was built without its contract**
+  (`member_fn_ty` passed `contract: None`), so every parameter of an implicit
+  position read as kept-and-immutable and a real `next` could not fill it —
+  *"`next` mutates `p`, which this position does not permit"*. Now built from
+  the member's own deduction list, exactly as a declared fn's is. This was the
+  blocker for the whole composition rendering, and it is one field.
+- **Rust: the adapter closure borrowed a `&mut` parameter twice.** A kept-`Mut`
+  implicit position renders `&mut T`, so `&mut |__i0| next(&mut __i0)` is
+  `E0596`; the adapter now passes such a parameter through (and clones for an
+  owned callee). [rs-implicit-adapter half of [implicit-param]]
+- **Kotlin: a union-returning member printed its Salvo type text** into the
+  Kotlin source (`next: (It) -> Emitted T | Finished`) — the `Ty`-to-Kotlin
+  renderer used for implicit positions had no union case and fell through to
+  `Display`. Invalid output rather than an error, so a
+  [backend-never-wrong] defect in its own right.
+- **Tests**: `group_tests`' `a_mutating_member_fills_a_mut_spread_position`
+  (checker), plus one shared demo per backend
+  (`{rustc,kotlinc}_compiles_and_runs_a_combinator_over_a_yield_spread`) with a
+  shape assertion each — the adapter's pass-through on Rust, the wrapper type
+  on Kotlin.
 
 ##### Open defect (found 2026-09-08): narrowing does not survive a guard
 
@@ -4770,6 +4843,280 @@ accepted, so the fact is available; what is missing is carrying the negative
 fact past a statement whose branch cannot fall through. Not generic-specific
 (`Int?` behaves the same as `T?`). This is the early-return guard shape, which
 is the ordinary way to write a `next`, so it will be hit constantly.
+
+##### Driving an *origin* from a combinator — the prerequisite (analysed 2026-09-09)
+
+Raised by the user: a combinator has to accept a type that satisfies
+`: Yield<T>` through the **sugar**, because the author of
+`yield fn next(c: Counter) -> Int` has nothing `Mut` to hand over — the machine
+is hidden and unnameable [yield-fn-origin]. Confirmed unrepresentable today:
+`map2(counter(2), double)` fails at selection (`no matching overload for
+map2(Counter, (Int) -> Int)`), since `Counter` is immutable and no
+`next(Mut Counter)` exists.
+
+The user's observation that **selection is unambiguous** holds — a type
+satisfies its `Yield` obligation by a raw `next` *or* by the sugar, never both
+[yield-fn-origin] — so the compiler can always tell which mechanism a type
+needs. What is missing is not the decision but the *representation*.
+
+**Every route needs the same thing: the hidden machine has to become a real
+type in the checker, inferred and unwritable.** Four were worked through and
+they all reduce to it:
+
+- **Mint at the argument** (`map(counter, f)`, the compiler constructs the
+  machine at the pass position): the type argument `It` binds to the *machine*,
+  so the machine needs a `Ty`, and the implicit `next` needs something to
+  resolve to.
+- **Mint by a written call** (`map(iter(counter), f)`): the mint function has to
+  have a return *type*. Same requirement, reached from the other side.
+- **A second group for origins** (`params Origin<O, T>` + a `for` over a
+  type-parameter subject in the combinator body): the body would have to mint
+  the machine, whose type a generic body cannot know — on Kotlin generics are
+  erased, so the minting has to arrive as a *value*, which means either the
+  machine type as an inferred type argument or two implicits
+  (`(O) -> M`, `(Mut M) -> …`) and therefore the cross-implicit inference gap
+  (probe finding 1). No cheaper.
+- **Desugar the sugar into the raw form at the source level** — the user's own
+  premise ("the yield form lowers to the raw form"). This *is* the prerequisite,
+  stated positively: for each `yield fn next(o: O) -> T`, the compiler declares
+  a pass type `__Pass_O : Yield<self, T> canbe Mut`, a
+  `fn next(p: Mut __Pass_O) -> [p: Mut] Emitted T | Finished`, and a mint
+  `fn iter(o: O) -> [] Mut __Pass_O`. The emitters already generate the machine
+  and know how to advance and close it, so the two functions are lowerings, not
+  new code. Everything else then follows from rules that already exist:
+  overload selection, implicit resolution, `for` over the machine, and a
+  composed pass holding one in a field ([rs-fn-field] made that possible).
+
+With that in place the two call surfaces are one small step apart, which is why
+the prerequisite is the thing to build first:
+
+- **(B) written mint** — `map(iter(counter), f)`: free once the declarations
+  exist, and uniform with a container (`map(iter(xs), f)`).
+- **(A) implicit mint** — `map(counter, f)`: (B) plus an argument-level sugar —
+  "an origin in a position that wants a pass of the same element type inserts
+  the mint" — which is the same thing `for` already does per loop, so it is a
+  coercion, not a new semantics.
+
+**Open for the user**: whether (A) is wanted as the surface (recommended: yes,
+with (B) always available — the sugar's point is that the machine is invisible,
+and an origin *is* declared `: Yield<T>`, so a pass position should take it),
+and whether `iter` is the mint's name for both origins and containers.
+
+##### DECIDED (user, 2026-09-09): the mint is implicit, at the call site
+
+The rule: **anything whose declaration says `: Yield<self, T>` can be passed as
+is.** If it is a pass, it is taken as it stands; if it is an origin, the argument
+is rewritten to a fresh instance of its pass. And the half that makes it
+tractable — *generic* signatures always write the **pass**:
+
+```
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U>
+```
+
+"Generic functions don't need to be desugared, since that happens before they
+are called" (the user). So `Mut It` is not a question the body has to answer: by
+the time the body runs, `It` *is* a pass, and a pass is always mutable. A
+non-generic signature needs nothing new either — it names a concrete type, so a
+parameter of an origin type is driven by `for`, which R3 already lowers to
+minting a machine per loop [yield-fn-origin]. The new rewrite therefore applies
+in exactly one place: **an origin argument in a generic pass position**.
+
+One wrinkle found while planning it, worth stating because it decides *where*
+the rewrite goes: the pattern `Mut It` substitutes to `Mut <machine>`, and a
+`Mut` position requires the argument to carry `Mut` — so the rewritten argument
+type has to be `Mut <machine>`, and the rewrite must happen **per candidate,
+before unification**, not as a coercion afterwards. That is also what keeps
+selection honest: a candidate whose parameter is the concrete origin type still
+matches the origin, and only a `?Yield`-bound generic slot mints.
+
+##### As built (2026-09-09): the mint, both backends
+
+Done and green. `map2(counter(2), double)` and
+`map2(Mut Zip { … }, double)` run in one program with one stdout on both
+backends — an origin minted at the argument, a raw pass taken as it stands.
+
+- **Checker, three small pieces.** `origin_pass_ty` turns an origin into
+  `Mut __Pass_<Origin>` (a name no declaration can spell, so the machine stays
+  unnameable while being an ordinary inferred type argument);
+  `yield_spread_vars` says which parameters want a pass; the candidate loop
+  rewrites those argument *types* before unifying, and the winner's rewrites are
+  recorded in `Checked::origin_mints`, keyed by the argument's span.
+- **Where it had to go, and why.** Not a coercion after selection: the pattern
+  `Mut It` substitutes to `Mut <machine>` and a `Mut` position requires the
+  argument to *carry* `Mut`, which an origin does not — so selection itself has
+  to see the machine type. Per candidate, so a signature naming the concrete
+  origin type still matches the origin.
+- **The implicit has no fn to resolve to**, since the machine is generated: a
+  new `ImplicitArg::OriginNext { next_fn }` carries the `yield fn`'s key, and
+  each emitter wraps the machine's advance into the protocol's two arms —
+  Rust `match __p.__advance(h) { Some(v) => U1(v), None => U2(Finished{}) }`,
+  Kotlin `if (__p.__advance(h)) U2_1(__p.__current()) else U2_2(finished())`.
+  Handlers come from the call site's effect environment, which is where the
+  adapter is built, so an effectful origin threads them exactly as a `for` does.
+- **One thing rustc found**: the machine is now a *type argument*, and every
+  generic parameter in the Rust backend carries `Clone + 'static`, so the
+  generated origin machine needed `#[derive(Clone)]`. Its fields are Salvo
+  values and `Rc`-held callbacks, both `Clone`.
+- **Tests**: `yield_origin_tests` gains the checker pair (an origin fits a
+  generic pass position; a plain struct still does not), and each backend gets
+  the shared demo plus a shape assertion — the mint at the argument, the advance
+  adapter, `Clone` on the machine, and `__Pass_Zip` *not* appearing, which is
+  what proves a raw pass is not minted.
+- **The `close` gap is closed** (same day, user request): the mint is hoisted
+  into a local and released *after the call*, so a combinator that abandons the
+  pass early cannot leak it. This is the answer R0's `?close` implicit was
+  sketched for, and it needs no optional group member at all — the machine is
+  the compiler's value, so the compiler owns its lifetime. The release
+  threads the same handler list the advance adapter does (one helper per
+  backend, so driving and releasing cannot disagree), and `__close` is
+  idempotent, so a drained pass pays nothing.
+  * Verified by an origin whose body has a `defer` printing `close`, driven by
+    a combinator that returns after **one** element: `open / close / got 1` on
+    both backends. Rust splices the release after the call inside a block
+    expression (`{ let mut __mint1 = …; let __call = …; __mint1.__close(); __call }`),
+    Kotlin uses `run { … }`.
+  * Nested calls keep their own mints (the pending list is swapped around
+    argument rendering), so a mint inside an argument of another minted call
+    releases at the right boundary.
+- **Two mints in one call are independent**, including two of the *same origin
+  value*: `sum_two(c, c)` mints two machines, both replay from the beginning,
+  both are released — `two 32 / same 22` byte-identical on both backends. Four
+  tests (two shape, two e2e) cover it.
+- **Still not covered**: a *raw* pass abandoned by a combinator — the caller's
+  value, moved into the call, nobody to close it. Pre-existing
+  unchecked-driver hole, not a new one; a *minted* pass can no longer be
+  abandoned. Options and the probe that constrains them below.
+
+##### DECIDED and built (user, 2026-09-09): option (a) — the driver releases
+
+`: Linear<self>` beside `: Yield<self, T>` declares "this pass owns something",
+[group-obligation] then requires the `close`, and the **`for` sugar calls it** on
+every exit. Built on both backends, one program, one stdout: a drained loop
+prints `n 2 / n 1 / closed / after drain`, one that `break`s prints
+`m 5 / closed / after break`.
+
+- **`PassDriver.close_fn`**: the checker resolves the `close` beside the `next`
+  (`pass_close_fn`, a single parameter unifying with the subject), so both
+  halves of the protocol come from one table and cannot disagree.
+- **Emission reuses the shape that already existed** for a producer and for an
+  origin: Rust splices the call after the loop *and* registers it as a deferred
+  entry, so a `return` out of the body reaches it; Kotlin wraps in
+  `try`/`finally`. One Kotlin wrinkle: the pass local has to be declared
+  *outside* the `try` or the `finally` cannot see it, so the header's first line
+  is hoisted out.
+- **Nothing is implied.** A `close` alone still means nothing [linear-group];
+  the release is driven by the *clause*, and a pass owning nothing is untouched
+  — which is what keeps generated machines composable.
+- **A combinator keeps its pass**, so the obligation stays with the caller and
+  the existing [linear-obligation] rule does the rest; a generic one admits it
+  may carry a resource with `<It canbe Linear>`. Verified: the opt-in is
+  required, the leak is reported without a `close`, and the whole thing is
+  clean with it.
+- **Diagnostic fixed on the way**: the return-while-owing message still said
+  "or `discard(x)` first", which R4 made wrong for a linear value — it now names
+  the value's own `close`, like the scope-exit message already did.
+- **Tests**: one shared demo per backend (drained *and* abandoned in one
+  program) plus a shape assertion each — the release after the loop on Rust, the
+  `finally` on Kotlin.
+- **Unchanged casualty**: a linear pass still cannot be *composed* (R4's interim
+  composite refusal), which is L8's to answer.
+
+##### The raw-pass release: the options as presented (probe 2026-09-09)
+
+Asked by the user: could linearity handle it? **Probed, and the answer is not on
+its own.** This is accepted today and prints `n 2 / n 1 / after` — no `closed`:
+
+```
+struct Lines : Yield<self, Int>, Linear<self> canbe Mut { at: Int }
+
+fn next(l: Mut Lines) -> [l: Mut] Emitted Int | Finished { … }
+fn close(l: Lines) [Console] -> [] None { println("closed") }
+
+for n in lines { println("n ${n}") }        // drives, consumes, never closes
+```
+
+Two obligations on one struct check out fine, and the linear obligation *is*
+discharged — by the **move into the loop** [iter-resolve]. So linearity is
+bookkeeping about ownership, and what is missing is that driving does not run
+the release. R0 finding 5 predicted exactly this: the `for` sugar needs **two**
+resolved functions per raw subject where `for_drivers` carries one.
+
+The options, with what each costs:
+
+- **(a) Linearity as the declaration, plus `for` calling `close`** — the pass
+  type says `: Linear<self>` when it owns something, and the `for` lowering
+  gains the second resolved function so driving a raw pass releases it, exactly
+  as driving a minted one now does. A combinator *keeps* its pass parameter
+  (`[it: Mut]`), so the obligation stays with the caller, who must close it —
+  already enforced, no new rule. Cost: `for_drivers` carries a second `FnKey`,
+  and both emitters splice the call (Rust after the loop + as a deferred entry,
+  Kotlin in the `finally`) — the same shape they already emit for a mint and
+  for a producer. **Recommended.**
+- **(b) Auto-release at the call boundary, like a mint.** Rejected on
+  intuition: a minted pass has no name and can never be referenced again, which
+  is why the compiler may close it; a *raw* pass is the author's named,
+  resumable value, and closing it behind their back at an arbitrary call would
+  be surprising — they may drive it further afterwards.
+- **(c) A `close` implies an obligation** (any pass with a `close` must be
+  released). Already rejected as a rule (2026-09-08): attaching an obligation
+  on the strength of a function name is what [qual-*] keeps the compiler from
+  doing, and it would make most generated passes uncomposable.
+- **(d) `?close` as an optional implicit on every combinator** (R0's sketch).
+  Needs optional group members — new surface — and puts the burden on each
+  combinator rather than on the type that owns the resource. The mint's fix
+  already showed this machinery is avoidable where the compiler owns the value;
+  for a raw pass, (a) puts it where the *author* owns it.
+
+Under (a) the remaining hole is a hand-written `while` driver over a raw linear
+pass: the checker sees the moves, so it will report the obligation if the value
+is never passed to `close`, which is the honest answer — the driver author is
+the owner, and linearity is what tells them.
+
+##### Implementation plan as written before building (machine APIs verified 2026-09-09)
+
+The emitted machine already has everything needed — Rust
+`__Pass_O::new(origin)`, `.__advance(handlers) -> Option<T>`,
+`.__close(handlers)`; Kotlin `__Pass_O(origin)`, `.__advance(handlers) -> Boolean`,
+`.__current()`, `.__close(handlers)` — so this is plumbing, not new codegen.
+
+1. **Checker, candidate loop** (`check_call`, where `patterns` unify against
+   `arg_tys`): per candidate, for each fixed slot whose pattern is `Mut <var>`
+   with `<var>` a callee generic that the callee spreads as `?Yield<var, _>`,
+   and whose argument type is an origin (`yield_obligation` + `yield_fn_for`),
+   substitute the argument type with `Mut __Pass_<Origin>` and remember the
+   slot. Unify and rank with the substituted types.
+2. **Checker, after selection**: record the winner's mints —
+   `origin_mints: HashMap<Key /* arg span */, Ty /* origin type */>` in
+   `Checked`.
+3. **Checker, implicit fill**: a `want` of
+   `(Mut __Pass_X) -> Emitted T | Finished` resolves to no declared fn, so
+   `fill_implicits` recognizes the machine type and pushes a new
+   `ImplicitArg::OriginNext { origin }` instead of erroring.
+4. **Both emitters, the argument**: where `origin_mints` has the span, emit the
+   construction rather than the ordinary rendering — Rust
+   `&mut __Pass_X::new(<origin, cloned if a place>)`, Kotlin `__Pass_X(<origin>)`.
+   The machine item is already emitted for every `yield fn`.
+5. **Both emitters, the implicit**: `OriginNext` becomes the adapter that wraps
+   `__advance` into the protocol's union — Rust
+   `&mut |__i0| match __i0.__advance(h) { Some(v) => Union2::U1(v), None => Union2::U2(Finished{}) }`,
+   Kotlin `{ p -> if (p.__advance(h)) U2_1(p.__current()) else U2_2(finished()) }`.
+   Handlers come from the call site's effect environment, which is where the
+   adapter is built, so an effectful origin threads them the same way a `for`
+   over one does.
+6. **Tests**: the checker rule (origin accepted in a pass position, a raw pass
+   still taken as is, a non-`Yield` argument still refused) plus one shared demo
+   per backend — `map`-shaped combinator over an origin *and* over a raw pass in
+   one program, one stdout.
+7. **Not covered, deliberately**: `close` on early abandonment (see the
+   consequence below) and a *second* mint of the same origin inside one call
+   (each mint is fresh, so replay works, but nothing tests it yet).
+
+**Known consequence to keep in view**: a combinator that abandons its source
+early cannot close it — the mint's machine has a `close` when the body defers,
+and nothing in a `while`-driven combinator calls it. `map`/`filter`/`reduce`
+drain, and a drained body discharges its own defers (R0 finding 3), so the
+shipping set is safe; an early-stopping combinator (`take`, `first`) needs the
+`?close` implicit that R0 sketched and nothing has built.
 
 **R6 — sweep.** ~48 test fns and the `Iter`/`yield` snapshots; rewrite
 `[fn-iterator]`, `[iter-protocol]`, `[iter-generator]`, `[rs-iter-lazy]`,
@@ -7564,7 +7911,7 @@ it resumes:
   `intrinsic fn`s is a testability question, not a plumbing one: only
   members can be faked by a double.
 
-## Test inventory (all green: 805)
+## Test inventory (all green: 837)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -7572,7 +7919,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 389 - 19 unit tests (file classification, including the
+- `salvo-core`: 403 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -7632,9 +7979,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   without `with` while two state claims still need it, a provenance body
   is rejected, `is` on a non-union provenance value is rejected,
   provenance is droppable and survives being stored in a struct field)
-  + 19 place-narrowing tests (`tests/place_tests.rs` [flow-place]
+  + 20 place-narrowing tests (`tests/place_tests.rs` [flow-place]
   [flow-place-invalidate], using `[interp-no-none]` acceptance as the
-  observable: a checked field narrows inside the branch but not after it,
+  observable: a checked field narrows inside the branch, and after a
+  branch that **exits** carries the else fact to the fall-through path
+  [is-narrow-guard] (the read there is a known-`None` one, not a
+  maybe-`None` one) while a branch that falls through carries nothing;
   siblings stay independent, field *chains* narrow, `&&` accumulates place
   facts, the `else` branch carries the negative fact, array elements do
   not narrow (P1a); and for invalidation — assignment to the place, to a
@@ -7645,6 +7995,12 @@ and `cargo nextest run` when you want to see which tests cost what.
   [expr-tuple-index] — a constant index narrowing, siblings staying
   independent, an out-of-range index and a non-tuple base erroring, and
   assignment to an element rejected)
+  + 10 guard-narrowing tests (`tests/guard_tests.rs` [is-narrow-guard]:
+  `return`/`break`/`continue`/diverging-call guards narrowing the rest of
+  the block, an `elif` chain leaving the third arm, an explicit
+  non-exiting `else`, and the negatives — a branch that falls through, a
+  mixed `if`, and assignment resetting on the surviving path but not in
+  the exiting branch)
   + 16 member-resolution tests (`tests/member_tests.rs` [call-resolve]
   [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
   dot-calls rejected — the latter naming `external fn` as the remedy, both
@@ -7804,7 +8160,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   refined qualifier (with the no-refinement control rejected by
   [deduce-infer]), and a *conditional* refined call **not** reaching the
   contract).
-- **12 obligation-group tests** (`tests/group_tests.rs` [group-obligation]
+- **13 obligation-group tests** (`tests/group_tests.rs` [group-obligation]
   [group-self] [group-not-a-value], roadmap R1 — groups declared in the
   tests, nothing designated: a satisfied `Mut It` protocol clean; the
   missing-member error at the *struct* naming the substituted signature; a
@@ -7814,7 +8170,10 @@ and `cargo nextest run` when you want to see which tests cost what.
   group with is-a-type hint; arity and duplicate as declaration errors;
   one group serving an obligation *and* a `?` spread — the point of writing
   `self` as an argument — with `self` outside an obligation unknown, and a
-  group with no obligation still spreading; and the six-position
+  group with no obligation still spreading; a **mutating** implementation
+  filling a `Mut` spread position and driving it to exhaustion
+  [fn-contract], which is every pass's `next` and was impossible until the
+  member's contract reached its fn type; and the six-position
   not-a-value sweep, each with exactly one diagnostic).
 - **15 yield-origin tests** (`tests/yield_origin_tests.rs` [yield-fn-origin],
   roadmap R3: the sugar discharging the obligation; **driving an origin twice**
@@ -8126,7 +8485,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 145 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 154 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8301,7 +8660,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `.map{}.toMutableList()`, `.filter{}.toMutableList()`, `.fold(init, op)`,
   the adapter lambda an intrinsic `iter` becomes, and that nothing *declares*
   `Iterable`; plus the kotlinc run of the seven-subject demo).
-- `salvo-backend-rust`: 116 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 125 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

@@ -1140,6 +1140,14 @@ struct Emitter<'p> {
     /// [rs-iter-lazy] This file mentions `Iter<T>`, so the program needs
     /// the generated iterator support file.
     needs_iter: bool,
+    /// [yield-fn-origin] Passes minted at the arguments of the call being
+    /// rendered: (local name, construction, release). The mint is the
+    /// *compiler's* value, so the compiler closes it — hoisted into a `let`
+    /// and released after the call, whatever the callee did with it. That is
+    /// the `for` lowering's discipline (construct, drive, close) at a call.
+    pending_mints: Vec<(String, String, String)>,
+    /// Counter for the hoisted mint locals of the current fn.
+    mint_counter: usize,
     /// [rs-mut-str] This file calls a string helper, so the program needs
     /// the generated string support file.
     needs_str: bool,
@@ -1256,6 +1264,8 @@ impl<'p> Emitter<'p> {
             throw_message: None,
             implicits: Vec::new(),
             needs_iter: false,
+            pending_mints: Vec::new(),
+            mint_counter: 0,
             needs_str: false,
             needs_seq: false,
             in_iterator_fn: false,
@@ -1368,6 +1378,51 @@ impl<'p> Emitter<'p> {
             "{pad}let mut {place} = {subject};\n\
              {pad}while let {arm}({var}) = {callee}(&mut {place}) {{\n"
         )
+    }
+
+    /// [linear-group] A raw pass with a `close`: the ordinary driving header,
+    /// plus the release the loop owes it. Driving *is* what releases a pass
+    /// (user decision 2026-09-09) — the linear obligation is discharged by the
+    /// move into the loop, which is bookkeeping, so without this the resource
+    /// leaked while the checker was satisfied.
+    ///
+    /// The release is registered as a deferred entry as well as spliced after
+    /// the loop, so a `return` out of the body reaches it — the same shape the
+    /// origin and producer forms use.
+    fn emit_closing_pass_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> (String, String) {
+        let header = self.emit_pass_loop_header(driver, pattern, iterable, indent);
+        // The place the header bound: `emit_pass_loop_header` names it from
+        // the same counter, so the last one issued is this loop's.
+        let place = format!("__loop{}_pass", self.loop_id);
+        let close = match driver.close_fn.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) {
+            Some((key, decl)) => {
+                let callee = self.rust_fn_name(decl);
+                let effects: Vec<Ty> = self
+                    .checked
+                    .fn_effects
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|t| !is_throw_effect_ty(t))
+                    .collect();
+                let mut args: Vec<String> = effects
+                    .iter()
+                    .map(|ty| self.thread_effect_by_ty(ty))
+                    .collect();
+                args.push(place);
+                format!("{callee}({});", args.join(", "))
+            }
+            None => String::new(),
+        };
+        self.defers.push(close.clone());
+        (header, close)
     }
 
     /// [yield-fn-origin] The loop header for a `for` over an **origin**, and
@@ -2719,7 +2774,13 @@ impl<'p> Emitter<'p> {
         // another module, so it is `pub`; the factory form is reached only
         // through its own fn and stays private.
         let vis = if is_origin { "pub " } else { "" };
-        let mut item = format!("\n{vis}struct {pass}{generic_decl} {{\n");
+        // [yield-fn-origin] An origin machine can be a *type argument* since
+        // the mint at a pass position (2026-09-09), and every generic
+        // parameter carries `Clone + 'static` [rs-generics], so the machine
+        // has to satisfy it. Its fields are Salvo values and `Rc`-held
+        // callbacks, both `Clone`.
+        let derive = if is_origin { "#[derive(Clone)]\n" } else { "" };
+        let mut item = format!("\n{derive}{vis}struct {pass}{generic_decl} {{\n");
         for d in &decls {
             item.push_str(d);
         }
@@ -5183,6 +5244,13 @@ impl<'p> Emitter<'p> {
                 // constructed here rather than minted from a factory, and it
                 // closes like a producer does.
                 let origin_driver = self.pass_driver_of(iterable).filter(|d| d.origin);
+                // [linear-group] A **raw** pass with a `close` is released by
+                // the loop too, on every exit — so it takes the same
+                // header-plus-release shape a producer does (user decision
+                // 2026-09-09).
+                let raw_closing = self
+                    .pass_driver_of(iterable)
+                    .filter(|d| !d.origin && d.close_fn.is_some());
                 let producer = match origin_driver {
                     Some(driver) => {
                         Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
@@ -5190,7 +5258,9 @@ impl<'p> Emitter<'p> {
                     None if is_producer => {
                         Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
                     }
-                    None => None,
+                    None => raw_closing.map(|driver| {
+                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
+                    }),
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
@@ -7662,6 +7732,38 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_arg(&mut self, arg: &Expr, mode: ParamMode, param_ty: Option<&Type>) -> String {
+        // [yield-fn-origin] An **origin** in a pass position mints the hidden
+        // machine here (user decision 2026-09-09) — the same construction the
+        // `for` lowering emits, so the two cannot disagree. The position is a
+        // kept-`Mut` generic, so the machine is a temporary borrowed for the
+        // call.
+        if let Some((origin, _)) =
+            self.checked.origin_mints.get(&(self.file_idx, arg.span())).cloned()
+        {
+            let name = match origin.strip_quals() {
+                Ty::Named { name, .. } => name.clone(),
+                other => {
+                    self.error(format!(
+                        "a pass can only be minted from a struct origin (found `{other}`)"
+                    ));
+                    return "todo!()".to_string();
+                }
+            };
+            let value = self.emit_origin_value(arg);
+            let machine = format!("__Pass_{}", rs_ident(&name));
+            // The release path needs the same handlers the adapter uses.
+            let hs = self.origin_handler_args(arg.span());
+            let var = {
+                self.mint_counter += 1;
+                format!("__mint{}", self.mint_counter)
+            };
+            self.pending_mints.push((
+                var.clone(),
+                format!("let mut {var} = {machine}::new({value});"),
+                format!("{var}.__close({hs});"),
+            ));
+            return format!("&mut {var}");
+        }
         // [fn-contract] A named fn passed into a fn-typed position wraps
         // in an adapter closure matching the expected contract.
         if let (Some(pt @ Type::Fn { .. }), Expr::Ident(id)) = (param_ty, arg) {
@@ -7703,6 +7805,34 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
+    }
+
+    /// [yield-fn-origin] The handler arguments a minted pass's machine takes,
+    /// in the checker's canonical order — the same list the advance adapter
+    /// threads, so the release cannot disagree with the driving.
+    fn origin_handler_args(&mut self, arg_span: Span) -> String {
+        let Some(key) = self
+            .checked
+            .origin_mints
+            .get(&(self.file_idx, arg_span))
+            .map(|(_, k)| *k)
+        else {
+            return String::new();
+        };
+        let effects: Vec<Ty> = self
+            .checked
+            .fn_effects
+            .get(&key)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| !is_throw_effect_ty(t))
+            .collect();
+        let hs: Vec<String> = effects
+            .iter()
+            .map(|ty| self.thread_effect_by_ty(ty))
+            .collect();
+        hs.join(", ")
     }
 
     /// A call to an `intrinsic fn`, lowered directly by the compiler
@@ -7922,6 +8052,36 @@ impl<'p> Emitter<'p> {
             .call_fn
             .get(&(self.file_idx, span))
             .is_some_and(|k| self.is_iterator_fn(*k));
+        // [implicit-param] How the *position* hands each parameter over: a
+        // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
+        // so the adapter must not borrow it a second time — `next(&mut __i0)`
+        // where `__i0: &mut ListPass<i32>` is E0596. Keyed by implicit name,
+        // since that is what the adapter loop has.
+        let position_refmut: HashMap<String, Vec<bool>> = self
+            .checked
+            .call_fn
+            .get(&(self.file_idx, span))
+            .and_then(|k| self.checked.implicit_params.get(k))
+            .map(|params| {
+                params
+                    .iter()
+                    .map(|p| {
+                        let modes = match p.ty.strip_quals() {
+                            Ty::Fn { params, contract, .. } => params
+                                .iter()
+                                .enumerate()
+                                .map(|(i, pt)| match contract.as_ref().and_then(|c| c.get(i)) {
+                                    Some(e) => e.kept && e.mutable,
+                                    None => pt.quals().iter().any(|q| q.name == "Mut"),
+                                })
+                                .collect(),
+                            _ => Vec::new(),
+                        };
+                        (p.name.clone(), modes)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         for arg in &filled {
             match arg {
                 salvo_core::ImplicitArg::Given { name, arity } => {
@@ -7976,9 +8136,25 @@ impl<'p> Emitter<'p> {
                                     .enumerate()
                                     .map(|(i, p)| {
                                         let p = (*p).clone();
+                                        // The position may already have
+                                        // handed this parameter over as
+                                        // `&mut`.
+                                        let already_mut = position_refmut
+                                            .get(name)
+                                            .and_then(|m| m.get(i))
+                                            .copied()
+                                            .unwrap_or(false);
                                         match self.param_mode(Some(*key), &p) {
+                                            ParamMode::Owned if already_mut => {
+                                                format!("({}).clone()", params[i])
+                                            }
                                             ParamMode::Owned => params[i].clone(),
+                                            // `&mut T` coerces to `&T`.
+                                            ParamMode::Ref if already_mut => params[i].clone(),
                                             ParamMode::Ref => format!("&{}", params[i]),
+                                            ParamMode::RefMut if already_mut => {
+                                                params[i].clone()
+                                            }
                                             ParamMode::RefMut => {
                                                 format!("&mut {}", params[i])
                                             }
@@ -8003,6 +8179,43 @@ impl<'p> Emitter<'p> {
                             out.push("todo!()".to_string());
                         }
                     }
+                }
+                salvo_core::ImplicitArg::OriginNext { name: _, next_fn } => {
+                    // [yield-fn-origin] The pass is the hidden machine minted
+                    // at the argument, so the adapter wraps its own advance
+                    // into the protocol's two arms — the same machine API the
+                    // `for` lowering drives (`__advance` → `Option<T>`).
+                    let Some(decl) = self.fn_by_key(*next_fn) else {
+                        self.error(
+                            "the `yield fn` behind a minted pass is not available".to_string(),
+                        );
+                        out.push("todo!()".to_string());
+                        continue;
+                    };
+                    let elem = match decl.return_type.as_ref() {
+                        Some(t) => self.emit_type(t),
+                        None => "()".to_string(),
+                    };
+                    let effects: Vec<Ty> = self
+                        .checked
+                        .fn_effects
+                        .get(next_fn)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| !is_throw_effect_ty(t))
+                        .collect();
+                    let hs: Vec<String> = effects
+                        .iter()
+                        .map(|ty| self.thread_effect_by_ty(ty))
+                        .collect();
+                    let hs = hs.join(", ");
+                    self.union_sizes.insert(2);
+                    out.push(format!(
+                        "&mut |__p| match __p.__advance({hs}) {{ \
+                         Some(__v) => Union2::<{elem}, Finished>::U1(__v), \
+                         None => Union2::<{elem}, Finished>::U2(Finished {{}}) }}"
+                    ));
                 }
             }
         }
@@ -8062,6 +8275,7 @@ impl<'p> Emitter<'p> {
             all.dedup();
             all.truncate(1);
         }
+        let outer_mints = std::mem::take(&mut self.pending_mints);
         let (mut prelude, args) = {
             let rendered = self.emit_args_for_params(&f.params, args, key);
             if all.is_empty() {
@@ -8128,7 +8342,23 @@ impl<'p> Emitter<'p> {
                 rs_name = format!("{rs_name}::<{}>", rendered.join(", "));
             }
         }
-        Self::wrap_hoisted(&prelude, format!("{rs_name}({})", all.join(", ")))
+        let call = Self::wrap_hoisted(&prelude, format!("{rs_name}({})", all.join(", ")));
+        // [yield-fn-origin] A minted pass is released here: the mint is the
+        // compiler's value, so a combinator that abandons it early cannot
+        // leak it. `__close` is idempotent, so a drained pass pays nothing.
+        let mints = std::mem::replace(&mut self.pending_mints, outer_mints);
+        if mints.is_empty() {
+            return call;
+        }
+        let ctors: String = mints
+            .iter()
+            .map(|(_, ctor, _)| format!("{ctor} "))
+            .collect();
+        let closes: String = mints
+            .iter()
+            .map(|(_, _, close)| format!("{close} "))
+            .collect();
+        format!("{{ {ctors}let __call = {call}; {closes}__call }}")
     }
 
     // ================= effect environment =================

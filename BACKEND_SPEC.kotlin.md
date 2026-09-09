@@ -464,6 +464,12 @@ same programs running ([rs-effect-fusion]).
   * A `params` group emits *nothing at all* [implicit-group]: it never was a
     value, so there is no class, no interface and no dispatch — the members
     are separate parameters by the time the emitter sees them.
+  * A member's **union** result renders as the wrapper encoding like any other
+    union [union-repr]: `params Yield`'s `next` is
+    `(It) -> Union2<T, Finished>`. The `Ty`-to-Kotlin renderer used for
+    implicit positions had no union case and fell back to printing the *Salvo*
+    type text into the source (invalid Kotlin, fixed 2026-09-09) — no member
+    returned a union before `Yield`'s [backend-never-wrong].
   * Inside the body a call to an implicit parameter's name invokes the
     parameter, so it is emitted before overload resolution is consulted: the
     parameter *is* the chosen overload.

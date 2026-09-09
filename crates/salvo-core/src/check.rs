@@ -56,6 +56,11 @@ struct Viable<'p> {
     subst: HashMap<String, Ty>,
     /// (argument index, substituted parameter type).
     pairings: Vec<(usize, Ty)>,
+    /// [yield-fn-origin] (argument index, the **origin** type) for each slot
+    /// where an origin argument mints a fresh pass. Recorded for the winner
+    /// only, so the emitters construct the machine at exactly the arguments
+    /// this call chose.
+    mints: Vec<(usize, Ty)>,
     rank: crate::types::RankedCandidate,
     rung: crate::resolve::Rung,
     /// The declaring module, rendered — for `@module` matching and for the
@@ -113,6 +118,14 @@ pub struct PassDriver {
     /// the subject is *not* consumed, since a fresh machine is minted per
     /// loop.
     pub origin: bool,
+    /// [linear-group] [yield-fn-origin] The `close` of a **raw** pass, when it
+    /// has one: driving is what releases a pass, so the `for` sugar calls it
+    /// on every exit — exhaustion, `break` and `return` alike (user decision
+    /// 2026-09-09). Without it a pass that owns something leaked while the
+    /// linear obligation counted as discharged by the move into the loop, which
+    /// is bookkeeping, not release. `None` for the origin form, whose machine
+    /// has its own `__close`.
+    pub close_fn: Option<FnKey>,
 }
 
 /// A representation change the emitter must apply to an expression.
@@ -170,6 +183,13 @@ pub enum Coercion {
 /// (`std/core/throw.sv`), known by name to the compiler: it has no handler
 /// — `try` delimits it — and it is not threaded as an effect parameter.
 pub const THROW_EFFECT: &str = "Throw";
+
+/// [yield-fn-origin] The name prefix of the pass type an **origin** mints at a
+/// call site (user decision 2026-09-09). Not writable in Salvo source, so the
+/// machine stays unnameable while being an ordinary inferred type argument; the
+/// emitters name the generated machine identically, which is how a mint at an
+/// argument and a `for` over the same origin agree.
+pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
 /// The value arm of a `try` outcome, from `core.result` [try].
 pub const OK_QUALIFIER: &str = "Ok";
 /// The message arm of a `try` outcome, from `core.throw` [try].
@@ -227,6 +247,14 @@ pub struct Checked {
     /// index from the declaration, is exactly the checker/emitter
     /// disagreement the invariants forbid.
     pub for_drivers: HashMap<Key, PassDriver>,
+    /// [yield-fn-origin] Arguments where an **origin** mints a fresh pass
+    /// (user decision 2026-09-09), keyed by the argument's span, with the
+    /// origin's type. A generic pass position (`it: Mut It` with a
+    /// `?Yield<It, T>` spread) accepts a value whose declaration says
+    /// `: Yield<self, T>` as it stands; when that value is an origin, the
+    /// emitters construct the hidden machine here, exactly as a `for` over
+    /// the same origin does.
+    pub origin_mints: HashMap<Key, (Ty, FnKey)>,
     /// [fn-rename] Call sites (and fn-value uses) written with a **renamed**
     /// name, keyed the same way as `call_fn`. A rename is erased, so the
     /// emitters must spell the declaration's own name rather than the one in
@@ -439,6 +467,13 @@ pub enum ImplicitArg {
     Forwarded { name: String },
     /// Resolved to a declared fn, by name and type [implicit-resolve].
     Resolved { name: String, key: FnKey },
+    /// [yield-fn-origin] The position wants a pass's `next` and the argument
+    /// was an **origin**, so the pass is the hidden machine minted at that
+    /// argument (user decision 2026-09-09). There is no declared fn to name:
+    /// the emitters wrap the machine's own advance into the protocol's two
+    /// arms, using `next_fn` — the `yield fn`'s key — for the machine's name
+    /// and its effect order, exactly as a `for` over the origin does.
+    OriginNext { name: String, next_fn: FnKey },
 }
 
 /// One fate link of a derived variable, exposed for tooling
@@ -2122,10 +2157,39 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
+        // [fn-contract] [implicit-group] The member's own deduction list is
+        // its contract, exactly as a declared fn's is [fn-value-ty]. Without
+        // it every parameter read as kept-and-immutable, so a member
+        // declared `fn next(it: Mut It) -> [it: Mut] …` could not be filled
+        // by any implementation — the supplied fn mutates, the position
+        // (silently) did not permit it. That is `params Yield`'s shape, so
+        // the whole composition rendering depended on this.
+        let facts: Option<Vec<crate::deduce::ParamDeduction>> = member
+            .deductions
+            .as_ref()
+            .map(|list| crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {}));
+        let contract = facts.map(|facts| {
+            member
+                .params
+                .iter()
+                .zip(&params)
+                .map(|(p, pty)| {
+                    let entry = facts.iter().find(|d| d.param == p.name.name);
+                    FnParamContract {
+                        name: Some(p.name.name.clone()),
+                        kept: entry.map(|d| d.kept).unwrap_or(true),
+                        effect: entry
+                            .map(|d| d.effect.clone())
+                            .unwrap_or(QualEffect::KeepAll),
+                        mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                    }
+                })
+                .collect()
+        });
         Ty::Fn {
             params,
             ret: Box::new(ret),
-            contract: None,
+            contract,
             effects: Vec::new(),
         }
     }
@@ -2223,6 +2287,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     });
                     continue;
                 }
+            }
+            // [yield-fn-origin] 2b. The position wants the `next` of a pass
+            // this call *mints* from an origin: no declared fn can fill it —
+            // the machine is generated — so the emitters get the `yield fn`
+            // and wrap its advance.
+            if let Some(next_fn) = self.origin_pass_next(&want) {
+                filled.push(ImplicitArg::OriginNext {
+                    name: imp.name.clone(),
+                    next_fn,
+                });
+                continue;
             }
             // 3. Resolved by name and type among the visible fns.
             match self.resolve_implicit_fn(&imp.name, &want) {
@@ -4771,7 +4846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "cannot {what} while `{name}` still owns a linear value; \
-                     move it onward or `discard({name})` first"
+                     move it onward, or discharge it with its `close({name})`"
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
@@ -5805,6 +5880,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Runs `f` with the given narrowings applied, restoring afterwards.
+    /// [is-narrow-guard] Applies narrowing facts **permanently** — the
+    /// `with_narrows` application half without the restore. Used for the
+    /// guard idiom: when every branch of an `if` exits (`return`, `break`,
+    /// `continue`, or a diverging call), the code after it is on the
+    /// else-path, so the else-narrows of every condition hold there.
+    ///
+    /// A variable already consumed keeps that fact — a flow fact outranks a
+    /// narrowing, exactly as the restore half has it [deduce-consume].
+    fn install_narrows(&mut self, narrows: &[Narrow]) {
+        for n in narrows {
+            if n.place.is_root() {
+                if let Some(var) = self.lookup_mut(&n.place.root) {
+                    if matches!(var.narrowed, Ty::Nothing) {
+                        continue;
+                    }
+                    var.narrowed = n.narrowed.clone();
+                    if n.declared != var.declared {
+                        var.widened = Some(n.declared.clone());
+                    }
+                }
+            } else if self.lookup(&n.place.root).is_some() {
+                self.set_place_narrow(n);
+            }
+        }
+    }
+
     fn with_narrows<T>(&mut self, narrows: &[Narrow], f: impl FnOnce(&mut Self) -> T) -> T {
         let mut saved: Vec<(String, Ty)> = Vec::new();
         // Applied place facts, with the fact each one displaced
@@ -8967,6 +9068,97 @@ impl<'p, 'r> Checker<'p, 'r> {
         None
     }
 
+    /// [yield-fn-origin] The pass type an **origin** mints, as the checker
+    /// sees it: `Mut __Pass_<Origin>`, a type nobody can write (the prefix is
+    /// not a legal Salvo identifier start for a declaration) and everybody can
+    /// infer. `None` for anything that is not an origin — a raw pass is
+    /// already a pass, and a type with no `: Yield<self, T>` is neither.
+    ///
+    /// Minting is what makes "anything declaring `: Yield<self, T>` can be
+    /// passed as is" true (user decision 2026-09-09): a *generic* signature
+    /// always names the pass (`it: Mut It`), because desugaring happens at the
+    /// call site, before the body ever runs.
+    fn origin_pass_ty(&mut self, arg_ty: &Ty) -> Option<Ty> {
+        let stripped = arg_ty.strip_quals().clone();
+        let Ty::Named { name, args } = &stripped else {
+            return None;
+        };
+        // The sugar, and only the sugar: a raw `next` needs no mint, and
+        // both forms on one type are refused at the struct.
+        self.yield_fn_for(&stripped)?;
+        Some(
+            Ty::Named {
+                name: format!("{ORIGIN_PASS_PREFIX}{name}"),
+                args: args.clone(),
+            }
+            .qualify(vec![Qual {
+                name: "Mut".to_string(),
+                args: Vec::new(),
+                effect: false,
+            }]),
+        )
+    }
+
+    /// [yield-fn-origin] The `yield fn` behind an implicit position whose
+    /// subject is a **minted** pass: `(Mut __Pass_Counter) -> Emitted Int |
+    /// Finished` names `Counter`'s sugar. `None` for every other position, so
+    /// ordinary resolution is untouched.
+    fn origin_pass_next(&mut self, want: &Ty) -> Option<FnKey> {
+        let Ty::Fn { params, .. } = want.strip_quals() else {
+            return None;
+        };
+        let first = params.first()?.strip_quals().clone();
+        let Ty::Named { name, args } = &first else {
+            return None;
+        };
+        let origin = name.strip_prefix(ORIGIN_PASS_PREFIX)?;
+        let origin_ty = Ty::Named {
+            name: origin.to_string(),
+            args: args.clone(),
+        };
+        self.yield_fn_for(&origin_ty).map(|(key, _, _)| key)
+    }
+
+    /// The type variables a signature spreads as `?Yield<var, …>` — the
+    /// positions that want a **pass**, and so the only ones where an origin
+    /// argument mints one [yield-fn-origin].
+    fn yield_spread_vars(&self, decl: &'p FnDecl) -> HashSet<String> {
+        let mut out = HashSet::new();
+        for g in &decl.implicit_groups {
+            if g.name.name != "Yield" {
+                continue;
+            }
+            if let Some(ast::Type::Named { base, .. }) = g.args.first() {
+                out.insert(base.name.name.clone());
+            }
+        }
+        out
+    }
+
+    /// [linear-group] The `close` of a pass, if one is visible: a single
+    /// parameter that unifies with the subject's bare type. Not required —
+    /// most passes own nothing — and never *implied* by anything: a `close`
+    /// is an ordinary function, and it is the type's `: Linear<self>` clause
+    /// that makes releasing it an obligation.
+    fn pass_close_fn(&mut self, stripped: &Ty) -> Option<FnKey> {
+        let entries: Vec<crate::resolve::FnEntry<'p>> =
+            self.scope.fns.get("close")?.clone();
+        for entry in entries {
+            let decl = entry.decl;
+            if decl.params.len() != 1 {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let pt = self.lower_type(&decl.params[0].ty);
+            self.generics = saved;
+            let mut subst = HashMap::new();
+            if unify(pt.strip_quals(), stripped, &mut subst) {
+                return Some(entry.key);
+            }
+        }
+        None
+    }
+
     /// The `next` overload a subject drives, found by unifying the protocol
     /// shape against the subject's bare type: the overload, the element
     /// type, the arm identity, and the (unsubstituted) state parameter
@@ -9044,6 +9236,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     emitted_arm: 0,
                     arms: 0,
                     origin: true,
+                    close_fn: None,
                 },
             );
             return Some(elem);
@@ -9064,6 +9257,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
+            // [linear-group] Driving is what releases a pass, so a raw pass
+            // with a `close` is closed by the loop, on every exit (user
+            // decision 2026-09-09). Resolved here, beside the `next`, so the
+            // emitters get both halves of the protocol from one table.
+            let close_fn = self.pass_close_fn(stripped);
             self.out.for_drivers.insert(
                 self.key(span),
                 PassDriver {
@@ -9071,6 +9269,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     emitted_arm,
                     arms,
                     origin: false,
+                    close_fn,
                 },
             );
             return Some(elem);
@@ -10005,15 +10204,33 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.merge_fallthrough(&fallthrough, span);
+        // [is-narrow-guard] The guard idiom: every branch leaves the block
+        // (`if e is None { return … }`), so whatever follows the `if` is on
+        // the else-path and every condition's else-narrows hold there.
+        // Installed *before* the assignment resets below, so a branch that
+        // reassigned the subject still wins [narrow-assign-reset].
+        if !branches.is_empty() && branches.iter().all(|(_, b)| self.block_exits(b)) {
+            let facts = acc_else.clone();
+            self.install_narrows(&facts);
+        }
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
         }
         for (_, block) in branches {
+            // [is-narrow-guard] [narrow-assign-reset] A branch that exits
+            // cannot be the path taken to the code below, so its
+            // assignments do not reset anything there — the same reason
+            // `merge_fallthrough` ignores it.
+            if self.block_exits(block) {
+                continue;
+            }
             self.reset_assigned(block);
         }
         if let Some(block) = else_block {
-            self.reset_assigned(block);
+            if !self.block_exits(block) {
+                self.reset_assigned(block);
+            }
         }
         join
     }
@@ -11347,10 +11564,42 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.generics = saved;
 
+            // [yield-fn-origin] An **origin** argument in a `?Yield`-bound
+            // pass position mints a fresh pass (user decision 2026-09-09):
+            // rewritten here, *before* unification, because the pattern
+            // substitutes to `Mut <machine>` and a `Mut` position needs the
+            // argument to carry `Mut`. Per candidate, so a signature naming
+            // the concrete origin type still matches the origin itself.
+            let yield_vars = self.yield_spread_vars(decl);
+            let mut cand_args = arg_tys.clone();
+            let mut mints: Vec<(usize, Ty)> = Vec::new();
+            if !yield_vars.is_empty() {
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i >= fixed.len() {
+                        continue;
+                    }
+                    let wants_pass = match pattern.strip_quals() {
+                        Ty::Var(v) => {
+                            yield_vars.contains(v)
+                                && pattern.quals().iter().any(|q| q.name == "Mut")
+                        }
+                        _ => false,
+                    };
+                    if !wants_pass {
+                        continue;
+                    }
+                    let arg_ty = arg_tys[i].clone();
+                    if let Some(pass) = self.origin_pass_ty(&arg_ty) {
+                        cand_args[i] = pass;
+                        mints.push((i, arg_ty));
+                    }
+                }
+            }
+
             let mut subst = HashMap::new();
             let ok = patterns
                 .iter()
-                .zip(&arg_tys)
+                .zip(&cand_args)
                 .all(|(p, a)| unify(p, a, &mut subst));
             if !ok {
                 continue;
@@ -11366,7 +11615,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut assignable = true;
             for (i, p) in patterns.iter().enumerate() {
                 let sp = substitute_vars(p, &subst, &callee_generics);
-                if !is_subtype(&arg_tys[i], &sp) {
+                if !is_subtype(&cand_args[i], &sp) {
                     assignable = false;
                     break;
                 }
@@ -11384,6 +11633,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 decl,
                 subst,
                 pairings,
+                mints,
                 rank: crate::types::RankedCandidate {
                     patterns,
                     variadic: collects_variadic,
@@ -11459,6 +11709,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = best.subst.clone();
         let decl = best.decl;
         let best_key = best.key;
+        // [yield-fn-origin] The winner's mints: this call constructs a pass
+        // from an origin at these argument positions.
+        for (i, origin) in best.mints.clone() {
+            let key = self.key(args[i].span());
+            // The `yield fn` comes along: the emitters need it for the
+            // machine's name, its effect order and its release path.
+            if let Some((yf, _, _)) = self.yield_fn_for(&origin.strip_quals().clone()) {
+                self.out.origin_mints.insert(key, (origin, yf));
+            }
+        }
         // [iter-mut-param] The callback half of the rule: a producer holds its
         // fn-typed parameters for as long as it can mint a pass, and calls one
         // *once per element in every pass* — so a lambda carrying mutable

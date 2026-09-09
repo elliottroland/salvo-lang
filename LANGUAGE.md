@@ -182,6 +182,25 @@ elements do not narrow — `numbers[i]` cannot be told apart from
 `numbers[j]` — so for those, bind the checked value with `is Str name` as
 shown for unions above.
 
+A narrowing also survives a **guard**: when every branch of an `if` leaves the
+block — `return`, `break`, `continue`, or a call that never comes back — what
+follows is on the else-path, so it reads with the remaining arms.
+
+```
+fn next(p: Mut ListPass<T>) -> [p: Mut] Emitted T | Finished {
+    let element = get(p.items, p.at)
+    if element is None {
+        return finished()       // the only way out for the empty case
+    }
+    p.at = p.at + 1
+    return emitted(element)     // `element` is `T` here, not `T?`
+}
+```
+
+An `elif` chain accumulates the same way, so two exiting branches leave the
+third arm. One branch exiting is not enough: if any branch can fall through,
+either path may have been taken and nothing is narrowed.
+
 When a value is known to be non-null but this can't be proven by the compiler, then you can use `!` to get the non-null value out or panic (equivalent to `unwrap` in Rust):
 
 ```

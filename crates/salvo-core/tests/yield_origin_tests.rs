@@ -400,3 +400,40 @@ fn a_yield_fn_cannot_be_called() {
         "got {errs:?}"
     );
 }
+
+/// [yield-fn-origin] The **mint** (user decision 2026-09-09): anything whose
+/// declaration says `: Yield<self, T>` can be passed as is. A generic pass
+/// position — `it: Mut It` with a `?Yield<It, T>` spread — accepts an
+/// *origin*, because the argument is rewritten to a fresh instance of its
+/// hidden pass; the author never names the machine.
+#[test]
+fn an_origin_fits_a_generic_pass_position() {
+    let errs = errors(&format!(
+        "{COUNTER}\n\
+         fn drain<It, T>(it: Mut It, ?Yield<It, T>) -> [it: Mut] Int {{\n    \
+         let n = 0\n    let going = true\n    while going {{\n        \
+         let step = next(it)\n        when step {{\n            \
+         is Emitted {{\n                n = n + 1\n            }}\n            \
+         is Finished {{\n                going = false\n            }}\n        }}\n    }}\n    \
+         return n\n}}\n\
+         fn go() -> [] Int {{\n    return drain(Counter {{ start: 2 }})\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// The other half: a value whose type declares nothing is still refused, so
+/// the mint is not a hole in selection.
+#[test]
+fn a_plain_value_still_does_not_fit_a_pass_position() {
+    let errs = errors(&format!(
+        "{COUNTER}\n\
+         struct Plain {{\n    n: Int\n}}\n\
+         fn drain<It, T>(it: Mut It, ?Yield<It, T>) -> [it: Mut] Int {{\n    return 0\n}}\n\
+         fn go() -> [] Int {{\n    return drain(Plain {{ n: 1 }})\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("no matching overload")
+            || e.contains("no `next`")),
+        "got {errs:?}"
+    );
+}

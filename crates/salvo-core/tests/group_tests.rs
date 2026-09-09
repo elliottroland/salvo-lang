@@ -290,6 +290,55 @@ fn drive<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
+/// [implicit-group] [fn-contract] A spread member's **deduction list is part
+/// of the position**: `fn advance(it: Mut It) -> [it: Mut] …` is filled by an
+/// implementation that mutates its parameter, which is the whole point of a
+/// pass. The member's fn type used to be built without its contract, so
+/// every parameter read as kept-and-immutable and no real `advance` could
+/// fill the position ("`advance` mutates `it`, which this position does not
+/// permit") — found when R5's combinator surface was probed.
+#[test]
+fn a_mutating_member_fills_a_mut_spread_position() {
+    let errs = errors(&format!(
+        "{PROTO}
+struct Countdown : Step<self, Int> canbe Mut {{
+    at: Int
+}}
+
+fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
+    if c.at <= 0 {{
+        return finished()
+    }}
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}}
+
+fn drain<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
+    let n = 0
+    let going = true
+    while going {{
+        let step = advance(source)
+        when step {{
+            is Emitted {{
+                n = n + 1
+            }}
+            is Finished {{
+                going = false
+            }}
+        }}
+    }}
+    return n
+}}
+
+fn go() -> [] Int {{
+    return drain(Mut Countdown {{ at: 3 }})
+}}
+"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
 /// `self` is the *obligation's* shorthand and nothing else: in a spread it has
 /// no declaration to refer to.
 #[test]

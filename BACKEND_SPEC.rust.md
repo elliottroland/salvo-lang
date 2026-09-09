@@ -637,6 +637,13 @@ derives them mechanically:
   value (adapted the same way when it names a fn).
   * A `params` group emits nothing [implicit-group]: it never was a value, so
     there is no struct and nothing boxed.
+  * A **kept-`Mut`** parameter of an implicit position is rendered `&mut T`
+    (`fn_ty_param_renderings`), so the adapter closure passes it **straight
+    through** rather than borrowing it again: `&mut |__i0| next(__i0)`, not
+    `next(&mut __i0)` (`E0596` — you cannot take `&mut` of a `&mut` binding).
+    A callee wanting `&T` takes the same value (`&mut T` coerces); one wanting
+    it owned clones. First reachable with `params Yield`'s `next`, which is
+    the only member so far that mutates its subject.
   * An implicit parameter is `&mut dyn FnMut(..)` — **`dyn`, uniformly**, for
     two reasons that pull the same way. An effect member's implicits land in a
     trait used as `&mut dyn E` [rs-effects], where `impl Trait` in argument

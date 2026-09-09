@@ -591,6 +591,13 @@ struct Emitter<'p> {
     /// names a bare call inside the body reaches as *values* rather than
     /// resolving as overloads.
     implicits: Vec<salvo_core::ImplicitParam>,
+    /// [yield-fn-origin] Passes minted at the arguments of the call being
+    /// rendered: (local name, construction, release). The mint is the
+    /// compiler's value, so the compiler releases it after the call —
+    /// whatever the callee did with it — which is the `for` lowering's
+    /// discipline (construct, drive, close) at a call site.
+    pending_mints: Vec<(String, String, String)>,
+    mint_counter: usize,
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
@@ -691,6 +698,8 @@ impl<'p> Emitter<'p> {
             gen_handler_args: String::new(),
             gen_field_names: Vec::new(),
             implicits: Vec::new(),
+            pending_mints: Vec::new(),
+            mint_counter: 0,
             expr_indent: 0,
             effect_env: Vec::new(),
             mutated: HashSet::new(),
@@ -749,6 +758,54 @@ impl<'p> Emitter<'p> {
     /// Kotlin has no pattern-matching loop condition. The cast is needed
     /// because the arm is star-projected: an `is U2_1<*, *>` smart-cast
     /// leaves `value` at `Any?`.
+    /// [linear-group] A raw pass with a `close`: the driving header plus the
+    /// release the loop owes it, in a `try`/`finally` so `break`, `return` and
+    /// exhaustion all reach it [kt-defer-finally]. Driving *is* what releases
+    /// a pass (user decision 2026-09-09).
+    fn emit_closing_pass_loop_header(
+        &mut self,
+        driver: salvo_core::PassDriver,
+        pattern: &Pattern,
+        iterable: &Expr,
+        indent: usize,
+    ) -> (String, String) {
+        let pad = "    ".repeat(indent);
+        let inner_pad = "    ".repeat(indent + 1);
+        let header = self.emit_pass_loop_header(driver, pattern, iterable, indent);
+        let place = format!("__loop{}_pass", self.loop_id);
+        let close = match driver.close_fn.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) {
+            Some((key, decl)) => {
+                let callee = self.kotlin_fn_name(decl);
+                let effects: Vec<Ty> = self
+                    .checked
+                    .fn_effects
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|t| !is_throw_effect_ty(t))
+                    .collect();
+                let mut args: Vec<String> = effects
+                    .iter()
+                    .map(|ty| self.lookup_effect_handler_by_ty(ty))
+                    .collect();
+                args.push(place);
+                format!("{callee}({})", args.join(", "))
+            }
+            None => String::new(),
+        };
+        // The pass local has to be declared *outside* the `try`, or the
+        // `finally` cannot see it: the header's first line is that `val`.
+        let (decl_line, loop_lines) = match header.split_once('\n') {
+            Some((first, rest)) => (format!("{first}\n"), rest.to_string()),
+            None => (String::new(), header),
+        };
+        (
+            format!("{decl_line}{pad}try {{\n{loop_lines}"),
+            format!("{pad}}} finally {{\n{inner_pad}{close}\n{pad}}}\n"),
+        )
+    }
+
     fn emit_pass_loop_header(
         &mut self,
         driver: salvo_core::PassDriver,
@@ -2603,7 +2660,15 @@ impl<'p> Emitter<'p> {
                 };
                 format!("({}) -> {r}", ps.join(", "))
             }
-            // Unions/unknowns do not occur as effect types; the Salvo-side
+            // [union-repr] A union reaches here inside an implicit
+            // parameter's fn type — `params Yield`'s `next` returns
+            // `Emitted T | Finished` — and it lowers to the wrapper
+            // encoding like any other union. Before R5 no implicit member
+            // returned one, and the fallback below printed the *Salvo*
+            // text into the Kotlin source [backend-never-wrong].
+            Ty::Union(_) => self.emit_ty(ty),
+            Ty::Tuple(_) => self.emit_ty(ty),
+            // Unknowns do not occur as effect types; the Salvo-side
             // rendering keeps the lookup falling back to base-name matching
             // for anything unexpected.
             other => other.to_string(),
@@ -3107,6 +3172,12 @@ impl<'p> Emitter<'p> {
                 // constructed rather than minted, and it closes in the same
                 // `finally`.
                 let origin_driver = self.pass_driver_of(iterable).filter(|d| d.origin);
+                // [linear-group] A **raw** pass with a `close` is released by
+                // the loop too, in the same `finally` (user decision
+                // 2026-09-09).
+                let raw_closing = self
+                    .pass_driver_of(iterable)
+                    .filter(|d| !d.origin && d.close_fn.is_some());
                 let claiming = match origin_driver {
                     Some(driver) => {
                         Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
@@ -3114,7 +3185,9 @@ impl<'p> Emitter<'p> {
                     None if is_producer => {
                         Some(self.emit_producer_loop_header(&claims, pattern, iterable, indent))
                     }
-                    None => None,
+                    None => raw_closing.map(|driver| {
+                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
+                    }),
                 };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
@@ -5272,13 +5345,49 @@ impl<'p> Emitter<'p> {
                         }
                     }
                 }
+                salvo_core::ImplicitArg::OriginNext { name: _, next_fn } => {
+                    // [yield-fn-origin] The pass is the machine minted at the
+                    // argument, so the adapter wraps its own advance into the
+                    // protocol's two arms — the same machine API the `for`
+                    // lowering drives (`__advance` → `Boolean`, then
+                    // `__current()`).
+                    let Some(decl) = self.fn_by_key(*next_fn) else {
+                        self.error(
+                            "the `yield fn` behind a minted pass is not available".to_string(),
+                        );
+                        out.push("TODO()".to_string());
+                        continue;
+                    };
+                    let elem = match decl.return_type.as_ref() {
+                        Some(t) => self.emit_type(t),
+                        None => "Unit".to_string(),
+                    };
+                    let effects: Vec<Ty> = self
+                        .checked
+                        .fn_effects
+                        .get(next_fn)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| !is_throw_effect_ty(t))
+                        .collect();
+                    let hs: Vec<String> = effects
+                        .iter()
+                        .map(|ty| self.lookup_effect_handler_by_ty(ty))
+                        .collect();
+                    let hs = hs.join(", ");
+                    self.union_sizes.insert(2);
+                    out.push(format!(
+                        "{{ __p -> if (__p.__advance({hs})) U2_1<{elem}, Finished>(__p.__current()) \
+                         else U2_2<{elem}, Finished>(finished()) }}"
+                    ));
+                }
             }
         }
         out
     }
 
-    /// [implicit-intrinsic] An `intrinsic fn` passed as a *value*: there is
-    /// no Kotlin function to reference, so the value is an adapter lambda
+    /// [implicit-intrinsic] An `intrinsic fn` passed as a *value*: there is    /// no Kotlin function to reference, so the value is an adapter lambda
     /// whose body is the intrinsic's own lowering, applied to the adapter's
     /// parameters. Reached from implicit resolution [implicit-resolve],
     /// where std's `iter` overloads are what fill an `?Iterable<It, T>`.
@@ -5347,7 +5456,41 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
+        let outer_mints = std::mem::take(&mut self.pending_mints);
         for a in args {
+            // [yield-fn-origin] An **origin** in a pass position mints the
+            // hidden machine here, exactly as the `for` lowering constructs
+            // one (user decision 2026-09-09).
+            if let Some((origin, _)) = self
+                .checked
+                .origin_mints
+                .get(&(self.file_idx, a.span()))
+                .cloned()
+            {
+                let name = match origin.strip_quals() {
+                    Ty::Named { name, .. } => name.clone(),
+                    other => {
+                        self.error(format!(
+                            "a pass can only be minted from a struct origin (found `{other}`)"
+                        ));
+                        "TODO()".to_string()
+                    }
+                };
+                let value = self.emit_expr(a);
+                let machine = format!("__Pass_{}", kt_ident(&name));
+                let hs = self.origin_handler_args(a.span());
+                let var = {
+                    self.mint_counter += 1;
+                    format!("__mint{}", self.mint_counter)
+                };
+                self.pending_mints.push((
+                    var.clone(),
+                    format!("val {var} = {machine}({value})"),
+                    format!("{var}.__close({hs})"),
+                ));
+                all.push(var);
+                continue;
+            }
             all.push(self.emit_expr(a));
         }
         // [implicit-resolve] The implicit parameters, in the callee's order:
@@ -5369,7 +5512,51 @@ impl<'p> Emitter<'p> {
         } else {
             kotlin_name
         };
-        format!("{kt_name}{generics}({})", all.join(", "))
+        let call = format!("{kt_name}{generics}({})", all.join(", "));
+        // [yield-fn-origin] A minted pass is released here, so a combinator
+        // that abandons it early cannot leak it. `__close` is idempotent, so
+        // a drained pass pays nothing.
+        let mints = std::mem::replace(&mut self.pending_mints, outer_mints);
+        if mints.is_empty() {
+            return call;
+        }
+        let ctors: String = mints
+            .iter()
+            .map(|(_, ctor, _)| format!("{ctor}; "))
+            .collect();
+        let closes: String = mints
+            .iter()
+            .map(|(_, _, close)| format!("{close}; "))
+            .collect();
+        format!("run {{ {ctors}val __call = {call}; {closes}__call }}")
+    }
+
+    /// [yield-fn-origin] The handler arguments a minted pass's machine takes,
+    /// in the checker's canonical order — the same list the advance adapter
+    /// threads, so the release cannot disagree with the driving.
+    fn origin_handler_args(&mut self, arg_span: Span) -> String {
+        let Some(key) = self
+            .checked
+            .origin_mints
+            .get(&(self.file_idx, arg_span))
+            .map(|(_, k)| *k)
+        else {
+            return String::new();
+        };
+        let effects: Vec<Ty> = self
+            .checked
+            .fn_effects
+            .get(&key)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| !is_throw_effect_ty(t))
+            .collect();
+        let hs: Vec<String> = effects
+            .iter()
+            .map(|ty| self.lookup_effect_handler_by_ty(ty))
+            .collect();
+        hs.join(", ")
     }
 
     /// Resolves the handler expression for a call to an effect member fn.

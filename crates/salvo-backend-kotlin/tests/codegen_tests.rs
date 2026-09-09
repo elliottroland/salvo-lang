@@ -683,6 +683,439 @@ fn main() [use] {
 
 const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
 
+/// [implicit-group] [iter-protocol] The composition rendering R5's
+/// combinators are built on: a generic combinator takes the *pass* as its
+/// subject and reaches its `next` through the `?Yield<It, T>` spread. The
+/// Kotlin half of the pair of bugs this exposed: an implicit member
+/// returning a **union** rendered its Salvo type text into the Kotlin source
+/// (`(It) -> Emitted T | Finished`), which is invalid Kotlin
+/// [backend-never-wrong]. Same source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_a_combinator_over_a_yield_spread`.
+
+/// [yield-fn-origin] The **mint**, Kotlin half: an origin argument becomes a
+/// fresh instance of its hidden pass, a raw pass is taken as it stands. Same
+/// source and stdout as the Rust backend's `rustc_compiles_and_runs_an_origin_mint`.
+const ORIGIN_MINT_DEMO: &str = r#"
+struct Counter : Yield<self, Int> {
+    start: Int
+}
+
+yield fn next(c: Counter) -> Int {
+    let num = copy(c.start)
+    while num >= 0 {
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U> {
+    let out = mutable_list<U>()
+    let going = true
+    while going {
+        let step = next(it)
+        when step {
+            is Emitted {
+                add(out, mapper(step))
+            }
+            is Finished {
+                going = false
+            }
+        }
+    }
+    return out
+}
+
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn counter(start: Int) -> [] Counter {
+    return Counter { start: start }
+}
+
+// A raw pass in the same position: taken as it stands, no mint.
+struct Zip : Yield<self, Int> canbe Mut {
+    left: List<Int>,
+    at: Int
+}
+
+fn next(z: Mut Zip) -> [z: Mut] Emitted Int | Finished {
+    let e = get(z.left, z.at)
+    if e is None {
+        return finished()
+    }
+    z.at = z.at + 1
+    return emitted(e)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let doubled = map2(counter(2), double)
+    for d in doubled {
+        println("d ${d}")
+    }
+    let zipped = map2(Mut Zip { left: list(5, 6), at: 0 }, double)
+    for z in zipped {
+        println("z ${z}")
+    }
+}
+"#;
+
+const ORIGIN_MINT_OUTPUT: &str = "d 4\nd 2\nd 0\nz 10\nz 12\n";
+
+#[test]
+fn an_origin_argument_mints_a_pass() {
+    let program = build_program(&[("main.sv", ORIGIN_MINT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("__Pass_Counter(counter(2))"),
+        "expected the machine minted at the argument, got:\n{src}"
+    );
+    assert!(
+        src.contains("__p.__advance()") && src.contains("U2_1<Int, Finished>(__p.__current())"),
+        "expected the advance adapter, got:\n{src}"
+    );
+    assert!(
+        !src.contains("__Pass_Zip"),
+        "a raw pass must not be minted, got:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_an_origin_mint() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", ORIGIN_MINT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "origin-mint", ORIGIN_MINT_OUTPUT);
+}
+
+
+/// [yield-fn-origin] The **release** of a minted pass, Kotlin half: the same
+/// source and stdout as the Rust backend's
+/// `rustc_compiles_and_runs_an_abandoned_mint` — a combinator abandoning the
+/// pass after one element still runs the origin's `defer`.
+
+/// [linear-group] The Kotlin half: a raw pass declaring `: Linear<self>` is
+/// released by the loop, in the `finally` — same source and stdout as the Rust
+/// backend's `rustc_compiles_and_runs_a_released_raw_pass`.
+const RAW_CLOSE_DEMO: &str = r#"
+struct Lines : Yield<self, Int>, Linear<self> canbe Mut {
+    at: Int
+}
+
+fn next(l: Mut Lines) -> [l: Mut] Emitted Int | Finished {
+    if l.at <= 0 {
+        return finished()
+    }
+    let v = copy(l.at)
+    l.at = l.at - 1
+    return emitted(v)
+}
+
+fn close(l: Lines) [Console] -> [] None {
+    println("closed")
+}
+
+fn drained() [Console] -> [] None {
+    let lines = Mut Lines { at: 2 }
+    for n in lines {
+        println("n ${n}")
+    }
+    println("after drain")
+}
+
+fn abandoned() [Console] -> [] None {
+    let lines = Mut Lines { at: 5 }
+    for n in lines {
+        println("m ${n}")
+        break
+    }
+    println("after break")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    drained()
+    abandoned()
+}
+"#;
+
+const RAW_CLOSE_OUTPUT: &str = "n 2\nn 1\nclosed\nafter drain\nm 5\nclosed\nafter break\n";
+
+#[test]
+fn a_raw_pass_with_a_close_is_released_in_a_finally() {
+    let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("} finally {") && src.contains("close(console, __loop1_pass)"),
+        "expected the release in a finally, got:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_released_raw_pass() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "raw-close", RAW_CLOSE_OUTPUT);
+}
+
+const MINT_CLOSE_DEMO: &str = r#"
+// An origin whose body defers, so the machine has a release path — and a
+// combinator that ABANDONS it after one element.
+struct Chatty : Yield<self, Int> {
+    limit: Int
+}
+
+yield fn next(c: Chatty) [Console] -> Int {
+    println("open")
+    defer { println("close") }
+    let num = copy(c.limit)
+    while num > 0 {
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+fn first_of<It, T>(it: Mut It, ?Yield<It, T>) -> [it: Mut] Int {
+    let step = next(it)
+    when step {
+        is Emitted {
+            return 1
+        }
+        is Finished {
+            return 0
+        }
+    }
+}
+
+fn chatty(limit: Int) -> [] Chatty {
+    return Chatty { limit: limit }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let got = first_of(chatty(3))
+    println("got ${got}")
+}
+"#;
+
+const MINT_CLOSE_OUTPUT: &str = "open\nclose\ngot 1\n";
+
+const TWO_MINTS_DEMO: &str = r#"
+struct Counter : Yield<self, Int> {
+    start: Int
+}
+
+yield fn next(c: Counter) -> Int {
+    let num = copy(c.start)
+    while num >= 0 {
+        yield copy(num)
+        num = num - 1
+    }
+}
+
+// Two pass parameters of the same type, so one `?Yield` spread serves both.
+fn sum_two<It, T>(a: Mut It, b: Mut It, ?Yield<It, T>) -> [a: Mut, b: Mut] Int {
+    let n = 0
+    let going = true
+    while going {
+        let step = next(a)
+        when step {
+            is Emitted {
+                n = n + 1
+            }
+            is Finished {
+                going = false
+            }
+        }
+    }
+    let going2 = true
+    while going2 {
+        let step2 = next(b)
+        when step2 {
+            is Emitted {
+                n = n + 10
+            }
+            is Finished {
+                going2 = false
+            }
+        }
+    }
+    return n
+}
+
+fn counter(start: Int) -> [] Counter {
+    return Counter { start: start }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // Two mints from two separate origins.
+    println("two ${sum_two(counter(1), counter(2))}")
+    // Two mints from the SAME origin value: each is a fresh machine, so both
+    // replay from the beginning.
+    let c = counter(1)
+    println("same ${sum_two(c, c)}")
+}
+"#;
+
+const TWO_MINTS_OUTPUT: &str = "two 32\nsame 22\n";
+
+#[test]
+fn two_mints_in_one_call_are_independent_and_both_released() {
+    let program = build_program(&[("main.sv", TWO_MINTS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("val __mint1 = __Pass_Counter(") && src.contains("val __mint2 = __Pass_Counter("),
+        "expected two independent machines, got:\n{src}"
+    );
+    assert!(
+        src.contains("__mint1.__close()") && src.contains("__mint2.__close()"),
+        "expected both to be released, got:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_an_abandoned_mint() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", MINT_CLOSE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "mint-close", MINT_CLOSE_OUTPUT);
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_two_mints_in_one_call() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", TWO_MINTS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "two-mints", TWO_MINTS_OUTPUT);
+}
+
+const YIELD_SPREAD_DEMO: &str = r#"
+struct ListPass<T> : Yield<self, T> canbe Mut {
+    items: List<T>,
+    at: Int
+}
+
+fn iter2<T>(items: List<T>) -> [] Mut ListPass<T> {
+    return Mut ListPass<T> { items: items, at: 0 }
+}
+
+fn next<T>(p: Mut ListPass<T>) -> [p: Mut] Emitted T | Finished {
+    let e = get(p.items, p.at)
+    if e is None {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(e)
+}
+
+fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U> {
+    let out = mutable_list<U>()
+    let going = true
+    while going {
+        let step = next(it)
+        when step {
+            is Emitted {
+                add(out, mapper(step))
+            }
+            is Finished {
+                going = false
+            }
+        }
+    }
+    return out
+}
+
+fn double(n: Int) -> Int {
+    return n * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list(1, 2, 3)
+    let doubled = map2(iter2(xs), double)
+    for d in doubled {
+        println("d ${d}")
+    }
+}
+"#;
+
+const YIELD_SPREAD_OUTPUT: &str = "d 2\nd 4\nd 6\n";
+
+/// The spread position renders as a Kotlin function type whose result is the
+/// union *wrapper*, not the Salvo text.
+#[test]
+fn a_union_returning_implicit_renders_the_wrapper_type() {
+    let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        src.contains("next: (It) -> Union2<T, Finished>"),
+        "expected the union wrapper in the spread position, got:\n{src}"
+    );
+    assert!(
+        !src.contains("Emitted T | Finished"),
+        "the Salvo type text must not reach the Kotlin source:\n{src}"
+    );
+}
+
+#[test]
+fn kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "yield-spread", YIELD_SPREAD_OUTPUT);
+}
+
 #[test]
 fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
     if !kotlin_toolchain() {

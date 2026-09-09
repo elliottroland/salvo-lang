@@ -118,10 +118,14 @@ fn field_narrows_in_branch() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [flow-place] Outside the branch the fact does not hold.
+/// [is-narrow-guard] [flow-place] After a guard whose branch **exits**, the
+/// fall-through path carries the *else* fact: `p.surname` is not merely
+/// un-narrowed there, it is known to be `None` — so the read still fails,
+/// with the message for a value that has no text form rather than the one
+/// for a maybe-`None` optional.
 #[test]
-fn field_is_not_narrowed_outside_the_branch() {
-    let errs = interp_errors(
+fn a_guard_narrows_the_fall_through_path() {
+    let errs = check(
         r#"
     if p.surname is Str {
         return p.name
@@ -129,7 +133,36 @@ fn field_is_not_narrowed_outside_the_branch() {
     return "${p.surname}"
 "#,
     );
-    assert_eq!(errs.len(), 1, "expected the read after the branch to fail: {errs:?}");
+    assert_eq!(errs.len(), 1, "expected exactly the None read to fail: {errs:?}");
+    assert!(
+        errs[0].contains("cannot interpolate `None`"),
+        "expected the narrowed-to-`None` message, got {errs:?}"
+    );
+    // The optional-interpolation error is *not* what fires any more: the
+    // place is no longer optional on that path.
+    assert!(
+        !errs[0].contains("may be `None`"),
+        "the fact holds, so the read is not a maybe-`None` one: {errs:?}"
+    );
+}
+
+/// The other half of the same rule: a guard that does **not** exit leaves
+/// the fall-through path un-narrowed, so the read is a maybe-`None` one.
+#[test]
+fn a_branch_that_falls_through_narrows_nothing_after_it() {
+    let errs = interp_errors(
+        r#"
+    if p.surname is Str {
+        touch(p)
+    }
+    return "${p.surname}"
+"#,
+    );
+    assert_eq!(
+        errs.len(),
+        1,
+        "expected the maybe-`None` read after the branch to fail: {errs:?}"
+    );
 }
 
 /// [flow-place] Facts are per place: checking one field says nothing about

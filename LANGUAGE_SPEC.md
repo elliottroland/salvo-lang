@@ -570,6 +570,32 @@ Conventions:
   * Narrowing resets to the declared type for any variable assigned
     inside a branch ([narrow-assign-reset]); place facts fall on the
     events in [flow-place-invalidate].
+* [is-narrow-guard] A narrowing **survives a guard** (user decision
+  2026-09-09): when every branch of an `if` leaves the block, the code
+  after it is on the else-path, so each condition's else-narrows hold
+  there — the facts [is-narrowing] gives an `else` branch, carried past a
+  statement whose branches cannot fall through.
+  ```
+  if e is None {
+      return finished()
+  }
+  return emitted(e)        // `e` is the element type here
+  ```
+  * "Leaves the block" is `return`, `break`, `continue`, or a diverging
+    call ([type-any-nothing]) — the same predicate [fn-must-return] uses,
+    plus the loop exits. One branch exiting is not enough: if any branch
+    can fall through, either path may have been taken and nothing is
+    narrowed.
+  * An `elif` chain accumulates, so `if v is Int { return } elif v is Str
+    { return }` leaves the third arm.
+  * [narrow-assign-reset] still applies on the *surviving* path only: an
+    assignment inside a branch that exits cannot be observed after the
+    `if`, so it resets nothing there (the same reason the fall-through
+    merge ignores that branch).
+  * Rationale: guarding the empty case and then using the value is how a
+    `next` over a container is written, and requiring an `else` block or a
+    two-armed `when` for it was a limitation of the analysis, not a rule
+    anybody chose.
 * [is-binding] `is Type name` binds the narrowed value to a fresh
   variable in the matched branch (and per-iteration in `while`).
   * Parse heuristic: uppercase idents in the check are type refs; a
@@ -1147,6 +1173,13 @@ Conventions:
     would need a local first, since `h.f(e)` is dot-notation for `f(h, e)`
     [fn-dot]. A group is resolved per call site instead
     [implicit-resolve].
+  * A **member's deduction list is part of the position** [fn-contract]: a
+    member declared `fn next(it: Mut It) -> [it: Mut] …` is filled only by an
+    implementation that keeps and mutates its parameter, and one that
+    consumes it does not fit. (Until 2026-09-09 the member's fn type was
+    built without its contract, so every parameter read as
+    kept-and-immutable and *no* mutating implementation could fill such a
+    position — which is every pass's `next`.)
   * The expansion order — written implicits first, then each group's members
     in declaration order — is published by the checker as the one ordered
     list both the callee's parameters and the caller's arguments follow.
@@ -1312,6 +1345,68 @@ Conventions:
     machine from it, so a second loop replays from the beginning and the loop
     binding stays an ordinary projection. Only a real pass — the value that
     holds the position — is moved into the loop [iter-resolve].
+  * **An origin can be passed where a pass is expected** (user decision
+    2026-09-09): anything whose declaration says `: Yield<self, T>` is
+    accepted as it stands. A raw pass is taken as it stands; an origin is
+    **minted** — the argument is rewritten to a fresh instance of its hidden
+    machine, the same construction `for` performs per loop. Without this the
+    sugar could not reach a combinator at all: the machine is unnameable, so
+    the author has nothing `Mut` to hand over.
+    * The position that mints is a **generic** one: a parameter written
+      `Mut It` whose `It` the signature spreads as `?Yield<It, T>`
+      [implicit-group]. A signature naming the concrete origin type still
+      takes the origin itself.
+    * **Generic signatures always name the pass.** Desugaring happens at the
+      call site, before the body runs, so `It` *is* a pass inside the body —
+      which is why `Mut It` is the only spelling a combinator needs, and why
+      a generic body never has to ask whether its subject was an origin.
+    * The rewrite happens **during** overload selection, per candidate:
+      `Mut It` substitutes to `Mut <machine>`, and a `Mut` position requires
+      the argument to carry `Mut`, which a minted pass does and an origin
+      does not.
+    * The implicit `next` for a minted pass resolves to **no declared fn** —
+      the machine is generated — so the emitters wrap the machine's own
+      advance into the two arms of `Emitted T | Finished`.
+    * **Selection is unambiguous** because a type discharges its obligation
+      by a raw `next` *or* by the sugar, never both.
+    * **The mint is released by the caller** (2026-09-09): the machine is the
+      compiler's value, so the compiler owns its lifetime — the construction
+      is hoisted into a local and `close` is spliced *after the call*,
+      whatever the callee did with it. So a combinator that abandons the pass
+      after one element still runs the origin's deferred blocks, which a
+      hand-written driving loop has no way to do. The release is idempotent,
+      so a drained pass pays nothing.
+    * **Each mint is its own machine**: two minted arguments in one call are
+      independent, including two mints of the *same* origin value — both
+      replay from the beginning, and both are released. That is the same
+      "driving does not consume the origin" rule, one call instead of two
+      loops.
+    * **A raw pass is released by its driver** (user decision 2026-09-09): a
+      pass type that owns something declares `: Linear<self>` beside its
+      `: Yield<self, T>`, which makes [group-obligation] require the `close` —
+      and the `for` sugar calls that `close` on every exit (exhaustion,
+      `break`, `return`), so driving *is* the release. `for_drivers` carries
+      the resolved `close` beside the resolved `next`; Rust splices the call
+      after the loop and registers it as a deferred entry, Kotlin puts it in a
+      `finally` [kt-defer-finally].
+      * Linearity alone was **not** enough, which is why the `for` half is the
+        rule: the obligation is discharged by the *move into the loop*, so
+        before this a `close`-bearing pass leaked while the checker was
+        satisfied.
+      * A combinator **keeps** its pass parameter (`[it: Mut]`), so the
+        obligation stays with the caller, who must close it — the existing
+        [linear-obligation] rule, no new one. A generic combinator that may be
+        handed one says so with `<It canbe Linear>` [linear-generics].
+      * A pass that owns nothing declares no obligation and is untouched:
+        every generated machine and every ordinary hand-written pass stays as
+        it is, which is what keeps them composable.
+      * A hand-written `while` driver over a linear pass is the author's own
+        to release, and [linear-obligation] reports it if they do not — the
+        honest answer, since the driver is the owner.
+      * **Not** auto-released at a call boundary the way a *minted* pass is: a
+        mint has no name and cannot be referenced again, while a raw pass is a
+        named, resumable value, so closing it behind the author's back would
+        be surprising.
   * **Effects are declared normally** (`yield fn next(c: Counter) [Console]
     -> Int`) and performed **while driving**: nothing calls the fn, so no
     call site is burdened, and the `for` is what needs the handler in scope.
