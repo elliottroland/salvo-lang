@@ -31,12 +31,14 @@ fn describe_container(xs: List<Int>) [Console] -> [xs] None {
     println("1. array sums to ${from_array}")
 }
 
-// ===== 2. a pass of your own =====
+// ===== 2. a pass of your own, written out =====
 //
 // The manual form: the position is a field, `next` is an ordinary function,
 // and the struct says what it yields. This is what `yield` cannot express —
 // two sources at once, explicit control of the state — and it is also what
-// `iter(xs)` hands back for a `List`.
+// `iter(xs)` hands back for a `List`. Write it out like this when the pass
+// needs a *name*: to store it in a field, to hand it to a function, to zip
+// two of them.
 struct Countdown : Yield<self, Int> canbe Mut {
     // The next value to emit; the pass is finished when it reaches zero.
     at: Int
@@ -68,6 +70,33 @@ fn take(p: Mut Countdown, count: Int) [Console] -> [p: Mut] None {
             break
         }
     }
+}
+
+// ===== 2b. the same pass, with the struct generated: `pass fn` =====
+//
+// Most passes need no name — they are only ever driven by a `for`. A `pass fn`
+// is the same hand-written `next` with the boilerplate removed: the subject
+// stays ordinary data, the `state { … }` block declares the pass's own fields,
+// and the compiler writes the struct and the `iter` that mints one.
+//
+// Nothing suspends, so there is no state machine: the body *is* the `next`.
+struct Halving {
+    // The number to start from; halved on every turn.
+    start: Int
+}
+
+pass fn next(h: Halving) -> Emitted Int | Finished {
+    state {
+        // Evaluated once, when the pass is minted, and readable and writable
+        // for the rest of its life. The subject's own fields are read-only.
+        at: Int = h.start
+    }
+    if at <= 0 {
+        return finished()
+    }
+    let now = copy(at)
+    at = at / 2
+    return emitted(now)
 }
 
 // ===== 3. a generator: `yield fn` =====
@@ -145,6 +174,17 @@ fn main() [use] {
     let p = countdown(5)
     take(p, 2)
     println("2. rest sums to ${sum_of(p)}")
+
+    // 2b. the generated pass: one declaration, and the subject stays ordinary
+    // data — so it replays, and `iter` hands back a pass you can hold.
+    let h = Halving { start: 20 }
+    for n in h {
+        println("2b. halving ${n}")
+    }
+    // `iter(h)` mints a pass and hands it over, so it can be held in a local
+    // and driven by anything that takes a pass.
+    let hp = iter(h)
+    println("2b. summed from a held pass: ${sum_of(hp)}")
 
     // 3. a generator, and the same origin driven twice — each `for` builds a
     // fresh machine, so it starts over.

@@ -12,11 +12,11 @@ pub struct ArrayYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next<T: Clone + 'static>(pass: &mut ArrayYield<T>) -> Union2<T, Finished> {
-    let mut elem = pass.items.get((pass.at) as usize).cloned();
+pub fn next<T: Clone + 'static>(p: &mut ArrayYield<T>) -> Union2<T, Finished> {
+    let mut elem = p.items.get((p.at) as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
     }
-    pass.at = pass.at + 1;
+    p.at = p.at + 1;
     return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
 }

@@ -13,11 +13,11 @@ data class ArrayYield<T>(
     var at: Int,
 )
 
-fun<T> next(pass: ArrayYield<T>): Union2<T, Finished> {
-    val elem = pass.items.getOrNull(pass.at)
+fun<T> next(p: ArrayYield<T>): Union2<T, Finished> {
+    val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
     }
-    pass.at = pass.at + 1
+    p.at = p.at + 1
     return U2_1<T, Finished>(emitted(elem))
 }

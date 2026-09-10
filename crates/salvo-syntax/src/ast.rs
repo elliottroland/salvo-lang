@@ -314,6 +314,19 @@ pub struct FnDecl {
     /// itself is never callable. Declared with the keyword, not inferred
     /// from the body (user direction 2026-09-08).
     pub is_yield: bool,
+    /// [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished`: a
+    /// hand-written `next` whose **pass struct is generated**. The subject is
+    /// ordinary data; the pass's own fields are declared in the `state { … }`
+    /// block below and initialized once per pass. Desugared away before the
+    /// checker ever sees it (`desugar::expand_pass_fns`), into a hidden struct,
+    /// an `iter` that mints it, and this body as an ordinary `next` — so
+    /// nothing downstream knows the form exists.
+    pub is_pass: bool,
+    /// [pass-fn] The `state { … }` block's fields, in declaration order. Each
+    /// carries an annotation and an initializer, exactly like a handler's state
+    /// [effect-handler]; the initializer may read the subject and runs when the
+    /// pass is minted.
+    pub pass_state: Vec<FieldDecl>,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].

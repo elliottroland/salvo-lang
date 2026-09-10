@@ -13,11 +13,11 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__5(pass: StrYield): Union2<Char, Finished> {
-    val chr = pass.text.getOrNull(pass.at)
+fun next__5(p: StrYield): Union2<Char, Finished> {
+    val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
     }
-    pass.at = pass.at + 1
+    p.at = p.at + 1
     return U2_1<Char, Finished>(emitted(chr))
 }

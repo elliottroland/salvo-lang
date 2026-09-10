@@ -3034,7 +3034,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(list) if !list.is_empty() => list.clone(),
             _ => return,
         };
-        for imp in &implicits {
+        // [implicit-infer] Repeated until it stops learning, because one
+        // implicit can determine another's type: `?iter: (c: C) -> Mut It`
+        // teaches `It`, which is what makes the `?Yield<It, T>` beside it
+        // resolvable at all (user decision 2026-09-10). Declaration order is
+        // therefore not a constraint on the author, and the cap is the number of
+        // implicits — each round has to bind at least one variable to continue.
+        for _ in 0..=implicits.len() {
+            let before = progressive.len();
+            self.learn_from_implicits_once(&implicits, callee_generics, progressive);
+            if progressive.len() == before {
+                break;
+            }
+        }
+    }
+
+    /// One sweep of [implicit-infer]: each implicit that still mentions an
+    /// unbound variable of the callee is resolved against what is known, and
+    /// what that determines is read back.
+    fn learn_from_implicits_once(
+        &mut self,
+        implicits: &[ImplicitParam],
+        callee_generics: &HashSet<String>,
+        progressive: &mut HashMap<String, Ty>,
+    ) {
+        for imp in implicits {
             // The implicit's type as far as this call knows it, with the
             // *unknown* parts left as variables (`substitute_vars` would
             // erase them to `Unknown`, and then there would be nothing to
@@ -11941,6 +11965,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [implicit-infer] A last round of learning, now that every argument is
+        // typed. An implicit whose *result* determines a type variable —
+        // `?iter: (c: C) -> [] Mut It`, where nothing but the chosen `iter`
+        // says what `It` is — can only teach it once `C` is known, and `C` is
+        // known only after the arguments. The rounds inside the loop above run
+        // *between* arguments, so without this one a container-shaped
+        // combinator could never infer its pass type.
+        let mut subst = subst;
+        self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst);
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
         self.resolve_implicits(decl, best_key, &subst, &callee_generics, named, span);

@@ -4,6 +4,12 @@
 2. got 5
 2. got 4
 2. rest sums to 6
+2b. halving 20
+2b. halving 10
+2b. halving 5
+2b. halving 2
+2b. halving 1
+2b. summed from a held pass: 38
 3. opening
 3. fib 0
 3. fib 1

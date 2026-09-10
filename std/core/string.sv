@@ -41,12 +41,12 @@ struct StrYield : Yield<self, Char> canbe Mut {
 
 // Advances the pass, reporting the character at its position or the end of the
 // string.
-fn next(pass: Mut StrYield) [] -> [pass: Mut] Emitted Char | Finished {
-    let chr = char_at(pass.text, pass.at)
+fn next(p: Mut StrYield) [] -> [p: Mut] Emitted Char | Finished {
+    let chr = char_at(p.text, p.at)
     if chr is None {
         return finished()
     }
-    pass.at = pass.at + 1
+    p.at = p.at + 1
     return emitted(chr)
 }
 

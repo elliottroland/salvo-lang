@@ -71,6 +71,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "emitted",
                     span: 1555..1562,
@@ -178,6 +180,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "finished",
                     span: 1662..1670,
@@ -278,6 +282,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "next",
                             span: 2689..2693,

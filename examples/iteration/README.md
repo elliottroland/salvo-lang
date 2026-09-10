@@ -19,11 +19,19 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    a `Str`. No pass is allocated and the container is not consumed — the
    backends keep their own loop for this shape, which is why it is the cheapest
    and the most common.
-2. **A pass of your own.** `Countdown` holds the position as a field and its
-   `next` is an ordinary function. This is the form `yield` cannot express —
-   two sources at once, explicit state — and it is also what `iter(xs)` hands
-   back. Because a pass is a *value*, `take` drives it partway and `main`
-   carries it on from where the `break` left it.
+2. **A pass of your own, written out.** `Countdown` holds the position as a
+   field and its `next` is an ordinary function. This is the form `yield` cannot
+   express — two sources at once, explicit state — and it is also what
+   `iter(xs)` hands back. Because a pass is a *value*, `take` drives it partway
+   and `main` carries it on from where the `break` left it. Write it out like
+   this when the pass needs a **name**: to store it in a field, to hand it to a
+   function, to zip two of them.
+2b. **The same pass with the struct generated: `pass fn`.** `Halving` is
+   ordinary data; the `state { … }` block is the pass's own fields, evaluated
+   once when the pass is minted; and the compiler writes the pass struct and the
+   `iter` that mints one. Nothing suspends — the body *is* the `next` — so there
+   is no state machine in the output. The subject's fields are read-only inside
+   the body, and `iter(h)` hands back a pass you can hold in a local.
 3. **A generator.** `yield fn next(f: Fibs)` says the same thing as a body and
    leaves the state machine to the compiler. The subject is an **origin** —
    ordinary data you keep — and the machine is nameless, so nobody can hold
@@ -54,6 +62,13 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
   `pub struct Countdown` plus `next__6`, and the loop over it is
   `while let Union2::U1(mut n) = next__6(p)` — advancing the pass *where it
   lives*, which is what lets the caller keep driving it.
+- **A `pass fn` generates exactly what you would have written by hand.**
+  `pub struct __Pass_Halving { pub __subject: Halving, pub at: i32 }`, an
+  `iter__…` that copies the subject in (`__subject: h.clone()`, which is why
+  the subject replays), and the author's body as an ordinary `next`. No state
+  number, no `__advance`, no flags — the difference from the generator below is
+  the whole point of the form. The struct's name is not writable in Salvo, which
+  is what keeps "a pass you must name is written by hand" true.
 - **A generator becomes a state machine nobody can name.** `__Pass_Fibs` with
   `__advance` and `__close`, minted at the loop (`__Pass_Fibs::new(fibs(6))`)
   and closed on every exit — including where a combinator abandons it, which is

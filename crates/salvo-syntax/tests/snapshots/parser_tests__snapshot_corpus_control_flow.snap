@@ -9,6 +9,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "full_name",
                     span: 3..12,
@@ -184,6 +186,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "union_moves",
                     span: 165..176,
@@ -392,6 +396,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "describe",
                     span: 378..386,
@@ -631,6 +637,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "precise_checks",
                     span: 631..645,
@@ -874,6 +882,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "classify",
                     span: 1039..1047,
@@ -1027,6 +1037,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "describe",
                     span: 1309..1317,
@@ -1223,6 +1235,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "last_number",
                     span: 1467..1478,
@@ -1398,6 +1412,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "count",
                     span: 1633..1638,
@@ -1565,6 +1581,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "full_name_expr",
                     span: 1780..1794,
@@ -1744,6 +1762,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "read_config",
                     span: 2098..2109,

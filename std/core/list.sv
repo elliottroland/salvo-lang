@@ -49,11 +49,11 @@ struct ListYield<T> : Yield<self, T> canbe Mut {
 // Advances the pass, reporting the element at its position or the end of the
 // list. Out of range is the end: [get] answers `None` past the last index, so
 // the bound is read rather than remembered.
-fn next<T>(pass: Mut ListYield<T>) [] -> [pass: Mut] Emitted T | Finished {
-    let elem = get(pass.items, pass.at)
+fn next<T>(p: Mut ListYield<T>) [] -> [p: Mut] Emitted T | Finished {
+    let elem = get(p.items, p.at)
     if elem is None {
         return finished()
     }
-    pass.at = pass.at + 1
+    p.at = p.at + 1
     return emitted(elem)
 }

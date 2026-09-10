@@ -1054,7 +1054,11 @@ Conventions:
     (`-> []`): walking a container by hand is walking a value that now holds
     it. Walking the same container twice therefore copies (`iter(copy(xs))`).
   * A `for` over a container is lowered as *mint then drive*: the checker
-    records the `iter` to call beside the `next` to drive.
+    records the `iter` to call beside the `next` to drive, and **both emitters
+    call it** — until 2026-09-09 the record was read by nobody, so a `for` over a
+    container of one's own emitted a drive of the container itself, which the
+    target compiler rejected (found while building [pass-fn], whose generated
+    `iter` walks the same path).
 * [iter-for-native] A `for` over an **intrinsic container** — a list, an array,
   a `Str` — records no driver at all: the backends iterate their own data
   natively, which neither allocates a pass nor consumes the subject. The
@@ -1128,6 +1132,17 @@ Conventions:
   the inference ordinary: `It` is bound by an argument, so nothing depends on
   feeding one implicit's resolution into another (user decision 2026-09-09,
   replacing `?Iterable`). There is no `Iterable` group and no iterator type.
+  * **std relies on the pass and never on an `iter`** (user decision
+    2026-09-10), and the reason is stronger than the inference one: a source is
+    not guaranteed to *have* a container behind it. A `yield fn`'s machine, a
+    composed pass from `map_lazy`, a hand-written `zip` — for each of those the
+    pass is all there is, so a std function that asked for an `iter` would
+    exclude them by construction. A *program* may still write a
+    container-shaped combinator (`?iter` as an implicit, whose result determines
+    the pass type [implicit-infer]); std may not.
+    * The `List` fast paths are not an exception: they are overloads on a
+      concrete intrinsic type, lowered to the target's own collection
+      operations, and they ask for no `iter` [fn-overload-rank].
   * **Eager by default, with two named variants** (user decision 2026-09-08).
     `map`/`filter`/`reduce` return `Mut List<U>`; the default is the one that
     surprises least, and chaining works because a list has an `iter`.
@@ -1309,6 +1324,21 @@ Conventions:
     part of the pattern, and then the *caller's* variables bind from the
     instantiated candidate. A part that is still one of the caller's
     variables teaches nothing and must not match everything.
+  * **Repeated until it stops learning, and once more after every argument is
+    typed** (user decision 2026-09-10). That is what makes a *container*-shaped
+    combinator work — `total<C, It>(c: C, ?iter: (c: C) -> [] Mut It,
+    ?Yield<It, Int>)`, where nothing but the chosen `iter` says what `It` is:
+    `C` is only known after the arguments, so the sweeps between them cannot
+    learn `It`, and one implicit determining another needs the sweep repeated.
+    Declaration order is therefore not a constraint on the author.
+    * The motivating case is a [pass-fn] subject, whose generated pass is
+      **unnameable** — so a written type-argument list is not an available
+      workaround and inferring it is the only way the shape can exist.
+    * **Ambiguity is accepted as the price** (user decision 2026-09-10): with
+      the container type itself undetermined, several `iter`s match and the
+      choice would be a guess. The remedies are the ordinary ones — a `rename`
+      that makes one of them answer to a different name [fn-rename], or passing
+      the member by name (`iter = ...`) [implicit-override].
   * Silent when the resolution is ambiguous or absent — [implicit-resolve]
     reports that at the end of the call, so one mistake stays one
     diagnostic.
@@ -1367,6 +1397,79 @@ Conventions:
     with `when`) or a re-wrap — a `yield fn` of one's own driving the pass it
     was given. Nothing is boxed implicitly and nothing is dynamically
     dispatched.
+* [pass-fn] A **`pass fn`** is a hand-written `next` whose **pass struct is
+  generated** (user decision 2026-09-09): the subject stays ordinary data, the
+  `state { … }` block declares the pass's own fields, and the compiler writes the
+  pass struct plus the `iter` that mints one. It is the third way to be
+  iterable, beside a written-out pass [iter-protocol] and a `yield fn`
+  [yield-fn-origin], and the one with the least to declare — the subject needs
+  no `: Yield<self, T>` clause, because the `pass fn` *is* the declaration.
+
+  ```
+  struct Countdown { from: Int }
+
+  pass fn next(c: Countdown) -> Emitted Int | Finished {
+      state {
+          at: Int = c.from
+      }
+      if at <= 0 { return finished() }
+      at = at - 1
+      return emitted(at + 1)
+  }
+  ```
+
+  * **It is a desugaring, done in the syntax crate** (`desugar::expand_pass_fns`,
+    inside `parse_module`), into a hidden `struct __Pass_<Subject> :
+    Yield<self, T> canbe Mut { __subject: Subject, <state fields> }`, an
+    `fn iter(s: Subject) [] -> [s] Mut __Pass_<Subject>` whose body is the struct
+    literal, and the author's body as `fn next(__p: Mut __Pass_<Subject>) ->
+    [__p: Mut] Emitted T | Finished` with the subject and the state fields
+    written out as field reads. Nothing downstream knows the form exists, which
+    is why `for`, the combinators, `let p = iter(c)`, deductions, narrowing and
+    both emitters need no new machinery.
+  * **The `state` block is declarations only**, each with an annotation and an
+    initializer, evaluated **once per pass, at the mint**. The initializers
+    become the body of the generated `iter`, which is declared `[]` — so "no
+    effects in an initializer" is not a rule of its own but an ordinary effect
+    error at the offending call. (The annotations are required for the same
+    reason a struct field's are; all three sites — struct fields, handler state,
+    `state` fields — would gain inference together.)
+  * **The pass holds as little of the subject as the body needs**, decided by a
+    scan of the body in three tiers — all observationally identical, because the
+    mint reads the subject once and the pass can never see a later write to it:
+    1. the body never reads the subject (a plain counter): the pass holds
+       **nothing** of it, and the mint is `__Pass_C { at: c.from }`;
+    2. the body only ever reads *plain fields* of it, their types are visible
+       (the subject's struct is declared in the same file) and the subject type
+       is non-generic: one **snapshot field per field read**, initialized at the
+       mint (`__Pass_Fibs { count: f.count, … }`), keeping the field's own name
+       unless a `state` field already has it;
+    3. otherwise — the subject handed on as a value, an assignment through it, a
+       generic subject, a declaration this file cannot see: the **whole subject**
+       is copied in (`copy(s)` in the generated `iter`, whose deduction keeps it).
+  * **Copying rather than sharing** is what makes a second drive start over and
+    what keeps the backends in step: sharing the subject would make a write
+    during one drive visible on one target only. In tier 3 a *generic* subject is
+    therefore refused by the Kotlin `copy` lowering [kt-copy] until it can decide
+    mutability through a type variable — loud, never wrong.
+  * **The subject is read-only in the body**: it is a field of the pass typed as
+    the subject, so writing through it is the standing [struct-mut] refusal.
+  * **The generated pass is not nameable.** `__Pass_…` is the compiler's
+    namespace and a *written* type reference beginning with `_` is a parse error,
+    so a pass a program must name is written out by hand — the boundary the form
+    rests on.
+  * **Refused, each at the declaration**: a name other than `next` (it is the
+    obligation's member, and `for` reads a declaration), a parameter count other
+    than one, a `Mut` subject (advancing never writes through it), a result other
+    than `Emitted T | Finished` (the element type is read out of it), a
+    structural subject (array, tuple, union — the pass is named after the
+    subject), a `state` field without an initializer or an empty `state` block,
+    and a binding in the body that would **shadow** the subject or a `state`
+    field (it would silently mean something else).
+  * **Effects are ordinary effects**: each `next` is a separate call, so
+    `[Console]` on a `pass fn` needs no threading of handlers across a
+    suspension — a `for` passes them per turn [fn-effects].
+
 * [yield-fn-origin] A **`yield fn`** is the sugared way to discharge a
   `: Yield<self, T>` obligation [group-obligation] (user direction 2026-09-08,
   roadmap R3): the subject is the **origin** struct, the return type is the

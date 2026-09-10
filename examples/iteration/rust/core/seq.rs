@@ -51,12 +51,12 @@ pub fn map_lazy<It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(mut
     return MapYield { source: it, f: std::rc::Rc::new(f), step: std::rc::Rc::new(next) };
 }
 
-pub fn next__3<It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(pass: &mut MapYield<It, T, U>) -> Union2<U, Finished> {
-    let mut advance = pass.step.clone();
-    let mut step = advance(&mut pass.source);
+pub fn next__3<It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(p: &mut MapYield<It, T, U>) -> Union2<U, Finished> {
+    let mut advance = p.step.clone();
+    let mut step = advance(&mut p.source);
     match step {
         Union2::U1(_) => {
-            let mut f = pass.f.clone();
+            let mut f = p.f.clone();
             return Union2::<U, Finished>::U1(emitted(f(&(step.u1().clone()))));
         }
         Union2::U2(_) => {
@@ -86,12 +86,12 @@ pub fn filter_lazy<It: Clone + 'static, T: Clone + 'static>(mut it: It, keep: im
     return FilterYield { source: it, keep: std::rc::Rc::new(keep), step: std::rc::Rc::new(next) };
 }
 
-pub fn next__4<It: Clone + 'static, T: Clone + 'static>(pass: &mut FilterYield<It, T>) -> Union2<T, Finished> {
-    let mut advance = pass.step.clone();
-    let mut keep = pass.keep.clone();
+pub fn next__4<It: Clone + 'static, T: Clone + 'static>(p: &mut FilterYield<It, T>) -> Union2<T, Finished> {
+    let mut advance = p.step.clone();
+    let mut keep = p.keep.clone();
     let mut going = true;
     while going {
-        let mut step = advance(&mut pass.source);
+        let mut step = advance(&mut p.source);
         match step {
             Union2::U1(_) => {
                 if keep(&(step.u1().clone())) {

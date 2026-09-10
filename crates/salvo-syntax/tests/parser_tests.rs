@@ -1209,3 +1209,34 @@ fn a_rename_takes_no_effects_deductions_or_return_type() {
         );
     }
 }
+
+/// [pass-fn] The `pass fn` expansion, as the rest of the compiler sees it: a
+/// hidden `__Pass_Countdown` carrying the subject and the `state` fields, an
+/// `iter` that mints one (copying the subject, so a second drive starts over),
+/// and the author's body as an ordinary `next` with every field written out.
+///
+/// Snapshotted rather than asserted piecemeal because the *whole* shape is the
+/// contract: this is the only place the generated declarations are visible.
+#[test]
+fn snapshot_pass_fn_expansion() {
+    let source = "\
+struct Countdown {
+    from: Int
+}
+
+pass fn next(c: Countdown) -> Emitted Int | Finished {
+    state {
+        at: Int = c.from
+    }
+    if at <= 0 {
+        return finished()
+    }
+    at = at - 1
+    return emitted(at + 1)
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    insta::assert_debug_snapshot!(module);
+}

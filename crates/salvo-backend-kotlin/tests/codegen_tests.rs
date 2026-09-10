@@ -6224,11 +6224,22 @@ fn main() [use] {
     println("names: ${size(lens)} ${size(long)}")
     let bag = Bag {items: list(5, 6)}
     println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
+    // [iter-pass] `for` over a *container of one's own*: the loop calls its
+    // `iter` once and drives the pass that answers. Until 2026-09-09 the
+    // checker recorded that mint and neither emitter made the call, so this
+    // shape emitted code the target compiler rejected.
+    // (a second bag, because this demo's `iter` *moves* its container — the
+    // one above was consumed by the `reduce`.)
+    let more = Bag {items: list(5, 6)}
+    for n in more {
+        println("bag element ${n}")
+    }
 }
 "#;
 
 const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
-                               iter: 10 2\nnames: 3 1\nbag: 11\n";
+                               iter: 10 2\nnames: 3 1\nbag: 11\n\
+                               bag element 5\nbag element 6\n";
 
 /// [kt-seq] [seq-pass] A `params` group emits nothing, and the `List` fast
 /// paths lower to Kotlin's own collection operations; the generic body is a
@@ -6477,4 +6488,246 @@ fn a_machine_takes_a_generic_effect_handler() {
         src.contains("__Pass_Rolls(rolls(3))"),
         "expected the origin builder called without handlers in:\n{src}"
     );
+}
+
+// ===== [pass-fn] the generated-pass form =====
+
+/// [pass-fn] A hand-written `next` whose **pass struct is generated** (user
+/// decision 2026-09-09): the subject stays ordinary data, the `state { … }`
+/// block is the pass's own fields, and the compiler writes the struct plus the
+/// `iter` that mints it.
+///
+/// Six things in one program, and the same source and stdout on both backends:
+/// a `for` over a subject, the subject **replayed** (driving copied it), a pass
+/// **held** and driven by hand then finished by a `for` — the capability the
+/// `yield fn` origin lacks, since each loop re-mints — several `state` fields,
+/// a subject field read on every turn, and an **effectful** `next`, whose
+/// handlers are threaded into every turn of the loop.
+const PASS_FN_DEMO: &str = r#"
+struct Countdown {
+    from: Int
+}
+
+pass fn next(c: Countdown) -> Emitted Int | Finished {
+    state {
+        at: Int = c.from
+    }
+    if at <= 0 {
+        return finished()
+    }
+    at = at - 1
+    return emitted(at + 1)
+}
+
+struct Fibs {
+    count: Int
+}
+
+pass fn next(f: Fibs) -> Emitted Int | Finished {
+    state {
+        a: Int = 0,
+        b: Int = 1,
+        made: Int = 0
+    }
+    if made >= f.count {
+        return finished()
+    }
+    let now = copy(a)
+    let sum = a + b
+    a = copy(b)
+    b = copy(sum)
+    made = made + 1
+    return emitted(now)
+}
+
+struct Noisy {
+    limit: Int
+}
+
+pass fn next(n: Noisy) [Console] -> Emitted Int | Finished {
+    state {
+        at: Int = 0
+    }
+    if at >= n.limit {
+        println("  done")
+        return finished()
+    }
+    println("  turn ${at}")
+    at = at + 1
+    return emitted(copy(at))
+}
+
+struct Row {
+    label: Str,
+    times: Int
+}
+
+fn describe(r: Row) -> [r] Str {
+    return "${r.label}!"
+}
+
+pass fn next(r: Row) -> Emitted Str | Finished {
+    state {
+        left: Int = r.times
+    }
+    if left <= 0 {
+        return finished()
+    }
+    left = left - 1
+    return emitted(describe(r))
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    let c = Countdown { from: 3 }
+    for n in c {
+        println("n ${n}")
+    }
+    for n in c {
+        println("again ${n}")
+    }
+
+    let p = iter(c)
+    let first = next(p)
+    when first {
+        is Emitted { println("first ${first}") }
+        is Finished { println("empty") }
+    }
+    for n in p {
+        println("rest ${n}")
+    }
+
+    println("fib total ${reduce(iter(Fibs { count: 7 }), 0, (acc: Int, n: Int) -> acc + n)}")
+
+    let noisy = Noisy { limit: 2 }
+    for v in noisy {
+        println("v ${v}")
+    }
+    let row = Row { label: "hey", times: 2 }
+    for s in row {
+        println("s ${s}")
+    }
+}
+"#;
+
+const PASS_FN_OUTPUT: &str = "n 3\nn 2\nn 1\nagain 3\nagain 2\nagain 1\nfirst 3\n\
+                              rest 2\nrest 1\nfib total 20\n  turn 0\nv 1\n  turn 1\n\
+                              v 2\n  done\ns hey!\ns hey!\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_the_pass_fn_form() {
+    let program = build_program(&[("main.sv", PASS_FN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "pass-fn", PASS_FN_OUTPUT);
+}
+
+/// [pass-fn] The generated declarations are ordinary Kotlin: a data class for
+/// the pass, a function that mints one, and the author's body as a function.
+/// Nothing suspends, so there is no `iterator {}` builder and no state number.
+#[test]
+fn a_pass_fn_emits_a_plain_class_and_next() {
+    let program = build_program(&[("main.sv", PASS_FN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    // [pass-fn] Tier 1 — the body never reads the subject, so the pass holds
+    // nothing of it.
+    assert!(
+        src.contains("data class __Pass_Countdown(\n    var at: Int,\n)")
+            && src.contains("__Pass_Countdown(at = c.from)"),
+        "expected a subject-free pass:\n{src}"
+    );
+    // Tier 2 — one snapshot field for the one subject field the body reads.
+    assert!(
+        src.contains("data class __Pass_Fibs(\n    var count: Int,")
+            && src.contains("__Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)")
+            && !src.contains("var __subject: Fibs"),
+        "expected a per-field snapshot:\n{src}"
+    );
+    // Tier 3 — the whole subject is handed on, so the pass holds it.
+    assert!(
+        src.contains("data class __Pass_Row(\n    var __subject: Row,")
+            && src.contains("__Pass_Row(__subject = r, left = r.times)"),
+        "expected the whole subject to be kept:\n{src}"
+    );
+    assert!(
+        !src.contains("__advance") && !src.contains("iterator {"),
+        "a `pass fn` needs no state machine:\n{src}"
+    );
+    // [fn-effects] The effectful `next` gets its handler per turn.
+    assert!(
+        src.contains("next__8(console, __loop"),
+        "expected the handler threaded into the drive:\n{src}"
+    );
+}
+
+/// [implicit-infer] A generic function over **containers** rather than passes:
+/// it takes the container and asks for its `iter` as an implicit parameter, so
+/// the pass type is decided by *which `iter` fills it* and the `?Yield` spread
+/// beside it resolves against what that taught (user decision 2026-09-10).
+///
+/// One function, three container kinds, no type arguments written — including a
+/// `pass fn` subject, whose generated pass **cannot** be named, which is why
+/// inferring it had to work rather than being worked around.
+const CONTAINER_IMPLICIT_DEMO: &str = r#"
+struct Countdown {
+    from: Int
+}
+
+pass fn next(c: Countdown) -> Emitted Int | Finished {
+    state {
+        at: Int = c.from
+    }
+    if at <= 0 {
+        return finished()
+    }
+    at = at - 1
+    return emitted(at + 1)
+}
+
+struct Bag {
+    items: List<Int>
+}
+
+fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+    return iter(bag.items)
+}
+
+fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
+    let sum = 0
+    let p = iter(c)
+    for n in p {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let c = Countdown { from: 3 }
+    println("generated pass: ${total(c)}")
+    let b = Bag { items: list(4, 5) }
+    println("written iter: ${total(b)}")
+    println("a list: ${total(list(1, 2, 3))}")
+}
+"#;
+
+const CONTAINER_IMPLICIT_OUTPUT: &str =
+    "generated pass: 6\nwritten iter: 9\na list: 6\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_container_combinator() {
+    let program = build_program(&[("main.sv", CONTAINER_IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT);
 }

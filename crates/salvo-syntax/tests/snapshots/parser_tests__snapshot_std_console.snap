@@ -20,6 +20,8 @@ Module {
                         ],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "print",
                             span: 80..85,
@@ -115,6 +117,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "println",
                     span: 168..175,

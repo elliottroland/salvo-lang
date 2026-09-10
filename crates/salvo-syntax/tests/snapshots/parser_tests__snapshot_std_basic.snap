@@ -205,6 +205,8 @@ Module {
                 ],
                 intrinsic: true,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "copy",
                     span: 579..583,
@@ -303,6 +305,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "close",
                             span: 1317..1322,
@@ -367,6 +371,8 @@ Module {
                 ],
                 intrinsic: true,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "discard",
                     span: 1572..1579,

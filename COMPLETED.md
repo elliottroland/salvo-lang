@@ -119,6 +119,184 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**std takes a pass and never asks for an `iter` (user decision 2026-09-10).** The
+boundary drawn around the previous entry, and the reason given is stronger than
+the inference argument R5 used: *a source is not guaranteed to have a container
+behind it at all*. A `yield fn`'s machine, a composed pass out of `map_lazy`, a
+hand-written `zip` — the pass is all there is in each case, so a std function
+declaring `?iter` would exclude them by construction. So the container-shaped
+combinator stays something a **program** may write, and `std/` keeps taking
+passes; verified as already true (`grep`: every `?`-spread in `std/` is
+`?Yield<It, T>`, and the `List` fast paths are overloads on a concrete intrinsic
+type that ask for no `iter`). Recorded under [seq-pass] so the next combinator
+author, and S-IO, inherit it.
+
+**A generic function may now take a *container* and infer its pass type (user
+decision 2026-09-10).** The shape:
+
+```
+fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
+    let sum = 0
+    let p = iter(c)
+    for n in p { sum = sum + n }
+    return sum
+}
+
+total(countdown)      // a `pass fn` subject — its pass has no name
+total(bag)            // a container with a written `iter`
+total(list(1, 2, 3))  // std's own `iter`
+```
+
+`?iter` was always *declarable* — there is nothing special about the name — but
+`It` could not be inferred, so `next` was reported ambiguous with `It` still `?`
+and the caller had to write both type arguments. **For a `pass fn` subject that
+was not a workaround at all**: the generated pass is unnameable, so there is no
+type argument to write. That is what made this worth doing rather than recording.
+
+- **The mechanism already existed and was called in the wrong place.**
+  `extend_subst_from_implicits` ([implicit-infer], built with S-Seq) learns a
+  caller's type variables from whichever fn fills an implicit — but it ran only
+  *between* arguments, where `C` is not yet bound, so every `iter` matched
+  `(?) -> Mut ?` and it learned nothing. It now also runs once after the
+  arguments are typed, and repeats until it stops learning, so one implicit can
+  determine another's type and declaration order stops mattering.
+- **Ambiguity is the accepted price** (user decision): with the container type
+  itself undetermined, several `iter`s match and the choice would be a guess. The
+  user's reasoning is that the remedies are already in the language — a `rename`,
+  or passing the member by name — so a guess is the wrong trade.
+- **No emission change**: implicits are ordinary trailing parameters, so the
+  generated Rust is `total<C, It>(c: C, iter: &mut dyn FnMut(C) -> It, next:
+  &mut dyn FnMut(&mut It) -> Union2<i32, Finished>)`. Verified on both backends
+  with one program covering all three container kinds, plus three checker tests
+  (including the accepted ambiguity).
+- **What it re-opens, deliberately**: R5 chose "a combinator's subject *is* the
+  pass" precisely to avoid cross-implicit inference, and this brings it back as an
+  *option* rather than as std's convention. std still takes passes; a container
+  combinator is now something a program can write.
+
+**`pass fn` landed (user decision 2026-09-09): a hand-written `next` whose pass
+struct is generated.** The question behind it was the user's: the generated state
+machine for a `yield fn` is a lot of code per producer, so what if the *other*
+form — writing `next` by hand — lost its boilerplate instead? The hurdle was
+having to declare a pass struct for the position. Now:
+
+```
+struct Countdown { from: Int }
+
+pass fn next(c: Countdown) -> Emitted Int | Finished {
+    state {
+        at: Int = c.from
+    }
+    if at <= 0 { return finished() }
+    at = at - 1
+    return emitted(at + 1)
+}
+```
+
+One declaration makes `Countdown` iterable — `for n in c`, `iter(c)` to hold a
+pass, and the combinators — with **no state machine anywhere in the output**.
+The design decisions, all the user's: the `state` block groups the fields and
+mirrors a struct/handler body (so it is *declarations only*, and the annotations
+are required for now in all three places at once), the subject is read-only, and
+the generated pass stays unnameable.
+
+**It is a desugaring in the syntax crate, and that is the whole reason it was
+cheap** [pass-fn]. `desugar::expand_pass_fns` runs inside `parse_module` and
+expands one `pass fn` into three ordinary declarations: a hidden
+`struct __Pass_<Subject> : Yield<self, T> canbe Mut` holding the subject and the
+`state` fields, an `iter` whose body is the struct literal (so the initializers
+land where they can read the subject), and the author's body as an ordinary
+`next` with the fields written out. Nothing downstream knows the form exists —
+resolve, the checker, deductions, narrowing, the LSP and both emitters see the
+shape they already supported — so `for`, `iter(c)`, combinators, `?Yield` spreads
+and `map_lazy` all worked on the first run. Three rules fell out rather than
+being written:
+
+- **"No effects in a `state` initializer"** is not a check: the initializers
+  become the body of an `iter` declared `[]`, so an effectful call there is an
+  ordinary effect error pointing at the call.
+- **"The subject is read-only"** is not a check either: it is a field of the pass
+  typed as the subject, so writing through it is the standing [struct-mut]
+  refusal, with its existing message.
+- **`state` fields get every rule for free** — types, `Mut`, narrowing,
+  deductions — because they *are* struct fields.
+
+**Two defects fell out of building it, both in the path the feature needs.**
+
+- **`for` over a container of one's own emitted code the target compiler
+  rejected.** The checker has recorded the `iter` to mint with since R5
+  (`PassDriver::mint_iter_fn`) and **neither emitter read it**: the loop bound the
+  *container* to its pass local and called `next` on it. `salvo analyze` was
+  clean, so LANGUAGE.md's promise that "`for x in bag` works as soon as
+  `iter(bag)` does" was false on both backends — a [backend-never-wrong]
+  violation that had been invisible because every checked-in example wrote
+  `iter(bag)` at the call site instead. Both emitters now call it; the seq demo
+  drives a `Bag` directly to pin it.
+- **Synthesized AST needs unique spans.** The checker's side tables are keyed by
+  span — `fn_refs` → `fn_effects`, `expr_ty`, `coerce`, `call_fn` — so the
+  generated `iter` and `next` sharing one name span made `iter` inherit the
+  `pass fn`'s `[Console]`, and a shared expression span typed a `copy` argument
+  as the struct literal that shared it. Fixed with a span allocator that hands
+  each synthesized node its own byte *inside* the declaration, so every span is
+  still real. Recorded as a gotcha: it is the first desugaring in the compiler,
+  and it will not be the last.
+
+**And one recorded cut is gone**: an **effectful `next` driven by a `for`** was a
+codegen error on both backends ("the handlers would have to be threaded into
+every turn of the loop"). It is threading, and the loop site has the handlers, so
+both emitters now pass them per turn — which is what makes an effectful `pass fn`
+work, and it lifts the same cut for hand-written passes. A *generic* `next` with
+effects is still refused (its effects live on a fn value the caller supplied).
+
+**What it cost, and what it did not.** Two new keywords (`pass`, `state`), which
+took std's `next(pass: Mut ListYield<T>)` parameters to `p`; a leading-underscore
+type reference is now a parse error, which is what keeps the generated pass
+unnameable; and no new machinery in the checker or either emitter beyond the mint
+call and the handler threading. Verified with one program on both backends to
+byte-identical stdout — a `for` over a subject, the subject replayed, a pass held
+and driven by hand then finished by a `for`, three `state` fields, a subject field
+read per turn, and an effectful `next` — plus 22 new tests (17 checker, a parser
+snapshot of the expansion itself, 2 per backend) and a `pass fn` producer added to
+`examples/iteration`.
+
+**A follow-up the same day: the pass holds as little of the subject as the body
+needs.** Reading the generated code, the user asked why the pass keeps the
+subject at all — and for a plain counter it does not need to: `Halving` reads
+`h.start` once, in a `state` initializer, so the field and its per-mint clone were
+pure waste. The desugaring now *scans* the body first and picks one of three
+tiers: **nothing** when the body never reads the subject; **one snapshot field
+per field read** when it only ever reads plain fields (types taken from the
+subject's declaration, the field's own name kept unless a `state` field has it);
+and the **whole subject** otherwise — handed on as a value, assigned through, a
+generic subject, or a declaration this file cannot see.
+
+- **It is free of new rules**, because the mint already copies: the pass can
+  never observe a later write to the subject, so snapshotting fields at the mint
+  says exactly what a whole copy says. That is what made this cheap here and
+  expensive for the `yield fn` machine, where the same idea (roadmap "Mutable
+  origins", option (e)) has to interact with the freeze rule.
+- **The predicate it needs was already there.** The blocker recorded for option
+  (e) was that deciding "every use of the origin is a plain field read" needs a
+  *complete* expression walk, and `collect_bindings_expr` is not one. The
+  desugarer's rewriter **is** one — exhaustive over every `Expr` and `Stmt` by
+  construction — so the scan is that same traversal in a second mode rather than
+  a walk to keep in step by hand.
+- **Assignment through the subject falls back to tier 3 deliberately**: with a
+  snapshot the write would land on a field of the (mutable) pass and *succeed*,
+  which would quietly undo the read-only rule. Keeping the subject whole makes
+  the standing [struct-mut] refusal fire with its own message.
+- What it saves, measured on the checked-in examples: `__Pass_Halving` went from
+  `{ __subject: Halving, at: i32 }` with `h.clone()` at every mint to
+  `{ at: i32 }`, and `__Pass_Fibs` from holding a `Fibs` to holding the one
+  `Int` it reads. Four more tests, and each backend's assertions now pin all
+  three tiers.
+
+**Known limitation, inherited rather than introduced**: a *generic* subject
+(`pass fn next<T>(w: Window<T>)`) reaching tier 3 is refused by the Kotlin `copy`
+lowering [kt-copy], which cannot decide mutability through a type variable. Rust
+handles it; Kotlin says so loudly. `yield fn` is untouched and still the answer
+when a body's control flow should not be inverted by hand.
+
 **The order of the remaining work is fixed (user decision 2026-09-09), and one
 roadmap item turned out to be dead.** With the plan and the record separated, the
 open items could be ranked, and the user set the sequence: **1** finish the
@@ -8529,6 +8707,36 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- (implicit-infer) **A learning pass that only runs *between* arguments cannot
+  learn from the arguments.** `extend_subst_from_implicits` existed, was correct,
+  and was called in the one place where the variable it needed (`C` in
+  `?iter: (c: C) -> Mut It`) was still unbound — so it silently learned nothing
+  and the failure surfaced two implicits later as "`next` is ambiguous". When an
+  inference step reports nothing, check *when* it runs before doubting *what* it
+  does; the fix here was one extra call after the argument loop, plus repeating
+  the sweep to a fixpoint.
+
+- (pass-fn) **A desugaring must give every synthesized node its own span.** The
+  checker's side tables are keyed by span, so two generated declarations sharing
+  a name span silently share their `fn_effects` entry, and two generated
+  expressions sharing a span share their type. Both happened within an hour of
+  each other while building [pass-fn] — the generated `iter` inheriting a
+  `[Console]` it never declared, then a `copy` argument typed as the struct
+  literal beside it. The fix that scales is a span allocator over the original
+  declaration's byte range: unique by construction, and every span still points
+  at real source, so an escaped diagnostic lands in the right place.
+- (pass-fn) **A table the checker fills and nobody reads is a defect waiting.**
+  `PassDriver::mint_iter_fn` was recorded from R5 onward and read by neither
+  emitter, so `for x in bag` over a container of one's own emitted a drive of the
+  container. `grep` for a field's readers when adding one; a `Checked` field with
+  no consumer is either dead or a hole.
+- (pass-fn) **Desugaring into declarations the checker already supports is the
+  cheapest way to add a form.** `pass fn` needed no checker rule, no emitter
+  rule, and no `Checked` field: expanding it in `parse_module` bought `for`,
+  `iter`, the combinators, deductions and narrowing at once. The contrast with
+  `yield fn` — whose machine needed a planner, two renderers and a per-effect-set
+  protocol — is the argument for trying the desugaring first.
 
 - **(generic drive) A convention that reads a *place* has to ask who owns it.**
   Binding a `for` subject into a local is right for a pass the body owns and

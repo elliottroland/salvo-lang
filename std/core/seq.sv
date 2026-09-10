@@ -87,12 +87,12 @@ fn map_lazy<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [] Mut MapYi
     return Mut MapYield<It, T, U> { source: it, f: f, step: copy(next) }
 }
 
-fn next<It, T, U>(pass: Mut MapYield<It, T, U>) [] -> [pass: Mut] Emitted U | Finished {
-    let advance = copy(pass.step)
-    let step = advance(pass.source)
+fn next<It, T, U>(p: Mut MapYield<It, T, U>) [] -> [p: Mut] Emitted U | Finished {
+    let advance = copy(p.step)
+    let step = advance(p.source)
     when step {
         is Emitted {
-            let f = copy(pass.f)
+            let f = copy(p.f)
             return emitted(f(step))
         }
         is Finished {
@@ -116,12 +116,12 @@ fn filter_lazy<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [] Mut
     return Mut FilterYield<It, T> { source: it, keep: keep, step: copy(next) }
 }
 
-fn next<It, T>(pass: Mut FilterYield<It, T>) [] -> [pass: Mut] Emitted T | Finished {
-    let advance = copy(pass.step)
-    let keep = copy(pass.keep)
+fn next<It, T>(p: Mut FilterYield<It, T>) [] -> [p: Mut] Emitted T | Finished {
+    let advance = copy(p.step)
+    let keep = copy(p.keep)
     let going = true
     while going {
-        let step = advance(pass.source)
+        let step = advance(p.source)
         when step {
             is Emitted {
                 if keep(step) {

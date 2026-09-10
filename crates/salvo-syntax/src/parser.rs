@@ -386,7 +386,23 @@ impl<'s> Parser<'s> {
                     );
                     return None;
                 }
-                self.parse_fn_flavored(false, true).map(Item::Fn)
+                self.parse_fn_flavored(false, FnFlavor::Yield).map(Item::Fn)
+            }
+            // [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished` —
+            // a hand-written `next` whose pass struct is generated. Only `fn`
+            // may follow `pass` at item level.
+            TokenKind::KwPass => {
+                self.bump();
+                if !self.at(&TokenKind::KwFn) {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(
+                        format!("expected `fn` after `pass`, found {found}"),
+                        span,
+                    );
+                    return None;
+                }
+                self.parse_fn_flavored(false, FnFlavor::Pass).map(Item::Fn)
             }
             TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
             TokenKind::KwQualifier => self
@@ -1048,12 +1064,15 @@ impl<'s> Parser<'s> {
     // --- Functions ---
 
     fn parse_fn(&mut self, intrinsic: bool) -> Option<FnDecl> {
-        self.parse_fn_flavored(intrinsic, false)
+        self.parse_fn_flavored(intrinsic, FnFlavor::Plain)
     }
 
-    /// [yield-fn-origin] `yield fn` is the origin-struct sugar; the flag is
-    /// carried on the declaration rather than inferred from the body.
-    fn parse_fn_flavored(&mut self, intrinsic: bool, is_yield: bool) -> Option<FnDecl> {
+    /// [yield-fn-origin] `yield fn` is the origin-struct sugar and [pass-fn]
+    /// `pass fn` is the generated-pass form; both are carried on the
+    /// declaration rather than inferred from the body.
+    fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {
+        let is_yield = flavor == FnFlavor::Yield;
+        let is_pass = flavor == FnFlavor::Pass;
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
@@ -1090,8 +1109,16 @@ impl<'s> Parser<'s> {
             }
         }
 
+        // [pass-fn] A `pass fn`'s body opens with the pass's own fields. It is
+        // parsed here rather than as a statement so the body that follows is an
+        // ordinary block: `state` declares data, it does not run.
+        let mut pass_state = Vec::new();
         let body = if self.at(&TokenKind::LBrace) && self.same_line() {
-            Some(self.parse_block()?)
+            if is_pass {
+                Some(self.parse_pass_body(&mut pass_state)?)
+            } else {
+                Some(self.parse_block()?)
+            }
         } else {
             None
         };
@@ -1106,6 +1133,8 @@ impl<'s> Parser<'s> {
             docs,
             intrinsic,
             is_yield,
+            is_pass,
+            pass_state,
             name,
             generics,
             generic_canbe,
@@ -1482,6 +1511,23 @@ impl<'s> Parser<'s> {
     /// makes that decidable.
     fn type_ref_name(&mut self) -> Option<Ident> {
         let head = self.ident()?;
+        // [pass-fn] A leading `_` is the compiler's namespace: a generated pass
+        // struct is `__Pass_<Subject>`, and it exists as a real declaration
+        // after the desugaring, so without this a program could *name* it —
+        // and the whole point of generating it is that a pass you must name is
+        // written by hand.
+        if head.name.starts_with('_') {
+            self.error(
+                format!(
+                    "`{}` is a compiler-generated name and cannot be written: a \
+                     pass a program needs to name is declared as a struct of its \
+                     own, with its own `next`",
+                    head.name
+                ),
+                head.span,
+            );
+            return Some(head);
+        }
         if !head.name.starts_with(|c: char| c.is_uppercase()) {
             return Some(head);
         }
@@ -1528,6 +1574,72 @@ impl<'s> Parser<'s> {
     }
 
     // --- Blocks and statements ---
+
+    /// [pass-fn] A `pass fn`'s body: an optional `state { … }` field block,
+    /// then ordinary statements. The block is *declarations only* (user
+    /// decision 2026-09-09) — it is the pass's shape, not code that runs — so
+    /// it is parsed with the same `parse_field_decl` a struct body uses, and
+    /// every field needs an annotation and an initializer.
+    fn parse_pass_body(&mut self, state: &mut Vec<FieldDecl>) -> Option<Block> {
+        let start = self.expect(&TokenKind::LBrace)?.span;
+        let saved_depth = std::mem::replace(&mut self.group_depth, 0);
+        let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
+        if self.at(&TokenKind::KwState) {
+            let state_span = self.peek().span;
+            self.bump();
+            if self.expect(&TokenKind::LBrace).is_some() {
+                while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+                    let before = self.pos;
+                    match self.parse_field_decl() {
+                        Some(field) => {
+                            if field.default.is_none() {
+                                self.error(
+                                    format!(
+                                        "`state` field `{}` needs an initializer: it is \
+                                         evaluated once, when the pass is minted",
+                                        field.name.name
+                                    ),
+                                    field.span,
+                                );
+                            }
+                            state.push(field);
+                        }
+                        None => self.recover_in_block(),
+                    }
+                    if self.pos == before {
+                        self.bump();
+                    }
+                    self.eat(&TokenKind::Comma);
+                }
+                self.expect(&TokenKind::RBrace)?;
+            }
+            if state.is_empty() {
+                self.error(
+                    "an empty `state` block declares nothing: drop it, or give \
+                     the pass a field",
+                    state_span,
+                );
+            }
+        }
+        let mut stmts = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            let before = self.pos;
+            match self.parse_stmt() {
+                Some(stmt) => stmts.push(stmt),
+                None => self.recover_in_block(),
+            }
+            if self.pos == before {
+                self.bump();
+            }
+        }
+        self.group_depth = saved_depth;
+        self.no_struct = saved_no_struct;
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Some(Block {
+            stmts,
+            span: start.to(end),
+        })
+    }
 
     fn parse_block(&mut self) -> Option<Block> {
         let start = self.expect(&TokenKind::LBrace)?.span;
@@ -2941,3 +3053,13 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
     (expr, diagnostics)
 }
 
+
+/// Which flavour of `fn` is being parsed. A modifier is carried on the
+/// declaration rather than inferred from the body: [yield-fn-origin] for
+/// `yield fn`, [pass-fn] for `pass fn`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FnFlavor {
+    Plain,
+    Yield,
+    Pass,
+}

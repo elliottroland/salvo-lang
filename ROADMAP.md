@@ -63,6 +63,19 @@ first.
 
 **1 — Finish the iterators.** ("Iterators", below.)
 
+- ✅ **A generic function over *containers*** landed 2026-09-10: `?iter` as an
+  implicit whose result determines the pass type, which is the only way the shape
+  can work for a `pass fn` subject (its pass has no name to write). See
+  COMPLETED.md. **std stays pass-only** (user decision 2026-09-10): a source need
+  not have a container behind it, so anything new in `std/` — S-IO's streams
+  included — takes a pass and lets the caller write `iter(c)`.
+- ✅ **`pass fn` with a `state { … }` block** landed 2026-09-09 — a hand-written
+  `next` whose pass struct is generated, which is the answer to "the generated
+  state machine is a lot of code": most producers need no machine at all. The
+  generated pass holds only as much of the subject as the body reads (nothing, a
+  snapshot per field, or the whole value). It also closed a
+  `for`-over-a-container emission defect and lifted the effectful-`next` cut. See
+  COMPLETED.md.
 - The **open defect**: a qualifier applied to an already-qualified value
   flattens, so `emitted(ok("x"))` matches no arm. It is first because it is also
   what makes `Emitted (Ok T | Err E)` unwritable, and phase 4 needs exactly that
@@ -78,6 +91,12 @@ first.
   passes, and three compiler comments still describing `Iter<T>` as current.
 - Optional, and priced as an optimization rather than a fix: **mutable origins,
   option (e)**.
+- **Open, and now answerable from evidence: does `yield fn` stay?** `pass fn`
+  covers the same ground without a state machine, so the question is which bodies
+  are genuinely worse written by hand — nested loops and tree walks are the
+  honest cases. Rewriting the `examples/iteration` producers both ways is the
+  comparison; deleting `yield fn` would take `generator.rs`, both machine
+  renderers and the per-`defer` flag machinery with it.
 
 **2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
 Field-disjoint precision on the `Place` substrate P1 built. No decision
@@ -384,6 +403,19 @@ wrong output [backend-never-wrong]:
 - **A callback handed *onward*** to another storing fn stays borrowed on Rust —
   the "does this fn store its callback?" predicate is deliberately
   non-transitive — and rustc reports the lifetime.
+- **A `pass fn` with a *generic* subject is refused on Kotlin** [pass-fn], and
+  only when it reaches the whole-subject tier: the mint copies the subject, and
+  the Kotlin `copy` lowering [kt-copy] cannot decide whether a value typed by a
+  type variable holds mutable data. A body that only reads plain fields of it
+  avoids the copy entirely — but the per-field snapshot needs the field types,
+  which today means a non-generic subject declared in the same file, so the two
+  limits reinforce each other. Lifting either means a structural copy Kotlin can
+  generate for a generic struct, or making the snapshot type-aware (which is the
+  same work as "Mutable origins", option (e), for the generated machines).
+- **A *generic* `next` that performs effects** cannot be driven by `for` on
+  either backend: its effects live on a fn value the caller supplied, so the
+  handlers would have to reach through the implicit rather than being threaded
+  per turn. The non-generic case works as of 2026-09-09.
 - **Value-position `for` over an origin** is unsupported on both backends: the
   machine has nowhere to be closed.
 - **A user type named like one of std's passes collides.** Implicit resolution

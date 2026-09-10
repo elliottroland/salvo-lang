@@ -1179,6 +1179,59 @@ resource-owning pass and dropping it silently is the leak the obligation exists
 to prevent. A pass that is *not* opted in needs nothing, and neither does one
 the function keeps.
 
+#### Letting the compiler write the struct: `pass fn`
+
+Writing the pass out is the right thing when it needs a *name* — to store it, to
+hand it to a function, to zip two of them. Most passes need none of that: they
+are only ever driven by a `for`. A **`pass fn`** is the same hand-written `next`
+with the boilerplate removed:
+
+```
+struct Countdown {
+    from: Int
+}
+
+pass fn next(c: Countdown) -> Emitted Int | Finished {
+    state {
+        at: Int = c.from
+    }
+    if at <= 0 {
+        return finished()
+    }
+    at = at - 1
+    return emitted(at + 1)
+}
+
+let c = Countdown {from: 3}
+for n in c { ... }        // 3, 2, 1
+for n in c { ... }        // again: driving copied the subject
+let p = iter(c)           // or hold the pass and drive it yourself
+```
+
+One declaration makes `Countdown` iterable. What the compiler writes from it is
+the pass struct — the subject plus the `state` fields — and the `iter` that mints
+one; both are ordinary declarations, which is why everything that works on a
+hand-written pass works here.
+
+- **The `state { ... }` block is the pass's own data**, declared exactly as a
+  struct's fields are, and each initializer is evaluated **once, when the pass is
+  minted**. It may read the subject and call ordinary functions; it may not
+  perform effects, because minting is not where a producer's work belongs. The
+  block is declarations only — it is the pass's shape, not code that runs.
+- **The subject is ordinary data, and read-only inside the body.** The pass holds
+  a *copy*, which is what makes a second drive start over, and writing through it
+  is the same error as writing through any immutable value.
+- **The pass has no name.** No variable may be annotated with it, no field may
+  store it — a pass you need to name is the written-out form above. `iter(c)`
+  still hands one to you, and inference carries it, so holding one in a local
+  and driving it in stages works.
+- **Nothing suspends.** The body *is* the `next`: it returns on every turn, so
+  there is no state machine, and effects are ordinary effects on an ordinary
+  function.
+- A `pass fn` must be called `next`, must take exactly one parameter, and must
+  return `Emitted T | Finished` — it is the obligation's member, so the subject
+  needs no `: Yield<self, T>` clause of its own.
+
 #### Letting the compiler write the state: `yield fn`
 
 Writing `next` by hand means writing the position out as fields. A **`yield
@@ -1257,9 +1310,11 @@ language. The backends keep their native loop as a fast path for a `for`
 straight over a list, an array or a string, which is why *that* form neither
 allocates a pass nor consumes the container.
 
-A type of your own becomes iterable by declaring either half: an `iter` that
-hands back a pass (so combinators reach it) or its own `: Yield<self, T>` plus
-`next` (so it *is* a pass). `for x in bag` works as soon as `iter(bag)` does.
+A type of your own becomes iterable by declaring any one of three things: a
+`pass fn next` (the compiler writes the pass *and* the `iter`), an `iter` that
+hands back a pass (so combinators reach it), or its own `: Yield<self, T>` plus
+`next` (so it *is* a pass). `for x in bag` works as soon as `iter(bag)` does —
+the loop calls it once and drives what it answers.
 
 #### There is no iterator *type*
 

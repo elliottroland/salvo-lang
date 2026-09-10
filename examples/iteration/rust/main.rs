@@ -74,6 +74,29 @@ pub fn take(console: &mut dyn Console, p: &mut Countdown, count: i32) {
 }
 
 #[derive(Clone, Debug)]
+pub struct Halving {
+    pub start: i32,
+}
+
+#[derive(Clone, Debug)]
+pub struct __Pass_Halving {
+    pub at: i32,
+}
+
+pub fn iter__4(h: &Halving) -> __Pass_Halving {
+    return __Pass_Halving { at: h.start };
+}
+
+pub fn next__7(__p: &mut __Pass_Halving) -> Union2<i32, Finished> {
+    if __p.at <= 0 {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut now = __p.at;
+    __p.at = __p.at / 2;
+    return Union2::<i32, Finished>::U1(emitted(now));
+}
+
+#[derive(Clone, Debug)]
 pub struct Fibs {
     pub count: i32,
 }
@@ -106,20 +129,27 @@ pub fn main() {
     let mut p = countdown(5);
     take(&mut console, &mut p, 2);
     println(&mut console, &(format!("2. rest sums to {}", sum_of::<Countdown>(&mut p, &mut |__i0| next__6(__i0)))));
-    let mut __loop3_pass = __Pass_Fibs::new(fibs(6));
-    while let Some(mut n) = __loop3_pass.__advance(&mut console) {
+    let mut h = Halving { start: 20 };
+    let mut __loop3_pass = iter__4(&h);
+    while let Union2::U1(mut n) = next__7(&mut __loop3_pass) {
+        println(&mut console, &(format!("2b. halving {}", n)));
+    }
+    let mut hp = iter__4(&h);
+    println(&mut console, &(format!("2b. summed from a held pass: {}", sum_of::<__Pass_Halving>(&mut hp, &mut |__i0| next__7(__i0)))));
+    let mut __loop4_pass = __Pass_Fibs::new(fibs(6));
+    while let Some(mut n) = __loop4_pass.__advance(&mut console) {
         println(&mut console, &(format!("3. fib {}", n)));
     }
-    __loop3_pass.__close(&mut console);
+    __loop4_pass.__close(&mut console);
     { let __a1 = &(format!("3. again sums to {}", { let mut __mint1 = __Pass_Fibs::new(fibs(6)); let __call = sum_of::<__Pass_Fibs>(&mut __mint1, &mut |__p: &mut __Pass_Fibs| match __p.__advance(&mut console) { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) }); __mint1.__close(&mut console); __call })); println(&mut console, __a1) };
-    let mut __loop4_pass = __Pass_Naturals::new(naturals(10));
-    while let Some(mut n) = __loop4_pass.__advance() {
+    let mut __loop5_pass = __Pass_Naturals::new(naturals(10));
+    while let Some(mut n) = __loop5_pass.__advance() {
         if n > 12 {
             break;
         }
         println(&mut console, &(format!("3. natural {}", n)));
     }
-    __loop4_pass.__close();
+    __loop5_pass.__close();
     let mut doubled = salvo_map(&xs[..], |n| *n * 2);
     let mut odd = salvo_filter(&xs[..], |n| *n % 2 == 1);
     let mut total = salvo_reduce(&xs[..], 0, |acc, n| *acc + *n);
@@ -132,8 +162,8 @@ pub fn main() {
     { let __a2 = &(format!("5. fibs total {}", { let mut __mint2 = __Pass_Fibs::new(fibs(6)); let __call = reduce::<__Pass_Fibs, i32, i32>(&mut __mint2, 0, &mut (|acc, n| acc.clone() + n.clone()), &mut |__p: &mut __Pass_Fibs| match __p.__advance(&mut console) { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) }); __mint2.__close(&mut console); __call })); println(&mut console, __a2) };
     let mut squares = { let mut __mint3 = __Pass_Naturals::new(naturals(1)); let __call = map_lazy::<__Pass_Naturals, i32, i32>(__mint3, move |n: &i32| *n * *n, move |__p: &mut __Pass_Naturals| match __p.__advance() { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) });  __call };
     let mut big = filter_lazy::<MapYield<__Pass_Naturals, i32, i32>, i32>(squares, move |n: &i32| *n > 10, move |__i0| next__3(__i0));
-    let mut __loop5_pass = big;
-    while let Union2::U1(mut n) = next__4(&mut __loop5_pass) {
+    let mut __loop6_pass = big;
+    while let Union2::U1(mut n) = next__4(&mut __loop6_pass) {
         println(&mut console, &(format!("6. big square {}", n)));
         if n > 50 {
             break;

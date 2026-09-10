@@ -52,12 +52,12 @@ struct ListYield<T> : Yield<self, T> canbe Mut {\n\
 fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T> {\n\
     return Mut ListYield<T> { items: list, at: 0 }\n\
 }\n\
-fn next<T>(pass: Mut ListYield<T>) [] -> [pass: Mut] Emitted T | Finished {\n\
-    let elem = get(pass.items, pass.at)\n\
+fn next<T>(p: Mut ListYield<T>) [] -> [p: Mut] Emitted T | Finished {\n\
+    let elem = get(p.items, p.at)\n\
     if elem is None {\n\
         return finished()\n\
     }\n\
-    pass.at = pass.at + 1\n\
+    p.at = p.at + 1\n\
     return emitted(elem)\n\
 }\n\
 struct StrYield : Yield<self, Char> canbe Mut {\n\
@@ -67,12 +67,12 @@ struct StrYield : Yield<self, Char> canbe Mut {\n\
 fn iter(str: Str) [] -> [] Mut StrYield {\n\
     return Mut StrYield { text: str, at: 0 }\n\
 }\n\
-fn next(pass: Mut StrYield) [] -> [pass: Mut] Emitted Char | Finished {\n\
-    let chr = char_at(pass.text, pass.at)\n\
+fn next(p: Mut StrYield) [] -> [p: Mut] Emitted Char | Finished {\n\
+    let chr = char_at(p.text, p.at)\n\
     if chr is None {\n\
         return finished()\n\
     }\n\
-    pass.at = pass.at + 1\n\
+    p.at = p.at + 1\n\
     return emitted(chr)\n\
 }\n\
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {\n\

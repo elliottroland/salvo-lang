@@ -12,11 +12,11 @@ pub struct StrYield {
     pub at: i32,
 }
 
-pub fn next__5(pass: &mut StrYield) -> Union2<char, Finished> {
-    let mut chr = pass.text.chars().nth((pass.at) as usize);
+pub fn next__5(p: &mut StrYield) -> Union2<char, Finished> {
+    let mut chr = p.text.chars().nth((p.at) as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
     }
-    pass.at = pass.at + 1;
+    p.at = p.at + 1;
     return Union2::<char, Finished>::U1(emitted(chr.unwrap()));
 }

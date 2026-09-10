@@ -736,20 +736,47 @@ impl<'p> Emitter<'p> {
             },
             None => None,
         };
-        // [fn-effects] An effectful `next` would need its handlers threaded
-        // into every turn of the loop — phase I4. Loud until then
-        // [backend-never-wrong].
-        if driver
-            .next
-            .key()
-            .and_then(|k| self.checked.fn_effects.get(&k))
-            .is_some_and(|e| !e.is_empty())
-        {
-            self.error(
-                "a `next` that performs effects is not supported yet: the \
-                 handlers would have to be threaded into every turn of the loop",
-            );
+        // [fn-effects] An effectful `next` takes its handlers as leading
+        // arguments, threaded into every turn of the loop from the scope the
+        // `for` is written in. An *implicit* `next` is refused instead: there
+        // the effects live on a fn *value*, whose caller supplies them through a
+        // different path [backend-never-wrong].
+        let mut handler_args: Vec<String> = Vec::new();
+        match &driver.next {
+            salvo_core::PassMember::Fn(key) => {
+                let effects: Vec<Ty> = self
+                    .checked
+                    .fn_effects
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|t| !is_throw_effect_ty(t))
+                    .collect();
+                for ty in &effects {
+                    handler_args.push(self.lookup_effect_handler_by_ty(ty));
+                }
+            }
+            salvo_core::PassMember::Implicit(_) => {
+                if driver
+                    .next
+                    .key()
+                    .and_then(|k| self.checked.fn_effects.get(&k))
+                    .is_some_and(|e| !e.is_empty())
+                {
+                    self.error(
+                        "a generic `next` that performs effects is not supported \
+                         yet: the handlers would have to reach a fn value the \
+                         caller supplied",
+                    );
+                }
+            }
         }
+        let lead = if handler_args.is_empty() {
+            String::new()
+        } else {
+            format!("{}, ", handler_args.join(", "))
+        };
         if driver.arms < 2 {
             self.error("a `next` result must have both an `Emitted` and a `Finished` arm");
             return String::new();
@@ -782,7 +809,22 @@ impl<'p> Emitter<'p> {
         };
         let loop_id = self.fresh_loop_var();
         let (place, step) = (format!("{loop_id}_pass"), format!("{loop_id}_step"));
-        let subject = self.emit_expr(iterable);
+        // [iter-pass] The subject is a *container*, not a pass: its `iter` mints
+        // one, called once before the loop.
+        let subject = match driver.mint_iter_fn {
+            Some(key) => match self.fn_by_key(key) {
+                Some(decl) => {
+                    let callee = self.kotlin_fn_name(decl);
+                    let arg = self.emit_expr(iterable);
+                    format!("{callee}({arg})")
+                }
+                None => {
+                    self.error("the `iter` this `for` mints with is not available");
+                    return String::new();
+                }
+            },
+            None => self.emit_expr(iterable),
+        };
         let var = self.for_pattern_var(pattern);
         self.union_sizes.insert(driver.arms);
         let (arm, read) = match arm_args {
@@ -813,7 +855,7 @@ impl<'p> Emitter<'p> {
         if driver.in_place {
             return format!(
                 "{pad}while (true) {{\n\
-                 {inner_pad}val {step} = {callee}({subject})\n\
+                 {inner_pad}val {step} = {callee}({lead}{subject})\n\
                  {inner_pad}if ({step} !is {arm}) {{ break }}\n\
                  {inner_pad}val {var} = {read}\n"
             );
@@ -821,7 +863,7 @@ impl<'p> Emitter<'p> {
         format!(
             "{pad}var {place} = {subject}\n\
              {pad}while (true) {{\n\
-             {inner_pad}val {step} = {callee}({place})\n\
+             {inner_pad}val {step} = {callee}({lead}{place})\n\
              {inner_pad}if ({step} !is {arm}) {{ break }}\n\
              {inner_pad}val {var} = {read}\n"
         )

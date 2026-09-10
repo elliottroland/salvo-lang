@@ -34,11 +34,11 @@ struct ArrayYield<T> : Yield<self, T> canbe Mut {
 
 // Advances the pass, reporting the element at its position or the end of the
 // array.
-fn next<T>(pass: Mut ArrayYield<T>) [] -> [pass: Mut] Emitted T | Finished {
-    let elem = get(pass.items, pass.at)
+fn next<T>(p: Mut ArrayYield<T>) [] -> [p: Mut] Emitted T | Finished {
+    let elem = get(p.items, p.at)
     if elem is None {
         return finished()
     }
-    pass.at = pass.at + 1
+    p.at = p.at + 1
     return emitted(elem)
 }

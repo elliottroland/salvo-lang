@@ -61,6 +61,13 @@ pub enum TokenKind {
     KwBreak,
     KwContinue,
     KwYield,
+    /// [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished`: a
+    /// hand-written `next` whose pass struct the compiler generates.
+    KwPass,
+    /// [pass-fn] The `state { ... }` block at the top of a `pass fn`: the
+    /// pass's own fields, declared like a struct's and initialized once per
+    /// pass.
+    KwState,
     KwUse,
     KwDefer,
     KwTry,
@@ -149,6 +156,8 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("break", TokenKind::KwBreak),
     ("continue", TokenKind::KwContinue),
     ("yield", TokenKind::KwYield),
+    ("pass", TokenKind::KwPass),
+    ("state", TokenKind::KwState),
     ("use", TokenKind::KwUse),
     ("defer", TokenKind::KwDefer),
     ("try", TokenKind::KwTry),

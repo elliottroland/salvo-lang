@@ -51,12 +51,12 @@ fun<It, T, U> map_lazy(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): 
     return MapYield(source = it, f = f, step = next)
 }
 
-fun<It, T, U> next__3(pass: MapYield<It, T, U>): Union2<U, Finished> {
-    val advance = pass.step
-    val step = advance(pass.source)
+fun<It, T, U> next__3(p: MapYield<It, T, U>): Union2<U, Finished> {
+    val advance = p.step
+    val step = advance(p.source)
     when (step) {
         is U2_1<*, *> -> {
-            val f = pass.f
+            val f = p.f
             return U2_1<U, Finished>(emitted(f((step.value as T))))
         }
         is U2_2<*, *> -> {
@@ -75,12 +75,12 @@ fun<It, T> filter_lazy(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Fin
     return FilterYield(source = it, keep = keep, step = next)
 }
 
-fun<It, T> next__4(pass: FilterYield<It, T>): Union2<T, Finished> {
-    val advance = pass.step
-    val keep = pass.keep
+fun<It, T> next__4(p: FilterYield<It, T>): Union2<T, Finished> {
+    val advance = p.step
+    val keep = p.keep
     var going = true
     while (going) {
-        val step = advance(pass.source)
+        val step = advance(p.source)
         when (step) {
             is U2_1<*, *> -> {
                 if (keep((step.value as T))) {

@@ -23,6 +23,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "next_random",
                             span: 26..37,
@@ -71,6 +73,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "println",
                             span: 75..82,
@@ -230,6 +234,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "next_random",
                             span: 193..204,
@@ -362,6 +368,8 @@ Module {
                         docs: [],
                         intrinsic: false,
                         is_yield: false,
+                        is_pass: false,
+                        pass_state: [],
                         name: Ident {
                             name: "println",
                             span: 326..333,
@@ -425,6 +433,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "main",
                     span: 370..374,
@@ -536,6 +546,8 @@ Module {
                 docs: [],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "age_prediction",
                     span: 465..479,
@@ -772,6 +784,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "parse_length",
                     span: 816..828,
@@ -951,6 +965,8 @@ Module {
                 ],
                 intrinsic: false,
                 is_yield: false,
+                is_pass: false,
+                pass_state: [],
                 name: Ident {
                     name: "describe_length",
                     span: 1059..1074,

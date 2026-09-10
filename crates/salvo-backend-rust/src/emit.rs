@@ -1268,20 +1268,48 @@ impl<'p> Emitter<'p> {
                 }
             },
         };
-        // [fn-effects] An effectful `next` would need its handlers threaded
-        // into every turn of the loop — phase I4. Loud until then
+        // [fn-effects] An effectful `next` takes its handlers as leading
+        // arguments, threaded into every turn of the loop from the scope the
+        // `for` is written in — the same arguments an ordinary call to it would
+        // pass. An *implicit* `next` is refused instead: there the effects live
+        // on a fn *value*, whose caller supplies them through a different path
         // [backend-never-wrong].
-        if driver
-            .next
-            .key()
-            .and_then(|k| self.checked.fn_effects.get(&k))
-            .is_some_and(|e| !e.is_empty())
-        {
-            self.error(
-                "a `next` that performs effects is not supported yet: the \
-                 handlers would have to be threaded into every turn of the loop",
-            );
+        let mut handler_args: Vec<String> = Vec::new();
+        match &driver.next {
+            salvo_core::PassMember::Fn(key) => {
+                let effects: Vec<Ty> = self
+                    .checked
+                    .fn_effects
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|t| !is_throw_effect_ty(t))
+                    .collect();
+                for ty in &effects {
+                    handler_args.push(self.thread_effect_by_ty(ty));
+                }
+            }
+            salvo_core::PassMember::Implicit(_) => {
+                if driver
+                    .next
+                    .key()
+                    .and_then(|k| self.checked.fn_effects.get(&k))
+                    .is_some_and(|e| !e.is_empty())
+                {
+                    self.error(
+                        "a generic `next` that performs effects is not supported \
+                         yet: the handlers would have to reach a fn value the \
+                         caller supplied",
+                    );
+                }
+            }
         }
+        let lead = if handler_args.is_empty() {
+            String::new()
+        } else {
+            format!("{}, ", handler_args.join(", "))
+        };
         if driver.arms < 2 {
             // The checker only records a driver for the exact
             // `Emitted T | Finished` shape, so this cannot happen — and if it
@@ -1302,19 +1330,37 @@ impl<'p> Emitter<'p> {
         // [backend-parity].
         if driver.in_place {
             let subject = self.borrowed_mut_arg(iterable);
-            return format!("{pad}while let {arm}({var}) = {callee}({subject}) {{\n");
+            return format!("{pad}while let {arm}({var}) = {callee}({lead}{subject}) {{\n");
         }
         // The loop *consumes* the pass (the checker moved it in), so the local
         // takes it over rather than cloning it: a clone would leave the original
         // unreleased, which for a linear pass is the leak `close` exists to
         // prevent — and cost an allocation for every other pass.
-        let subject = {
-            let code = self.emit_place(iterable);
-            self.apply_coercion(iterable.span(), code)
+        let subject = match driver.mint_iter_fn {
+            // [iter-pass] The subject is a *container*, not a pass: its `iter`
+            // mints one, called once before the loop. The arguments go through
+            // the ordinary machinery, so the parameter's mode decides whether
+            // the container is borrowed or moved [rs-borrows].
+            Some(key) => match self.fn_by_key(key) {
+                Some(decl) => {
+                    let callee = self.rust_fn_name(decl);
+                    let params = decl.params.clone();
+                    let args = self.emit_args_for_params(&params, &[iterable], Some(key));
+                    format!("{callee}({})", args.join(", "))
+                }
+                None => {
+                    self.error("the `iter` this `for` mints with is not available");
+                    return String::new();
+                }
+            },
+            None => {
+                let code = self.emit_place(iterable);
+                self.apply_coercion(iterable.span(), code)
+            }
         };
         format!(
             "{pad}let mut {place} = {subject};\n\
-             {pad}while let {arm}({var}) = {callee}(&mut {place}) {{\n"
+             {pad}while let {arm}({var}) = {callee}({lead}&mut {place}) {{\n"
         )
     }
 
