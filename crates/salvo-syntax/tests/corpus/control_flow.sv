@@ -80,17 +80,19 @@ fn full_name_expr(person: Person) -> [person] Str? {
     return full_name
 }
 
-// [defer] The block runs when the enclosing block ends — at its end and at
-// every `return`/`break`/`continue` that leaves it, latest first.
+// [linear-obligation] Release on every path is written out: `defer` was
+// removed from the language (2026-09-10) because linearity is what makes the
+// obligation checked, and repeating the release is the honest cost.
 fn read_config(path: Str) [Console] -> Str {
     let file = open(path)
-    defer { close(file) }
     if is_empty(file) {
+        close(file)
         return ""
     }
     for line in lines(file) {
-        defer { println("line done") }
         println(line)
     }
-    return contents(file)
+    let out = contents(file)
+    close(file)
+    return out
 }

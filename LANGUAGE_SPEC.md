@@ -535,8 +535,8 @@ Conventions:
     **declares** — it can cancel a removal, never invent a claim. Adding
     one a signature never made is `+Q` in a fn's own list, which is D2.
   * An addition is honored only when the refined call is **unconditional**
-    in the body (not inside an `if`/`when` branch, a loop body, a lambda,
-    a deferred block or a `try`). The deduction walk is a meet over all
+    in the body (not inside an `if`/`when` branch, a loop body, a lambda
+    or a `try`). The deduction walk is a meet over all
     uses rather than a flow analysis, so a call that may not run cannot
     establish a fact the signature then promises. Removals are unaffected:
     applying one unconditionally is the conservative direction. The
@@ -726,49 +726,6 @@ Conventions:
 * [for-iter] `for x in e` drives `e` when it is a pass [iter-protocol] and
   otherwise iterates `iter(e)` implicitly [iter-pass]; missing or ambiguous
   `iter` resolution is an error [iter-resolve].
-* [defer] `defer { block }` runs the block when the **enclosing block**
-  ends (user decisions 2026-09-04: block-only syntax, block scope,
-  splice-at-exit semantics). Its meaning is *splice at exit*: the body runs
-  at every exit of the block it was written in — the end of the block and
-  each `return`/`break`/`continue` that leaves it — so it is exactly the
-  code written at each of those points. Several `defer`s in one block run
-  latest first (LIFO); a `defer` in a loop body runs per iteration.
-  * **No capture question.** There is no closure: the body is code at the
-    exits, so `defer { close(f) }` leaves `f` usable in the rest of the
-    block and consumes it *there*. That is what makes it discharge a
-    linear obligation on every path [linear-obligation] — reason enough to
-    build it before non-resumption (roadmap E3), where a value live across
-    a may-throw call needs a discharge on the throw path.
-  * **Checked once, where it stands.** The body is type-checked in the
-    scope and flow state at the `defer` statement (nothing is consumed
-    *there* — the state is restored), and what running it does is applied
-    at each exit: the values it consumes are consumed there, so a manual
-    consume plus a deferred one is a use-after-move.
-  * **The facts it relied on must survive.** For every local the body
-    mentions, the narrowed type and place facts it was checked against
-    must still hold at each exit (a call that took the value away, or a
-    mutating call that invalidated a narrowing, is an error naming the
-    remedy: bind the narrowed value to a local and defer that). The
-    lowering recorded for the body would otherwise be wrong at that exit
-    [backend-never-wrong].
-  * **Neither produces nor consumes the block's value**: a trailing
-    `defer` leaves the block's value where it was, and the value is
-    computed before the deferred code runs.
-  * A `defer` inside an `iter fn` body runs on the way out of the block as
-    everywhere else, and both backends drive the machine lazily
-    [iter-fn], so the deferred code interleaves with the consumer
-    identically — and the `for` sugar closes the machine on every exit, so an
-    abandoned loop still runs it.
-* [defer-no-escape] `return` and a `break`/`continue` not bound
-  by a loop *inside* the deferred body are errors: the body runs on the way
-  out of its block, so there is no path to leave through. Loops written in
-  the body own their own `break`/`continue`; a lambda owns its own
-  `return`.
-  * **Throwing from a deferred body is an error too** [throw]: both the
-    `throw` operation and a call that merely *may* throw, since the block
-    runs while its scope is being left — there is no delimiter left to
-    throw to, and unwinding out of an unwind path is a hole neither
-    lowering wants.
 
 ## Functions
 
@@ -1156,7 +1113,7 @@ Conventions:
   * **std relies on the pass and never on an `iter`** (user decision
     2026-09-10), and the reason is stronger than the inference one: a source is
     not guaranteed to *have* a container behind it. An `iter fn`'s pass, a
-    composed pass from `map_lazy`, a hand-written `zip` — for each of those the
+    composed pass someone wrote by hand, a hand-written `zip` — for each of those the
     pass is all there is, so a std function that asked for an `iter` would
     exclude them by construction. A *program* may still write a
     container-shaped combinator (`?iter` as an implicit, whose result determines
@@ -1164,15 +1121,18 @@ Conventions:
     * The `List` fast paths are not an exception: they are overloads on a
       concrete intrinsic type, lowered to the target's own collection
       operations, and they ask for no `iter` [fn-overload-rank].
-  * **Eager by default, with two named variants** (user decision 2026-09-08).
+  * **Eager, with one named variant** (user decisions 2026-09-08, 2026-09-10).
     `map`/`filter`/`reduce` return `Mut List<U>`; the default is the one that
     surprises least, and chaining works because a list has an `iter`.
-    * [seq-lazy] `map_lazy`/`filter_lazy` return a **composed pass** — a struct
-      holding the source, the callback and the source's `next` — with its own
-      `next` [iter-protocol]. Laziness is *asked for*, not inherited, which
-      also keeps "how often was this consumed?" visible at the call site, since
-      the callback runs once per element as the result is pulled
-      ([iter-mut-param] is why one carrying mutable state is refused).
+    * **Nothing in std is lazy.** `map_lazy`/`filter_lazy` — composed passes
+      that computed as they were driven — were **removed 2026-09-10** (user
+      decision): laziness as a data structure couples the data to the functions
+      over it, and the direction to try instead is composing *functions*,
+      `iter fn`s included, into pipelines that mint a pass from data supplied
+      separately. Reconsidered after concurrency lands; see ROADMAP.md. A
+      composed pass remains ordinary code for a program to write — a pass is
+      only a struct with a `next` [iter-protocol] — and [iter-mut-param] is
+      still why one carrying mutable state is refused.
     * [seq-into] `map_to`/`filter_to` put the results in a collection the
       caller provides, passed **first** because it is what the call is about.
       Appending goes through an `?add` implicit parameter
@@ -1661,10 +1621,12 @@ Conventions:
   There are no labelled throws; a nested delimiter takes its own body's
   throws and lets an outer one pass through.
 * [throw-linear] Nothing linear may be live across a site that may throw
-  unless a `defer` releases it [linear-obligation] [defer]: the code after
-  the site does not run on the throw path. The diagnostic names `defer`,
-  since it is the only way to discharge on a path the author does not
-  write — which is why `defer` was built first.
+  [linear-obligation]: the code after
+  the site does not run on the throw path. The diagnostic names the two
+  remedies that exist: release before the call, or move the value onward so
+  the obligation travels with it. (`defer` was the third — it discharged on
+  a path the author does not write — and was removed 2026-09-10, since
+  linearity is what makes the obligation checked in the first place.)
   * The frames that die are those inside the delimiter (a throw caught by
     an enclosing `try` does not leave the fn), so the check's floor is the
     `try` body's scope, or the fn's when the throw propagates out.
@@ -2155,7 +2117,7 @@ Conventions:
   * **A `close` never implies linearity.** Only the clause does; a bare
     `close` function is an ordinary function. Attaching an obligation on the
     strength of a function name is what [qual-*] keeps the compiler from
-    doing — and it is what keeps a generated pass with a `defer`, which gets
+    doing — and it is what keeps a generated pass with a release, which gets
     a `close`, composable [iter-fn].
   * **`canbe` no longer grants it**: `canbe` means only "may be qualified
     thus" (`canbe Mut`, `canbe Once`), and `canbe Linear` on a *declaration*
@@ -2230,8 +2192,8 @@ Conventions:
     branch merges (an inferred union arm keeps it, a written one is the
     refusal above).
   * **Known casualties**, both recorded rather than worked around: a
-    linear pass cannot be composed (`map_lazy(open_lines("a"), f)` stores
-    its source), and the fallible-open shape `Ok InputStream | Err Str`
+    linear pass cannot be composed (a wrapper pass over `open_lines("a")`
+    stores its source), and the fallible-open shape `Ok InputStream | Err Str`
     is unavailable to S-IO until union arms get an exception or the result
     shape changes.
 * [linear-generics] An unconstrained generic parameter cannot be

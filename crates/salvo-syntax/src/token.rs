@@ -69,7 +69,6 @@ pub enum TokenKind {
     /// recognised at item level from `iter` followed by `fn`.
     KwState,
     KwUse,
-    KwDefer,
     KwTry,
     KwTrue,
     KwFalse,
@@ -157,7 +156,6 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("continue", TokenKind::KwContinue),
     ("state", TokenKind::KwState),
     ("use", TokenKind::KwUse),
-    ("defer", TokenKind::KwDefer),
     ("try", TokenKind::KwTry),
     ("true", TokenKind::KwTrue),
     ("false", TokenKind::KwFalse),

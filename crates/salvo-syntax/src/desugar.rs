@@ -733,7 +733,6 @@ impl Rewrite {
             }
             Stmt::Continue { .. } => {}
             Stmt::Use { handler, .. } => self.expr(handler),
-            Stmt::Defer { body, .. } => self.block(body),
             Stmt::Rename(_) => {}
             Stmt::Expr(expr) => self.expr(expr),
         }
@@ -976,7 +975,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     }
                 }
                 Stmt::Use { handler, .. } => walk_expr(handler, reserved, out),
-                Stmt::Defer { body, .. } => walk_block(body, reserved, out),
                 Stmt::Continue { .. } | Stmt::Rename(_) => {}
                 Stmt::Expr(expr) => walk_expr(expr, reserved, out),
             }

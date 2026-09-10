@@ -1,77 +1,53 @@
-// Leaving a block, on every path: `defer` for the way out, `throw`/`try` for
-// leaving early with a message.
+// Leaving a block early, and releasing what you hold: `throw`/`try` for
+// leaving with a message, linearity for making sure nothing is left open.
 //
-// The two belong together. `defer` is what makes early exit safe — a release
-// written once runs on every path out of its block — and `throw` is the
-// earliest exit there is, so the pair is what a resource-holding function
-// needs.
-
-// ===== 1. `defer` runs at the end of its block, latest first =====
+// The two belong together. `throw` is the earliest exit there is, and a
+// resource-holding function has to be right on that path too — so the checker
+// is what pairs them: a linear value still owed at any exit is an error, and a
+// throw is an exit.
 //
-// `defer` is *block*-scoped, not function-scoped, and its body is spliced at
-// every exit of the enclosing block: its end, and each
-// `return`/`break`/`continue` that leaves it. Several in one block run in
-// reverse declaration order, so a release always precedes what it depends on.
-fn lifo() [Console] -> None {
-    println("1. enter")
-    defer { println("1. first declared, last to run") }
-    defer { println("1. second declared, first to run") }
-    println("1. body")
-}
+// There is no `defer` (removed 2026-09-10): a release written once and spliced
+// at every exit was the *partial* answer to this, and linearity is the full
+// one — it checks the obligation rather than discharging it behind your back.
+// The cost is visible below: `close` appears on each path, and the order of
+// the work has to put the release before anything that may throw.
 
-// A `defer` in a loop body belongs to *that* body, so it runs once per
-// iteration — including on the iteration that `continue`s or `break`s out.
-fn per_iteration() [Console] -> None {
-    let i = 0
-    while i < 4 {
-        defer { println("1. leaving iteration ${i}") }
-        i = i + 1
-        if i == 2 {
-            continue
-        }
-        if i == 3 {
-            break
-        }
-        println("1. working on iteration ${i}")
-    }
-}
-
-// ===== 2. a resource that cannot be forgotten =====
+// ===== 1. a resource that cannot be forgotten =====
 //
 // `: Linear<self>` says every value of this type carries a use obligation, and
 // the `close` the group asks for is how it is discharged. Forgetting it on any
-// path is a compile error, so `defer { close(h) }` is the pattern: written
-// once, it covers the ordinary end, the early `return` and the throw path
-// below.
+// path is a compile error naming the value and the path.
 struct FileHandle : Linear<self> {
     // What was opened, for the trace this example prints.
     name: Str
 }
 
 fn open_file(name: Str) [Console] -> [] FileHandle {
-    println("2. open ${name}")
+    println("1. open ${name}")
     return FileHandle { name: name }
 }
 
 // The discharge. `close` consumes its parameter — the empty deduction list
 // moves it — which is what makes it the release rather than a convention.
 fn close(handle: FileHandle) [Console] -> [] None {
-    println("2. close ${handle.name}")
+    println("1. close ${handle.name}")
 }
 
-// Two exits, one release: the `defer` runs on both.
+// Two exits, two releases. Leave one out and the compiler says which path
+// leaks: "`handle` still owns a linear value when it goes out of scope".
 fn read_size(name: Str, want: Int) [Console] -> [] Int {
     let there_is = size(name)
     let handle = open_file(name)
-    defer { close(handle) }
     if want > there_is {
-        println("2. asked for more than there is")
+        println("1. asked for more than there is")
+        close(handle)
         return there_is
     }
+    close(handle)
     return want
 }
 
-// ===== 3. leaving early with a message: `throw` =====
+// ===== 2. leaving early with a message: `throw` =====
 //
 // A function that may leave early declares `[Throw<Str>]` and keeps its own
 // return type — `throw` returns `Nothing`, the bottom type, so the frames in
@@ -96,13 +72,16 @@ fn port_of(config: Str) [Throw<Str>] -> [config] Int {
     return port * 1
 }
 
-// The same, with a resource live across the throwing call, which is the
-// interaction worth seeing: the `defer` releases the handle on the throw path
-// too, and the checker is what guarantees it — the obligation has to be
-// discharged on *every* exit, and a throw is one.
+// A resource *and* a throwing call in one function, which is the interaction
+// worth seeing. The code after `parse_port` does not run on the throw path, so
+// holding the handle across it is rejected — the release has to come first.
+// `copy` is what lets the name outlive the handle: a plain binding would share
+// its fate and die with it.
 fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> [text] Int {
     let handle = open_file(name)
-    defer { close(handle) }
+    let from = copy(handle.name)
+    close(handle)
+    println("2. reading a port out of ${from}")
     return parse_port(text)
 }
 
@@ -119,7 +98,7 @@ fn strict_port(text: Str) [Throw<Str | Int>] -> [text] Int {
     return n
 }
 
-// ===== 4. the delimiter: `try` =====
+// ===== 3. the delimiter: `try` =====
 //
 // `try { ... }` is a compiler intrinsic rather than an effect — there is no
 // `Try` to declare and no handler to register. Its value is `Ok T | Thrown M`,
@@ -130,10 +109,10 @@ fn report(label: Str, config: Str) [Console] -> [label, config] None {
     }
     when outcome {
         is Ok {
-            println("4. ${label}: port ${outcome}")
+            println("3. ${label}: port ${outcome}")
         }
         is Thrown {
-            println("4. ${label}: rejected — ${outcome}")
+            println("3. ${label}: rejected — ${outcome}")
         }
     }
 }
@@ -141,28 +120,26 @@ fn report(label: Str, config: Str) [Console] -> [label, config] None {
 fn main() [use] {
     use StdOutConsole()
 
-    lifo()
-    per_iteration()
-
     let small = read_size("notes.txt", 3)
-    println("2. read ${small}")
+    println("1. read ${small}")
     let clamped = read_size("notes.txt", 99)
-    println("2. read ${clamped}")
+    println("1. read ${clamped}")
 
     report("good", "8080")
     report("bad", "http")
 
-    // The throw path with a live resource: `close` still runs, and the
-    // outcome arrives at the delimiter.
+    // The throw path with a resource in the same function: the handle is
+    // already closed when the throw happens, and the outcome arrives at the
+    // delimiter.
     let guarded = try {
         port_from_file("ports.txt", "-1")
     }
     when guarded {
         is Ok {
-            println("4. guarded: ${guarded}")
+            println("3. guarded: ${guarded}")
         }
         is Thrown {
-            println("4. guarded: rejected — ${guarded}")
+            println("3. guarded: rejected — ${guarded}")
         }
     }
 
@@ -173,16 +150,16 @@ fn main() [use] {
     }
     when mixed {
         is Ok {
-            println("4. mixed: ${mixed}")
+            println("3. mixed: ${mixed}")
         }
         is Thrown {
             let why: Str | Int = mixed
             when why {
                 is Str {
-                    println("4. mixed: message ${why}")
+                    println("3. mixed: message ${why}")
                 }
                 is Int {
-                    println("4. mixed: length ${why}")
+                    println("3. mixed: length ${why}")
                 }
             }
         }
@@ -200,17 +177,17 @@ fn main() [use] {
                 got
             }
             is Thrown {
-                println("4. inner caught: ${inner}")
+                println("3. inner caught: ${inner}")
                 parse_port("also nope")
             }
         }
     }
     when outer {
         is Ok {
-            println("4. outer: ${outer}")
+            println("3. outer: ${outer}")
         }
         is Thrown {
-            println("4. outer caught: ${outer}")
+            println("3. outer caught: ${outer}")
         }
     }
 }

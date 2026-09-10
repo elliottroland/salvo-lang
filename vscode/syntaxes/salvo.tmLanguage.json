@@ -78,7 +78,7 @@
       "patterns": [
         {
           "name": "keyword.control.salvo",
-          "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|defer|try)\\b"
+          "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|try)\\b"
         },
         {
           "name": "keyword.declaration.salvo",

@@ -43,7 +43,7 @@ the decision log, the plan, and the hard-won operational knowledge.
 
 The arcs that are *complete*: shared fate and borrow emission (S1–S3), must-use
 linearity with a designated `close` (L6, L7a–d), the effects arc through handler
-dependencies, `defer`, `throw`/`try` and effects on fn types (E1, E3 steps 1–3),
+dependencies, `throw`/`try` and effects on fn types (E1, E3 steps 1–3),
 places and field narrowing (P1), deductions with refinements (D1, D3), dot-names
 (N1), overload resolution (finalized), the std string and sequence surfaces
 (S-Str, S-Seq), and the iterator reduction to `next` (R0–R5 plus the generic
@@ -93,9 +93,12 @@ first.
 - ✅ **Mutation through a narrowed place on Rust** closed 2026-09-10 — the
   worst class of bug this repo has had: silently wrong output rather than a
   diagnostic. See COMPLETED.md.
-- The **`?close` implicit**, so an early-stopping combinator (`take`, `first`)
-  can release its source. Phase 4 needs precisely this when it stops reading a
-  file part-way.
+- ✅ **The `?close` implicit is answered, not built** (2026-09-10): an
+  early-stopping combinator already releases its source. `[iter-drive-in-place]`
+  plus the `?Linear<It>` spread — option (a), chosen over R0's sketch — put the
+  release on the type that owns the resource, and a `for` over a pass the fn
+  owns releases it on every exit. Phase 4 therefore has what it needs to stop
+  reading a file part-way. See COMPLETED.md.
 - Riding along: the `@Suppress("UNCHECKED_CAST")` polish in std's `seq.kt` (the
   repo's own "generated code is warning-free" standard currently fails there),
   the implicit-resolution collision when a user type is named like one of std's
@@ -149,6 +152,11 @@ expressible, and the OTP answer is that processes own their state and
 message-pass — so phase 5 may remove its motivation entirely. Deciding it
 earlier spends a language-design call twice.
 
+**Not before then either: laziness** (user decision 2026-09-10). std's lazy pair
+was **removed** the same day rather than carried through four phases as a design
+constraint — see "Laziness, after concurrency" below for the direction to take
+when it is picked up.
+
 ## Decisions waiting on the user
 
 Every item here needs a language-design call before it can be built, and the
@@ -169,8 +177,9 @@ links to the section that states the options.
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 
-Two further proposals are **deferred by decision** rather than waiting: `defer`
-as an effect with a `defers` block, and `platform handler` / `platform type`.
+One further proposal is **deferred by decision** rather than waiting:
+`platform handler` / `platform type`. (The `defers`-block proposal went with
+`defer` itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
 
@@ -259,14 +268,37 @@ through one, and when is a container linear at all".
 Two things to consider together when this is picked up, both recorded from the
 decisions and the R0 prototype rather than guessed:
 
-- **A linear pass cannot be composed.** `map_lazy(open_lines("a.txt"), f)` is
-  refused, because a composed pass stores its source. So "can you `map` over a
-  file's lines?" is currently *no*, and it is the test case to design against:
-  it is the canonical reason to want lazy sequences at all. The user accepted
-  the interim uncomposability (2026-09-08) rather than widening the rule early.
+- **A linear pass cannot be composed.** A wrapper pass over
+  `open_lines("a.txt")` is refused, because it stores its source. So "can you
+  `map` over a file's lines *lazily*?" is currently *no*, and it is the test
+  case to design against: it is the canonical reason to want lazy sequences at
+  all, and the reason the laziness question (below) cannot be answered without
+  this one. The user accepted the interim uncomposability (2026-09-08) rather
+  than widening the rule early. std's own lazy pair — the combinator that made
+  this concrete — was removed 2026-09-10, so nothing in the language exercises
+  the shape today.
 - **The fallible-open shape.** S-IO settled on `Ok InputStream | Err Str`, and a
   linear value in a union arm is exactly what the interim rule refuses — so
   S-IO needs either an exception for union arms or a different result shape.
+
+Two motivating examples beyond "close a file" (user, 2026-09-10), recorded to
+inform the design when it is picked up:
+
+- **A thread handle is discharged by `stop` *or* `join`.** The obligation has
+  *alternative* discharge functions, so a fixed obligation group built around
+  a single `close` is the wrong shape (user's judgment: a mistake). The
+  declaration must be able to name a *set* of discharging functions, any one
+  of which satisfies the obligation.
+- **A cache handle is discharged by removing the entry** — `remove(cache,
+  handle)` — so a discharge can require *another value* (the cache) besides
+  the handle. Discharge is not necessarily unary-on-self: the obligation
+  names functions with ordinary signatures, and the discharge site must
+  satisfy their other parameters like any call.
+
+Both bear on the regions question (below): a scope close cannot
+*bulk*-discharge obligations whose discharge is a choice (`stop` vs `join`)
+or needs context the scope does not hold (the cache) — an argument that
+regions manage memory while obligations stay explicit per path.
 
 And two spellings that must stay distinct, decided with the group
 (2026-09-08): `: Linear` on a *type declaration* is the obligation ("provides a
@@ -279,7 +311,7 @@ linear. The presence of a `close` function never implies either.
 ## Effects
 
 E1 (handler dependencies, and the Rust fusion behind them), E3 steps 1–3
-(`defer`, `throw`/`try`, effects on fn types) and the six ownership strategies
+(`throw`/`try`, effects on fn types — and `defer`, since deleted) and the six ownership strategies
 explored on the way are in COMPLETED.md ("Roadmap: effects"). What is left:
 
 ### E3 step 4 — effect transformers, and async as the second one
@@ -373,52 +405,58 @@ wrong output [backend-never-wrong]:
   cannot edit: `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
   and the first thing to do in a polish pass.
 - **A linear pass cannot be composed** — the L8 casualty above, repeated here
-  because it is the shape people will try: `map_lazy(open_lines("a.txt"), f)`
-  stores its source, and storing a linear value in a composite is the interim
-  refusal.
+  because it is the shape people will try: a wrapper pass over
+  `open_lines("a.txt")` stores its source, and storing a linear value in a
+  composite is the interim refusal.
 
 Two open *questions* the iterator work forwarded to the qualifier roadmap
 rather than answering: **D6** (`Once` on any type — the I2b collision forces it
 in a narrower form; see COMPLETED.md) and **D7** (qualifier-conditional
 linearity). Both are under "Deductions and qualifier reasoning" below.
 
-### An early-stopping combinator cannot close its source
+### An early-stopping combinator closing its source — answered, not built
 
-Recorded when R5 shipped and still open: a combinator that abandons its source
-early has no way to release it. A generated machine has a `close` when its body
-defers, and nothing in a hand-written driving loop calls it — `map`/`filter`/
-`reduce` are safe because they *drain*, and a drained body discharges its own
-defers (R0 finding 3). So `take`, `first`, and anything else that stops early
-need the `?close` implicit R0 sketched and nothing has built. It is the same
-shape as `?Yield`: an optional member resolved at the call site, which is
-precisely why rendering (B) was chosen over a bound.
+Recorded when R5 shipped, **closed 2026-09-10**: the `?close` implicit R0
+sketched (option (d)) was never needed. `[iter-drive-in-place]` plus the
+`?Linear<It>` spread — option (a), the design chosen instead — put the release on
+the *type that owns the resource* rather than on every combinator: a `for` over a
+pass the function **owns** releases it on every exit, `break` and `return` alike,
+through the resolved `close` for a concrete pass or the implicit one for a
+generic pass. Verified on both backends for all four shapes; a hand-written
+`while` driver, the one shape no loop can help with, is caught by linearity
+("`h` still owns a linear value when it goes out of scope"). See COMPLETED.md.
 
-### Deferred: `defer` as an effect with a `defers` block (user, 2026-09-08)
+What the item pointed at that *is* still open is a **lazy** `take` — one that
+returns a wrapper pass instead of draining — and it belongs to L8, not here: a
+wrapper has to store its source, and storing a linear value in a composite is
+the interim refusal [linear-composite].
 
+### `defer` is deleted, and the `defers`-block proposal with it (user, 2026-09-10)
 
-The proposal: a special `defers { … }` block in which a `defer` action is
-available, a `Defer` effect for functions that register into an enclosing one,
-and all deferred work running at the end of the named block — `Throw`/`try`'s
-shape, applied to cleanup.
+`defer` is **gone from the language**: it was the partial solution to a problem
+linearity already solves in full — an obligation discharged on every path — and
+it carried its own complexity (a body checked once but applied at every exit,
+the facts it relied on having to survive to each of them, a rule against
+control flow or a throw leaving it, and two unrelated lowerings). Releasing is
+now written on each path, and the checker names the path you missed. See
+COMPLETED.md for what the removal took out and what it cost.
 
-- **For**: cleanup becomes visible in signatures, and "register cleanup on *my
-  caller's* scope" becomes expressible, which is impossible today (a `defer`
-  inside a callee runs at the callee's block end).
-- **Against**: `defer` currently has **zero runtime representation** — it is a
-  splice, "exactly the code written at each of those points" [defer], which is
-  why there is no capture question and why it can discharge a linear obligation
-  on every path. A dynamic queue costs an allocation and brings the capture
-  question back.
-- **The iterator argument for it is gone.** Its strongest motivation was
-  collapsing the generated machine's per-site flags and giving the release path
-  one shape; under the reduction that machinery is confined to generated code
-  and stops being language complexity. The restriction floated earlier — that a
-  producer may not use an *outer* `defers` block — also dissolves: `next` is an
-  ordinary call whose caller is alive for the whole loop.
-- **If it is taken**: splice when the registrations in a `defers` block are
-  static (all of today's code), and use a queue only where a `[Defer]` function
-  actually registers into someone else's block, so existing code keeps its
-  current properties.
+With it goes the **`defers { … }` block proposal** deferred on 2026-09-08 (a
+`Defer` effect, cleanup registered into a *caller's* scope, all of it running at
+the end of a named block). Its "for" case — cleanup visible in signatures, and
+registering cleanup on someone else's scope — is not lost, but it is now a
+proposal to *add* a feature rather than to generalize one, so it starts from
+scratch if a customer appears. The strongest argument against it stands and is
+worth keeping: what made `defer` cheap was having **zero runtime
+representation**, and a dynamic queue costs an allocation and brings the capture
+question back.
+
+**What still uses the machinery underneath.** Both emitters keep their
+exit-splice path — Rust splices at each exit [rs-exit-splice], Kotlin wraps in
+`try`/`finally` [kt-exit-finally] — because the release a `for` owes a pass it
+owns needs exactly that. It is now compiler-internal rather than a language
+feature, which is the right side of the line: the compiler owns the value, so it
+may own its lifetime.
 
 ## Shared mutable state (`Cell`)
 
@@ -972,15 +1010,21 @@ what follows is not a plan but the list of questions the *existing*
 implementation forces, written down so the answers are chosen rather than
 discovered mid-phase. All four are **DECISION**s.
 
+**Regions ride along** (user, 2026-09-10): the region design (see "Regions",
+below) is already decided and is built with this phase, with "a process is a
+region" as the null hypothesis for how the two integrate.
+
 - **Sendability, and the `Rc` in generated code.** `Sendable` is already on the
   intrinsic-capability watch list under D7 ("the moment concurrency lands":
   structurally inferred, asymmetric between backends, never user-authored). The
   concrete blocker is representational rather than notational: generated Rust
   holds a fn-typed field as `Rc<dyn Fn…>` [rs-fn-field] — which is *every*
-  composed pass, so `map_lazy`'s result — and `Rc` is not `Send`. Either a value
-  that crosses a process boundary may not hold one (a rule, and a diagnostic), or
-  the representation becomes `Arc`, or fn-typed fields go away again. Phase 1's
-  decisions about pass composition should be taken with one eye on this.
+  composed pass — and `Rc` is not `Send`. Either a value that crosses a process
+  boundary may not hold one (a rule, and a diagnostic), or the representation
+  becomes `Arc`, or fn-typed fields go away again. Removing std's lazy pair
+  (2026-09-10) means nothing in std has such a field any more, so the question
+  arrives with the laziness design rather than before it — which is one of the
+  reasons that design waits for this phase.
 - **What effects a spawned process has.** An effect reaches a function as
   `&mut dyn E` borrowed for the call, and the Rust fusion is one value per `use`
   scope holding borrows of the handlers registered in it. Neither crosses a
@@ -1013,6 +1057,200 @@ diagnostic that names the call. Linearity composes with it for free — "whoever
 ends up with this handle must close it" survives a send, because moves transfer
 the obligation [linear-obligation]. Effects give supervision somewhere to live
 without new machinery: a supervisor is a handler.
+
+## Laziness, after concurrency (user decision 2026-09-10)
+
+std's lazy pair (`map_lazy`/`filter_lazy`, composed passes that computed as they
+were driven) was **removed** 2026-09-10 rather than carried along, and the
+question reopens after phase 5. The reason for removing it now: laziness was
+touching three unsettled decisions at once — L8 (a composed pass stores its
+source, so a linear one is refused), sendability (`Rc<dyn Fn…>` in a fn-typed
+field is not `Send`), and the shape of the combinator surface itself — and it was
+the *least* settled of the four, so it was the one to take off the table.
+
+**The direction to try when it is picked up** (the user's, stated with the
+removal): standard laziness *couples data to the functions over it*, and the two
+should stay separate. What is wanted instead is a good way to **compose
+functions — `iter fn`s included — into pipeline functions**, which then mint a
+fresh pass from data supplied independently. So `map`-then-`filter` would build a
+*function*, not a wrapped data structure, and the data arrives at the end.
+
+What the existing implementation already contributes, so this is not a blank
+page:
+
+- **An `iter fn` is already "a function that mints a pass"**, and its pass is
+  unnameable by design — which is exactly the shape a pipeline function wants to
+  return. `?iter` as an implicit (2026-09-10) is already the mechanism for "take
+  the data, mint the pass" in a *generic* function.
+- **A pass is only a struct with a `next`** [iter-protocol], so a pipeline that
+  does need state has somewhere to put it without new language surface.
+- **Effects on fn types** [fn-effects] already thread a callback's effects to
+  whoever calls the value, which a pipeline of effectful steps needs.
+
+Questions to answer with it, all of them consequences of composing functions
+rather than data:
+
+- **What composes, and how it is spelled.** Two `(T) -> U` steps compose
+  obviously; an `iter fn` (subject → pass) composed with a step is a different
+  arrow, and a filter changes the *count* of elements rather than their type.
+  Whether all three are one notion or three is the first call.
+- **Where the state lives.** If a pipeline function is a value, and a stage needs
+  per-run state, the state must be minted per drive rather than captured once —
+  which is the replay property `iter fn` already has (it copies its subject at
+  the mint) and the thing a stored composed pass got wrong.
+- **Does it dissolve the L8 casualty or inherit it?** A pipeline that holds only
+  *functions* stores no source, so "can you lazily `map` over a file's lines?"
+  may become yes without widening the composite rule at all. That is the
+  strongest argument for this direction and it should be tested first.
+- **Sendability.** If a pipeline is a value holding fn-typed fields, phase 5's
+  `Rc`-is-not-`Send` question applies to it directly; if it is a *function*, it
+  may not.
+
+## Regions — designed (user decisions 2026-09-10), built with phase 5
+
+Raised by the user: model Vale-style regions as effects — a scope explicitly
+opens a region, functions declare that they use the caller's region, the way
+`try`/`throw` works. Designed across one session (this supersedes the first
+write-up of the same day; the decision record is in COMPLETED.md). The design
+calls are made; the build is scheduled **into phase 5**, where its customers
+live.
+
+### What transfers from Vale, and what does not
+
+Vale's regions exist to remove *generational-reference* runtime checks; that
+motivation does not transfer — Salvo's safety is static. What transfers is
+**region-scoped data** (a value that may not outlive a scope) and
+**scope-wide immutability** as a fact the checker can use. Said plainly: a
+region is a lifetime with a coarser grain and a friendlier name, and it
+spends part of the "no lifetimes in the source" premise deliberately — one
+binder per scope instead of a lifetime per value.
+
+### The decided reading: R1 — values may not outlive their region
+
+R1 (region-scoped data plus scope immutability) is the design. R2 — the
+region *owns cleanup obligations* and bulk-discharges them at close — is
+**rejected** (user, 2026-09-10): linearity cleanup stays explicit, per path,
+because discharge can be a *choice* (`stop` vs `join` on a thread handle),
+can need context the scope does not hold (`remove(cache, handle)`), and
+discharge functions can use effects, which an implicit close has no business
+supplying (the first two are the examples recorded under L8). Regions manage
+**memory and lifetime, never obligations** — linear values are exempt below —
+which also avoids the `defer` trap ("a block whose end runs cleanup") by
+construction rather than by rule.
+
+### The design
+
+- **`effect Region`, with an intrinsic handler.** `Region` is an ordinary
+  effect whose members are `reg` and `unreg`; the `region { … }` delimiter
+  registers the **intrinsic handler** for its scope. This keeps "an effect is
+  a capability with a handler" true — `Throw` remains the single handler-less
+  exception — while regions inherit the full effect machinery: `[Region]` in
+  effect lists, outward propagation, "no delimiter above you" diagnostics,
+  innermost-wins. No labelled regions in v1 (precedent: no labelled throws).
+  `main` may open `region { }` but may not declare `[Region]` — no caller.
+- **`Reg`, an intrinsic provenance qualifier**, marks membership — provenance
+  because mutation can never invalidate where a handle came from. Merely
+  *holding* a `Reg T` needs no effect entry (having one proves a region is
+  open below you); `[Region]` is declared by whoever calls `reg`/`unreg` or
+  constructs into the caller's region, per ordinary effect rules. The
+  register/region double reading of `reg` is intentional; spec prose must
+  keep the bare word "register" for handlers and `use`.
+- **Transitive through projections**: a projection of a `Reg` value is `Reg`
+  (`node.name` on a `Reg Node` is `Reg Str`), so inner tags carry no
+  information and are rejected (`Reg List<Reg Node>` is an error; write
+  `Reg List<Node>`). Whether propagation-through-projection becomes a
+  *general* per-qualifier property (L8 wants something adjacent for
+  obligations) is **deferred until more examples exist** (user, 2026-09-10).
+  It cannot be uniform: `Authenticated Request` must not project to
+  `Authenticated Str`.
+- **Inverted defaults — regional by birth.** Every value constructed in
+  region context (lexically inside `region { }`, or in the body of a fn
+  declaring `[Region]`) is `Reg`. `reg(v)` moves an outside value in — a
+  consuming deduction, no copy. `unreg(v)` takes a copy out:
+  `fn unreg<T>(value: Reg T) [Region] -> [value] T` — the copy is built into
+  the function, since duplicable handles mean exclusivity can never be
+  proven; it **elides when the argument is a fresh construction**, which is
+  also the opt-out-at-construction spelling (`unreg(Summary { … })`). `copy`
+  respects ambient placement (a copy made in region context is `Reg`);
+  `unreg` is the override.
+- **Exemptions.** Copy scalars (`Int`, `Bool`, …) are never `Reg` — no
+  lifetime to manage, nothing to tag. Linear values are implicitly
+  un-regional: a `: Linear` construction in region context is an ordinary
+  value under the existing per-path discharge rules (see the R2 rejection).
+- **`Mut` interplay — the freeze.** A `Reg` value with a `Mut` handle follows
+  today's rules unchanged (exclusive handle, fate links, deductions) — this
+  is how anything is *built* inside a region, and it matches the arena
+  reality (allocation hands back exclusive access). The **freeze** is
+  dropping the `Mut` — widening (`^Mut`) or moving into a non-`Mut` position —
+  after which the value gets the regional treatment: handles freely
+  duplicable, **no shared-fate links**, and **state qualifiers permanent**
+  (nothing can ever mutate a frozen value, so `Reg NonEmpty List<Int>` never
+  loses `NonEmpty` — the exact mirror of `Cell`'s "no state qualifiers on
+  contents").
+- **The escape rule.** Nothing carrying a region's provenance may escape its
+  delimiter — as the block's value, by `return` or `break`-with-value, or by
+  storage into an outer variable or literal. The existing consumption/flow
+  analysis is the machinery; the diagnostic names the escape event and the
+  remedy ("`unreg(v)` to take a copy out"). Ordinary locals declared in the
+  block are untouched — the region delimits only its members, and both
+  disciplines coexist in one scope with the qualifier saying which one a
+  value is under.
+
+### What it retires, for frozen `Reg` values
+
+| today | frozen `Reg` value |
+|---|---|
+| returning a kept parameter's projection is a move / needs `copy` | legal — the return borrows the region, not the parameter |
+| derived returns (`ReadOnly[from: p]`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
+| shared fate: links, root mutation poisons derivatives | no links exist; nothing can mutate a frozen root |
+| storing one value in two literals consumes it at the first | handles duplicate freely |
+| re-test (`is NonEmpty`) after every mutating call | claims are permanent |
+
+Honest framing, kept from the first write-up: this is a **second axis**, not
+a reduction of the first. Deductions, `Mut`, shared fate and `Linear` all
+remain, unchanged, for un-regional values. The D7 watch-list entry
+`Local`/`Escaping` is this idea under a smaller name; fold it into this
+design when phase 5 picks it up.
+
+### Backend lowering, staged
+
+- **Kotlin**: erased entirely — `region { }` is a plain block, `Reg T` is
+  `T`, `reg`/`unreg` are identity/copy. The same story as deductions
+  [qual-erasure].
+- **Rust v1 [rs-region-rc]**: `Reg T` → `Rc<T>`, `reg` → `Rc::new`, `unreg` →
+  clone-out. Zero lifetimes in generated signatures — the first write-up's
+  concern that regions put `'r` everywhere is answered by staging, not
+  denied. The escape rule is enforced *semantically* from day one even
+  though `Rc` would not dangle, deliberately, so v2 is a pure representation
+  swap. Flag: `Rc` is not `Send` — the same phase-5 blocker as
+  [rs-fn-field].
+- **Rust v2 [rs-region-arena]**: a real arena (hand-rolled in emitted
+  `core/` while output stays a single `rustc` invocation), `Reg T` → `&'r T`,
+  one mechanical lifetime per delimiter, `[Region]` fns get `'r` threaded
+  like an effect parameter. The recorded hard part is drop glue for regional
+  collections (a `Reg List` owns a heap buffer that must not leak past the
+  region).
+
+### Why phase 5 (user, 2026-09-10)
+
+A process in the OTP model *is* a region: a private heap, bulk-freed on
+death, with "leaving the region requires move/copy" as the sendability rule.
+The null hypothesis for the phase-5 design session is that `region { }` is
+the **sequential special case of a process** — one that runs inline and dies
+at the brace — giving one concept instead of two. The escaping-closure fix
+[fate-lambda] is already a phase-5 prerequisite, and R1 is its notation.
+Deciding regions standalone earlier would spend part of the same design call
+twice — the reasoning that already deferred `Cell`.
+
+### Still open when phase 5 picks this up
+
+- The exact freeze spelling: `^Mut` as an expression, freeze-by-position
+  only, or both.
+- Cross-region operations (Vale's "read an outer region while building an
+  inner one") — deliberately out of v1.
+- `unreg` of a deeply regional structure must copy deeply — same per-backend
+  rules as `copy`, including its refuse-rather-than-diverge cases.
+- Folding D7's `Local`/`Escaping` watch-list entry into this design.
 
 ## Consolidated leftovers
 

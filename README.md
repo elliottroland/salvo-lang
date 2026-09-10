@@ -126,9 +126,6 @@ fn main() [use] {
   without one (`when { n < 0 { … } else { … } }`), which is how a chain of
   conditions produces a value that is never absent. Conditions are `Bool`;
   there is no truthiness.
-- **Scope exits**: `defer { ... }` runs a block when the enclosing block
-  ends — at its end and at every `return`/`break`/`continue` that leaves
-  it, latest first — so a resource is released once, on every path.
 - **Functions**: overloading by argument types — the most specific *scope*
   wins first (`core`, then imports, then your module, then the function's own
   scope), then the most specific signature; an ambiguity is an error, and the

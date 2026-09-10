@@ -311,9 +311,10 @@ fn a_throwing_branch_does_not_leak_its_consumption() {
 // ===== linear obligations across a throw [linear-obligation] =====
 
 /// [throw] [linear-obligation] The code after a may-throw call does not run
-/// on the throw path, so a linear value live across it would leak — the
-/// diagnostic names `defer`, the one way to discharge on a path the author
-/// does not write.
+/// on the throw path, so a linear value live across it would leak. Since
+/// `defer` was removed (2026-09-10) there is no construct that discharges on a
+/// path the author does not write, so the diagnostic names the two remedies
+/// that remain: release before the call, or move the value onward.
 #[test]
 fn a_linear_value_across_a_may_throw_call_is_rejected() {
     let errs = errors(&format!(
@@ -332,59 +333,23 @@ fn a_linear_value_across_a_may_throw_call_is_rejected() {
     );
 }
 
-/// [defer] The remedy, and the reason `defer` was built first: the deferred
-/// release runs on the throw path too, so the obligation is discharged on
-/// every path.
+/// The remedy that remains: release *before* the call, so the throw path owes
+/// nothing. This is what removing `defer` costs — the release is written where
+/// it happens rather than registered once — and what it buys: the obligation is
+/// checked rather than delegated to a construct.
 #[test]
-fn a_deferred_release_discharges_it() {
+fn releasing_before_the_call_discharges_it() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn safe(line: Str) [Throw<Str>] -> [] Int {{\n\
          let h = open_handle(1)\n\
-         defer {{ close_handle(h) }}\n\
+         close_handle(h)\n\
          return parse(line)\n\
          }}\n"
     ));
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-// ===== throwing from a deferred block [defer-no-escape] =====
-
-/// [defer-no-escape] A deferred block runs *while* its scope is being left:
-/// unwinding out of an unwind path is a hole neither lowering wants.
-#[test]
-fn throwing_in_a_deferred_block_is_rejected() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn bad(line: Str) [Throw<Str>] -> [] None {{\n\
-         defer {{ throw(\"on the way out\") }}\n\
-         note(line)\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("a `throw` is not allowed in a deferred block")),
-        "expected the deferred-throw rejection, got: {errs:?}"
-    );
-}
-
-/// [defer-no-escape] Same for a call that merely *may* throw: the deferred
-/// block cannot know whether it will.
-#[test]
-fn a_may_throw_call_in_a_deferred_block_is_rejected() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn bad(line: Str) [Throw<Str>] -> [] None {{\n\
-         defer {{ note(\"${{parse(line)}}\") }}\n\
-         note(line)\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("a call that may throw is not allowed in a deferred block")),
-        "expected the deferred-propagation rejection, got: {errs:?}"
-    );
-}
 
 // ===== nesting [try-innermost] =====
 

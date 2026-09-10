@@ -1,0 +1,16 @@
+1. open notes.txt
+1. close notes.txt
+1. read 3
+1. open notes.txt
+1. asked for more than there is
+1. close notes.txt
+1. read 9
+3. good: port 8080
+3. bad: rejected — not a number: http
+1. open ports.txt
+1. close ports.txt
+2. reading a port out of ports.txt
+3. guarded: rejected — port must be positive
+3. mixed: message empty
+3. inner caught: not a number: nope
+3. outer caught: not a number: also nope

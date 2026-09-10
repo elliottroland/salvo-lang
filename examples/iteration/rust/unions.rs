@@ -13,7 +13,19 @@ impl<T1, T2> Union2<T1, T2> {
             _ => panic!("unreachable union arm"),
         }
     }
+    pub fn u1_mut(&mut self) -> &mut T1 {
+        match self {
+            Union2::U1(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
     pub fn u2(&self) -> &T2 {
+        match self {
+            Union2::U2(v) => v,
+            _ => panic!("unreachable union arm"),
+        }
+    }
+    pub fn u2_mut(&mut self) -> &mut T2 {
         match self {
             Union2::U2(v) => v,
             _ => panic!("unreachable union arm"),

@@ -550,7 +550,7 @@ struct Walk<'a, 'p> {
     /// refined call re-establishes what the callee's own list had to drop.
     refinements: &'a crate::refine::Refinements,
     /// How many conditional or repeated blocks enclose the statement being
-    /// walked (`if`/`when` branches, loop bodies, lambda and deferred
+    /// walked (`if`/`when` branches, loop bodies, lambda
     /// bodies). A refinement's *addition* is honored only at depth 0
     /// [qual-refn-infer]: this walk is a meet over all uses rather than a
     /// flow analysis, so a call that may not run cannot establish a fact
@@ -782,12 +782,10 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Stmt::Expr(e) => self.expr(e),
-            // [defer] The body runs at the enclosing block's exits, so its
             // calls contribute to the enclosing fn's inferred contract
             // exactly as if written there. Where they run relative to the
             // rest is not modelled here, so a refinement's addition inside
             // one does not reach the contract [qual-refn-infer].
-            Stmt::Defer { body, .. } => self.cond_block(body),
             _ => {}
         }
     }

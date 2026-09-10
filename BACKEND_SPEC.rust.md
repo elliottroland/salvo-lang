@@ -139,11 +139,13 @@ Conventions:
     into every turn of the loop from the scope the `for` is written in
     [fn-effects].
   * [linear-group] A pass with a `close` is released by the loop on every exit —
-    exhaustion, `break` and `return` — through the same deferred-splice path
-    `defer` uses [rs-defer-splice].
+    exhaustion, `break` and `return` — through the exit-splice path
+    [rs-exit-splice].
   * [rs-fn-field] A fn-typed **field** is `Rc<dyn Fn…>`, which is what lets a
-    composed pass (`map_lazy`) store its source's `next`; a fn that stores a
-    callback therefore takes it owned and `'static` rather than borrowed.
+    composed pass store its source's `next`; a fn that stores a
+    callback therefore takes it owned and `'static` rather than borrowed. std
+    stopped writing such a pass when the lazy pair was removed (2026-09-10);
+    a program may still write one.
 
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
   spells out its type arguments (`map_to::<Vec<i32>, Vec<i32>, i32, i32>(…)`),
@@ -468,30 +470,32 @@ derives them mechanically:
     handed them and ignores them (the variance rule). A mismatch the
     checker's fits rule should have caught is an internal-error codegen
     diagnostic, never a guess [backend-never-wrong].
-* [defer] [rs-defer-splice] Rust has no `finally`, and a `Drop` guard
-  cannot be used: `close(f)` consumes the handle, so the guard would have
-  to own `f` from the `defer` onward, making it unusable for the rest of
-  the block (a `&mut` capture trades that for `E0499` at the next use).
-  So the body is **spliced** — emitted at every exit of its block — which
-  is [defer]'s meaning literally, and leaves no runtime construct behind.
-  * The body is rendered **once**, at the `defer` statement (in the scope
-    it was written in, with that point's effect environment and bindings),
-    and re-indented at each splice site. Sites: the end of the block
-    (`emit_block_stmts`, skipped when the block's last statement already
-    exits — the splice would be dead code rustc still borrow-checks), each
-    `return` (all deferred blocks of the fn, `defer_floor` stopping at a
-    closure boundary), and each `break`/`continue` (those registered
-    inside the loop, tracked by `loop_defer_floors`).
-  * A value given away at the exit is computed first, so `return v` with
-    deferred code behind it becomes
-    `let __deferred_valueN = v; <deferred>; return __deferred_valueN;` —
-    and a value-position block hoists its tail the same way
-    (`emit_value_block`), since the deferred statements would otherwise
-    become the block's value.
+* [rs-exit-splice] Code the compiler owes at a block's exits is **spliced**:
+  emitted at every exit of that block, leaving no runtime construct behind.
+  Rust has no `finally`, and a `Drop` guard cannot stand in: a release
+  consumes its handle, so the guard would have to own it from registration
+  onward, making it unusable for the rest of the block (a `&mut` capture
+  trades that for `E0499` at the next use).
+  * The only source today is the release a `for` owes a pass it owns
+    ([linear-group]; the `defer` statement was the other until it was removed
+    from the language, 2026-09-10).
+  * The code is rendered **once**, where it is registered (in that scope, with
+    that point's effect environment and bindings), and re-indented at each
+    splice site. Sites: the end of the block (`emit_block_stmts`, skipped when
+    the block's last statement already exits — the splice would be dead code
+    rustc still borrow-checks), each `return` (every splice of the fn,
+    `splice_floor` stopping at a closure boundary), and each
+    `break`/`continue` (those registered inside the loop, tracked by
+    `loop_splice_floors`).
+  * A value given away at the exit is computed first, so `return v` with a
+    splice behind it becomes
+    `let __exit_valueN = v; <splice>; return __exit_valueN;` — and a
+    value-position block hoists its tail the same way (`emit_value_block`),
+    since the spliced statements would otherwise become the block's value.
   * **Known divergence** from Kotlin's `finally` lowering (accepted, user
     decision 2026-09-04): a panic out of a std intrinsic unwinds *past* the
-    splice, so deferred code does not run on a crash path, where the JVM's
-    `finally` would run it. See [kt-defer-finally].
+    splice, so the code does not run on a crash path, where the JVM's
+    `finally` would run it. See [kt-exit-finally].
 * [throw] [rs-throw-controlflow] A fn declaring `[Throw<M>]` returns
   `ControlFlow<M, T>` — the message type *is* `ControlFlow`'s `Break`
   payload, so the propagation falls out of the design rather than being
@@ -503,10 +507,10 @@ derives them mechanically:
     `None`-returning fn ends with `return ControlFlow::Continue(())`.
   * A call that may throw unwraps with `?` — but only when the throw would
     leave *this* fn unchanged. Inside a `try`, when the message must be
-    wrapped into a union arm, or when deferred blocks have to run first, the
+    wrapped into a union arm, or when an exit splice has to run first, the
     propagation is written out as `match call { Continue(__v) => __v,
     Break(__m) => <transfer> }`. That is an *expression*, so it works in
-    argument position with no hoisting — and it is the only way the deferred
+    argument position with no hoisting — and it is the only way a pending
     release can run on the throw path, since `?` returns without it.
   * Verified by hand before implementation (`?` on `ControlFlow` is stable;
     a may-throw call in a loop stays a loop, no trampoline): the three

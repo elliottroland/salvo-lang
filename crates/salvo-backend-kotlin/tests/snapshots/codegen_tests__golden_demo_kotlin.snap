@@ -101,7 +101,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__5(p: StrYield): Union2<Char, Finished> {
+fun next__3(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -138,7 +138,7 @@ fun greet(console: Console, person: Person) {
     println(console, "Hello, ${full_name(person)}!")
     var __loop1_pass = iter__4(range(1, 4))
     while (true) {
-        val __loop1_step = next__6(__loop1_pass)
+        val __loop1_step = next__4(__loop1_pass)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val i = __loop1_step.value
         println(console, "  $i: ${person.age + i}")
@@ -163,7 +163,7 @@ fun iter__4(r: Range): __Pass_Range {
     return __Pass_Range(end = r.end, at = r.start)
 }
 
-fun next__6(__p: __Pass_Range): Union2<Int, Finished> {
+fun next__4(__p: __Pass_Range): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return U2_2<Int, Finished>(finished())
     }

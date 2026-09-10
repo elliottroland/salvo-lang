@@ -3990,147 +3990,13 @@ fn provenance_survives_mutation_where_state_does_not() {
     );
 }
 
-// ===== E3: deferred blocks [defer] [kt-defer-finally] =====
-
-/// `defer { ... }` at work: LIFO order at the end of a block, on an early
-/// `return`, on `continue`/`break` out of a loop body, and discharging a
-/// linear obligation on every path of a fn with two exits.
-const DEFER_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
-    fd: Int
-}
-
-fn close(x: FileHandle) -> [] None {}
-
-
-fn open_file(n: Int) [Console] -> [] FileHandle {
-    println("open ${n}")
-    return FileHandle {fd: n}
-}
-
-fn close_file(h: FileHandle) [Console] -> [] None {
-    println("close fd=${h.fd}")
-    close(h)
-}
-
-fn scoped() [Console] -> [] None {
-    defer { println("outer defer") }
-    defer { println("inner defer") }
-    println("body")
-}
-
-fn early(flag: Bool) [Console] -> [] Int {
-    defer { println("early defer") }
-    if flag {
-        return 1
-    }
-    println("after if")
-    return 2
-}
-
-fn looping() [Console] -> [] None {
-    for i in [1, 2, 3] {
-        defer { println("iteration ${i} done") }
-        if i == 2 {
-            continue
-        }
-        if i == 3 {
-            break
-        }
-        println("body ${i}")
-    }
-}
-
-fn with_resource(flag: Bool) [Console] -> [] Int {
-    let h = open_file(7)
-    defer { close_file(h) }
-    if flag {
-        return 1
-    }
-    return h.fd
-}
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    scoped()
-    let a = early(true)
-    let b = early(false)
-    println("results ${a} ${b}")
-    looping()
-    let r1 = with_resource(true)
-    println("resource ${r1}")
-    let r2 = with_resource(false)
-    println("resource ${r2}")
-}
-"#;
-
-const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
-                            early defer\nafter if\nearly defer\nresults 1 2\n\
-                            body 1\niteration 1 done\niteration 2 done\n\
-                            iteration 3 done\nopen 7\nclose fd=7\nresource 1\n\
-                            open 7\nclose fd=7\nresource 7\n";
-
-/// [kt-defer-finally] Each `defer` wraps the rest of its block in
-/// `try`/`finally`, so the JVM runs the body on the normal path and on
-/// every `return`/`break`/`continue` — one `try` per `defer`, nested,
-/// which is LIFO.
-#[test]
-fn defer_lowers_to_try_finally() {
-    let program = build_program(&[("main.sv", DEFER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.kt"))
-        .unwrap();
-    let scoped = main
-        .content
-        .split("fun scoped")
-        .nth(1)
-        .and_then(|s| s.split("\nfun ").next())
-        .unwrap();
-    assert_eq!(
-        scoped.matches("try {").count(),
-        2,
-        "expected one `try` per `defer` in:\n{scoped}"
-    );
-    // Nested, innermost `defer` first: the inner `finally` is closer to
-    // the body than the outer one.
-    let inner = scoped.find("inner defer").expect("inner defer emitted");
-    let outer = scoped.find("outer defer").expect("outer defer emitted");
-    assert!(inner < outer, "expected LIFO nesting in:\n{scoped}");
-    // A single `finally` covers both exits of `early`.
-    let early = main
-        .content
-        .split("fun early")
-        .nth(1)
-        .and_then(|s| s.split("\nfun ").next())
-        .unwrap();
-    assert_eq!(
-        early.matches("early defer").count(),
-        1,
-        "expected one `finally` for both returns in:\n{early}"
-    );
-}
-
-#[test]
-fn kotlin_compiles_and_runs_defer() {
-    if !kotlin_toolchain() {
-        return;
-    }
-    let program = build_program(&[("main.sv", DEFER_DEMO)]);
-    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_kotlin_files(&files, "defer", DEFER_OUTPUT);
-}
-
 // ===== E3 step 2: throw and `try` [throw] [try] [kt-throw-signal] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
-/// that declares the effect, a linear resource released by a deferred block
-/// *on the throw path*, two message types meeting at one delimiter
+/// that declares the effect, a linear resource released *before* the call that
+/// may throw (which is the only way since `defer` was removed, 2026-09-10 —
+/// the checker rejects holding it across the call), two message types meeting
+/// at one delimiter
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
@@ -4168,9 +4034,10 @@ fn limit(n: Int) [Throw<Int>] -> [] Int {
 
 fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
     let h = open_file(1)
-    defer { close_file(h) }
+    let fd = copy(h.fd)
+    close_file(h)
     let n = parse(line)
-    return n + h.fd
+    return n + fd
 }
 
 fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
@@ -4234,9 +4101,9 @@ fn main() [use] -> [] None {
 }
 "#;
 
-const THROW_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
-                            open 1\nparse \nclose fd=1\nthrown: empty line\n\
-                            open 1\nparse longer line\nclose fd=1\nmixed thrown\n\
+const THROW_OUTPUT: &str = "open 1\nclose fd=1\nparse hello\nok 6\n\
+                            open 1\nclose fd=1\nparse \nthrown: empty line\n\
+                            open 1\nclose fd=1\nparse longer line\nmixed thrown\n\
                             within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
                             counted 7\ndone\n";
 
@@ -4997,10 +4864,11 @@ fn kotlinc_compiles_and_runs_overload_delegation() {
 
 // ===== [iter-protocol] laziness, now a property of the pass =====
 
-/// [seq-lazy] [seq-into] The combinator surface (user decision 2026-09-08) —
-/// same source and stdout as the Rust backend's
-/// `rustc_compiles_and_runs_the_combinator_surface`, which is the parity claim
-/// for the eager/lazy/into trio.
+/// [seq-into] The combinator surface — same source and stdout as the Rust
+/// backend's `rustc_compiles_and_runs_the_combinator_surface`, which is the
+/// parity claim for the eager/into pair. The lazy pair went with the
+/// 2026-09-10 removal, so the generic bodies are reached by handing a pass in
+/// explicitly.
 const SEQ_SURFACE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -5015,12 +4883,10 @@ fn main() [use] -> None {
     let xs = list(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
-    for v in map_lazy(iter(copy(xs)), double) {
-        println("lazy ${v}")
-    }
-    for v in filter_lazy(iter(copy(xs)), is_even) {
-        println("kept ${v}")
-    }
+    let generic = map(iter(copy(xs)), double)
+    println("generic ${generic.size()}")
+    let kept = filter(iter(copy(xs)), is_even)
+    println("kept ${kept.size()}")
     let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
     let chained = filter_to(map_to(mutable_list<Int>(), iter(copy(xs)), double), iter(xs), is_even)
@@ -5028,8 +4894,7 @@ fn main() [use] -> None {
 }
 "#;
 
-const SEQ_SURFACE_OUTPUT: &str =
-    "eager 4\nlazy 2\nlazy 4\nlazy 6\nlazy 8\nkept 2\nkept 4\nsink 4\nchained 6\n";
+const SEQ_SURFACE_OUTPUT: &str = "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
 
 #[test]
 fn kotlinc_compiles_and_runs_the_combinator_surface() {
@@ -5042,29 +4907,29 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() {
         .find(|f| f.rel_path.ends_with("seq.kt"))
         .expect("core/seq.kt emitted")
         .content;
-    // A lazy combinator returns a **composed pass**: a struct holding the
-    // source, the callback and the source's `next`, which is the implicit
-    // resolved at the call that built it [implicit-group].
+    // The generic body drives its subject through the `next` the call site
+    // resolved, which arrives as an ordinary function parameter — no trait, no
+    // bound [implicit-group].
     assert!(
-        seq.contains("class MapYield<It, T, U>") && seq.contains("var step: (It) -> Union2<T, Finished>"),
-        "expected the composed pass with its stored `next` in:\n{seq}"
+        seq.contains("next: (It) -> Union2<T, Finished>"),
+        "expected the resolved `next` as a plain parameter in:\n{seq}"
     );
     run_kotlin_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
 }
 
-/// [seq-lazy] The observable difference laziness makes, with the Rust twin's
-/// source and stdout: an **unbounded** producer mapped and filtered lazily,
-/// terminating only because the consumer stops.
+/// An **unbounded** producer that terminates only because the consumer stops,
+/// with the Rust twin's source and stdout. A lazy-chain test until 2026-09-10;
+/// the property that mattered is what a plain `for` with a `break` states.
 #[test]
-fn kotlinc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
-    let program = build_program(&[("main.sv", LAZY_CHAIN_DEMO)]);
+fn kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer() {
+    let program = build_program(&[("main.sv", UNBOUNDED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "lazy-chain", LAZY_CHAIN_OUTPUT);
+    run_kotlin_files(&files, "unbounded-break", UNBOUNDED_OUTPUT);
 }
 
-const LAZY_CHAIN_DEMO: &str = r#"
+const UNBOUNDED_DEMO: &str = r#"
 struct Naturals {
     from: Int
 }
@@ -5092,16 +4957,18 @@ fn is_even(n: Int) -> Bool {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    for v in map_lazy(filter_lazy(iter(naturals()), is_even), triple) {
-        if v > 12 {
+    for v in iter(naturals()) {
+        if v > 4 {
             break
         }
-        println("v ${v}")
+        if is_even(v) {
+            println("v ${triple(v)}")
+        }
     }
 }
 "#;
 
-const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
+const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 
 // ===== [implicit-param] [implicit-group] implicit parameters =====
 
@@ -5948,8 +5815,8 @@ fn kotlinc_compiles_and_runs_a_generic_drive() {
     run_kotlin_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
 }
 
-/// [linear-generics] The release: the implicit `close` goes in the `finally`,
-/// which is how `defer` is lowered here [kt-defer-finally], so `break`, `return`
+/// [linear-generics] The release: the implicit `close` goes in the `finally`
+/// the exit-splice lowering uses here [kt-exit-finally], so `break`, `return`
 /// and exhaustion all reach it.
 #[test]
 fn an_owned_generic_pass_is_closed_by_the_loop() {
@@ -6149,9 +6016,11 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
         !src.contains("__advance") && !src.contains("iterator {"),
         "an `iter fn` needs no state machine:\n{src}"
     );
-    // [fn-effects] The effectful `next` gets its handler per turn.
+    // [fn-effects] The effectful `next` gets its handler per turn. The mangling
+    // index counts the visible `next` overloads, so it moved when std's lazy
+    // pair (two of them) was removed 2026-09-10.
     assert!(
-        src.contains("next__8(console, __loop"),
+        src.contains("next__6(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }

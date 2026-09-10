@@ -636,39 +636,6 @@ fn docs_keep_indentation_after_the_marker() {
     );
 }
 
-// [defer] `defer` takes a block — the language's only body form.
-#[test]
-fn defer_parses_a_block() {
-    let source = "fn f() {\n    defer {\n        close(h)\n    }\n    use_it(h)\n}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        !diagnostics.iter().any(|d| d.is_error()),
-        "unexpected errors: {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
-        panic!("expected a fn item");
-    };
-    let body = f.body.as_ref().expect("fn has a body");
-    let salvo_syntax::ast::Stmt::Defer { body: deferred, .. } = &body.stmts[0] else {
-        panic!("expected a defer statement, got {:?}", body.stmts[0]);
-    };
-    assert_eq!(deferred.stmts.len(), 1);
-}
-
-// [defer] A statement without braces is a parse error naming the form.
-#[test]
-fn defer_without_a_block_is_an_error() {
-    let source = "fn f() {\n    defer close(h)\n}\n";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("`defer` takes a block")),
-        "expected a block-required error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
 
 // [try] `try` takes a block and is an *expression* — the throw delimiter.
 #[test]

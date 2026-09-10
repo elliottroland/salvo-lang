@@ -7,7 +7,7 @@ compiler generated for it and the output it prints.
 | example | what it shows |
 |---|---|
 | [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written pass, `yield fn` generators, a combinator of your own, the sequence functions, and the lazy pair |
-| [`defer-and-throw/`](defer-and-throw/) | `defer` at block exits, a linear resource released on every path, `throw`/`try` and the `Ok T \| Thrown M` outcome |
+| [`throw-and-release/`](throw-and-release/) | `throw`/`try` and the `Ok T \| Thrown M` outcome, with a linear resource released on every path — including before a call that may throw |
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
 
 More will be added as features land. This tree replaced `experiments/`, which

@@ -230,13 +230,16 @@ Conventions:
     globally unique per file. Bare `return` inside a value-position loop
     in an iterator body is not re-targeted to `return@iterator` yet
     (shared limitation with all value blocks).
-* [defer] [kt-defer-finally] Each `defer { body }` wraps *the rest of its
-  block* in `try { … } finally { body }`. The JVM runs `finally` on the
-  normal path and on every `return`/`break`/`continue` leaving the block,
-  which is exactly [defer]'s splice-at-exit meaning — one construct covers
-  all exits, so nothing is duplicated per exit the way the Rust splice is.
-  * Nesting *is* the LIFO order: a second `defer` opens its `try` inside
-    the first one's, so its `finally` runs first.
+* [kt-exit-finally] Code the compiler owes at a block's exits is wrapped
+  rather than spliced: the rest of the block goes inside
+  `try { … } finally { owed }`. The JVM runs `finally` on the normal path and
+  on every `return`/`break`/`continue` leaving the block, so one construct
+  covers all exits and nothing is duplicated per exit the way the Rust splice
+  is [rs-exit-splice].
+  * The only source today is the release a `for` owes a pass it owns
+    ([linear-group]; the `defer` statement was the other until it was removed
+    from the language, 2026-09-10 — nesting one `try` per registration is what
+    gave that construct its LIFO order for free).
   * `try` is an expression in Kotlin, so a value-position block keeps
     working: the block's value is the `try` block's tail
     (`emit_value_stmts`), and a loop-body value block assigns its result
@@ -244,11 +247,9 @@ Conventions:
     wrap the same way (`emit_lambda_stmts`).
   * **Known divergence** (accepted, user decision 2026-09-04): `finally`
     also runs while an *unexpected* exception unwinds — an index-out-of-
-    range out of a std intrinsic, say — where the Rust splice does not run
-    the deferred code on a panic. Salvo has no `catch`, so side effects
-    during a crash are not part of a program's meaning; tightening this
-    would mean catching the throw signal specifically and rethrowing
-    (revisit with roadmap E3's `throw`).
+    range out of a std intrinsic, say — where the Rust splice does not run on
+    a panic. Salvo has no `catch`, so side effects during a crash are not part
+    of a program's meaning.
 * [qual-widen] [kt-widen-shadow] A `^` check emits the same test `is` would
   (or `true` for a tautology). Where it peels a wrapper arm, the widened
   value is bound to a **shadowing `val`** at the top of the branch
@@ -297,9 +298,8 @@ Conventions:
     set is passed on rather than mis-wrapped [backend-never-wrong].
   * A single message type needs no tag dispatch: the payload is cast
     directly (user decision 2026-09-04 — wrap only when a union is present).
-  * A `defer` inside a `try` body runs while the signal unwinds, because it
-    is a `finally` [kt-defer-finally]. That is the whole reason `defer`
-    came first.
+  * A release a loop owes inside a `try` body runs while the signal unwinds,
+    because it is a `finally` [kt-exit-finally].
 
 ## Qualifiers
 
@@ -493,7 +493,7 @@ same programs running ([rs-effect-fusion]).
   * An **effectful `next`** takes its handlers as leading arguments, threaded
     into every turn of the loop [fn-effects].
   * [linear-group] A pass with a `close` is released in a `finally`, so
-    exhaustion, `break` and `return` all reach it [kt-defer-finally].
+    exhaustion, `break` and `return` all reach it [kt-exit-finally].
 
 * [kt-none-unit] `None` is Kotlin's `Unit`, and a fn returning it renders no
   return type — so `return None` emits a **bare** `return`. The test is the

@@ -256,8 +256,6 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
                 }
             }
             Stmt::Use { handler, .. } => expr_names(handler, used),
-            // [defer] The body is ordinary code run at the block's exits.
-            Stmt::Defer { body, .. } => block_names(body, used),
             Stmt::Expr(e) => expr_names(e, used),
             Stmt::Continue { .. } => {}
         }

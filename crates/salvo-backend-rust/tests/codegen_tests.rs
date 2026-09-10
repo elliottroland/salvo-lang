@@ -2719,158 +2719,13 @@ fn provenance_survives_mutation_where_state_does_not() {
     );
 }
 
-// ===== E3: deferred blocks [defer] [rs-defer-splice] =====
-
-/// `defer { ... }` at work: LIFO order at the end of a block, on an early
-/// `return`, on `continue`/`break` out of a loop body, and discharging a
-/// linear obligation on every path of a fn with two exits.
-const DEFER_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
-    fd: Int
-}
-
-fn close(x: FileHandle) -> [] None {}
-
-
-fn open_file(n: Int) [Console] -> [] FileHandle {
-    println("open ${n}")
-    return FileHandle {fd: n}
-}
-
-fn close_file(h: FileHandle) [Console] -> [] None {
-    println("close fd=${h.fd}")
-    close(h)
-}
-
-fn scoped() [Console] -> [] None {
-    defer { println("outer defer") }
-    defer { println("inner defer") }
-    println("body")
-}
-
-fn early(flag: Bool) [Console] -> [] Int {
-    defer { println("early defer") }
-    if flag {
-        return 1
-    }
-    println("after if")
-    return 2
-}
-
-fn looping() [Console] -> [] None {
-    for i in [1, 2, 3] {
-        defer { println("iteration ${i} done") }
-        if i == 2 {
-            continue
-        }
-        if i == 3 {
-            break
-        }
-        println("body ${i}")
-    }
-}
-
-fn with_resource(flag: Bool) [Console] -> [] Int {
-    let h = open_file(7)
-    defer { close_file(h) }
-    if flag {
-        return 1
-    }
-    return h.fd
-}
-
-fn main() [use] -> [] None {
-    use StdOutConsole
-    scoped()
-    let a = early(true)
-    let b = early(false)
-    println("results ${a} ${b}")
-    looping()
-    let r1 = with_resource(true)
-    println("resource ${r1}")
-    let r2 = with_resource(false)
-    println("resource ${r2}")
-}
-"#;
-
-const DEFER_OUTPUT: &str = "body\ninner defer\nouter defer\n\
-                            early defer\nafter if\nearly defer\nresults 1 2\n\
-                            body 1\niteration 1 done\niteration 2 done\n\
-                            iteration 3 done\nopen 7\nclose fd=7\nresource 1\n\
-                            open 7\nclose fd=7\nresource 7\n";
-
-/// [rs-defer-splice] Rust has no `finally`: the body is spliced at every
-/// exit of its block, so `defer` leaves no runtime construct behind. The
-/// `return` value is hoisted into a temporary, because it is computed
-/// before the deferred code runs.
-#[test]
-fn defer_splices_at_every_exit() {
-    let files = generate(&[("main.sv", DEFER_DEMO)]);
-    let main = files
-        .iter()
-        .find(|f| f.rel_path.ends_with("main.rs"))
-        .unwrap();
-    // LIFO at the end of a block, and no scaffolding.
-    let scoped = main
-        .content
-        .split("pub fn scoped")
-        .nth(1)
-        .and_then(|s| s.split("pub fn").next())
-        .unwrap();
-    let order: Vec<&str> = scoped
-        .lines()
-        .filter(|l| l.contains("println"))
-        .map(|l| l.trim())
-        .collect();
-    assert_eq!(order.len(), 3, "expected three prints in:\n{scoped}");
-    assert!(
-        order[0].contains("\"body\"")
-            && order[1].contains("inner defer")
-            && order[2].contains("outer defer"),
-        "expected LIFO order in:\n{scoped}"
-    );
-    // The early `return` runs the deferred code first, so the value is
-    // hoisted.
-    let early = main
-        .content
-        .split("pub fn early")
-        .nth(1)
-        .and_then(|s| s.split("pub fn").next())
-        .unwrap();
-    assert!(
-        early.contains("let __deferred_value1 = 1;")
-            && early.contains("return __deferred_value1;"),
-        "expected the return value hoisted in:\n{early}"
-    );
-    // `continue`/`break` splice the loop body's deferred code too.
-    let looping = main
-        .content
-        .split("pub fn looping")
-        .nth(1)
-        .and_then(|s| s.split("pub fn").next())
-        .unwrap();
-    assert_eq!(
-        looping.matches("iteration {} done").count(),
-        3,
-        "expected the body spliced at the two exits and the block end in:\n{looping}"
-    );
-}
-
-#[test]
-fn rustc_compiles_and_runs_defer() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", DEFER_DEMO)]);
-    run_rust_files(&files, "defer", DEFER_OUTPUT);
-}
-
 // ===== E3 step 2: throw and `try` [throw] [try] [rs-throw-controlflow] =====
 
 /// The whole of non-resumption in one program: propagation through a frame
-/// that declares the effect, a linear resource released by a deferred block
-/// *on the throw path*, two message types meeting at one delimiter
+/// that declares the effect, a linear resource released *before* the call that
+/// may throw (which is the only way since `defer` was removed, 2026-09-10 —
+/// the checker rejects holding it across the call), two message types meeting
+/// at one delimiter
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
@@ -2908,9 +2763,10 @@ fn limit(n: Int) [Throw<Int>] -> [] Int {
 
 fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
     let h = open_file(1)
-    defer { close_file(h) }
+    let fd = copy(h.fd)
+    close_file(h)
     let n = parse(line)
-    return n + h.fd
+    return n + fd
 }
 
 fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
@@ -2974,9 +2830,9 @@ fn main() [use] -> [] None {
 }
 "#;
 
-const THROW_OUTPUT: &str = "open 1\nparse hello\nclose fd=1\nok 6\n\
-                            open 1\nparse \nclose fd=1\nthrown: empty line\n\
-                            open 1\nparse longer line\nclose fd=1\nmixed thrown\n\
+const THROW_OUTPUT: &str = "open 1\nclose fd=1\nparse hello\nok 6\n\
+                            open 1\nclose fd=1\nparse \nthrown: empty line\n\
+                            open 1\nclose fd=1\nparse longer line\nmixed thrown\n\
                             within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
                             counted 7\ndone\n";
 
@@ -3017,8 +2873,11 @@ fn throw_lowers_to_controlflow() {
         !std_throw.contains("trait Throw"),
         "expected no trait for the throw effect in:\n{std_throw}"
     );
-    // Propagation with a pending deferred block cannot use `?`: the
-    // deferred release has to run before the frame is left [defer].
+    // [rs-exit-splice] With nothing pending at the exit, propagation is the
+    // plain `?`: the release was written before the call, so the throw path
+    // owes nothing. (Until 2026-09-10 a `defer` here forced the long form —
+    // a `match` on the `ControlFlow` with the release spliced into the
+    // `Break` arm.)
     let measure = main
         .content
         .split("pub fn measure")
@@ -3026,9 +2885,9 @@ fn throw_lowers_to_controlflow() {
         .and_then(|s| s.split("pub fn").next())
         .unwrap();
     assert!(
-        measure.contains("ControlFlow::Break(__m) => {")
-            && measure.contains("close_file(console, h);"),
-        "expected the deferred release on the throw path in:\n{measure}"
+        measure.contains("close_file(console, h);")
+            && !measure.contains("ControlFlow::Break(__m) => {"),
+        "expected plain `?` propagation with the release ahead of the call in:\n{measure}"
     );
 }
 
@@ -3641,10 +3500,11 @@ const GENERIC_HOF_OUTPUT: &str =
 /// with `E0631`, while the un-annotated form compiled — so the bug was
 /// invisible until a lambda was annotated.
 ///
-/// [rs-fn-field] A callback the callee *keeps* is the exception on the outer
-/// level only: it arrives owned and `'static`, since it is called after the
-/// call returns — from the composed pass that stored it. The inner convention is
-/// the same.
+/// The other convention — a callback the callee *keeps*, which arrives owned
+/// and `'static` because it is called after the call returns — is asserted
+/// where it belongs, on the hand-written composed pass
+/// (`a_composed_pass_stores_its_source_and_callback` [rs-fn-field]). std has no
+/// such function since the lazy pair was removed 2026-09-10.
 #[test]
 fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
     let files = generate(&[("main.sv", GENERIC_HOF)]);
@@ -3653,16 +3513,6 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs")
         .content;
-    let seq = &files
-        .iter()
-        .find(|f| f.rel_path.ends_with("seq.rs"))
-        .expect("core/seq.rs")
-        .content;
-    // The stored-callback convention, on std's lazy combinator.
-    assert!(
-        seq.contains("f: impl Fn(&T) -> U + 'static"),
-        "expected the owned callback of a composed pass in:\n{seq}"
-    );
     for expected in [
         // The plain generic higher-order fn: borrowed `FnMut`.
         "f: &mut impl FnMut(&T) -> U",
@@ -3692,15 +3542,15 @@ fn rustc_compiles_and_runs_a_generic_higher_order_fn() {
 
 // ===== [iter-protocol] laziness, now a property of the pass =====
 
-/// [seq-lazy] [seq-into] The combinator surface (user decision 2026-09-08):
-/// **eager by default**, with `map_lazy`/`filter_lazy` for the lazy pair and
-/// `map_to` for mapping into a collection the caller provides.
+/// [seq-into] The combinator surface: **eager**, over a pass, with `map_to`
+/// for mapping into a collection the caller provides. The lazy pair went with
+/// the 2026-09-10 removal, so the generic bodies are reached by passing a pass
+/// explicitly — which is what `map(iter(copy(xs)), …)` is for here.
 ///
 /// Same source and stdout as the Kotlin backend's twin. What it exercises that
-/// nothing did before: the *generic* `?Iterable` body — `map`/`filter` over a
-/// list take their `List` fast path, so the polymorphic one had never run — a
-/// producer holding **implicit** parameters as pass fields, and an implicit
-/// with a `Mut` parameter (`?add`).
+/// nothing did before: the *generic* `?Yield` body — `map`/`filter` over a
+/// list take their `List` fast path, so the polymorphic one had never run —
+/// and an implicit with a `Mut` parameter (`?add`).
 pub const SEQ_SURFACE_DEMO: &str = r#"
 fn double(n: Int) -> Int {
     return n * 2
@@ -3715,12 +3565,10 @@ fn main() [use] -> None {
     let xs = list(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
-    for v in map_lazy(iter(copy(xs)), double) {
-        println("lazy ${v}")
-    }
-    for v in filter_lazy(iter(copy(xs)), is_even) {
-        println("kept ${v}")
-    }
+    let generic = map(iter(copy(xs)), double)
+    println("generic ${generic.size()}")
+    let kept = filter(iter(copy(xs)), is_even)
+    println("kept ${kept.size()}")
     let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
     let chained = filter_to(map_to(mutable_list<Int>(), iter(copy(xs)), double), iter(xs), is_even)
@@ -3729,7 +3577,7 @@ fn main() [use] -> None {
 "#;
 
 pub const SEQ_SURFACE_OUTPUT: &str =
-    "eager 4\nlazy 2\nlazy 4\nlazy 6\nlazy 8\nkept 2\nkept 4\nsink 4\nchained 6\n";
+    "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
 
 #[test]
 fn rustc_compiles_and_runs_the_combinator_surface() {
@@ -3739,12 +3587,11 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
         .find(|f| f.rel_path == std::path::Path::new("core/seq.rs"))
         .expect("core/seq.rs")
         .content;
-    // A lazy combinator returns a **composed pass**: the source's `next` is a
-    // field of it, `Rc`-held like any stored callback [rs-fn-field], and called
-    // through the local the body binds it to.
+    // The generic body drives its subject through the `next` the call site
+    // resolved, which arrives as an ordinary borrowed callback [implicit-group].
     assert!(
-        seq.contains("step: std::rc::Rc<dyn Fn(&mut It) -> Union2<T, Finished>>"),
-        "expected the stored `next` as an Rc-held field in:\n{seq}"
+        seq.contains("next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>"),
+        "expected the resolved `next` as a borrowed callback in:\n{seq}"
     );
     // [fn-contract] A kept `Mut` position of an implicit's fn type borrows
     // mutably: `add` cannot append to a destination handed over by value.
@@ -3766,16 +3613,18 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
     run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
 }
 
-/// [seq-lazy] Laziness is the observable difference, so this is the test that
-/// shows it: an **unbounded** producer, mapped and filtered lazily, that
-/// terminates only because the consumer stops. Eager `map` would not return.
+/// An **unbounded** producer that terminates only because the consumer stops.
+/// This was a lazy-chain test until 2026-09-10; with the lazy pair gone the
+/// same property is what a plain `for` with a `break` states, and it is the
+/// property that mattered — an `iter fn` computes one element per turn, so an
+/// endless source costs nothing until it is driven.
 #[test]
-fn rustc_compiles_and_runs_a_lazy_chain_over_an_unbounded_producer() {
-    let files = generate(&[("main.sv", LAZY_CHAIN_DEMO)]);
-    run_rust_files(&files, "lazy-chain", LAZY_CHAIN_OUTPUT);
+fn rustc_compiles_and_runs_a_break_out_of_an_unbounded_producer() {
+    let files = generate(&[("main.sv", UNBOUNDED_DEMO)]);
+    run_rust_files(&files, "unbounded-break", UNBOUNDED_OUTPUT);
 }
 
-pub const LAZY_CHAIN_DEMO: &str = r#"
+pub const UNBOUNDED_DEMO: &str = r#"
 struct Naturals {
     from: Int
 }
@@ -3803,16 +3652,18 @@ fn is_even(n: Int) -> Bool {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    for v in map_lazy(filter_lazy(iter(naturals()), is_even), triple) {
-        if v > 12 {
+    for v in iter(naturals()) {
+        if v > 4 {
             break
         }
-        println("v ${v}")
+        if is_even(v) {
+            println("v ${triple(v)}")
+        }
     }
 }
 "#;
 
-pub const LAZY_CHAIN_OUTPUT: &str = "v 0\nv 6\nv 12\n";
+pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 
 // ===== [implicit-param] [implicit-group] implicit parameters =====
 
@@ -5602,9 +5453,11 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
         "an `iter fn` needs no state machine:\n{main}"
     );
     // [fn-effects] An effectful `next` takes its handlers as leading arguments,
-    // threaded into every turn of the loop.
+    // threaded into every turn of the loop. The mangling index counts the
+    // visible `next` overloads, so it moved when std's lazy pair (two of them)
+    // was removed 2026-09-10.
     assert!(
-        main.contains("next__8(&mut console, &mut __loop"),
+        main.contains("next__6(&mut console, &mut __loop"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }

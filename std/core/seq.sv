@@ -1,7 +1,7 @@
 // [seq-pass] Sequence functions over **passes** [iter-protocol]: the subject
 // is a pass, and its `next` arrives as an implicit parameter through the
 // `?Yield<It, T>` spread [implicit-group] — so these work on std's container
-// passes (`map(iter(xs), f)`), on a `yield` function's result, and on a pass
+// passes (`map(iter(xs), f)`), on an `iter fn`'s result, and on a pass
 // type of your own the moment it declares `: Yield<self, T>`.
 //
 // The subject is written as the pass rather than as the container (user
@@ -10,8 +10,12 @@
 // compiler. The `List` fast paths at the bottom keep the short spelling for
 // the common case.
 //
-// **Eager**: `map` and `filter` return a `Mut List<U>`. The lazy pair below
-// returns a pass instead, and it is asked for by name [seq-lazy].
+// **Eager**: `map` and `filter` return a `Mut List<U>`. Nothing here is lazy —
+// the lazy pair was removed 2026-09-10 (user decision) and laziness is
+// reconsidered after concurrency lands; see ROADMAP.md. A *composed* pass is
+// still perfectly writable by hand, since a pass is only a struct with a
+// `next` [iter-protocol].
+//
 //
 // Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration
 // the loop reads [iter-generic-drive], so a generic pass is driven exactly as a
@@ -55,86 +59,6 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [i
 intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>
 intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> [list, keep] Mut List<T>
 intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> [list, f] A
-
-// ===== the lazy pair [seq-lazy] =====
-//
-// Laziness is **asked for**, not inherited (user decision 2026-09-08): the
-// eager forms above stay the default, and these hand back a pass that computes
-// as it is driven. Nothing runs until something calls `next` on the result, so
-// an unbounded source is fine.
-//
-// Each is a **composed pass**: a struct holding the source pass and the
-// callback, plus the `next` that discharges its `Yield` obligation. That is
-// the manual form the reduction makes ordinary — there is no lazy *type* to
-// return, only a struct of one's own [iter-protocol].
-
-// A pass applying [f] to every element of [source] as it is pulled.
-struct MapYield<It, T, U> : Yield<self, U> canbe Mut {
-    // The pass being mapped, advanced in place as this one is.
-    source: Mut It,
-    // Applied to each element as it arrives.
-    f: (T) -> U,
-    // The source's `next`, captured where it could be resolved: at the call
-    // that built this pass [implicit-group]. A composed pass stores the
-    // function rather than asking for an implicit of its own, so driving it —
-    // and mapping over the result again — stays an ordinary call.
-    step: (it: Mut It) -> [it: Mut] Emitted T | Finished
-}
-
-// Applies [f] to every element of [it], lazily: [f] runs as the consumer
-// pulls. Chain freely — the result is a pass like any other.
-fn map_lazy<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [] Mut MapYield<It, T, U> {
-    return Mut MapYield<It, T, U> { source: it, f: f, step: copy(next) }
-}
-
-fn next<It, T, U>(p: Mut MapYield<It, T, U>) [] -> [p: Mut] Emitted U | Finished {
-    let advance = copy(p.step)
-    let step = advance(p.source)
-    when step {
-        is Emitted {
-            let f = copy(p.f)
-            return emitted(f(step))
-        }
-        is Finished {
-            return finished()
-        }
-    }
-}
-
-// A pass keeping the elements of [source] that [keep] accepts.
-struct FilterYield<It, T> : Yield<self, T> canbe Mut {
-    // The pass being filtered, advanced in place as this one is.
-    source: Mut It,
-    // Decides which elements survive.
-    keep: (T) -> Bool,
-    // The source's `next` [implicit-group].
-    step: (it: Mut It) -> [it: Mut] Emitted T | Finished
-}
-
-// The elements of [it] that [keep] accepts, lazily.
-fn filter_lazy<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [] Mut FilterYield<It, T> {
-    return Mut FilterYield<It, T> { source: it, keep: keep, step: copy(next) }
-}
-
-fn next<It, T>(p: Mut FilterYield<It, T>) [] -> [p: Mut] Emitted T | Finished {
-    let advance = copy(p.step)
-    let keep = copy(p.keep)
-    let going = true
-    while going {
-        let step = advance(p.source)
-        when step {
-            is Emitted {
-                if keep(step) {
-                    return emitted(step)
-                }
-            }
-            is Finished {
-                going = false
-            }
-        }
-    }
-    return finished()
-}
 
 // ===== mapping into a collection you provide [seq-into] =====
 

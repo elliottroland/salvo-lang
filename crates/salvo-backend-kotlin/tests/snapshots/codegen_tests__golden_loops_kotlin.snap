@@ -112,7 +112,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__5(p: StrYield): Union2<Char, Finished> {
+fun next__3(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -148,7 +148,7 @@ fun iter__4(r: Range): __Pass_Range {
     return __Pass_Range(end = r.end, at = r.start)
 }
 
-fun next__6(__p: __Pass_Range): Union2<Int, Finished> {
+fun next__4(__p: __Pass_Range): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return U2_2<Int, Finished>(finished())
     }
@@ -205,7 +205,7 @@ __loop3
     var __loop4_ran = false
     var __loop5_pass = iter__4(range(0, 0))
     while (true) {
-        val __loop5_step = next__6(__loop5_pass)
+        val __loop5_step = next__4(__loop5_pass)
         if (__loop5_step !is U2_1<Int, Finished>) { break }
         val x = __loop5_step.value
         __loop4_ran = true

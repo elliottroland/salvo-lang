@@ -24,9 +24,4 @@
 5. lengths: 10
 5. vowels: 3
 5. halving total 38
-6. big square 16
-6. big square 25
-6. big square 36
-6. big square 49
-6. big square 64
 6. collected 3

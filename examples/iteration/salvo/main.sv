@@ -226,22 +226,8 @@ fn main() [use] {
     // A pass of your own composes with them exactly like a container's.
     println("5. halving total ${reduce(iter(Halving { start: 20 }), 0, (acc, n) -> acc + n)}")
 
-    // ===== 6. laziness, asked for by name =====
+    // ===== 6. mapping into a collection you provide =====
     //
-    // `map_lazy`/`filter_lazy` hand back a composed pass instead of a list.
-    // Nothing runs until it is driven, so an unbounded source is fine — the
-    // consumer decides when to stop.
-    let squares = map_lazy(iter(naturals(1)), (n: Int) -> n * n)
-    let big = filter_lazy(squares, (n: Int) -> n > 10)
-    for n in big {
-        println("6. big square ${n}")
-        if n > 50 {
-            break
-        }
-    }
-
-    // `map_to` maps into a collection you provide, reached through an `add`
-    // the call site resolves — so the destination need not be a `List`.
     // `map_to` maps into a collection you provide and hands it back, reached
     // through an `add` the call site resolves — so the destination need not be
     // a `List`.

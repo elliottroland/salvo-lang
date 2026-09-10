@@ -614,7 +614,7 @@ impl<'p> Emitter<'p> {
     /// leaves `value` at `Any?`.
     /// [linear-group] A raw pass with a `close`: the driving header plus the
     /// release the loop owes it, in a `try`/`finally` so `break`, `return` and
-    /// exhaustion all reach it [kt-defer-finally]. Driving *is* what releases
+    /// exhaustion all reach it [kt-exit-finally]. Driving *is* what releases
     /// a pass (user decision 2026-09-09).
     fn emit_closing_pass_loop_header(
         &mut self,
@@ -1943,25 +1943,9 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [kt-defer-finally] A `defer { ... }` wraps *the rest of its block*
-    /// in `try { … } finally { body }`: the JVM runs `finally` on the
-    /// normal path and on every `return`/`break`/`continue` that leaves
-    /// the block, which is exactly [defer]'s splice-at-exit meaning. A
-    /// second `defer` nests inside the first, so the bodies run latest
-    /// first. `try` is an expression in Kotlin, so a block used for its
-    /// value keeps working: the value is the `try` block's tail.
     fn emit_stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
         let mut out = String::new();
-        for (i, stmt) in stmts.iter().enumerate() {
-            if let Stmt::Defer { body, .. } = stmt {
-                let pad = "    ".repeat(indent);
-                let rest = self.emit_stmts(&stmts[i + 1..], indent + 1);
-                let deferred = self.emit_block_stmts(body, indent + 1);
-                out.push_str(&format!("{pad}try {{\n{rest}{pad}}} finally {{\n"));
-                out.push_str(&deferred);
-                out.push_str(&format!("{pad}}}\n"));
-                return out;
-            }
+        for stmt in stmts {
             out.push_str(&self.emit_stmt(stmt, indent));
         }
         out
@@ -2039,16 +2023,6 @@ impl<'p> Emitter<'p> {
             }
             Stmt::Continue { .. } => format!("{pad}continue\n"),
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
-            // [kt-defer-finally] Handled by `emit_stmts`, which wraps the
-            // rest of the block in `try`/`finally`; reaching it here means
-            // a block was emitted statement-by-statement somewhere else.
-            Stmt::Defer { body, .. } => {
-                self.error(
-                    "`defer` in this position is not supported yet (the enclosing \
-                     block is emitted without a scope to attach `finally` to)",
-                );
-                self.emit_block_stmts(body, indent)
-            }
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent),
         }
     }
@@ -2278,11 +2252,6 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                // [iter-fn] An **origin** is driven, not iterated: its
-                // machine is constructed, advanced, and closed in a `finally`.
-                // That is where the injected `close` gets its caller — native
-                // `for` iteration had nowhere to put one, so an abandoned
-                // producer skipped its deferred blocks.
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
                 // after it is the same as for any other loop.
@@ -2328,9 +2297,9 @@ impl<'p> Emitter<'p> {
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 // [fn-effects] The injected `close`, in a `finally` so that
-                // `break`, `return` and exhaustion all reach it — the same
-                // mechanism `defer` uses here [kt-defer-finally]. The flags
-                // inside make landing there twice harmless.
+                // `break`, `return` and exhaustion all reach it
+                // [kt-exit-finally]. The flags inside make landing there
+                // twice harmless.
                 if let Some((_, trailer)) = &claiming {
                     out.push_str(trailer);
                 }
@@ -3257,22 +3226,12 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// The statements of a value-position block. [kt-defer-finally] A
-    /// `defer` wraps the rest in `try`/`finally`; `try` is an expression
-    /// in Kotlin, so the block's value still comes out of it.
+    /// The statements of a value-position block.
     fn emit_value_stmts(&mut self, stmts: &[Stmt], indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let mut out = String::new();
         let n = stmts.len();
         for (i, stmt) in stmts.iter().enumerate() {
-            if let Stmt::Defer { body, .. } = stmt {
-                let rest = self.emit_value_stmts(&stmts[i + 1..], indent + 1);
-                let deferred = self.emit_block_stmts(body, indent + 1);
-                out.push_str(&format!(
-                    "{pad}try {{\n{rest}{pad}}} finally {{\n{deferred}{pad}}}\n"
-                ));
-                return out;
-            }
             // Kotlin loops are never expressions, so a trailing loop (the
             // block's value [while-value]) needs the value lowering.
             if i + 1 == n {
@@ -3294,8 +3253,8 @@ impl<'p> Emitter<'p> {
     /// an *expression*, so the outcome falls out of it — the body's value
     /// wrapped in the `Ok` arm, or the caught signal's message wrapped in
     /// the `Thrown` arm. Catching the innermost signal is exactly
-    /// [try-innermost]; a `finally` from a `defer` inside the body runs
-    /// while unwinding [kt-defer-finally], which is why `defer` came first.
+    /// [try-innermost]; a `finally` a loop's release put inside the body runs
+    /// while unwinding [kt-exit-finally].
     fn emit_try(&mut self, body: &Block, span: Span) -> String {
         self.needs_throw = true;
         let outcome = self.ty_of(span).cloned();
@@ -3361,17 +3320,8 @@ impl<'p> Emitter<'p> {
         let stmts = &body.stmts;
         let n = stmts.len();
         let mut tail: Option<String> = None;
-        // A `defer` inside the body wraps the rest in `try`/`finally`
-        // [kt-defer-finally]; delegate to the ordinary statement emitter
-        // for everything but the tail.
-        let split = stmts
-            .iter()
-            .position(|s| matches!(s, Stmt::Defer { .. }));
-        match split {
-            Some(_) => {
-                out.push_str(&self.emit_stmts(stmts, indent));
-            }
-            None => {
+        {
+            {
                 for (i, stmt) in stmts.iter().enumerate() {
                     if i + 1 == n {
                         if let Stmt::Expr(e) = stmt {
@@ -3414,18 +3364,12 @@ impl<'p> Emitter<'p> {
         format!("U{n}_{}<{}>({code})", arm + 1, args.join(", "))
     }
 
-    /// The statements of a Kotlin lambda block body: the trailing    /// `return X` becomes the lambda's value, and a `defer` wraps the rest
-    /// in `try`/`finally` [kt-defer-finally].
+    /// The statements of a Kotlin lambda block body: the trailing
+    /// `return X` becomes the lambda's value.
     fn emit_lambda_stmts(&mut self, stmts: &[Stmt]) -> String {
         let mut out = String::new();
         let n = stmts.len();
         for (i, stmt) in stmts.iter().enumerate() {
-            if let Stmt::Defer { body, .. } = stmt {
-                let rest = self.emit_lambda_stmts(&stmts[i + 1..]);
-                let deferred = self.emit_block_stmts(body, 2);
-                out.push_str(&format!("    try {{\n{rest}    }} finally {{\n{deferred}    }}\n"));
-                return out;
-            }
             if i + 1 == n {
                 if let Stmt::Return { value: Some(v), .. } = stmt {
                     let code = self.emit_expr(v);
@@ -3619,19 +3563,12 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// The statements of a loop body in value position; a `defer` wraps the
-    /// rest in `try`/`finally` [kt-defer-finally]. The tail assigns the
+    /// The statements of a loop body in value position. The tail assigns the
     /// result local, so the value flows out regardless.
     fn emit_loop_body_stmts(&mut self, stmts: &[Stmt], result: &str) -> String {
         let mut out = String::new();
         let n = stmts.len();
         for (i, stmt) in stmts.iter().enumerate() {
-            if let Stmt::Defer { body, .. } = stmt {
-                let rest = self.emit_loop_body_stmts(&stmts[i + 1..], result);
-                let deferred = self.emit_block_stmts(body, 0);
-                out.push_str(&format!("try {{\n{rest}}} finally {{\n{deferred}}}\n"));
-                return out;
-            }
             if i + 1 == n {
                 if let Stmt::Expr(e) = stmt {
                     out.push_str(&self.emit_tail_assign(e, result));

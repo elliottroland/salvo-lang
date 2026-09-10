@@ -581,32 +581,6 @@ The rules:
 - **Some qualifiers can never be dropped**: `Once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `ReadOnly` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
 - **No binding form.** The subject itself reads widened, so `is Type name`'s counterpart would be redundant.
 
-### Deferred blocks
-
-`defer { ... }` registers a block to run when the *enclosing block* ends:
-
-```
-fn read_config(path: Str) [Console] -> Str {
-    let file = open(path)
-    defer { close(file) }        // runs however this block ends
-
-    if is_empty(file) {
-        return ""                // `close(file)` runs first
-    }
-    return contents(file)        // and here too
-}
-```
-
-The meaning is *splice at exit*: the deferred block runs at every exit of the block it was written in — the end of the block, and each `return`, `break` or `continue` that leaves it. Writing `defer { close(file) }` is exactly writing `close(file)` at each of those points, which is why the compiler counts it as discharging the handle's obligation on every path (see [Linear types](#linear-types-values-that-must-be-used)).
-
-Details worth knowing:
-
-- **The block, not the function, is the scope.** A `defer` inside a loop body runs at the end of each iteration; one inside an `if` runs when that `if` block ends.
-- **Latest first.** Several `defer`s in one block run in reverse order of registration, so a value acquired later is released first.
-- **The block's value is computed first.** A deferred block runs after the `return` value (or the block's own value) has been evaluated, so it can release what that value was read from.
-- **No control flow out of it.** `return`, `break` and `continue` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Throwing](#throwing-leaving-early-with-a-message) from one is an error for the same reason.
-- **It is checked where it stands.** The body sees the scope and the flow facts at the `defer` statement, and those facts must still hold at each exit: if a call in between takes the value away, or invalidates a narrowing the deferred block relied on, the deferred block is rejected there (bind the narrowed value to a local and defer that instead).
-
 ## Functions
 
 Functions play an important role in Salvo lang:
@@ -895,12 +869,8 @@ the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
 `map`, `filter` and `reduce` are **eager**: they return a `Mut List<U>`.
 Chaining works because a list has an `iter` like anything else. Each also has a
 `List` overload, so `map(xs, f)` — no `iter` — keeps the short spelling for the
-type people map most. Two named variants cover the rest:
+type people map most. One named variant covers the rest:
 
-- `map_lazy` and `filter_lazy` return a **composed pass**, computing nothing
-  until the result is driven — so an unbounded subject is fine. Laziness is
-  asked for rather than inherited, which also keeps it visible that a lazy
-  combinator's callback runs once per element as the result is pulled.
 - `map_to` and `filter_to` put their results in a collection you provide, given
   first because it is what the call is about, and **hand it back** so a chain
   can carry on from it. Appending goes through an `?add` implicit parameter, so
@@ -908,9 +878,6 @@ type people map most. Two named variants cover the rest:
 
 ```
 let doubled = map(xs, double)                       // Mut List<Int>
-for v in map_lazy(naturals(), double) {             // computed as you pull
-    if v > 100 { break }
-}
 let out = map_to(mutable_list<Int>(), iter(xs), double)
 let kept = filter_to(map_to(mutable_list<Int>(), iter(xs), double), iter(ys), is_even)
 ```
@@ -1431,10 +1398,9 @@ Details worth knowing:
 - **A `try` whose body cannot throw is an error.** Nothing can produce the `Thrown` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
 - **`main` cannot declare `[Throw<M>]`**: there is no caller to receive the throw, so the delimiter has to be inside.
 - **`Thrown M` is forgeable, deliberately.** The qualifier carries no authority — `core.throw`'s `thrown(message)` constructor produces a value in the thrown arm without transferring control. The authority to throw is `[Throw<M>]` availability alone.
-- **Nothing linear may be live across a call that may throw** unless it is released in a [`defer`](#deferred-blocks): the code after the call does not run on the throw path, so the deferred block is what discharges the obligation on both paths. This is the reason `defer` exists before `throw`.
-- **A throw inside a deferred block is an error**: that block runs *while* a scope is being left, so there is no delimiter left to throw to.
+- **Nothing linear may be live across a call that may throw**: the code after the call does not run on the throw path, so the obligation would be owed on a path with no code left to discharge it. Release before the call, or move the value onward so the obligation travels with it. (`defer` used to be the third option — a block spliced at every exit, including the throw path — and it was removed 2026-09-10: linearity is what *checks* the obligation, so the construct that discharged it out of sight was the partial solution to a problem already solved.)
 
-Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Throw<M>]` (a throw is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches. Deferred blocks run on the way out either way.
+Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Throw<M>]` (a throw is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches.
 
 ### Deductions
 
@@ -1659,15 +1625,16 @@ fn deliberate() {
 }
 ```
 
-The `maybe_leak` shape above — a value that must be released however the block ends — is what [`defer`](#deferred-blocks) is for: `defer { close(h) }` discharges the obligation at every exit, so early returns need no repetition.
+The `maybe_leak` shape above — a value that must be released however the block ends — is written out: `close(h)` on each path. The compiler names the path you missed, which is the whole point; there is no construct that discharges an obligation implicitly (`defer` did, and was removed 2026-09-10 for exactly that reason).
 
 ```
 fn no_leak(flag: Bool) {
     let h = open("data.txt")
-    defer { close(h) }
     if flag {
-        return                  // fine: the deferred block closes it
+        close(h)
+        return                  // fine: this path releases it
     }
+    close(h)                    // and so does this one
 }
 ```
 

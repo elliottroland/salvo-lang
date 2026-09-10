@@ -45,11 +45,13 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    *pass*, so a container is iterated by writing `iter(xs)`. A `List` has a
    fast path under the same name, which is why `map(xs, f)` still reads well.
    A generator's origin fits the same functions.
-6. **Laziness, asked for by name.** `map_lazy`/`filter_lazy` hand back a
-   composed pass — a struct holding the source, the callback and the source's
-   `next` — so nothing runs until it is driven and an unbounded source is fine.
-   `map_to` maps into a collection you provide, reached through an `add` the
-   call site resolves, so the destination need not be a `List`.
+6. **Mapping into a collection you provide.** `map_to` maps into a destination
+   you hand it and gives it back, reaching it through an `add` the call site
+   resolves — so the destination need not be a `List`. Nothing in std is lazy:
+   the lazy pair was removed 2026-09-10 and laziness is reconsidered after
+   concurrency (see ROADMAP.md). A *composed* pass — a struct holding a source
+   pass, a callback and the source's `next` — is still ordinary code, since a
+   pass is only a struct with a `next`.
 
 ## What to look for in the generated code
 

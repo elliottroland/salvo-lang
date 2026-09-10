@@ -14,7 +14,7 @@ verified by compiling and running the emitted code with `kotlinc` and `rustc` to
 byte-identical stdout. The language has structs, tuples, arrays, unions with
 flow-sensitive narrowing, qualifiers (state and provenance, with predicates,
 constructors, refinements and deductions), everything-is-an-expression control
-flow, `defer`, algebraic effects with handler dependencies, non-resumption
+flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
 designated `close`, and pull iteration reduced to a `next` that `for` drives.
 Ownership on the Rust side is derived mechanically from deductions — no
@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 800 tests, complete: the toolchain tests are
+cargo test                  # 784 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -118,6 +118,130 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Regions designed: an effect with an intrinsic handler, regional by default
+(user decisions 2026-09-10).** Raised by the user as "model Vale-style regions
+as effects, the way `try`/`throw` works"; designed across one session, build
+scheduled into phase 5 — ROADMAP "Regions" holds the full design. The calls,
+each the user's: **(1)** `Region` is a real effect whose members are `reg`
+(move a value in) and `unreg` (copy a value out — always a copy, built into
+the function, eliding on fresh constructions); the `region { }` delimiter
+registers an *intrinsic handler*, which keeps "an effect is a capability with
+a handler" true and leaves `Throw` the single handler-less exception. **(2)**
+Membership is an intrinsic provenance qualifier `Reg`, transitive through
+projections (inner tags rejected); whether propagation-through-projection
+becomes a general per-qualifier property is deferred until more examples
+exist. **(3)** Defaults are inverted: everything constructed in region
+context is `Reg`; `unreg` is the opt-out (the original sketch had an explicit
+`pool()` opt-in, rejected as tag noise). **(4)** R1 only — region-scoped data
+plus scope immutability. R2 (bulk-discharging obligations at region close) is
+rejected: discharge can be a choice (`stop` vs `join` on a thread handle),
+can need context the scope does not hold (`remove(cache, handle)`), and
+cleanup functions can use effects; linear values are exempt from regions
+entirely. The same two examples broke "an obligation group is a `close()`" —
+recorded under L8 for phase 3. **(5)** Sequencing: with phase 5, where a
+process *is* a region (per-process heap, sendability as the escape rule) and
+`region { }` is the sequential special case — the null hypothesis for that
+design session. Names: `region { }`, `Region`, `Reg`, `reg`/`unreg` (the
+register/region double reading is intentional). A first write-up the same day
+recommended folding the cleanup half into phase 3 and spelling regions
+without an effect; it was superseded by (1), (4) and (5), and its analysis of
+what transfers from Vale and the "second axis, not a simplification" framing
+were kept.
+
+**`defer` is deleted (user decision 2026-09-10).** The reason given, and it is the
+whole argument: *`defer` is the partial solution to which linearity is the full
+solution already, and it introduces its own complexity.* A linear obligation has
+to be discharged on every path or the compiler says which path leaks
+[linear-obligation]; `defer` discharged it out of sight, which made the release
+invisible at the point it happens and bought a feature whose rules were
+genuinely intricate — a body type-checked once but *applied* at every exit, every
+flow fact it relied on having to survive to each of those exits, a ban on
+`return`/`break`/`continue`/`throw` leaving it, and two unrelated lowerings.
+
+**What went.** Syntax: the `defer` keyword (an ordinary identifier again),
+`Stmt::Defer`, the parser arm. Checker: `check_defer`, `apply_defer`,
+`run_defers_at_frame_end`, `with_exit_defers`, `defer_exit_floor`,
+`PendingDefer`, the `defers` and `in_defer_body` fields, and
+`block_defer_escape`/`expr_defer_escape` — the escape-analysis pair that existed
+only to reject control flow out of a deferred body. Rules `[defer]` and
+`[defer-no-escape]`. The throw and early-exit paths that wrapped themselves in
+`with_exit_defers` are now direct calls, which is a genuine simplification of the
+hairiest part of the linear check.
+
+**What stayed, under an honest name.** Both emitters keep the machinery, because
+the release a `for` owes a pass it owns needs exactly it: Rust splices code at
+each exit ([rs-exit-splice] — was `[rs-defer-splice]`; `defers` → `exit_splices`,
+`splice_defers` → `splice_exits`, `__deferred_valueN` → `__exit_valueN`), Kotlin
+wraps the rest of the block in `try`/`finally` ([kt-exit-finally] — was
+`[kt-defer-finally]`). Renaming rather than keeping the old names was the point:
+`defer` no longer exists, so code and specs saying "deferred block" would have
+been describing a language feature that is gone. The line the rename draws is
+also the right one — the compiler owns a minted pass, so it may own its
+lifetime; an author's handle is the author's to release.
+
+**What it costs, stated in the example rather than in prose.**
+`examples/defer-and-throw` became `examples/throw-and-release`, and the diff is
+the argument: `read_size` now writes `close(handle)` on both of its paths, and
+`port_from_file` — a handle *and* a throwing call — had to be **reordered**,
+because holding the handle across `parse_port` is now rejected. That reordering
+is the honest cost and the honest benefit in one place: repetition, in exchange
+for the release being where it happens. The checker's diagnostic was reworded to
+match, since it named `defer` as the remedy: it now says to release before the
+call or move the value onward.
+
+**Verified rather than assumed**, because the decision rests on a claim about
+what linearity can express. `crates/salvo-core/tests/linear_release_tests.rs`
+(the old `defer_tests.rs`, rewritten) pins the four cases: a path that leaves
+without releasing is reported, releasing on every path is accepted, a `break`
+must release what the iteration owns, and — the case `defer` was most useful for
+— a call that may throw must release first, with the diagnostic naming the
+remedy. 784 tests pass (from 800: 20 defer tests and their two backend demo
+sections went, 4 arrived).
+
+**Laziness is removed from std and reconsidered after concurrency (user decision
+2026-09-10).** `map_lazy`/`filter_lazy` and their composed passes
+(`MapYield`/`FilterYield`) are gone. The reasoning is a design position, recorded
+because it decides what replaces them: *standard laziness couples data and
+functions, and the two should stay separate. What is wanted is a good way to
+compose functions — `iter fn`s included — into pipeline functions, which then
+mint a pass from data supplied independently.* So a lazy chain should build a
+**function**, not a wrapped data structure.
+
+Removing rather than parking it was the right call for a reason the roadmap makes
+visible: laziness was touching three unsettled decisions at once — L8 (a composed
+pass stores its source, so a linear source is refused), sendability (`Rc<dyn Fn…>`
+in a fn-typed field is not `Send`, phase 5), and the shape of the combinator
+surface — while being the least settled of the four. Carrying it as a constraint
+through four phases would have let it shape decisions it cannot yet justify. See
+ROADMAP.md's "Laziness, after concurrency" for the direction and the four
+questions it has to answer, one of which is worth stating here: a pipeline that
+holds only *functions* stores no source, so "can you lazily `map` over a file's
+lines?" may become yes without widening the composite rule at all.
+
+What the removal cost in coverage, and what was done about it: the two lazy tests
+per backend became one *unbounded producer with a `break`* (the property that
+actually mattered — an `iter fn` computes one element per turn, so an endless
+source costs nothing until driven — and, pleasingly, the same expected output),
+the combinator-surface demos now reach the generic `map`/`filter` bodies by
+handing a pass in explicitly (`map(iter(copy(xs)), f)`, since the `List` overload
+takes the fast path), and `[rs-fn-field]`'s stored-callback convention is now
+asserted only where it belongs, on the hand-written composed pass — std no longer
+has one. `examples/iteration` lost its section 6 chain.
+
+**The `?close` implicit is answered rather than built (2026-09-10).** The last
+phase-1 item, struck after checking it: an early-stopping combinator already
+releases its source. `[iter-drive-in-place]` plus the `?Linear<It>` spread —
+option (a) of the four R0 sketched, chosen over `?close` (option (d)) because it
+puts the release on the *type that owns the resource* rather than on every
+combinator — means a `for` over a pass the function **owns** releases it on every
+exit. Verified on both backends for all four shapes: generic with `break`
+(already checked in as `GENERIC_CLOSE_DEMO`), generic with an early `return`
+(`close(__loop1_pass)` emitted on both the return path and the fall-through),
+concrete through the resolved `close`, and a hand-written `while` driver — the one
+shape no loop can help with — caught by linearity itself ("`h` still owns a linear
+value when it goes out of scope"). What the item pointed at that *is* still open
+is a lazy `take`, and that belongs to L8: a wrapper pass stores its source.
 
 **Mutating through a narrowed place emitted a borrow of a clone on Rust
 (defect closed 2026-09-10) — the one [backend-never-wrong] violation this
@@ -1722,7 +1846,9 @@ parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse.
 
-**E3 step 1 landed 2026-09-04: `defer { ... }` on both backends.** The
+**E3 step 1 landed 2026-09-04: `defer { ... }` on both backends — and was
+deleted from the language 2026-09-10** (user decision; see the decision log, and
+note that the syntax below no longer parses). **The
 first slice of handler control beyond "always resumes" starts with the
 piece the rest of it depends on: a way to run code on the way out of a
 block. Four user decisions shaped it (all 2026-09-04): **block-only
@@ -4277,6 +4403,12 @@ redesign. See the decision-log entry at the top of this file.
 
 ### E3 — Non-resumption: `defer`, `throw`, and an intrinsic `try` (user decisions 2026-09-04)
 
+> **`defer` was deleted from the language 2026-09-10** (user decision; see the
+> decision log). What follows is the record of building it, kept because the
+> reasoning — why splice-at-exit rather than a queue, why it discharges a linear
+> obligation on every path, and the two lowerings — is what the deletion was
+> weighed against. Its syntax no longer parses.
+
 The first slice of *handler control* beyond "always resumes at the tail",
 which is all E1 supports. The exploration ran through four rungs of handler
 power — tail-resumptive (today, free), throw (resume zero or one time),
@@ -4372,7 +4504,7 @@ and unions: `?` returns through each Rust frame running `Drop`, the JVM
 unwinds running `finally`, and nothing user-visible happens on the way out
 either way — *provided* `defer` is what puts code on that path.
 
-#### `defer` comes first (user decision 2026-09-04) — **done 2026-09-04**
+#### `defer` comes first (user decision 2026-09-04) — **done 2026-09-04, deleted 2026-09-10**
 
 Not tidiness; three reasons:
 
@@ -6088,9 +6220,15 @@ fully the compiler's, nothing is half-owned. Two more things fall out:
 - **Generated code must be warning-free**, and both backends' `runtime_tests`
   compile the runtime modules on their own to enforce it.
 
-### Deferred: `defer` as an effect with a `defers` block
+### Deferred: `defer` as an effect with a `defers` block — **closed 2026-09-10**
 
-**Open** — see ROADMAP.md.
+Never built, and now moot: `defer` itself was deleted (see the decision log), so
+generalizing it into a `defers { … }` block with a `Defer` effect is no longer a
+generalization of anything. ROADMAP.md keeps the one argument worth carrying
+forward if the *capability* is ever wanted — registering cleanup on a caller's
+scope — together with the objection that killed it: `defer` was cheap because it
+had zero runtime representation, and a dynamic queue costs an allocation and
+brings the capture question back.
 
 ## Roadmap: iterators — Salvo-level pull iterators (built 2026-09-07/08, **largely superseded 2026-09-08**)
 
@@ -6479,8 +6617,8 @@ meeting point, and nowhere else").
 fn naturals(from: Int) -> Iter<Int> { … }                    // no effects
 fn lines_of(path: Str) [FileSystem] -> Iter<Str> {           // effects, per I4
     let handle = open(path)
-    defer { close(handle) }
     while has_more(handle) { yield read_line(handle) }
+    close(handle)
 }
 
 // 1. a parameter — every combinator
@@ -8043,7 +8181,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 800)
+## Test inventory (all green: 784)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8051,7 +8189,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 378 - 19 unit tests (file classification, including the
+- `salvo-core`: 368 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8548,7 +8686,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 73 (three parser tests for the scope selector and
+- `salvo-syntax`: 71 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -8602,16 +8740,14 @@ and `cargo nextest run` when you want to see which tests cost what.
   indentation kept after the marker), and 2
   subject tests ([qual-subject]: `provenance qualifier` parses with the
   provenance subject while a plain declaration defaults to state;
-  `provenance` must precede `qualifier`), 2 `defer` tests ([defer]:
-  `defer { ... }` parses into a block statement; a bodyless `defer` is a
-  parse error naming the form), and 2 `try` tests ([try]: `try { ... }`
+  `provenance` must precede `qualifier`), and 2 `try` tests ([try]: `try { ... }`
   parses as a block *expression*; a bodyless `try` is a parse error naming
   the form), and 6 subject-less `when` tests ([when-condition]: the
   condition chain parsing into `Expr::WhenCond` with its branches and
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 147 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 145 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8783,7 +8919,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 122 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 120 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

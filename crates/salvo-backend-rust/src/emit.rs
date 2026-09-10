@@ -939,21 +939,22 @@ struct Emitter<'p> {
     /// Generic-parameter substitutions while rendering a forwarding impl
     /// for an *instantiated* effect (`Random<T>` members at `Random<i32>`).
     type_subst: HashMap<String, String>,
-    /// [rs-defer-splice] Deferred blocks registered so far in the fn being
-    /// emitted, innermost/latest last, each already rendered at indent 0.
-    /// `defer` has no runtime representation in Rust: the body is spliced
-    /// at every exit of its block, so it is rendered once — in the scope
-    /// it was written in — and re-indented at each splice site.
-    defers: Vec<String>,
-    /// Index into `defers` below which entries belong to an enclosing
-    /// function: a `return` inside a closure only runs the closure's own
-    /// deferred blocks.
-    defer_floor: usize,
-    /// `defers` length at each enclosing loop's body entry: `break` and
-    /// `continue` run the deferred blocks registered inside the loop.
-    loop_defer_floors: Vec<usize>,
-    /// `return`-value temporary counter [rs-defer-splice].
-    defer_id: usize,
+    /// [rs-exit-splice] Code the compiler owes at every exit of a block,
+    /// innermost/latest last, each already rendered at indent 0. Today the
+    /// only source is the release a `for` owes a pass it owns
+    /// [linear-group]; there is no runtime representation, so the code is
+    /// rendered once and re-indented at each splice site. (The `defer`
+    /// statement was this mechanism's other customer until it was removed
+    /// from the language, 2026-09-10.)
+    exit_splices: Vec<String>,
+    /// Index into `exit_splices` below which entries belong to an enclosing
+    /// function: a `return` inside a closure only runs the closure's own.
+    splice_floor: usize,
+    /// `exit_splices` length at each enclosing loop's body entry: `break`
+    /// and `continue` run the splices registered inside the loop.
+    loop_splice_floors: Vec<usize>,
+    /// `return`-value temporary counter [rs-exit-splice].
+    splice_id: usize,
     /// [rs-throw-controlflow] The declared throw message type of the fn
     /// being emitted, when it declares `[Throw<M>]`: its Rust return type
     /// is then `ControlFlow<M, T>`, `return v` becomes
@@ -1014,7 +1015,7 @@ struct Emitter<'p> {
     /// Labelled-block counter for `try` [rs-try-label].
     try_id: usize,
     /// The indentation of the statement being emitted: expression-position
-    /// control transfers ([rs-throw-controlflow]) splice deferred blocks,
+    /// control transfers ([rs-throw-controlflow]) splice exit code,
     /// which are statements, so they need a column to write at.
     expr_indent: usize,
 }
@@ -1023,9 +1024,9 @@ struct Emitter<'p> {
 struct TryFrame {
     /// The Rust block label (`'try_0`).
     label: String,
-    /// `defers.len()` at entry: a throw into this delimiter runs the
-    /// deferred blocks registered inside the `try` body, and only those.
-    defer_floor: usize,
+    /// `exit_splices.len()` at entry: a throw into this delimiter runs the
+    /// splices registered inside the `try` body, and only those.
+    splice_floor: usize,
     /// The outcome union `Ok T | Thrown M`, for wrapping both arms.
     outcome: Option<Ty>,
 }
@@ -1079,10 +1080,10 @@ impl<'p> Emitter<'p> {
             hoist_id: 0,
             current_fn: String::new(),
             type_subst: HashMap::new(),
-            defers: Vec::new(),
-            defer_floor: 0,
-            loop_defer_floors: Vec::new(),
-            defer_id: 0,
+            exit_splices: Vec::new(),
+            splice_floor: 0,
+            loop_splice_floors: Vec::new(),
+            splice_id: 0,
             throw_message: None,
             implicits: Vec::new(),
             pending_mints: Vec::new(),
@@ -1277,7 +1278,7 @@ impl<'p> Emitter<'p> {
     /// move into the loop, which is bookkeeping, so without this the resource
     /// leaked while the checker was satisfied.
     ///
-    /// The release is registered as a deferred entry as well as spliced after
+    /// The release is registered as an exit splice as well as spliced after
     /// the loop, so a `return` out of the body reaches it — the same shape the
     /// origin and producer forms use.
     fn emit_closing_pass_loop_header(
@@ -1323,7 +1324,7 @@ impl<'p> Emitter<'p> {
             },
             None => String::new(),
         };
-        self.defers.push(close.clone());
+        self.exit_splices.push(close.clone());
         (header, close)
     }
 
@@ -1336,10 +1337,11 @@ impl<'p> Emitter<'p> {
 
     /// [rs-fn-field] Whether this fn **stores** a callback it is given: a
     /// fn-typed parameter, and a struct with a fn-typed field as the result.
-    /// That is the composed-pass shape (`map_lazy`), and nothing else in the
-    /// language keeps a callback past the call — so its callbacks arrive owned
-    /// and `'static`, shared internally through an `Rc`, rather than borrowed
-    /// for the call.
+    /// That is the composed-pass shape — a pass wrapping a source pass and a
+    /// callback — and nothing else in the language keeps a callback past the
+    /// call, so its callbacks arrive owned and `'static`, shared internally
+    /// through an `Rc`, rather than borrowed for the call. std stopped writing
+    /// one when the lazy pair was removed (2026-09-10); a program still may.
     fn owns_callbacks(&self, key: salvo_core::FnKey) -> bool {
         let Some(decl) = self.fn_by_key(key) else {
             return false;
@@ -2579,10 +2581,10 @@ impl<'p> Emitter<'p> {
             "\n{pad}{vis}fn {name}{generics}({}){ret} {{\n",
             params.join(", ")
         );
-        // [rs-defer-splice] Deferred blocks never cross a fn boundary.
-        let saved_defers = std::mem::take(&mut self.defers);
-        let saved_defer_floor = std::mem::replace(&mut self.defer_floor, 0);
-        let saved_loop_floors = std::mem::take(&mut self.loop_defer_floors);
+        // [rs-exit-splice] Splices never cross a fn boundary.
+        let saved_splices = std::mem::take(&mut self.exit_splices);
+        let saved_splice_floor = std::mem::replace(&mut self.splice_floor, 0);
+        let saved_loop_floors = std::mem::take(&mut self.loop_splice_floors);
 
         {
             out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
@@ -2607,9 +2609,9 @@ impl<'p> Emitter<'p> {
         self.current_fn = saved_fn;
         self.hoist_id = saved_hoist;
         self.ret_is_unit = saved_ret_unit;
-        self.defers = saved_defers;
-        self.defer_floor = saved_defer_floor;
-        self.loop_defer_floors = saved_loop_floors;
+        self.exit_splices = saved_splices;
+        self.splice_floor = saved_splice_floor;
+        self.loop_splice_floors = saved_loop_floors;
         self.throw_message = saved_throw;
         self.try_frames = saved_try_frames;
         out
@@ -3314,33 +3316,33 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
-        // [rs-defer-splice] Deferred blocks registered inside this block
-        // run when it ends.
-        let defer_floor = self.defers.len();
+        // [rs-exit-splice] Splices registered inside this block run when it
+        // ends.
+        let splice_floor = self.exit_splices.len();
         for stmt in &block.stmts {
             out.push_str(&self.emit_stmt(stmt, indent, ctx));
         }
         // A block whose last statement exits already ran them there.
         if block_terminates(block) {
-            self.defers.truncate(defer_floor);
+            self.exit_splices.truncate(splice_floor);
         } else {
-            out.push_str(&self.splice_defers(defer_floor, indent, true));
+            out.push_str(&self.splice_exits(splice_floor, indent, true));
         }
         self.effect_env = saved_env;
         out
     }
 
-    /// [rs-defer-splice] Renders the deferred blocks registered at or
-    /// above `floor`, latest first, re-indented to `indent`. `pop`
-    /// discards them (the block they belong to is ending); an early exit
-    /// leaves them in place, since the block's own exit runs them too.
-    fn splice_defers(&mut self, floor: usize, indent: usize, pop: bool) -> String {
-        if self.defers.len() <= floor {
+    /// [rs-exit-splice] Renders the splices registered at or above `floor`,
+    /// latest first, re-indented to `indent`. `pop` discards them (the block
+    /// they belong to is ending); an early exit leaves them in place, since
+    /// the block's own exit runs them too.
+    fn splice_exits(&mut self, floor: usize, indent: usize, pop: bool) -> String {
+        if self.exit_splices.len() <= floor {
             return String::new();
         }
         let pad = "    ".repeat(indent);
         let mut out = String::new();
-        for body in self.defers[floor..].iter().rev() {
+        for body in self.exit_splices[floor..].iter().rev() {
             for line in body.lines() {
                 if line.trim().is_empty() {
                     out.push('\n');
@@ -3350,23 +3352,23 @@ impl<'p> Emitter<'p> {
             }
         }
         if pop {
-            self.defers.truncate(floor);
+            self.exit_splices.truncate(floor);
         }
         out
     }
 
-    /// [rs-defer-splice] The deferred blocks an early exit runs: every one
-    /// registered inside the construct being left.
-    fn exit_defers(&mut self, indent: usize, loop_exit: bool) -> String {
+    /// [rs-exit-splice] The splices an early exit runs: every one registered
+    /// inside the construct being left.
+    fn exit_splice_code(&mut self, indent: usize, loop_exit: bool) -> String {
         let floor = if loop_exit {
-            self.loop_defer_floors
+            self.loop_splice_floors
                 .last()
                 .copied()
-                .unwrap_or(self.defer_floor)
+                .unwrap_or(self.splice_floor)
         } else {
-            self.defer_floor
+            self.splice_floor
         };
-        self.splice_defers(floor, indent, false)
+        self.splice_exits(floor, indent, false)
     }
 
     fn emit_stmt(&mut self, stmt: &Stmt, indent: usize, ctx: StmtCtx) -> String {
@@ -3408,44 +3410,44 @@ impl<'p> Emitter<'p> {
                             StmtCtx::Normal,
                         )
                     };
-                    let defers = self.exit_defers(indent, false);
+                    let splices = self.exit_splice_code(indent, false);
                     let unit = self.wrap_continue("()".to_string());
                     let value = if self.throw_message.is_some() {
                         format!(" {unit}")
                     } else {
                         String::new()
                     };
-                    format!("{evaluated}{defers}{pad}return{value};\n")
+                    format!("{evaluated}{splices}{pad}return{value};\n")
                 }
                 (_, Some(v)) => {
                     let code = self.emit_return_value(v);
-                    // [rs-defer-splice] The value is evaluated before the
-                    // deferred blocks run, so it is hoisted into a
+                    // [rs-exit-splice] The value is evaluated before the
+                    // exit splices run, so it is hoisted into a
                     // temporary when any of them follow it.
-                    let defers = self.exit_defers(indent, false);
-                    if defers.is_empty() {
+                    let splices = self.exit_splice_code(indent, false);
+                    if splices.is_empty() {
                         let code = self.wrap_continue(code);
                         format!("{pad}return {code};\n")
                     } else {
-                        let tmp = self.fresh_defer_var();
+                        let tmp = self.fresh_splice_var();
                         let out = self.wrap_continue(tmp.clone());
-                        format!("{pad}let {tmp} = {code};\n{defers}{pad}return {out};\n")
+                        format!("{pad}let {tmp} = {code};\n{splices}{pad}return {out};\n")
                     }
                 }
                 (_, None) => {
-                    let defers = self.exit_defers(indent, false);
+                    let splices = self.exit_splice_code(indent, false);
                     let unit = self.wrap_continue("()".to_string());
                     let value = if self.throw_message.is_some() {
                         format!(" {unit}")
                     } else {
                         String::new()
                     };
-                    format!("{defers}{pad}return{value};\n")
+                    format!("{splices}{pad}return{value};\n")
                 }
             },
             Stmt::Break { value, .. } => {
                 let target = self.loop_results.last().cloned().flatten();
-                // [rs-defer-splice] Leaving the loop runs the deferred
+                // [rs-exit-splice] Leaving the loop runs the
                 // blocks registered inside it; the break value is
                 // evaluated first.
                 match (value, target) {
@@ -3454,38 +3456,30 @@ impl<'p> Emitter<'p> {
                     (Some(v), Some(result)) => {
                         if self.ty_of(v.span()).is_some_and(|t| t.is_none_ty()) {
                             let stmt = self.emit_expr_stmt(v, indent, ctx);
-                            let defers = self.exit_defers(indent, true);
-                            format!("{stmt}{pad}{result} = None;\n{defers}{pad}break;\n")
+                            let splices = self.exit_splice_code(indent, true);
+                            format!("{stmt}{pad}{result} = None;\n{splices}{pad}break;\n")
                         } else {
                             let code = self.emit_loop_value_assign(v, &result);
-                            let defers = self.exit_defers(indent, true);
-                            format!("{pad}{code}\n{defers}{pad}break;\n")
+                            let splices = self.exit_splice_code(indent, true);
+                            format!("{pad}{code}\n{splices}{pad}break;\n")
                         }
                     }
                     (Some(v), None) => {
                         let stmt = self.emit_expr_stmt(v, indent, ctx);
-                        let defers = self.exit_defers(indent, true);
-                        format!("{stmt}{defers}{pad}break;\n")
+                        let splices = self.exit_splice_code(indent, true);
+                        format!("{stmt}{splices}{pad}break;\n")
                     }
                     (None, _) => {
-                        let defers = self.exit_defers(indent, true);
-                        format!("{defers}{pad}break;\n")
+                        let splices = self.exit_splice_code(indent, true);
+                        format!("{splices}{pad}break;\n")
                     }
                 }
             }
             Stmt::Continue { .. } => {
-                let defers = self.exit_defers(indent, true);
-                format!("{defers}{pad}continue;\n")
+                let splices = self.exit_splice_code(indent, true);
+                format!("{splices}{pad}continue;\n")
             }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
-            // [rs-defer-splice] `defer` emits nothing here: the body is
-            // rendered now (in the scope it was written in) and spliced at
-            // every exit of the enclosing block.
-            Stmt::Defer { body, .. } => {
-                let code = self.emit_block_stmts(body, 0, ctx);
-                self.defers.push(code);
-                String::new()
-            }
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent, ctx),
         }
     }
@@ -3530,11 +3524,11 @@ impl<'p> Emitter<'p> {
         self.emit_expr(v)
     }
 
-    /// A fresh local for a value that must be computed before deferred
-    /// blocks run [rs-defer-splice].
-    fn fresh_defer_var(&mut self) -> String {
-        self.defer_id += 1;
-        format!("__deferred_value{}", self.defer_id)
+    /// A fresh local for a value that must be computed before exit
+    /// blocks run [rs-exit-splice].
+    fn fresh_splice_var(&mut self) -> String {
+        self.splice_id += 1;
+        format!("__exit_value{}", self.splice_id)
     }
 
     // ================= throw and `try` [rs-throw-controlflow] =================
@@ -3569,13 +3563,13 @@ impl<'p> Emitter<'p> {
     /// The Rust code that *takes* the throw at a site: breaking the
     /// enclosing `try`'s labelled block with the thrown arm of its
     /// outcome, or returning `ControlFlow::Break` out of the fn
-    /// [rs-throw-controlflow]. Deferred blocks pending inside the
-    /// construct being left run first [defer].
+    /// [rs-throw-controlflow]. Splices pending inside the
+    /// construct being left run first [rs-exit-splice].
     fn throw_transfer(&mut self, site: &ThrowSite, message: String, indent: usize) -> String {
         match self.try_frames.last() {
             Some(frame) => {
                 let label = frame.label.clone();
-                let floor = frame.defer_floor;
+                let floor = frame.splice_floor;
                 let outcome = frame.outcome.clone();
                 let payload = self.throw_message_value(site, message);
                 // The thrown arm is arm 1 of `Ok T | Thrown M`.
@@ -3583,23 +3577,23 @@ impl<'p> Emitter<'p> {
                     Some(ty) => self.wrap_union_value(ty, 1, payload),
                     None => payload,
                 };
-                let defers = self.splice_defers(floor, indent, false);
-                if defers.is_empty() {
+                let splices = self.splice_exits(floor, indent, false);
+                if splices.is_empty() {
                     format!("break {label} {wrapped}")
                 } else {
                     let pad = "    ".repeat(indent);
-                    format!("{{\n{defers}{pad}break {label} {wrapped};\n{pad}}}")
+                    format!("{{\n{splices}{pad}break {label} {wrapped};\n{pad}}}")
                 }
             }
             None => {
                 self.imports.insert("use std::ops::ControlFlow;".to_string());
                 let payload = self.throw_message_value(site, message);
-                let defers = self.exit_defers(indent, false);
-                if defers.is_empty() {
+                let splices = self.exit_splice_code(indent, false);
+                if splices.is_empty() {
                     format!("return ControlFlow::Break({payload})")
                 } else {
                     let pad = "    ".repeat(indent);
-                    format!("{{\n{defers}{pad}return ControlFlow::Break({payload});\n{pad}}}")
+                    format!("{{\n{splices}{pad}return ControlFlow::Break({payload});\n{pad}}}")
                 }
             }
         }
@@ -3623,16 +3617,16 @@ impl<'p> Emitter<'p> {
     /// `ControlFlow` result is unwrapped here. `?` does it in one character
     /// — but only when the throw would leave *this* fn unchanged: inside a
     /// `try`, when the message needs wrapping into a union, or when
-    /// deferred blocks must run first, the propagation is written out as a
+    /// exit splices must run first, the propagation is written out as a
     /// `match` (an expression, so no hoisting is needed).
     fn wrap_may_throw_call(&mut self, site: &ThrowSite, call: String, indent: usize) -> String {
         self.imports.insert("use std::ops::ControlFlow;".to_string());
         let inside_try = !self.try_frames.is_empty();
-        let pending_defers = match self.try_frames.last() {
-            Some(frame) => self.defers.len() > frame.defer_floor,
-            None => self.defers.len() > self.defer_floor,
+        let pending_splices = match self.try_frames.last() {
+            Some(frame) => self.exit_splices.len() > frame.splice_floor,
+            None => self.exit_splices.len() > self.splice_floor,
         };
-        if !inside_try && !pending_defers && site.arm.is_none() {
+        if !inside_try && !pending_splices && site.arm.is_none() {
             return format!("{call}?");
         }
         let transfer = self.throw_transfer(site, "__m".to_string(), indent);
@@ -3657,7 +3651,7 @@ impl<'p> Emitter<'p> {
         let label = self.fresh_try_label();
         self.try_frames.push(TryFrame {
             label: label.clone(),
-            defer_floor: self.defers.len(),
+            splice_floor: self.exit_splices.len(),
             outcome: outcome.clone(),
         });
         let inner = self.emit_try_body(body, outcome.as_ref(), indent + 1);
@@ -3674,7 +3668,7 @@ impl<'p> Emitter<'p> {
         let pad = "    ".repeat(indent);
         let mut out = String::new();
         let saved_env = self.effect_env.clone();
-        let defer_floor = self.defers.len();
+        let splice_floor = self.exit_splices.len();
         let mut tail_code: Option<String> = None;
         let n = body.stmts.len();
         for (i, stmt) in body.stmts.iter().enumerate() {
@@ -3693,12 +3687,12 @@ impl<'p> Emitter<'p> {
             Some(ty) => self.wrap_union_value(ty, 0, value),
             None => value,
         };
-        // Deferred blocks in the body run before the block's value is
-        // produced on the normal path [defer].
-        let tmp = if self.defers.len() > defer_floor {
-            let tmp = self.fresh_defer_var();
+        // Splices in the body run before the block's value is
+        // produced on the normal path [rs-exit-splice].
+        let tmp = if self.exit_splices.len() > splice_floor {
+            let tmp = self.fresh_splice_var();
             out.push_str(&format!("{pad}let {tmp} = {wrapped};\n"));
-            out.push_str(&self.splice_defers(defer_floor, indent, true));
+            out.push_str(&self.splice_exits(splice_floor, indent, true));
             tmp
         } else {
             wrapped
@@ -4187,9 +4181,9 @@ impl<'p> Emitter<'p> {
                 }
                 out.push_str(&self.emit_is_bindings(cond, indent + 1));
                 self.loop_results.push(None);
-                self.loop_defer_floors.push(self.defers.len());
+                self.loop_splice_floors.push(self.exit_splices.len());
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
-                self.loop_defer_floors.pop();
+                self.loop_splice_floors.pop();
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
@@ -4214,7 +4208,7 @@ impl<'p> Emitter<'p> {
                 // iterated: minted, advanced, and closed. That is where the
                 // injected `close` gets its caller — an `Iter<T>` reached as a
                 // target-language iterator had nowhere to put one, so an
-                // abandoned producer skipped its deferred blocks. The handler
+                // abandoned producer skipped its release. The handler
                 // list is empty for a pure producer and the claimed set for a
                 // claiming one; nothing else differs.
                 // [iter-fn] An origin comes first: its machine is
@@ -4228,7 +4222,7 @@ impl<'p> Emitter<'p> {
                     });
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
-                // after it — the `else` bookkeeping, the body, the deferred
+                // after it — the `else` bookkeeping, the body, the spliced
                 // floors — is the same as for any other loop.
                 let pass = if producer.is_some() {
                     None
@@ -4302,18 +4296,18 @@ impl<'p> Emitter<'p> {
                     out.push_str(&format!("{inner_pad}{ran} = true;\n"));
                 }
                 self.loop_results.push(None);
-                self.loop_defer_floors.push(self.defers.len());
+                self.loop_splice_floors.push(self.exit_splices.len());
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
-                self.loop_defer_floors.pop();
+                self.loop_splice_floors.pop();
                 self.loop_results.pop();
                 out.push_str(&format!("{pad}}}\n"));
                 // [fn-effects] The injected `close`, once: `break` and
                 // exhaustion both land here, and the flags inside make it
                 // idempotent. A `return` out of the body ran it already,
-                // through the deferred entry the header registered — which is
+                // through the exit splice the header registered — which is
                 // what that entry is for.
                 if let Some((_, close)) = &producer {
-                    self.defers.pop();
+                    self.exit_splices.pop();
                     out.push_str(&format!("{pad}{close}\n"));
                 }
                 if let (Some(ran), Some(b)) = (&ran, else_block) {
@@ -5738,9 +5732,9 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
-        let defer_floor = self.defers.len();
-        // [rs-defer-splice] Deferred blocks run *after* the block's value
-        // is computed, so a tail with deferred code behind it is hoisted
+        let splice_floor = self.exit_splices.len();
+        // [rs-exit-splice] Splices run *after* the block's value
+        // is computed, so a tail with splice code behind it is hoisted
         // into a temporary.
         let mut tail_tmp: Option<String> = None;
         let pad = "    ".repeat(indent);
@@ -5755,8 +5749,8 @@ impl<'p> Emitter<'p> {
                     } else {
                         self.expr_indent = indent;
                         let code = self.emit_expr(e);
-                        if self.defers.len() > defer_floor {
-                            let tmp = self.fresh_defer_var();
+                        if self.exit_splices.len() > splice_floor {
+                            let tmp = self.fresh_splice_var();
                             out.push_str(&format!("{pad}let {tmp} = {code};\n"));
                             tail_tmp = Some(tmp);
                         } else {
@@ -5768,7 +5762,7 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, indent, StmtCtx::Normal));
         }
-        out.push_str(&self.splice_defers(defer_floor, indent, true));
+        out.push_str(&self.splice_exits(splice_floor, indent, true));
         if let Some(tmp) = tail_tmp {
             out.push_str(&format!("{pad}{tmp}\n"));
         }
@@ -6063,9 +6057,9 @@ impl<'p> Emitter<'p> {
             out.push_str(&self.emit_is_bindings(cond_or_iter, 0));
         }
         self.loop_results.push(Some(result.clone()));
-        self.loop_defer_floors.push(self.defers.len());
+        self.loop_splice_floors.push(self.exit_splices.len());
         out.push_str(&self.emit_loop_body_value(body, &result, join_optional));
-        self.loop_defer_floors.pop();
+        self.loop_splice_floors.pop();
         self.loop_results.pop();
         out.push_str("}\n");
         if let Some(b) = else_block {
@@ -6115,7 +6109,7 @@ impl<'p> Emitter<'p> {
         // depth: a `use` inside the block *rewrites* the outer entries to
         // thread through the inner fusion, which dies with the block.
         let saved_env = self.effect_env.clone();
-        let defer_floor = self.defers.len();
+        let splice_floor = self.exit_splices.len();
         let n = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
@@ -6126,9 +6120,9 @@ impl<'p> Emitter<'p> {
             }
             out.push_str(&self.emit_stmt(stmt, 0, StmtCtx::Normal));
         }
-        // [rs-defer-splice] The tail already assigned the result local, so
-        // deferred blocks run after it, like in any other block.
-        out.push_str(&self.splice_defers(defer_floor, 0, true));
+        // [rs-exit-splice] The tail already assigned the result local, so
+        // splices run after it, like in any other block.
+        out.push_str(&self.splice_exits(splice_floor, 0, true));
         self.effect_env = saved_env;
         out
     }
@@ -6279,24 +6273,24 @@ impl<'p> Emitter<'p> {
                 // Closures return their last expression; a trailing
                 // `return X` becomes the value.
                 let mut out = format!("{mv}|{}| {{\n", param_list.join(", "));
-                // [rs-defer-splice] A closure is a function boundary: its
-                // `return` runs only the deferred blocks written inside it.
-                let saved_floor = self.defer_floor;
-                self.defer_floor = self.defers.len();
-                let saved_loop_floors = std::mem::take(&mut self.loop_defer_floors);
-                let body_floor = self.defers.len();
+                // [rs-exit-splice] A closure is a function boundary: its
+                // `return` runs only the splices registered inside it.
+                let saved_floor = self.splice_floor;
+                self.splice_floor = self.exit_splices.len();
+                let saved_loop_floors = std::mem::take(&mut self.loop_splice_floors);
+                let body_floor = self.exit_splices.len();
                 let n = block.stmts.len();
                 for (i, stmt) in block.stmts.iter().enumerate() {
                     if i + 1 == n {
                         if let Stmt::Return { value: Some(v), .. } = stmt {
                             let code = self.emit_expr(v);
-                            let defers = self.splice_defers(body_floor, 1, true);
-                            if defers.is_empty() {
+                            let splices = self.splice_exits(body_floor, 1, true);
+                            if splices.is_empty() {
                                 out.push_str(&format!("    {code}\n"));
                             } else {
-                                let tmp = self.fresh_defer_var();
+                                let tmp = self.fresh_splice_var();
                                 out.push_str(&format!("    let {tmp} = {code};\n"));
-                                out.push_str(&defers);
+                                out.push_str(&splices);
                                 out.push_str(&format!("    {tmp}\n"));
                             }
                             continue;
@@ -6311,9 +6305,9 @@ impl<'p> Emitter<'p> {
                     }
                     out.push_str(&self.emit_stmt(stmt, 1, StmtCtx::Normal));
                 }
-                out.push_str(&self.splice_defers(body_floor, 1, true));
-                self.loop_defer_floors = saved_loop_floors;
-                self.defer_floor = saved_floor;
+                out.push_str(&self.splice_exits(body_floor, 1, true));
+                self.loop_splice_floors = saved_loop_floors;
+                self.splice_floor = saved_floor;
                 out.push('}');
                 out
             }
@@ -8479,8 +8473,8 @@ fn throw_message_of(ty: &Ty) -> Option<Ty> {
     }
 }
 
-/// [rs-defer-splice] Whether the block's own statements always leave it/// (`return`/`break`/`continue`, or a branching construct all of whose
-/// branches do). Deferred blocks were already spliced at those exits, so
+/// [rs-exit-splice] Whether the block's own statements always leave it/// (`return`/`break`/`continue`, or a branching construct all of whose
+/// branches do). Exit splices were already emitted at those exits, so
 /// splicing them again at the block's end would be dead code — and, for a
 /// body that gave a value away, dead code rustc still borrow-checks.
 fn block_terminates(block: &Block) -> bool {

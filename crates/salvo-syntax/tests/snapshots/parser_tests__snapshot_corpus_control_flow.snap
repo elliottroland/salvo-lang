@@ -1748,15 +1748,16 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "[defer] The block runs when the enclosing block ends — at its end and at",
-                    "every `return`/`break`/`continue` that leaves it, latest first.",
+                    "[linear-obligation] Release on every path is written out: `defer` was",
+                    "removed from the language (2026-09-10) because linearity is what makes the",
+                    "obligation checked, and repeating the release is the honest cost.",
                 ],
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
                 name: Ident {
                     name: "read_config",
-                    span: 2098..2109,
+                    span: 2173..2184,
                 },
                 generics: [],
                 generic_canbe: [],
@@ -1765,22 +1766,22 @@ Module {
                     Param {
                         name: Ident {
                             name: "path",
-                            span: 2110..2114,
+                            span: 2185..2189,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 2116..2119,
+                                    span: 2191..2194,
                                 },
                                 args: [],
-                                span: 2116..2119,
+                                span: 2191..2194,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2110..2119,
+                        span: 2185..2194,
                     },
                 ],
                 implicit_groups: [],
@@ -1790,10 +1791,10 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 2122..2129,
+                                    span: 2197..2204,
                                 },
                                 args: [],
-                                span: 2122..2129,
+                                span: 2197..2204,
                             },
                         ),
                     ],
@@ -1805,10 +1806,10 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "Str",
-                                span: 2134..2137,
+                                span: 2209..2212,
                             },
                             args: [],
-                            span: 2134..2137,
+                            span: 2209..2212,
                         },
                     },
                 ),
@@ -1820,7 +1821,7 @@ Module {
                                 pattern: Ident(
                                     Ident {
                                         name: "file",
-                                        span: 2148..2152,
+                                        span: 2223..2227,
                                     },
                                 ),
                                 ty: None,
@@ -1828,7 +1829,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "open",
-                                            span: 2155..2159,
+                                            span: 2230..2234,
                                         },
                                     ),
                                     type_args: [],
@@ -1836,43 +1837,14 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "path",
-                                                span: 2160..2164,
+                                                span: 2235..2239,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 2155..2165,
+                                    span: 2230..2240,
                                 },
-                                span: 2144..2165,
-                            },
-                            Defer {
-                                body: Block {
-                                    stmts: [
-                                        Expr(
-                                            Call {
-                                                callee: Ident(
-                                                    Ident {
-                                                        name: "close",
-                                                        span: 2178..2183,
-                                                    },
-                                                ),
-                                                type_args: [],
-                                                args: [
-                                                    Ident(
-                                                        Ident {
-                                                            name: "file",
-                                                            span: 2184..2188,
-                                                        },
-                                                    ),
-                                                ],
-                                                named: [],
-                                                span: 2178..2189,
-                                            },
-                                        ),
-                                    ],
-                                    span: 2176..2191,
-                                },
-                                span: 2170..2191,
+                                span: 2219..2240,
                             },
                             Expr(
                                 If {
@@ -1882,7 +1854,7 @@ Module {
                                                 callee: Ident(
                                                     Ident {
                                                         name: "is_empty",
-                                                        span: 2199..2207,
+                                                        span: 2248..2256,
                                                     },
                                                 ),
                                                 type_args: [],
@@ -1890,15 +1862,36 @@ Module {
                                                     Ident(
                                                         Ident {
                                                             name: "file",
-                                                            span: 2208..2212,
+                                                            span: 2257..2261,
                                                         },
                                                     ),
                                                 ],
                                                 named: [],
-                                                span: 2199..2213,
+                                                span: 2248..2262,
                                             },
                                             Block {
                                                 stmts: [
+                                                    Expr(
+                                                        Call {
+                                                            callee: Ident(
+                                                                Ident {
+                                                                    name: "close",
+                                                                    span: 2273..2278,
+                                                                },
+                                                            ),
+                                                            type_args: [],
+                                                            args: [
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "file",
+                                                                        span: 2279..2283,
+                                                                    },
+                                                                ),
+                                                            ],
+                                                            named: [],
+                                                            span: 2273..2284,
+                                                        },
+                                                    ),
                                                     Return {
                                                         value: Some(
                                                             Str {
@@ -1907,18 +1900,18 @@ Module {
                                                                         "",
                                                                     ),
                                                                 ],
-                                                                span: 2231..2233,
+                                                                span: 2300..2302,
                                                             },
                                                         ),
-                                                        span: 2224..2233,
+                                                        span: 2293..2302,
                                                     },
                                                 ],
-                                                span: 2214..2239,
+                                                span: 2263..2308,
                                             },
                                         ),
                                     ],
                                     else_block: None,
-                                    span: 2196..2239,
+                                    span: 2245..2308,
                                 },
                             ),
                             Expr(
@@ -1926,14 +1919,14 @@ Module {
                                     pattern: Ident(
                                         Ident {
                                             name: "line",
-                                            span: 2248..2252,
+                                            span: 2317..2321,
                                         },
                                     ),
                                     iterable: Call {
                                         callee: Ident(
                                             Ident {
                                                 name: "lines",
-                                                span: 2256..2261,
+                                                span: 2325..2330,
                                             },
                                         ),
                                         type_args: [],
@@ -1941,52 +1934,21 @@ Module {
                                             Ident(
                                                 Ident {
                                                     name: "file",
-                                                    span: 2262..2266,
+                                                    span: 2331..2335,
                                                 },
                                             ),
                                         ],
                                         named: [],
-                                        span: 2256..2267,
+                                        span: 2325..2336,
                                     },
                                     body: Block {
                                         stmts: [
-                                            Defer {
-                                                body: Block {
-                                                    stmts: [
-                                                        Expr(
-                                                            Call {
-                                                                callee: Ident(
-                                                                    Ident {
-                                                                        name: "println",
-                                                                        span: 2286..2293,
-                                                                    },
-                                                                ),
-                                                                type_args: [],
-                                                                args: [
-                                                                    Str {
-                                                                        parts: [
-                                                                            Text(
-                                                                                "line done",
-                                                                            ),
-                                                                        ],
-                                                                        span: 2294..2305,
-                                                                    },
-                                                                ],
-                                                                named: [],
-                                                                span: 2286..2306,
-                                                            },
-                                                        ),
-                                                    ],
-                                                    span: 2284..2308,
-                                                },
-                                                span: 2278..2308,
-                                            },
                                             Expr(
                                                 Call {
                                                     callee: Ident(
                                                         Ident {
                                                             name: "println",
-                                                            span: 2317..2324,
+                                                            span: 2347..2354,
                                                         },
                                                     ),
                                                     type_args: [],
@@ -1994,50 +1956,87 @@ Module {
                                                         Ident(
                                                             Ident {
                                                                 name: "line",
-                                                                span: 2325..2329,
+                                                                span: 2355..2359,
                                                             },
                                                         ),
                                                     ],
                                                     named: [],
-                                                    span: 2317..2330,
+                                                    span: 2347..2360,
                                                 },
                                             ),
                                         ],
-                                        span: 2268..2336,
+                                        span: 2337..2366,
                                     },
                                     else_block: None,
-                                    span: 2244..2336,
+                                    span: 2313..2366,
+                                },
+                            ),
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "out",
+                                        span: 2375..2378,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "contents",
+                                            span: 2381..2389,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "file",
+                                                span: 2390..2394,
+                                            },
+                                        ),
+                                    ],
+                                    named: [],
+                                    span: 2381..2395,
+                                },
+                                span: 2371..2395,
+                            },
+                            Expr(
+                                Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "close",
+                                            span: 2400..2405,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Ident(
+                                            Ident {
+                                                name: "file",
+                                                span: 2406..2410,
+                                            },
+                                        ),
+                                    ],
+                                    named: [],
+                                    span: 2400..2411,
                                 },
                             ),
                             Return {
                                 value: Some(
-                                    Call {
-                                        callee: Ident(
-                                            Ident {
-                                                name: "contents",
-                                                span: 2348..2356,
-                                            },
-                                        ),
-                                        type_args: [],
-                                        args: [
-                                            Ident(
-                                                Ident {
-                                                    name: "file",
-                                                    span: 2357..2361,
-                                                },
-                                            ),
-                                        ],
-                                        named: [],
-                                        span: 2348..2362,
-                                    },
+                                    Ident(
+                                        Ident {
+                                            name: "out",
+                                            span: 2423..2426,
+                                        },
+                                    ),
                                 ),
-                                span: 2341..2362,
+                                span: 2416..2426,
                             },
                         ],
-                        span: 2138..2364,
+                        span: 2213..2428,
                     },
                 ),
-                span: 2095..2364,
+                span: 2170..2428,
             },
         ),
     ],

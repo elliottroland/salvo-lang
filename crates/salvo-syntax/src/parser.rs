@@ -1708,19 +1708,6 @@ impl<'s> Parser<'s> {
                 let span = start.to(handler.span());
                 Some(Stmt::Use { handler, span })
             }
-            // [defer] `defer { ... }` — always a block, like every other
-            // body-taking construct in the language.
-            TokenKind::KwDefer => {
-                let start = self.bump().span;
-                if !self.at(&TokenKind::LBrace) {
-                    let span = self.peek().span;
-                    self.error("`defer` takes a block: `defer { ... }`", span);
-                    return None;
-                }
-                let body = self.parse_block()?;
-                let span = start.to(body.span);
-                Some(Stmt::Defer { body, span })
-            }
             _ => {
                 let expr = self.parse_expr()?;
                 if self.at(&TokenKind::Eq) && self.same_line() {

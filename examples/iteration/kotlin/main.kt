@@ -35,7 +35,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__6(p: Countdown): Union2<Int, Finished> {
+fun next__4(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -47,7 +47,7 @@ fun next__6(p: Countdown): Union2<Int, Finished> {
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__6(p)
+        val __loop1_step = next__4(p)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -70,7 +70,7 @@ fun iter__4(h: Halving): __Pass_Halving {
     return __Pass_Halving(at = h.start)
 }
 
-fun next__7(__p: __Pass_Halving): Union2<Int, Finished> {
+fun next__5(__p: __Pass_Halving): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -98,7 +98,7 @@ fun iter__5(f: Fibs): __Pass_Fibs {
     return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
 }
 
-fun next__8(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
+fun next__6(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return U2_2<Int, Finished>(finished())
@@ -127,7 +127,7 @@ fun iter__6(n: Naturals): __Pass_Naturals {
     return __Pass_Naturals(at = n.from)
 }
 
-fun next__9(__p: __Pass_Naturals): Union2<Int, Finished> {
+fun next__7(__p: __Pass_Naturals): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return U2_1<Int, Finished>(emitted(now))
@@ -150,27 +150,27 @@ fun main() {
     describe_container(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sum_of(p, ::next__6)}")
+    println(console, "2. rest sums to ${sum_of(p, ::next__4)}")
     val h = Halving(start = 20)
     var __loop3_pass = iter__4(h)
     while (true) {
-        val __loop3_step = next__7(__loop3_pass)
+        val __loop3_step = next__5(__loop3_pass)
         if (__loop3_step !is U2_1<Int, Finished>) { break }
         val n = __loop3_step.value
         println(console, "2b. halving $n")
     }
     val hp = iter__4(h)
-    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__7)}")
+    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__5)}")
     var __loop4_pass = iter__5(fibs(6))
     while (true) {
-        val __loop4_step = next__8(console, __loop4_pass)
+        val __loop4_step = next__6(console, __loop4_pass)
         if (__loop4_step !is U2_1<Int, Finished>) { break }
         val n = __loop4_step.value
         println(console, "3. fib $n")
     }
     var __loop5_pass = iter__6(naturals(10))
     while (true) {
-        val __loop5_step = next__9(__loop5_pass)
+        val __loop5_step = next__7(__loop5_pass)
         if (__loop5_step !is U2_1<Int, Finished>) { break }
         val n = __loop5_step.value
         if (n > 12) {
@@ -185,21 +185,9 @@ fun main() {
     val words = listOf<String>("ann", "bo", "carol")
     val lengths = map(iter__2(words), { w -> w.length }, ::next__2)
     println(console, "5. lengths: ${reduce(iter__2(lengths), 0, { acc, n -> acc + n }, ::next__2)}")
-    val vowels = filter(iter__3("iteration"), { c -> c == 'i' || c == 'o' }, ::next__5)
+    val vowels = filter(iter__3("iteration"), { c -> c == 'i' || c == 'o' }, ::next__3)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. halving total ${reduce(iter__4(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__7)}")
-    val squares = map_lazy(iter__6(naturals(1)), { n: Int -> n * n }, ::next__9)
-    val big = filter_lazy(squares, { n: Int -> n > 10 }, ::next__3)
-    var __loop6_pass = big
-    while (true) {
-        val __loop6_step = next__4(__loop6_pass)
-        if (__loop6_step !is U2_1<*, *>) { break }
-        val n = __loop6_step.value as Int
-        println(console, "6. big square $n")
-        if (n > 50) {
-            break
-        }
-    }
-    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__6)
+    println(console, "5. halving total ${reduce(iter__4(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__5)}")
+    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__4)
     println(console, "6. collected ${collected.size}")
 }

@@ -572,11 +572,6 @@ pub enum Stmt {
     Continue { span: Span },
     /// `use HandlerExpr(...)` — register a handler for the current context.
     Use { handler: Expr, span: Span },
-    /// `defer { ... }` — run the block when the enclosing block ends
-    /// [defer]. Its meaning is *splice at exit*: the body runs at every
-    /// exit of the enclosing block (the end of the block, and each
-    /// `return`/`break`/`continue` that leaves it), latest `defer` first.
-    Defer { body: Block, span: Span },
     /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)` inside a block:
     /// in force from this line to the end of the enclosing scope.
     Rename(RenameDecl),
