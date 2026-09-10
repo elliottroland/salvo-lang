@@ -6222,3 +6222,53 @@ fn kotlinc_compiles_and_runs_field_disjoint_access() {
     });
     run_kotlin_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
 }
+
+/// [fate-partial-move] L5's move half end to end: a field handed to a
+/// consuming fn is a **real partial move** in the emitted Rust
+/// (`eat(p.tags);` then `p.name.clone()`), and reassigning the moved field
+/// is rustc's reinitialization — both accepted by borrowck. These programs
+/// were checker-rejected before the move half landed.
+///
+/// Shared with the Kotlin backend, byte for byte.
+const PARTIAL_MOVE_DEMO: &str = r#"
+struct Person canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+fn eat(list: Mut List<Str>) -> [] None {
+    add(list, "eaten")
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // hand one field away, keep reading the other
+    let p = Person { name: "ann", tags: mutable_list("x") }
+    eat(p.tags)
+    println("1 ${p.name}")
+
+    // the same through a move-mode binding
+    let q = Person { name: "bob", tags: mutable_list("y") }
+    let t = q.tags
+    add(t, "z")
+    println("2 ${q.name} ${size(t)}")
+
+    // put the field back, and the whole value works again
+    let u = Mut Person { name: "eve", tags: mutable_list("t") }
+    eat(u.tags)
+    u.tags = mutable_list("new", "pair")
+    println("3 ${u.name} ${size(u.tags)}")
+}
+"#;
+
+const PARTIAL_MOVE_OUTPUT: &str = "1 ann\n2 bob 2\n3 eve 2\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_partial_move() {
+    let program = build_program(&[("main.sv", PARTIAL_MOVE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
+}

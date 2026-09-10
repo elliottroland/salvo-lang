@@ -693,6 +693,8 @@ fn touch_all(p: Mut Person) [] -> [p: Mut] None {}
 fn read(s: Str) [] -> [s] Int { return 0 }
 fn count(list: List<Str>) [] -> [list] Int { return 0 }
 fn add_tag(list: Mut List<Str>, s: Str) [] -> [list: Mut, s] None {}
+fn eat(list: Mut List<Str>) [] -> [] None {}
+fn take_person(p: Person) [] -> [] None {}
 "#;
 
 fn disjoint_errors(body: &str) -> Vec<String> {
@@ -837,5 +839,166 @@ fn a_dynamic_index_stays_conservative() {
     assert!(
         errs.iter().any(|e| e.contains("`one` cannot be used here")),
         "expected the conservative poison, got: {errs:?}"
+    );
+}
+
+// ===== [fate-partial-move] L5's move half: partial moves =====
+//
+// Moving a projection out leaves the *rest* of the root readable, instead of
+// consuming the whole variable. The moved place is recorded per root, a read
+// overlapping it is an error naming the field that left, and a whole-value use
+// is always refused (a value missing a part cannot be handed on). Reassigning
+// the place puts it back.
+//
+// This matches Rust, where partial moves are function-local: a borrowed
+// parameter refuses a move out of it (kept deductions still error), and an
+// owned one may be partially moved because the caller already gave it up.
+
+/// [fate-partial-move] The shape the move half exists for: hand one field to
+/// a consuming fn, keep reading the other.
+#[test]
+fn a_disjoint_field_survives_a_projection_move() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   eat(p.tags)\n\
+         \x20   let k = read(p.name)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-partial-move] The same through a move-mode *binding* rather than a
+/// consuming call: `let t = p.tags` takes ownership of that field only.
+#[test]
+fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   let t = p.tags\n\
+         \x20   add_tag(t, \"z\")\n\
+         \x20   let k = read(p.name)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-partial-move] Reading the moved field back is the error, and it
+/// names the field rather than the variable.
+#[test]
+fn reading_a_moved_field_back_is_an_error() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   eat(p.tags)\n\
+         \x20   let k = count(p.tags)",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`p.tags` cannot be used here")
+                && e.contains("was moved out of `p`")),
+        "expected the partial-move error, got: {errs:?}"
+    );
+}
+
+/// [fate-partial-move] The whole value can never be used once a part has
+/// left — the rule that keeps an incomplete struct from being handed on.
+#[test]
+fn the_whole_value_cannot_be_used_after_a_partial_move() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   eat(p.tags)\n\
+         \x20   take_person(p)",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`p` cannot be used as a whole here")),
+        "expected the whole-value refusal, got: {errs:?}"
+    );
+}
+
+/// [fate-partial-move] Assigning the place puts data back, so the variable is
+/// whole again — including reads of the field that had left.
+#[test]
+fn reassigning_a_moved_field_revives_it() {
+    let errs = disjoint_errors(
+        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   eat(p.tags)\n\
+         \x20   p.tags = mutable_list()\n\
+         \x20   let k = count(p.tags)\n\
+         \x20   let j = read(p.name)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-partial-move] Flow-sensitive like consumption: moved on *some* path
+/// is moved after the join.
+#[test]
+fn a_move_on_one_branch_is_moved_after_the_join() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   if read(p.name) > 0 {\n\
+         \x20       eat(p.tags)\n\
+         \x20   }\n\
+         \x20   let k = count(p.tags)",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`p.tags` cannot be used here")),
+        "expected the merged move to poison, got: {errs:?}"
+    );
+    // ...but a disjoint field is still readable on every path.
+    let ok = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   if 1 > 0 {\n\
+         \x20       eat(p.tags)\n\
+         \x20   }\n\
+         \x20   let k = read(p.name)",
+    );
+    assert!(ok.is_empty(), "expected a clean check, got: {ok:?}");
+}
+
+/// [fate-partial-move] A **kept** parameter still refuses the move outright:
+/// the caller keeps the value, so nothing may be taken from it. This is
+/// Rust's rule for a borrowed parameter (E0507), and it is why partial moves
+/// never need to appear in a signature.
+#[test]
+fn a_kept_parameter_still_refuses_a_projection_move() {
+    let src = format!(
+        "{DISJOINT_PRELUDE}\nfn kept(p: Person) -> [p] None {{\n    eat(p.tags)\n    return None\n}}\n"
+    );
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        format!(
+            "{STD_PRELUDE}intrinsic type Str\n\
+             intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n"
+        ),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src,
+        false,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        assert!(
+            diagnostics.iter().all(|d| !d.is_error()),
+            "parse errors: {diagnostics:?}"
+        );
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    let errs: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot move mutable data out of `p`")
+                && e.contains("kept parameter")),
+        "expected the kept-parameter refusal, got: {errs:?}"
     );
 }

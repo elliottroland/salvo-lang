@@ -122,10 +122,9 @@ next.
   the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
   COMPLETED.md.
 **2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
-**✅ The poison half landed 2026-09-10**: field-disjoint precision, built on
-the `Place` substrate P1 built [fate-field-disjoint]. The **move half** —
-partial-move state on a root, so taking one field out leaves the others
-readable — is recorded and unforced; see "L5". Phase 3 is next.
+**✅ Complete 2026-09-10** — both halves: field-disjoint poison
+[fate-field-disjoint] and partial moves [fate-partial-move], both on the
+`Place` substrate P1 built. Phase 3 is next.
 
 **3 — Finish linearity: composition and conditionality.** Three questions that
 have to be answered together rather than one:
@@ -210,43 +209,34 @@ repro and root cause are in COMPLETED.md.
 `Place` substrate are in COMPLETED.md ("Roadmap: toward full linear types"
 and "Roadmap: place-based flow analysis"). What is left:
 
-### L5 — Places and partial moves (phase 2) — ✅ the poison half landed 2026-09-10
+### L5 — Places and partial moves (phase 2) — ✅ complete 2026-09-10
 
-Field-disjoint precision for shared fate is **built** [fate-field-disjoint]:
-a link carries the projection path out of its root, an event carries the path
-it hit, and poison fires only where the two overlap (`Place::overlaps`, the
-P1 substrate, reused unchanged). See COMPLETED.md for what it took and the
-evidence that forced it — the old "no current use case" note was wrong, and
-four out of four ordinary field-disjoint programs were being rejected.
+Both halves are built. **Poison** [fate-field-disjoint]: a fate link carries
+the projection path out of its root, an event carries the path it hit, and
+poison fires only where the two overlap. **Moves** [fate-partial-move]: a move
+of a projection records it as moved out of its root rather than consuming the
+whole variable, so a disjoint field stays readable, reading the moved field
+back is an error naming it, a whole-value use is refused, and reassigning the
+place revives it. Both rest on `Place::overlaps` — the relation P1 built for
+narrowing — which is why the phase cost a fraction of the "place lattice
+instead of per-variable states" it was budgeted as. See COMPLETED.md for what
+it took, the evidence that forced it, and the Rust alignment.
 
-**What is left of L5: the move half.** A move-mode binding of a projection
-still consumes its whole owner, so this is still an error:
+Settled along the way, and worth not re-opening: **partial moves need no
+signature notation**. Rust's model is that ownership is all-or-nothing per
+parameter — a borrowed parameter refuses a move out of it (E0507), an owned one
+may be partially moved because the caller already surrendered the whole value
+— so the state is function-local. Salvo already implemented exactly this, so
+the binary kept/moved deduction stands. `ReadOnly[from: p]` is a different
+axis (the **return** channel, where the borrowed place escapes), and a
+place-parameterized deduction (`[p: -tags]`) is deliberately **not** wanted: it
+is viral, and passing the field rather than the struct (`f(p.tags)`) says the
+same thing with no notation.
 
-```
-let p = Person {name: "bob", tags: mutable_list("x")}
-let taken = p.tags       // move-mode: takes ownership
-add(taken, "z")
-println(p.name)          // ERROR: `p` was consumed by the binding
-```
-
-rustc would accept the equivalent (a partial move leaves the other fields
-readable), so this is Salvo being stricter than its own backend. Lifting it
-needs what the original L5 sketch called the place lattice: **partial-move
-state on a root** — a per-root set of moved places, with a use of an
-overlapping place erroring and a use of a disjoint one passing, merged across
-branches and loop back edges. The poison half needed none of that (a link
-already names its projection), which is why it landed alone.
-
-- Not forced: no shape in std or the examples needs it, and the remedy
-  (`copy`, or restructuring so the field is moved last) is available. Pick it
-  up when a real program wants to take one field and keep reading another.
-- **Not L5: field smart-casting.** Place-based *type narrowing* (reads
-  of `h.field` narrowed by `h.field is T`) is a separate feature from
-  place-based ownership — it was roadmap phase **P1**, done 2026-09-03.
-  L5 inherited its `Place` substrate: the projection type (fields *and*
-  elements), the prefix/overlap relations, and per-root fact storage —
-  and the sequencing paid off exactly as intended, since the poison half
-  reduced to one call to `overlaps`.
+**Not L5: field smart-casting.** Place-based *type narrowing* (reads of
+`h.field` narrowed by `h.field is T`) is a separate feature from place-based
+ownership — it was roadmap phase **P1**, done 2026-09-03, and it is the
+substrate both halves of L5 stand on.
 
 ### L7 remainders — recorded, none forced
 

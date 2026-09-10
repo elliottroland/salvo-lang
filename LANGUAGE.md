@@ -1580,7 +1580,20 @@ add(p.tags, "z")         // mutates the very field `t` came from
 size(t)                  // ERROR: t shared p.tags's fate and p.tags was mutated
 ```
 
-  One half is still coarse: *moving* a field out consumes the whole owner, so taking `p.tags` by value leaves `p` unusable rather than leaving `p.name` readable. Reading a sibling of a field that was moved out is therefore still an error, and `copy` is the remedy.
+  Moving a field out is tracked the same way: the field leaves, the rest of the value stays. What left is remembered, so reading *that* field back is an error, and the value can no longer be handed on whole — but its other fields are still readable, and putting the field back with an assignment makes the value complete again.
+
+```
+let p = Person {name: "ann", tags: mutable_list("x")}
+eat(p.tags)              // consumes the field
+println(p.name)          // fine: a different field
+size(p.tags)             // ERROR: `p.tags` was moved out of `p`
+take(p)                  // ERROR: `p` cannot be used as a whole — part of it is gone
+
+p.tags = mutable_list()  // puts it back
+take(p)                  // fine again
+```
+
+  A parameter the function promised to keep is the exception, and it is the same rule as everywhere: you cannot take something out of a value you do not own. `copy` is the remedy.
 
 ### Copy semantics per backend
 

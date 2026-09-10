@@ -312,9 +312,11 @@ derives them mechanically:
       they are disjoint fields of one local. The two analyses draw the
       same line (same field, prefix, whole variable and computed index
       all still poison), so the newly legal programs compile clone-free
-      with no emitter change. Salvo stays *stricter* on the move half: a
-      projection move consumes the whole owner, where rustc would allow
-      reading a sibling after a partial move.
+      with no emitter change. The **move** half matches too since
+      2026-09-10 [fate-partial-move]: a moved projection emits as a real
+      partial move of the field and a later reassignment as rustc's
+      reinitialization, both borrowck-legal, with the whole-value use
+      refused on the Salvo side before it can reach rustc.
   * **Lambdas emit plain (borrowing) closures [fate-lambda]:** captures
     are rustc borrow-captures, which alias — the same semantics as
     Kotlin's lexical capture, so parity is direct. Checker-legal

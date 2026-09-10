@@ -1024,12 +1024,13 @@ fn s2_move_mode_pipelines_stay_clean() {
     );
 }
 
-// [fate-move-mode] S2 negative matrix: the poison lands at the binding —
-// using an ancestor after a move-mode binding errors naming the binding;
-// a written-kept parameter ancestor keeps the S1 move-site error; and a
-// projection of *mutable* data in a moved position consumes its owned
-// roots (closing the 2026-09-02 parity divergence) or errors for a
-// kept-parameter root.
+// [fate-move-mode] [fate-partial-move] S2 negative matrix: the poison lands
+// at the binding — using an ancestor after a move-mode binding errors naming
+// the binding; a written-kept parameter ancestor keeps the S1 move-site
+// error; and a projection of *mutable* data in a moved position leaves the
+// root usable but records the moved place, so reading *that* projection back
+// is the error (closing the 2026-09-02 parity divergence — L5 made the
+// diagnostic name the field rather than the whole variable).
 #[test]
 fn s2_move_mode_ancestors_are_consumed() {
     let dir = src_dir("s2_negative");
@@ -1061,11 +1062,14 @@ fn s2_move_mode_ancestors_are_consumed() {
     );
     // The parity probe is rejected: `wrap(h.tags)` moved mutable data
     // out of `h`, so the later `add(h.tags, 9)` cannot observe an alias
-    // on one backend and a clone on the other.
+    // on one backend and a clone on the other. Since L5 the diagnostic
+    // names the *field* that left rather than the whole variable — `h`
+    // itself stays usable, and reading `h.tags` back is what fails
+    // [fate-partial-move].
     assert!(
         stderr.contains(
-            "`h` cannot be used here: it was consumed (moved) by a move of \
-             mutable data projected out of it"
+            "`h.tags` cannot be used here: `h.tags` was moved out of `h`, \
+             and this reads the same data"
         ),
         "stderr: {stderr}"
     );

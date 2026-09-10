@@ -676,6 +676,8 @@ fn check_once<'p>(
             own_written: false,
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
+            assign_target: false,
+            projection_base: 0,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
             own_implicits: Vec::new(),
@@ -845,6 +847,12 @@ struct LocalVar {
     /// keeps `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` the
     /// single source of truth for flow state.
     place_narrows: Vec<PlaceNarrow>,
+    /// [fate-partial-move] Projections that have been **moved out** of
+    /// this variable. The variable stays usable: a read of a disjoint
+    /// projection passes, a read overlapping a moved one (or of the whole
+    /// value) is an error naming what left. Union-merged across branches
+    /// (moved on any path is moved), cleared per place by reassignment.
+    moved_places: Vec<MovedPlace>,
 }
 
 /// One narrowed projection place [flow-place]: the path out of the
@@ -857,6 +865,40 @@ struct PlaceNarrow {
     path: Vec<Proj>,
     narrowed: Ty,
     declared: Ty,
+}
+
+/// [fate-partial-move] One projection that has been **moved out** of a
+/// variable: the path out of the root, and where it left. The root itself
+/// stays usable — reading a *disjoint* projection is fine, reading this one
+/// (or a place overlapping it, or the whole value) is an error.
+#[derive(Clone, Debug, PartialEq)]
+struct MovedPlace {
+    path: Vec<Proj>,
+    span: Span,
+}
+
+impl MovedPlace {
+    /// Whether a use of `path` is blocked by this move: the two paths
+    /// overlap ([`Place::overlaps`]), so the use could read storage that
+    /// has left. A use of the *whole* variable (`[]`) is a prefix of every
+    /// moved path and so is always blocked.
+    fn blocks(&self, path: &[Proj]) -> bool {
+        let as_place = |p: &[Proj]| Place {
+            root: String::new(),
+            path: p.to_vec(),
+        };
+        as_place(&self.path).overlaps(&as_place(path))
+    }
+
+    /// How the moved projection reads in a diagnostic: `.tags`, or "it"
+    /// for the whole value.
+    fn describe(&self) -> String {
+        if self.path.is_empty() {
+            "it".to_string()
+        } else {
+            self.path.iter().map(|p| p.to_string()).collect()
+        }
+    }
 }
 
 /// One fate link [fate-link]: the derived variable was bound from (a
@@ -943,6 +985,9 @@ struct VarState {
     poison: Option<Poison>,
     consumed_by: Option<&'static str>,
     place_narrows: Vec<PlaceNarrow>,
+    /// [fate-partial-move] Moved-out projections, union-merged across
+    /// branches: the dual of `place_narrows`, which intersects.
+    moved_places: Vec<MovedPlace>,
 }
 
 /// Flow state of every local, per scope frame [deduce-consume].
@@ -1041,6 +1086,15 @@ struct Checker<'p, 'r> {
     /// derived from the transitively-mutable variables it reads (keyed
     /// by the lambda expression's span, this file only).
     lambda_links: HashMap<Span, Vec<FateLink>>,
+    /// [fate-partial-move] Whether the expression being checked is an
+    /// assignment *target*: writing a place puts data back, so it is not a
+    /// read of moved-out storage and must not be reported as one.
+    assign_target: bool,
+    /// [fate-partial-move] Nesting depth of *projection bases* being
+    /// checked: inside `p.name`, the `p` read is not a use of the whole
+    /// value, so the whole-value partial-move check is suppressed there
+    /// and the enclosing projection does the precise check instead.
+    projection_base: usize,
     /// Type parameters of the current fn that opted into linearity with
     /// `<T canbe Linear>` [linear-generics]: `T`-typed values are treated
     /// as linear in the body, and callers may instantiate them with
@@ -3156,6 +3210,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
             place_narrows: Vec::new(),
+            moved_places: Vec::new(),
                 },
             );
         }
@@ -3184,6 +3239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
                     place_narrows: Vec::new(),
+            moved_places: Vec::new(),
                 },
             );
         }
@@ -3211,6 +3267,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: true,
                     widened: None,
             place_narrows: Vec::new(),
+            moved_places: Vec::new(),
                 },
             );
         }
@@ -3646,6 +3703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 is_handler_state: false,
                 widened: None,
             place_narrows: Vec::new(),
+            moved_places: Vec::new(),
             },
         );
     }
@@ -3772,6 +3830,74 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         links
+    }
+
+    /// [fate-partial-move] Assigning a place makes it whole again: drops
+    /// every moved-out record the assigned place *covers* (itself and
+    /// anything under it). Assigning the whole variable (`[]`) covers
+    /// everything, which is why plain reassignment revives a partially
+    /// moved value completely.
+    fn revive_moved_places(&mut self, place: &Place) {
+        let path = place.path.clone();
+        if let Some(var) = self.lookup_mut(&place.root) {
+            var.moved_places.retain(|m| {
+                let assigned = Place {
+                    root: String::new(),
+                    path: path.clone(),
+                };
+                let moved = Place {
+                    root: String::new(),
+                    path: m.path.clone(),
+                };
+                !assigned.is_prefix_of(&moved)
+            });
+        }
+    }
+
+    /// [fate-partial-move] Reports a read of a place that overlaps
+    /// something already moved out of its root. A *disjoint* projection
+    /// passes: after `eat(p.tags)`, `p.name` is still there. The whole
+    /// value never passes — a variable missing a part cannot be handed on.
+    ///
+    /// Returns whether an error was reported, so callers can stop rather
+    /// than cascade [type-unknown-lenient].
+    fn check_moved_place(&mut self, place: &Place, span: Span) -> bool {
+        if self.assign_target {
+            return false;
+        }
+        let Some(var) = self.lookup(&place.root) else {
+            return false;
+        };
+        // A wholly consumed variable is the other machinery's business
+        // [deduce-consume]: one mistake, one diagnostic.
+        if matches!(var.narrowed, Ty::Nothing) {
+            return false;
+        }
+        let Some(hit) = var
+            .moved_places
+            .iter()
+            .find(|m| m.blocks(&place.path))
+            .cloned()
+        else {
+            return false;
+        };
+        let root = place.root.clone();
+        let what = hit.describe();
+        let message = if place.path.is_empty() {
+            format!(
+                "`{root}` cannot be used as a whole here: `{root}{what}` was moved \
+                 out of it, so part of the value is gone; move the remaining parts \
+                 individually, or `copy` at the site that moved `{root}{what}`"
+            )
+        } else {
+            format!(
+                "`{place}` cannot be used here: `{root}{what}` was moved out of \
+                 `{root}`, and this reads the same data; `copy` at the site that \
+                 moved it to keep this readable"
+            )
+        };
+        self.error(span, message);
+        true
     }
 
     /// Poisons every live variable fate-linked to `root_id` [fate-poison]:
@@ -3985,6 +4111,27 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             let file_idx = self.file_idx;
             let mut loop_origin = None;
+            // [fate-partial-move] A binding that takes ownership of a
+            // *projection* leaves the rest of the root readable: record
+            // what left rather than consuming the whole variable.
+            let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
+            if partial {
+                let path = l.path.clone().unwrap_or_default();
+                if let Some(var) = self.var_by_id_mut(l.root_id) {
+                    loop_origin = var.for_origin;
+                    var.poison = None;
+                    if !var.moved_places.iter().any(|m| m.path == path) {
+                        var.moved_places.push(MovedPlace {
+                            path,
+                            span: bind_span,
+                        });
+                    }
+                }
+                if let Some(origin) = loop_origin {
+                    self.out.binding_modes.insert((file_idx, origin));
+                }
+                continue;
+            }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
                 var.narrowed = Ty::Nothing;
@@ -4384,6 +4531,27 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             let file_idx = self.file_idx;
             let mut loop_origin = None;
+            // [fate-partial-move] A *proper* projection leaves the root
+            // usable: record what left, and reads of disjoint projections
+            // keep working. Only a whole-value move (or a derivation the
+            // analysis could not place) consumes the variable outright.
+            let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
+            if partial {
+                let path = l.path.clone().unwrap_or_default();
+                if let Some(var) = self.var_by_id_mut(l.root_id) {
+                    loop_origin = var.for_origin;
+                    var.poison = None;
+                    if !var.moved_places.iter().any(|m| m.path == path) {
+                        var.moved_places.push(MovedPlace { path, span });
+                    }
+                }
+                // Moving data out of a `for`-loop binding means the loop
+                // iterates by value [fate-move-mode].
+                if let Some(origin) = loop_origin {
+                    self.out.binding_modes.insert((file_idx, origin));
+                }
+                continue;
+            }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
                 var.narrowed = Ty::Nothing;
@@ -5593,6 +5761,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 poison: var.poison.clone(),
                                 consumed_by: var.consumed_by,
                                 place_narrows: var.place_narrows.clone(),
+                                moved_places: var.moved_places.clone(),
                             },
                         )
                     })
@@ -5610,6 +5779,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.poison = state.poison.clone();
                     var.consumed_by = state.consumed_by;
                     var.place_narrows = state.place_narrows.clone();
+                    // [fate-partial-move] Restored like every other flow
+                    // fact: this resets to the *entry* state before the
+                    // next branch is checked, and the branches' exit
+                    // states are union-merged in `merge_fallthrough`.
+                    var.moved_places = state.moved_places.clone();
                 }
             }
         }
@@ -5766,6 +5940,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .cloned()
                         .collect()
                 };
+                // [fate-partial-move] Moved places **union** across the
+                // join — the dual of `place_narrows`, and the same
+                // direction as consumption: moved on any path is moved,
+                // because the paths the compiler cannot distinguish must
+                // all be safe.
+                let mut moved_places: Vec<MovedPlace> = Vec::new();
+                for s in &states {
+                    for m in &s.moved_places {
+                        if !moved_places.iter().any(|e| e.path == m.path) {
+                            moved_places.push(m.clone());
+                        }
+                    }
+                }
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
                 {
                     var.narrowed = joined;
@@ -5773,6 +5960,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.poison = poison;
                     var.consumed_by = consumed_by;
                     var.place_narrows = place_narrows;
+                    var.moved_places = moved_places;
                 }
             }
         }
@@ -7328,7 +7516,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     },
                     other => {
+                        // [fate-partial-move] A target is written, not read.
+                        let saved_target = std::mem::replace(&mut self.assign_target, true);
                         let ty = self.check_expr(other, None);
+                        self.assign_target = saved_target;
                         // [struct-mut] Only `Mut`-qualified struct values
                         // may have fields assigned.
                         if let Expr::Field { base, field, .. } = other {
@@ -7376,6 +7567,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // Narrowings of the overwritten storage fall
                         // [flow-place-invalidate].
                         self.fate_mutation_through(other, *span);
+                        // [fate-partial-move] Assigning a place puts data
+                        // back: the place and everything under it are
+                        // whole again, so their moved-out records go.
+                        if let Some(place) = Place::of_expr(other) {
+                            self.revive_moved_places(&place);
+                        }
                         ty
                     }
                 };
@@ -7461,6 +7658,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // The old value is gone: every fact about its
                         // parts falls with it [flow-place-invalidate].
                         var.place_narrows.clear();
+                        // [fate-partial-move] And the new value is whole,
+                        // so a partially moved variable revives completely.
+                        var.moved_places.clear();
                     }
                 }
                 Ty::none()
@@ -7796,6 +7996,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let consumed_by = var.consumed_by;
                     let links = var.links.clone();
                     let var_id = var.id;
+                    // [fate-partial-move] A whole-value use of a variable
+                    // something was moved out of: the value is incomplete,
+                    // so it cannot be handed on. Suppressed for projection
+                    // bases, which do their own precise check.
+                    if self.projection_base == 0
+                        && self.check_moved_place(&Place::root(id.name.clone()), id.span)
+                    {
+                        return Ty::Unknown;
+                    }
                     // [deduce-consume] `Nothing` marks a consumed (moved)
                     // value: referring to it is an impossibility.
                     if matches!(narrowed, Ty::Nothing) {
@@ -7924,7 +8133,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.fn_value_by_name(&name.name, name.span, Some(module), expected)
             }
             Expr::Field { base, field, span } => {
+                // [fate-partial-move] The `p` in `p.name` is not a use of
+                // the whole value; the place check below is the precise one.
+                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
+                self.projection_base -= 1;
+                if let Some(place) = Place::of_expr(expr) {
+                    if self.check_moved_place(&place, *span) {
+                        return Ty::Unknown;
+                    }
+                }
                 // A predicate-qualifier field override refines the type
                 // [qual-field-override];
                 // the backend casts + asserts at the access site.
@@ -7955,7 +8173,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.field_ty_or_error(&base_ty, field)
             }
             Expr::TupleIndex { base, index, span } => {
+                // [fate-partial-move] A projection base, not a whole use.
+                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
+                self.projection_base -= 1;
+                if let Some(place) = Place::of_expr(expr) {
+                    if self.check_moved_place(&place, *span) {
+                        return Ty::Unknown;
+                    }
+                }
                 // [flow-place] A narrowed element place reads at its
                 // narrowed type, exactly as a field does.
                 if let Some(place) = Place::of_expr(expr) {
@@ -7978,7 +8204,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
             } => self.check_call(callee, type_args, args, named, expected, *span),
             Expr::Index { base, index, span } => {
+                // [fate-partial-move] A projection base, not a whole use.
+                self.projection_base += 1;
                 let base_ty = self.check_expr(base, None);
+                self.projection_base -= 1;
+                if let Some(place) = Place::of_expr(expr) {
+                    if self.check_moved_place(&place, *span) {
+                        self.check_expr(index, Some(&Ty::named("Int")));
+                        return Ty::Unknown;
+                    }
+                }
                 self.check_expr(index, Some(&Ty::named("Int")));
                 match base_ty.strip_quals() {
                     Ty::Array(elem) => (**elem).clone(),

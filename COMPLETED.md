@@ -174,6 +174,67 @@ end to end on both backends, the Rust one asserting the borrow shape rather
 than trusting it. LANGUAGE.md's "whole-variable granularity" bullet is replaced
 by the new rule; `[fate-field-disjoint]` is the label.
 
+**L5's move half: partial moves (2026-09-10, same day).** Built immediately
+after, on the user's call, once Rust's model settled the question the poison
+half had left open. `[fate-partial-move]`.
+
+**The question first, because it shaped the work.** The open item was what a
+*deduction list* says when a body moves one field out of a parameter — and the
+answer is that it says nothing, because the situation never crosses a call
+boundary. Rust's rule is all-or-nothing per parameter: a **borrowed** parameter
+refuses a move out of it entirely (E0507), and an **owned** one may be
+partially moved because the caller has already surrendered the whole value and
+can never observe the partial state. Partial-move tracking is therefore purely
+function-local, and the return channel is the only way to hand part of something
+back. Checking Salvo against that found it *already* implemented both halves —
+a written kept deduction refuses the move ("cannot move mutable data out of
+`p`: it is a kept parameter"), an inferred one claims the parameter as moved —
+so the binary kept/moved deduction needed no change and no new qualifier. A
+place-parameterized deduction (`[p: -tags]`) was considered and rejected: it is
+viral (every caller tracking which fields survived, merged across branches),
+and `f(p.tags)` — passing the field rather than the struct — says the same
+thing with no notation and is strictly more precise. `ReadOnly[from: p]` is a
+different axis: it describes the *return* channel, where the borrowed place
+escapes and the caller must know which argument it came from.
+
+**What it took.** A `moved_places: Vec<MovedPlace>` per local, sitting beside
+`place_narrows` and carried by the same snapshot/restore/merge machinery — the
+second time that substrate paid for itself in one day. A move of a *proper*
+projection records the path instead of setting the root to `Nothing` (both
+routes: the consuming-call path in `projection_move` and the move-mode binding
+path in `apply_binding_mode`). Reads check the place against the record, and the
+merge is **union** — moved on any path is moved — the dual of `place_narrows`,
+which intersects. Reassignment drops every record the assigned place covers, so
+`p.tags = …` revives that field and `p = …` revives everything.
+
+**Two things the implementation turned up.** A read of a projection *base* is
+not a use of the whole value, so the whole-value refusal had to be suppressed
+inside `p.name`'s `p` — a `projection_base` depth counter, with the enclosing
+projection doing the precise check. And an assignment *target* is a write, not a
+read: without an `assign_target` flag, `p.tags = …` reported reading the very
+field it was putting back.
+
+**Emission needed no change here either**, and rustc does the work: a moved
+projection already rendered as a raw place (`eat(p.tags);`) through
+`moved_projections`, the sibling read still clones from the surviving field, and
+a revival is rustc's reinitialization of a moved field. Verified by compiling
+and running the three shapes on both backends with identical stdout.
+
+**One existing test changed meaning, deliberately.** `s2_move_mode_ancestors_are_consumed`
+asserted the old whole-variable diagnostic for a projection move
+(``h` cannot be used here: it was consumed…`). The program is still rejected —
+`add(h.tags, 9)` after `wrap(h.tags)` reads a field that left, which is the
+parity divergence that test exists to pin — but the diagnostic now names the
+field. The assertion was updated to the more precise message; nothing was
+weakened.
+
+Tests: 806 (was 797). Seven more checker tests (six verified to fail without
+the change; the seventh, the kept-parameter refusal, holds either way and is
+there to pin Rust's rule), plus a partial-move program run end to end on both
+backends, the Rust one asserting the raw-place move and the live sibling read.
+LANGUAGE.md gained the worked example; the previous entry's "what is left"
+paragraph is superseded by this one.
+
 **Phase 1 closes: the riding-along polish, and option (e)'s residue
 (2026-09-10).** Four small items, done together as the last of "Finish the
 iterators"; no language-design calls, all under decisions already made.
@@ -4057,9 +4118,10 @@ The decided model:
   and — as decided here — at *whole-variable granularity* (no place
   lattice). Link
   creators: `let`/assignment from a bare identifier or a projection,
-  loop bindings, destructuring. (Superseded for the *poison* half by L5,
-  2026-09-10: a link carries its projection path and poison needs an
-  overlap [fate-field-disjoint]. Moves are still whole-variable.)
+  loop bindings, destructuring. (Superseded by L5, 2026-09-10: a link
+  carries its projection path, poison needs an overlap
+  [fate-field-disjoint], and a projection move records a moved place
+  rather than consuming the root [fate-partial-move].)
   - Reads never consume and never poison, on any member, any time.
   - Mutation events are already defined by the deduction system:
     Mut-kept call args and projection assignments (effect-handler
@@ -8298,7 +8360,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 797)
+## Test inventory (all green: 806)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8306,7 +8368,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 377 - 19 unit tests (file classification, including the
+- `salvo-core`: 384 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8864,7 +8926,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 147 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 148 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9036,7 +9098,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 121 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 122 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

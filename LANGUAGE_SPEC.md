@@ -1933,17 +1933,47 @@ Conventions:
     not been earned.
   * Transitive links compose paths: with `let p = q.inner` then
     `let n = p.name`, `n`'s link to `q` is `[.inner, .name]`.
-  * **The move half stays whole-variable**: a move-mode binding of a
-    projection consumes its whole owner, so moving `p.tags` out leaves
-    `p` unusable rather than leaving `p.name` readable. Only the poison
-    of *sibling derived values* gained precision here. Partial-move
-    state on a root is the recorded remainder.
+  * **The move half is [fate-partial-move]**: a move of a projection
+    records it as *moved out* of its root rather than consuming the whole
+    variable.
   * It changes no emission: on the Rust backend a borrow-mode binding
     from a pure place already emits a real borrow, and rustc permits
     that borrow to live across a `&mut` of a disjoint field of the same
     local — Salvo's precision and rustc's coincide, so the newly legal
     programs compile clone-free [rs-borrow-locals]. Kotlin aliases
     regardless.
+* [fate-partial-move] **Moving one part leaves the rest** (L5's move half,
+  2026-09-10). A move of a projection (a consuming call, a move-mode
+  binding, a store) records the path as *moved out* of its root; the root
+  stays live, and its `moved_places` are flow state like any other:
+  * a read of a **disjoint** projection passes — `eat(p.tags)` then
+    `p.name` is legal;
+  * a read **overlapping** a moved place is an error naming the field
+    that left (same path, a prefix either way, or a computed index);
+  * a use of the **whole value** is always refused: a struct missing a
+    part cannot be passed, returned or stored. The diagnostic says so
+    separately from the read case, because the remedy differs (move the
+    remaining parts individually, or `copy` at the move site);
+  * an **assignment** to the place puts it back, dropping every moved
+    record the assigned place covers; whole-variable reassignment revives
+    everything, exactly as it revives a consumed variable;
+  * merging is **union** — moved on any path is moved — and survives loop
+    back edges, so a read early in a body errors when a later statement
+    moved the field in the previous iteration. (`place_narrows`, the
+    narrowing dual, intersects instead.)
+  * A **kept parameter still refuses the move outright**: the caller keeps
+    the value, so nothing may be taken from it. This is Rust's rule for a
+    borrowed parameter (E0507), and it is why partial moves need no
+    signature notation — an *owned* parameter may be partially moved
+    because the caller already surrendered the whole value and can never
+    observe the partial state. Ownership stays all-or-nothing per
+    parameter, and a place-parameterized deduction is deliberately not
+    wanted (it would be viral, and passing the field instead of the
+    struct says the same thing).
+  * On the Rust backend a moved projection emits as a real **partial
+    move** of the field (the existing `moved_projections` rendering), and
+    a revival emits as rustc's reinitialization of a moved field; both are
+    accepted by borrowck [rs-borrows].
 * [fate-lambda] Lambdas are ordinary values under shared fate (decision
   L4a, 2026-09-02): a lambda's relationship to the variables it
   captures is classified from its body, and the contract binds at
