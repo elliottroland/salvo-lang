@@ -349,3 +349,39 @@ fn a_non_mut_position_cannot_be_driven() {
         "expected the `Mut` requirement, got: {msgs:?}"
     );
 }
+
+/// [implicit-resolve] [fn-overload-scope] A program declaring its own pass
+/// under a name std also uses — its own `ListYield` plus a `next` for it —
+/// used to make every drive of that name ambiguous: implicit resolution
+/// pooled core's `next` and the module's own without the scope ladder every
+/// named call walks. The most specific rung wins now, so the module's own
+/// `next` fills the spread and the program checks.
+#[test]
+fn an_own_pass_named_like_stds_resolves_to_the_own_next() {
+    let src = "struct ListYield<T> : Yield<self, T> canbe Mut {\n\
+               \x20   items: List<T>,\n\
+               \x20   at: Int\n\
+               }\n\
+               fn mine<T>(items: List<T>) [] -> [] Mut ListYield<T> {\n\
+               \x20   return Mut ListYield<T> { items: items, at: 0 }\n\
+               }\n\
+               fn next<T>(p: Mut ListYield<T>) [] -> [p: Mut] Emitted T | Finished {\n\
+               \x20   let elem = get(p.items, p.at)\n\
+               \x20   if elem is None {\n\
+               \x20       return finished()\n\
+               \x20   }\n\
+               \x20   p.at = p.at + 1\n\
+               \x20   return emitted(elem)\n\
+               }\n\
+               fn main() [] -> [] None {\n\
+               \x20   let p = mine(list(1, 2))\n\
+               \x20   for x in p {\n\
+               \x20       let y = x\n\
+               \x20   }\n\
+               \x20   let q = mine(list(3, 4))\n\
+               \x20   let doubled: Mut List<Int> = map(q, (n: Int) -> { return n + n })\n\
+               \x20   return None\n\
+               }\n";
+    let msgs = messages(src);
+    assert!(msgs.is_empty(), "expected a clean check, got: {msgs:?}");
+}

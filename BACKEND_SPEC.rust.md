@@ -28,13 +28,14 @@ Conventions:
     as `mod core_console` (path parts joined with `_`): Rust module
     paths are flat, generated imports use `crate::core_console::*`.
   * The generated union enums live in `unions.rs`, mounted as
-    `mod unions` [rs-union-enums]; the lazy-iterator support in `iter.rs`
-    [rs-iter-pass] and the string helpers in `strings.rs` [rs-mut-str],
-    each emitted only when the program needs it.
+    `mod unions` [rs-union-enums], and the string helpers in `strings.rs`
+    [rs-mut-str], each emitted only when the program needs it. (The lazy
+    `iter.rs` runtime went with the `yield fn` deletion, 2026-09-10:
+    iteration emits inline pass drives [rs-iter-pass], no runtime file.)
 * [rs-imports] Files get generated `use` items: `use crate::<mod>::*;`
   per foreign *emitted* module whose names the file uses, and
-  `use crate::unions::*;` / `use crate::iter::*;` / `use crate::strings::*;`
-  when the file touches union wrappers, iterators or the string helpers. An aliased
+  `use crate::unions::*;` / `use crate::strings::*;`
+  when the file touches union wrappers or the string helpers. An aliased
   Salvo import of a Rust-visible item emits
   `use crate::<mod>::<name> as <alias>;` and call sites keep the alias.
   Intrinsic lowerings name everything by absolute path [intrinsic-fn], so

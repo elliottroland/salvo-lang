@@ -119,6 +119,56 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Phase 1 closes: the riding-along polish, and option (e)'s residue
+(2026-09-10).** Four small items, done together as the last of "Finish the
+iterators"; no language-design calls, all under decisions already made.
+
+- **[kt-suppress-cast]** — emitted Kotlin functions whose bodies read a union
+  payload through an erased cast (a generic loop element, a `when`-arm or
+  `is` binding, a `^` widening bind) now carry `@Suppress("UNCHECKED_CAST")`:
+  the emitter notes warning-worthy casts (a generic parameter, or any
+  parameterized type — concrete casts are run-time checked and stay bare) as
+  it renders them, and `emit_fn_inner` emits the body before assembling the
+  signature so the annotation can go on the function. std's `seq.kt` compiles
+  warning-free again (the baseline drew five warnings). New rule in
+  BACKEND_SPEC.kotlin.md.
+- **The same-name-pass collision is fixed by the ladder, not by nominal
+  identity.** `resolve_implicit_fn` now prefers the most specific scope rung
+  among fitting candidates before declaring ambiguity — the same
+  [fn-overload-scope] rule every named call walks — so a program declaring its
+  own `ListYield` plus `next` resolves the `?Yield` spread to its own `next`
+  instead of erroring. Consistent with the flat name-keyed scope (the user's
+  struct declaration already wins the name in their file); true
+  module-qualified nominal identity remains future resolver work.
+- **The stale `Iter<T>` comments are gone** — more than the roadmap's three:
+  check.rs ([iter-protocol] table doc, the [implicit-infer] example now
+  spelled with `Yield`/`next`, both [fn-effects] claim docs), types.rs (the
+  `Qual.effect` doc, the `Once`-widen example, and `once_position`, where the
+  sweep found **live dead code**: a `name == "Iter"` arm that would have given
+  a user struct named `Iter` the `Once` position without opt-in — removed),
+  the Rust emitter (an orphaned `[rs-iter-pass]` flag comment), and
+  BACKEND_SPEC.rust.md, whose output-layout section still promised the
+  deleted `iter.rs` runtime.
+- **Option (e) closed: the per-field snapshot is program-wide.** The `iter fn`
+  expansion moved from parse time to a program-level pass in the CLI and LSP
+  (`parse_module_deferred` + `desugar::expand_iter_fns_with`, local
+  declarations winning a name), so a subject declared in *another file* now
+  gets the per-field snapshot instead of the whole-value fallback — verified
+  end to end with a two-file program whose `__Pass_Countdown` holds
+  `{from, at}` rather than a cloned struct with its `Str`. `parse_module`
+  keeps its single-file behavior for direct consumers, and a survivor is
+  loud: resolve reports an unexpanded `iter fn` as an internal integration
+  error rather than checking it as an ordinary fn. Generic subjects and
+  assignment-through keep the recorded fallback.
+
+Fallout worth noting: regenerating the examples turned up **stale checked-in
+output in `examples/qualifiers`** (a `u1_mut` accessor and `next__N`
+renumbering) that pre-dated this work — verified by regenerating with the
+pre-change compiler — now refreshed alongside the `@Suppress` lines. Tests:
+788 (was 784) — the suppression demo, the collision repro (fails without the
+one-line fix, with the exact roadmap message), the cross-file snapshot
+assertion, and the loud-guard test.
+
 **Regions designed: an effect with an intrinsic handler, regional by default
 (user decisions 2026-09-10).** Raised by the user as "model Vale-style regions
 as effects, the way `try`/`throw` works"; designed across one session, build
@@ -587,7 +637,9 @@ tiers: **nothing** when the body never reads the subject; **one snapshot field
 per field read** when it only ever reads plain fields (types taken from the
 subject's declaration, the field's own name kept unless a `state` field has it);
 and the **whole subject** otherwise — handed on as a value, assigned through, a
-generic subject, or a declaration this file cannot see.
+generic subject, or a declaration this file cannot see. (The visibility limit
+was lifted 2026-09-10 — the expansion runs program-wide now; see the
+decision-log entry above.)
 
 - **It is free of new rules**, because the mint already copies: the pass can
   never observe a later write to the subject, so snapshotting fields at the mint
@@ -3722,7 +3774,7 @@ both remedies (move the write out, or iterate `copy(b)`); four tests in
 `yield_origin_tests.rs`, including that a transitively mutable origin mutated
 *before and after* its drives stays clean — the case that had to keep working.
 
-**Still open, as an optimization**: option (e), under "Mutable origins" below.
+**Closed 2026-09-10, as built**: option (e), under "Mutable origins" below.
 
 ### ~~A producer's callback may capture mutable state: checker-clean, Kotlin runs it, rustc rejects it~~ — closed 2026-09-08
 
@@ -5287,9 +5339,15 @@ The options:
   arguments both report, scoped to the loop. Four tests.
 - **(e) Don't keep the origin at all** — the machine snapshots the origin
   fields it *uses* at construction, so the origin is read exactly once, before
-  any suspension exists, and Rust's clone disappears. **Still open**, and
-  worth recording precisely, because two cheaper-looking routes to the same
-  guarantee are blocked:
+  any suspension exists, and Rust's clone disappears.
+  **✅ Closed 2026-09-10, in two steps**: the `iter fn` `state`-block work
+  (2026-09-09) built exactly this field-level snapshot — the desugarer's
+  rewriter is the complete expression walk the blocker asked for — and the
+  same-file restriction on it was lifted 2026-09-10 (the CLI and LSP expand
+  `iter fn`s program-wide, so a subject declared in another file snapshots
+  per field too). The *machine* variant this entry was written against went
+  with the `yield fn` deletion. Recorded as it stood, because two
+  cheaper-looking routes to the same guarantee were blocked:
   * *Deep-copy the whole origin on both backends* — blocked on Kotlin, whose
     `copy()` lowering deliberately handles only the all-immutable struct case
     ([kt-copy]: a shallow `.copy()` would alias a `Mut List` field), so the
@@ -8181,7 +8239,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 784)
+## Test inventory (all green: 788)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8189,7 +8247,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 368 - 19 unit tests (file classification, including the
+- `salvo-core`: 370 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8686,7 +8744,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 71 (three parser tests for the scope selector and
+- `salvo-syntax`: 72 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -8747,7 +8805,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 145 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 146 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module

@@ -16,11 +16,15 @@ pub struct Qual {
     pub name: String,
     pub args: Vec<Ty>,
     /// [fn-effects] This "qualifier" names an **effect**, not a qualifier
-    /// declaration: `FileSystem Iter<Str>` is a producer whose *driving*
-    /// performs `FileSystem` (user decision 2026-09-07 — effects on a
-    /// producer are spelled in qualifier position, since a type with no
-    /// arrow has nowhere to put a `[…]` list and prefixing one would read as
-    /// a deduction list in return position).
+    /// declaration. The spelling was how a producer *type* declared the
+    /// effects its driving performs (user decision 2026-09-07, when a
+    /// producer was an `Iter<T>` value); with the reduction to `next` a
+    /// producer is a struct whose `next` is an ordinary fn, so writing an
+    /// effect in qualifier position is now *refused* at declarations,
+    /// naming the replacement — the `next`'s own effect list. The flag
+    /// stays because the refused type still lowers (one mistake, one
+    /// diagnostic) and the `^`-widening diagnostic still explains why such
+    /// a claim could not drop.
     ///
     /// It rides in `Qual` because the spelling, the display and the erasure
     /// are a qualifier's, and it carries a flag because the *rules* are not:
@@ -394,11 +398,11 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // most once) instead of refining, so a plain value may be used
         // where a `Once` one is expected — the opposite direction of
         // every other qualifier. Generalized 2026-09-07 from fn types to
-        // any base: a factory (`Iter<T>`) fits where a *pass*
-        // (`Once Iter<T>`) is wanted, and so does an un-driven value of a
-        // `canbe Once` type, since promising to use something at most once
-        // demands less than being able to use it repeatedly. Never the
-        // reverse — `Once` never drops [qual-widen].
+        // any base: an un-driven value of a `canbe Once` type fits where
+        // a `Once` one is wanted (the `Iter<T>` factory this was built
+        // for went with the reduction to `next`), since promising to use
+        // something at most once demands less than being able to use it
+        // repeatedly. Never the reverse — `Once` never drops [qual-widen].
         //
         // Deliberately unconditional on the base, unlike the *position*
         // rule: whether `Once` may be **written** on a type needs the
@@ -561,21 +565,17 @@ pub fn contract_fits(
     })
 }
 
-/// Why a qualifier may **not** be dropped from a type, if it may not
 /// Whether `Once` may be written on this base type *without* an opt-in
-/// [once-fn]: function types, where using a value means calling it, and
-/// `Iter<T>`, where it means driving it.
+/// [once-fn]: function types, where using a value means calling it. (The
+/// other built-in — the `Iter<T>` factory, where using a value meant
+/// driving it — went with the reduction to `next`.)
 ///
 /// A type of one's own reaches the same place by declaring `canbe Once`,
 /// which needs the declaration and therefore lives in the checker
 /// (`has_auto_once`) — this predicate is only the built-in half. Widening it
 /// to every type is roadmap D6, to be designed together with D7.
 pub fn once_position(ty: &Ty) -> bool {
-    match ty {
-        Ty::Fn { .. } => true,
-        Ty::Named { name, .. } => name == "Iter",
-        _ => false,
-    }
+    matches!(ty, Ty::Fn { .. })
 }
 
 /// [qual-widen]. The single exclusion list: `is_subtype`'s `Qual T <: T`

@@ -83,11 +83,27 @@ pub fn analyze_sources(
     }
 
     // Parse every module, attributing diagnostics to files
-    // [diag-structured].
+    // [diag-structured]. The `iter fn` expansion is deferred to a
+    // program-level pass, so a subject declared in another file still gets
+    // the per-field snapshot [iter-fn].
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut modules = Vec::with_capacity(sources.files.len());
-    for (file_idx, file) in sources.files.iter().enumerate() {
-        let (module, diags) = salvo_syntax::parse_module(&file.content);
+    let mut parse_diags: Vec<Vec<salvo_syntax::Diagnostic>> =
+        Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
+        parse_diags.push(diags);
+        modules.push(module);
+    }
+    let all_structs: Vec<salvo_syntax::ast::StructDecl> = modules
+        .iter()
+        .flat_map(salvo_syntax::desugar::struct_decls)
+        .collect();
+    for (file_idx, (module, mut diags)) in modules.iter_mut().zip(parse_diags).enumerate() {
+        diags.extend(salvo_syntax::desugar::expand_iter_fns_with(
+            module,
+            &all_structs,
+        ));
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
             file: file_idx,
             severity: d.severity,
@@ -95,7 +111,6 @@ pub fn analyze_sources(
             span: d.span,
             suggested_imports: Vec::new(),
         }));
-        modules.push(module);
     }
     let parse_broken: std::collections::HashSet<usize> = diagnostics
         .iter()

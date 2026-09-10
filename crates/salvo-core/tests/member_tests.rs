@@ -253,8 +253,8 @@ fn indexing_an_array_is_fine() {
 
 // ===== iteration [iter-resolve] =====
 
-/// [iter-resolve] `for` needs an array, an `Iter<T>`, or a value some
-/// `iter` function accepts.
+/// [iter-resolve] `for` needs an array, a pass with a `next`, or a value
+/// some `iter` function accepts.
 #[test]
 fn iterating_a_non_iterable_is_an_error() {
     let errs = messages(&body("    let n = 5\n    for x in n {\n        let y = x\n    }"));

@@ -5815,6 +5815,81 @@ fn kotlinc_compiles_and_runs_a_generic_drive() {
     run_kotlin_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
 }
 
+/// [kt-suppress-cast] A generic drive reads the union payload through an
+/// erased cast (`step.value as T`), which kotlinc reports as an unchecked
+/// cast — in code the author cannot edit. The emitted function carries
+/// `@Suppress("UNCHECKED_CAST")`; a function whose payload reads cast to
+/// concrete types stays unannotated (those casts are checked at run time
+/// and draw no warning).
+const SUPPRESS_DEMO: &str = r#"
+struct Slice<T> : Yield<self, T> canbe Mut {
+    items: List<T>,
+    at: Int
+}
+
+fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+    return Mut Slice<T> { items: items, at: 0 }
+}
+
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+    let e = get(p.items, p.at)
+    if e is None {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(e)
+}
+
+// The element type is the combinator's own `T`: the payload read casts to a
+// type variable, so the emitted fn needs the suppression.
+fn count_all<It, T>(it: Mut It, ?Yield<It, T>) [] -> [it: Mut] Int {
+    let n = 0
+    for x in it {
+        n = n + 1
+    }
+    return n
+}
+
+// The element type is concrete (`Int`): the payload read casts to `Int`,
+// which the JVM checks at run time — no warning, no annotation.
+fn sum_ints<It>(it: Mut It, ?Yield<It, Int>) [] -> [it: Mut] Int {
+    let sum = 0
+    for n in it {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = slice(list(1, 2, 3))
+    println("count ${count_all(p)}")
+    let q = slice(list(4, 5))
+    println("sum ${sum_ints(q)}")
+}
+"#;
+
+#[test]
+fn a_generic_payload_cast_gets_the_suppression() {
+    let program = build_program(&[("main.sv", SUPPRESS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt")
+        .content;
+    assert!(
+        main.contains("@Suppress(\"UNCHECKED_CAST\")\nfun<It, T> count_all"),
+        "expected the suppression on the generic-element combinator in:\n{main}"
+    );
+    assert!(
+        !main.contains("@Suppress(\"UNCHECKED_CAST\")\nfun<It> sum_ints"),
+        "a concrete payload cast must not be annotated in:\n{main}"
+    );
+}
+
 /// [linear-generics] The release: the implicit `close` goes in the `finally`
 /// the exit-splice lowering uses here [kt-exit-finally], so `break`, `return`
 /// and exhaustion all reach it.

@@ -1097,7 +1097,9 @@ Conventions:
       its *real* type arguments when `next` is non-generic, which keeps the
       element read free of an unchecked cast (star projection leaves `value`
       at `Any?`); a generic `next` has type arguments the loop cannot see —
-      no call node — and falls back to stars plus a cast.
+      no call node — and falls back to stars plus a cast, and the emitted
+      function carries `@Suppress("UNCHECKED_CAST")` so generated code stays
+      warning-free [kt-suppress-cast].
   * An **effectful** `next` is a codegen error for now: its handlers would
     have to be threaded into every turn of the loop, which is phase I4
     [backend-never-wrong].
@@ -1403,12 +1405,13 @@ Conventions:
     1. the body never reads the subject (a plain counter): the pass holds
        **nothing** of it, and the mint is `__Pass_C { at: c.from }`;
     2. the body only ever reads *plain fields* of it, their types are visible
-       (the subject's struct is declared in the same file) and the subject type
-       is non-generic: one **snapshot field per field read**, initialized at the
-       mint (`__Pass_Fibs { count: f.count, … }`), keeping the field's own name
-       unless a `state` field already has it;
+       (the subject's struct is declared somewhere in the **program** — the
+       expansion runs program-wide, local declarations winning a name) and the
+       subject type is non-generic: one **snapshot field per field read**,
+       initialized at the mint (`__Pass_Fibs { count: f.count, … }`), keeping
+       the field's own name unless a `state` field already has it;
     3. otherwise — the subject handed on as a value, an assignment through it, a
-       generic subject, a declaration this file cannot see: the **whole subject**
+       generic subject, a declaration the program cannot see: the **whole subject**
        is copied in (`copy(s)` in the generated `iter`, whose deduction keeps it).
   * **Copying rather than sharing** is what makes a second drive start over and
     what keeps the backends in step: sharing the subject would make a write

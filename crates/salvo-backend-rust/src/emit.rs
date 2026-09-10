@@ -150,10 +150,8 @@ pub fn emit_program_reporting(
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
-    // [rs-iter-pass] Generated once for the whole program, when anything
-    // touches `Iter<T>`.
-    // [rs-mut-str] The same, for the string helpers a `Mut Str` mutator
-    // needs (`set`).
+    // [rs-mut-str] Generated once for the whole program, when anything
+    // needs the string helpers a `Mut Str` mutator uses (`set`).
     let mut needs_str = false;
     // [rs-seq] And for the sequence helpers the `List` fast paths of
     // `map`/`filter`/`reduce` lower to.

@@ -61,7 +61,10 @@ to be answered before it starts, and the smaller items that ride along with it
 rather than being scheduled separately. Nothing outside a phase needs doing
 first.
 
-**1 — Finish the iterators.** ("Iterators", below.)
+**1 — Finish the iterators.** ("Iterators", below.) **✅ Complete 2026-09-10**
+— every item below landed, was answered, or was retired; what the phase leaves
+behind is the recorded cuts under "Iterators", each a diagnostic. Phase 2 is
+next.
 
 - ✅ **A generic function over *containers*** landed 2026-09-10: `?iter` as an
   implicit whose result determines the pass type, which is the only way the shape
@@ -99,12 +102,20 @@ first.
   release on the type that owns the resource, and a `for` over a pass the fn
   owns releases it on every exit. Phase 4 therefore has what it needs to stop
   reading a file part-way. See COMPLETED.md.
-- Riding along: the `@Suppress("UNCHECKED_CAST")` polish in std's `seq.kt` (the
-  repo's own "generated code is warning-free" standard currently fails there),
-  the implicit-resolution collision when a user type is named like one of std's
-  passes, and three compiler comments still describing `Iter<T>` as current.
-- Optional, and priced as an optimization rather than a fix: **mutable origins,
-  option (e)**.
+- ✅ **The riding-along polish landed 2026-09-10**: emitted Kotlin carries
+  `@Suppress("UNCHECKED_CAST")` where a generic payload read needs it
+  ([kt-suppress-cast] — std's `seq.kt` compiles warning-free again), implicit
+  resolution applies the overload scope ladder before declaring ambiguity
+  (a program's own `ListYield` + `next` no longer collides with std's), and
+  the stale `Iter<T>` compiler comments are gone — with a dead
+  `once_position` arm (a latent bug for a user struct named `Iter`) removed
+  along the way. See COMPLETED.md.
+- ✅ **Mutable origins, option (e) is closed** (2026-09-10): the per-field
+  snapshot already landed with `iter fn` `state` blocks, and the same-file
+  restriction is now lifted — the CLI and LSP expand `iter fn`s program-wide,
+  so a subject declared in another file snapshots per field too. Generic
+  subjects and assignment-through-the-subject keep the whole-value fallback,
+  as recorded. See COMPLETED.md.
 - ✅ **`yield fn` is deleted** (user decision 2026-09-10): `iter fn` covers the
   same ground without a state machine, so the sugar, the `yield` keyword and
   the whole machine apparatus went — `generator.rs`, both backends' renderers,
@@ -367,9 +378,10 @@ Each needs the fusion to derive type arguments it does not derive today.
 
 ## Iterators
 
-**Phase 1.** The reduction to `next` is complete (R0–R5, plus `for` over a generic pass and
+**Phase 1 — ✅ complete 2026-09-10.** The reduction to `next` is complete (R0–R5, plus `for` over a generic pass and
 the generic-effect lift); COMPLETED.md holds the phase notes, the two prototypes
-that shaped them, and the `Iter<T>` design they replaced. What is left:
+that shaped them, and the `Iter<T>` design they replaced. What remains recorded
+here is not work but the accepted cuts:
 
 ### Known cuts, each reported rather than mis-emitted
 
@@ -385,29 +397,22 @@ wrong output [backend-never-wrong]:
   the Kotlin `copy` lowering [kt-copy] cannot decide whether a value typed by a
   type variable holds mutable data. A body that only reads plain fields of it
   avoids the copy entirely — but the per-field snapshot needs the field types,
-  which today means a non-generic subject declared in the same file, so the two
-  limits reinforce each other. Lifting either means a structural copy Kotlin can
-  generate for a generic struct, or making the snapshot type-aware (which is the
-  same idea as a per-field snapshot, which the `iter fn` desugaring already does
-  where it can [iter-fn]).
+  which means a non-generic subject (the snapshot itself is program-wide since
+  2026-09-10: a declaration in another file works). Lifting the generic limit
+  means a structural copy Kotlin can generate for a generic struct, or making
+  the snapshot substitute type arguments into field types [iter-fn].
 - **A *generic* `next` that performs effects** cannot be driven by `for` on
   either backend: its effects live on a fn value the caller supplied, so the
   handlers would have to reach through the implicit rather than being threaded
   per turn. The non-generic case works as of 2026-09-09.
-- **A user type named like one of std's passes collides.** Implicit resolution
-  matches by name and does not module-qualify a nominal type, so a program
-  declaring its own `ListYield` plus `next` makes the `next` ambiguous. Worth
-  fixing when someone hits it; the demos were renamed instead.
-- **Kotlin's generic union arm reads warn** (`unchecked cast of 'Any?' to 'T'`)
-  in std's `seq.kt`, and the same class of warning appears on a nested-union
-  bind in user code. A `when` arm over a generic union must use star
-  projections, so the element read casts. Cosmetic, but it is in code the author
-  cannot edit: `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
-  and the first thing to do in a polish pass.
 - **A linear pass cannot be composed** — the L8 casualty above, repeated here
   because it is the shape people will try: a wrapper pass over
   `open_lines("a.txt")` stores its source, and storing a linear value in a
   composite is the interim refusal.
+
+(Two entries left this list 2026-09-10, fixed rather than cut: the
+same-name-pass implicit collision, and the unchecked-cast warnings in
+generated Kotlin. See COMPLETED.md.)
 
 Two open *questions* the iterator work forwarded to the qualifier roadmap
 rather than answering: **D6** (`Once` on any type — the I2b collision forces it

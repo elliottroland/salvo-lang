@@ -373,18 +373,35 @@ fn assemble(
         return Err(ExitCode::FAILURE);
     }
 
-    // Parse every module and collect diagnostics.
+    // Parse every module and collect diagnostics. The `iter fn` expansion is
+    // deferred to a program-level pass, so a subject declared in another file
+    // still gets the per-field snapshot [iter-fn].
     let mut modules = Vec::with_capacity(sources.files.len());
-    let mut error_count = 0usize;
+    let mut parse_diags: Vec<Vec<salvo_syntax::Diagnostic>> =
+        Vec::with_capacity(sources.files.len());
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        parse_diags.push(diagnostics);
+        modules.push(module);
+    }
+    let all_structs: Vec<salvo_syntax::ast::StructDecl> = modules
+        .iter()
+        .flat_map(salvo_syntax::desugar::struct_decls)
+        .collect();
+    let mut error_count = 0usize;
+    for ((file, module), mut diagnostics) in
+        sources.files.iter().zip(&mut modules).zip(parse_diags)
+    {
+        diagnostics.extend(salvo_syntax::desugar::expand_iter_fns_with(
+            module,
+            &all_structs,
+        ));
         for diag in &diagnostics {
             eprintln!("{}", diag.render(&file.name, &file.content));
             if diag.is_error() {
                 error_count += 1;
             }
         }
-        modules.push(module);
     }
     if error_count > 0 {
         eprintln!(

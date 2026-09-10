@@ -309,10 +309,26 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
     let mut by_module: HashMap<&ModulePath, ModuleItems<'_>> = HashMap::new();
+    let mut unexpanded_iter_fns: Vec<FileDiagnostic> = Vec::new();
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         let items = by_module.entry(&file.module).or_default();
         for (item_idx, item) in ast.items.iter().enumerate() {
             match item {
+                // [iter-fn] An `iter fn` must be expanded before resolution
+                // (`parse_module` does it; `parse_module_deferred` hands the
+                // duty to a program-level `expand_iter_fns_with`). Checking
+                // it as an ordinary fn would be silently different behavior,
+                // so a survivor is a loud integration error, never checked.
+                Item::Fn(f) if f.is_iter => {
+                    unexpanded_iter_fns.push(FileDiagnostic::error(
+                        file_idx,
+                        f.name.span,
+                        "internal: this `iter fn` reached resolution unexpanded — \
+                         the driver that parsed it skipped the `iter fn` expansion \
+                         (`expand_iter_fns_with`); this is a compiler-integration \
+                         bug, not a mistake in this program",
+                    ));
+                }
                 Item::Fn(f) => items.fns.push((
                     FnKey {
                         file: file_idx,
@@ -385,7 +401,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
-    let mut errors = Vec::new();
+    let mut errors = unexpanded_iter_fns;
 
     // [mod-collision] Declaration-level collisions are reported once,
     // globally: a same-kind same-name duplicate within one module, and a

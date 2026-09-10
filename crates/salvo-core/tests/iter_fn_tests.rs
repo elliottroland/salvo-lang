@@ -482,3 +482,53 @@ fn an_undetermined_container_reports_the_ambiguity() {
         "{errs:?}"
     );
 }
+
+/// [iter-fn] The integration guard: a driver that parses with
+/// `parse_module_deferred` owes the module a program-level
+/// `expand_iter_fns_with` before resolution. A surviving `iter fn` must
+/// never be checked as an ordinary fn (silently different behavior), so
+/// resolve reports it loudly instead.
+#[test]
+fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
+    let src = "struct Countdown {\n    from: Int\n}\n\
+               iter fn next(c: Countdown) -> Emitted Int | Finished {\n\
+               \x20   state {\n        at: Int = 0\n    }\n\
+               \x20   if at >= c.from {\n        return finished()\n    }\n\
+               \x20   at = at + 1\n\
+               \x20   return emitted(at)\n\
+               }\n";
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        // Deliberately deferred, and never expanded: the mistake under test.
+        let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let resolution = resolve(&program);
+    assert!(
+        resolution
+            .errors
+            .iter()
+            .any(|d| d.message.contains("reached resolution unexpanded")),
+        "expected the loud guard, got: {:?}",
+        resolution.errors
+    );
+}

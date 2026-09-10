@@ -204,6 +204,17 @@ Conventions:
   `else null` filler — unlike a value-position `if` chain without an
   `else` ([if-else-none]). `is`-binding declarations and `^` shadowing
   locals go at the top of their arm exactly as in an `if` branch.
+* [kt-suppress-cast] A union payload read through a **star-projected** arm
+  (`is U2_1<*, *>` leaves `value` at `Any?`) casts back to the arm's type;
+  when that target is a *generic parameter* (erased at run time) or a
+  *parameterized type* (whose arguments are), kotlinc reports an unchecked
+  cast — in code the author cannot edit. The emitter notes such casts as it
+  renders them (generic loop element reads, `when`-arm and `is` bindings,
+  `^` widening binds) and prepends `@Suppress("UNCHECKED_CAST")` to the
+  enclosing emitted function, so generated code stays warning-free. A cast
+  to a concrete non-generic type is run-time checked, draws no warning, and
+  gets no annotation. Soundness is not delegated to the cast: the checker
+  proved the arm before the emitter spelled it.
 
 ## Control flow
 

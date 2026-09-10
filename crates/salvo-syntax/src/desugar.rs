@@ -64,18 +64,41 @@ use crate::span::Span;
 /// Diagnostics are returned rather than thrown: an `iter fn` that cannot be
 /// expanded is dropped, so the rest of the module still parses and checks.
 pub fn expand_iter_fns(module: &mut Module) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    // The subject's own declaration, when it is in this file: that is what makes
-    // a *per-field* snapshot possible, since a generated field needs the field's
-    // written type and the desugaring has no type information of its own.
-    let structs: Vec<StructDecl> = module
+    expand_iter_fns_with(module, &[])
+}
+
+/// The struct declarations of a module, cloned — what a program-level
+/// expansion passes to `expand_iter_fns_with` as the *other* files'
+/// declarations.
+pub fn struct_decls(module: &Module) -> Vec<StructDecl> {
+    module
         .items
         .iter()
         .filter_map(|item| match item {
             Item::Struct(s) => Some(s.clone()),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+/// `expand_iter_fns`, with the struct declarations of the *rest of the
+/// program* available for the per-field snapshot [iter-fn]. The module's own
+/// declarations are looked up first, so a local name always wins; with the
+/// extra table a subject declared in another file gets the per-field
+/// snapshot instead of falling back to holding the whole value (the roadmap
+/// "mutable origins, option (e)" residue). Generic subjects still hold the
+/// whole value — their field types would need substituting.
+pub fn expand_iter_fns_with(
+    module: &mut Module,
+    extern_structs: &[StructDecl],
+) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    // The subject's own declaration: that is what makes a *per-field*
+    // snapshot possible, since a generated field needs the field's written
+    // type and the desugaring has no type information of its own. Local
+    // declarations first — `.find` takes the first hit.
+    let mut structs: Vec<StructDecl> = struct_decls(module);
+    structs.extend(extern_structs.iter().cloned());
     let mut expanded: Vec<Item> = Vec::with_capacity(module.items.len());
     for item in std::mem::take(&mut module.items) {
         match item {
@@ -314,7 +337,9 @@ fn expand(
     //      hold one snapshot field per field read;
     //   3. anything else — the subject passed on as a value, an assignment
     //      through it, a generic subject (whose field types would need
-    //      substituting), a declaration this file cannot see: hold it whole.
+    //      substituting), a declaration the expansion cannot see: hold it
+    //      whole. (A single-file parse sees this file only; the program-level
+    //      expansion the CLI drives sees every file's declarations.)
     //
     // All three are observationally identical, because the mint copies: the pass
     // can never see a later write to the subject, so a per-field snapshot at the

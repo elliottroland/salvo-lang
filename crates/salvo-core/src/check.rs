@@ -272,7 +272,7 @@ pub struct Checked {
     pub call_fn: HashMap<Key, FnKey>,
     /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
     /// of its *subject*. Present only when the subject has a `next`, rather
-    /// than being an array, an `Iter<T>`, or a value with an `iter`. There is
+    /// than being an array or a value with an `iter`. There is
     /// no call node in the AST for the emitters to look at (the driving loop
     /// is synthesized), so the overload *and* the arm identity have to be
     /// handed over here — the alternative, each emitter re-deriving the arm
@@ -2183,7 +2183,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
-        let mut hits: Vec<FnKey> = Vec::new();
+        let mut hits: Vec<(FnKey, crate::resolve::Rung)> = Vec::new();
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
         // near-miss is the one a printed type cannot show: a candidate whose
@@ -2254,7 +2254,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let candidate = self.fn_value_ty(entry.key, decl);
             let candidate = substitute_vars(&candidate, &binding, &generics);
             if fn_value_fits(&candidate, want) {
-                hits.push(entry.key);
+                hits.push((entry.key, entry.rung));
             } else {
                 let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
                     format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`")
@@ -2262,12 +2262,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 note(0, reason, &mut near);
             }
         }
+        // [fn-overload-scope] Like a call, the most specific *scope* that has
+        // a fitting candidate wins before ambiguity is declared: a program
+        // declaring its own pass under a name std also uses (`ListYield` plus
+        // its `next`) resolves to its own `next` rather than colliding with
+        // core's — the same ladder every named call already walks.
+        if let Some(top) = hits.iter().map(|(_, rung)| *rung).max() {
+            hits.retain(|(_, rung)| *rung == top);
+        }
         match hits.len() {
             0 => Err(match near {
                 Some((_, reason)) => ImplicitMiss::NearMiss(reason),
                 None => ImplicitMiss::Unknown,
             }),
-            1 => Ok(hits[0]),
+            1 => Ok(hits[0].0),
             n => Err(ImplicitMiss::Ambiguous(n)),
         }
     }
@@ -2810,12 +2818,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// its callee's **implicit parameters** determine (user design 2026-09-06,
     /// built with S-Seq).
     ///
-    /// `params Iterable<It, T> { fn iter(it: It) -> Iter<T> }` is how Salvo
-    /// says "anything iterable": `map<It, T, U>(xs: It, f: (T) -> U,
-    /// ?Iterable<It, T>)` binds `It` from its first argument, and `T` is
-    /// determined by *which `iter` fills the implicit* — resolving it at
-    /// `(List<Int>) -> Iter<T>` finds std's `iter(List<T'>) -> Iter<T'>` and
-    /// reads `T = Int` back off it. Without this step the lambda would be
+    /// `params Yield<It, T> { fn next(it: Mut It) -> [it: Mut] Emitted T |
+    /// Finished }` is how Salvo says "anything iterable": `map<It, T, U>(it:
+    /// Mut It, f: (T) -> U, ?Yield<It, T>)` binds `It` from its first
+    /// argument, and `T` is determined by *which `next` fills the implicit* —
+    /// resolving it at `(Mut ListYield<Int>) -> Emitted T | Finished` finds
+    /// std's `next(Mut ListYield<T'>)` and reads `T = Int` back off it.
+    /// Without this step the lambda would be
     /// typed against an unbound `T`, and `U` would be undeterminable
     /// [call-type-args] — the generic half of a sequence function would only
     /// ever work with a written type-argument list.
@@ -4632,12 +4641,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn inherited_fn_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         match ty {
             ast::Type::Fn { effects, .. } => self.lower_fn_effects(effects.as_deref()),
-            // [fn-effects] A producer parameter is inherited from for the
-            // same reason a fn-typed one is: the only reason to take it is to
-            // drive it, and driving it performs what its type claims. The
-            // claim is written in qualifier position, so it is read off the
-            // qualified type — and the *base* is still walked, since
-            // `Once FileSystem Iter<T>` nests them.
+            // [fn-effects] An effect claim in qualifier position is
+            // inherited from for the same reason a fn type's list is: it
+            // says driving the value performs the effect. The spelling is
+            // *refused* at declarations now (a pass performs its effects in
+            // its `next`), but the refused type still lowers — one mistake,
+            // one diagnostic — so the claim is read off the qualified type
+            // here, and the *base* is still walked, since a qualified group
+            // can wrap a fn type (`Once (() [Console] -> None)`).
             ast::Type::QualifiedGroup { base, .. } => {
                 let mut out = self.claimed_effects(ty);
                 for ty in self.inherited_fn_effects(base) {
@@ -4660,7 +4671,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-effects] The effects a type *claims*: the names in qualifier
     /// position that resolve to effect declarations, lowered to instances.
     /// Reaches through nullability and union arms like [fn-effects]'s
-    /// inheritance does, so `FileSystem Iter<Str>?` claims `FileSystem`.
+    /// inheritance does, so `Logger MyPass?` claims `Logger`. The spelling
+    /// is refused at declarations (a pass performs its effects in its
+    /// `next`), so this feeds the refusal diagnostic and the leniency path.
     fn claimed_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         let mut out: Vec<Ty> = Vec::new();
         match ty {
