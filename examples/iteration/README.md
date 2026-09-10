@@ -20,24 +20,22 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
    backends keep their own loop for this shape, which is why it is the cheapest
    and the most common.
 2. **A pass of your own, written out.** `Countdown` holds the position as a
-   field and its `next` is an ordinary function. This is the form `yield` cannot
-   express — two sources at once, explicit state — and it is also what
-   `iter(xs)` hands back. Because a pass is a *value*, `take` drives it partway
+   field and its `next` is an ordinary function — and it is also what `iter(xs)`
+   hands back. Because a pass is a *value*, `take` drives it partway
    and `main` carries it on from where the `break` left it. Write it out like
    this when the pass needs a **name**: to store it in a field, to hand it to a
    function, to zip two of them.
-2b. **The same pass with the struct generated: `pass fn`.** `Halving` is
+2b. **The same pass with the struct generated: `iter fn`.** `Halving` is
    ordinary data; the `state { … }` block is the pass's own fields, evaluated
    once when the pass is minted; and the compiler writes the pass struct and the
    `iter` that mints one. Nothing suspends — the body *is* the `next` — so there
    is no state machine in the output. The subject's fields are read-only inside
    the body, and `iter(h)` hands back a pass you can hold in a local.
-3. **A generator.** `yield fn next(f: Fibs)` says the same thing as a body and
-   leaves the state machine to the compiler. The subject is an **origin** —
-   ordinary data you keep — and the machine is nameless, so nobody can hold
-   one: every `for` builds a fresh machine, which is why driving the same
-   origin twice starts over. The `defer` inside runs however the loop ends, and
-   `Naturals` is unbounded, terminated by the consumer's `break`.
+3. **An effectful pass, and an unbounded one.** A `next` is an ordinary
+   function, so effects are ordinary effects: `Fibs` declares `[Console]` and the
+   `for` that drives it supplies the handler once per turn. `Naturals` is
+   unbounded — nothing runs until a consumer pulls — so the `break` is what ends
+   it.
 4. **A combinator of your own.** `sum_of<It>(it: Mut It, ?Yield<It, Int>)`. The
    `?Yield` spread is a bundle of implicit parameters, not a bound and not a
    trait: the call site fills it with whichever `next` fits. That same spread
@@ -62,7 +60,7 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
   `pub struct Countdown` plus `next__6`, and the loop over it is
   `while let Union2::U1(mut n) = next__6(p)` — advancing the pass *where it
   lives*, which is what lets the caller keep driving it.
-- **A `pass fn` generates exactly what you would have written by hand.**
+- **An `iter fn` generates exactly what you would have written by hand.**
   `pub struct __Pass_Halving { pub __subject: Halving, pub at: i32 }`, an
   `iter__…` that copies the subject in (`__subject: h.clone()`, which is why
   the subject replays), and the author's body as an ordinary `next`. No state
@@ -75,7 +73,7 @@ cargo run -- run --backend kotlin --src examples/iteration/salvo
   where the `defer`'s "3. closing" comes from.
 - **Effects are parameters, not capture.** `__advance(&mut console)` on the
   effectful machine and `__advance()` on the pure one; the effect list is on
-  the `yield fn`, and driving is what performs it.
+  the `iter fn`, and driving is what performs it.
 - **A generic combinator receives its `next` as a function value.**
   `sum_of::<__Pass_Fibs>(&mut __mint1, &mut |__p| …)` — the implicit resolved
   at the call site, which is why an effectful `next` composes at all (its

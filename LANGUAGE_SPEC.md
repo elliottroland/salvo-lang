@@ -733,12 +733,12 @@ Conventions:
   * **Neither produces nor consumes the block's value**: a trailing
     `defer` leaves the block's value where it was, and the value is
     computed before the deferred code runs.
-  * A `defer` inside a `yield fn` body runs on the way out of the block as
+  * A `defer` inside an `iter fn` body runs on the way out of the block as
     everywhere else, and both backends drive the machine lazily
-    [yield-fn-origin], so the deferred code interleaves with the consumer
+    [iter-fn], so the deferred code interleaves with the consumer
     identically — and the `for` sugar closes the machine on every exit, so an
     abandoned loop still runs it.
-* [defer-no-escape] `return`, `yield`, and a `break`/`continue` not bound
+* [defer-no-escape] `return` and a `break`/`continue` not bound
   by a loop *inside* the deferred body are errors: the body runs on the way
   out of its block, so there is no path to leave through. Loops written in
   the body own their own `break`/`continue`; a lambda owns its own
@@ -1057,7 +1057,7 @@ Conventions:
     records the `iter` to call beside the `next` to drive, and **both emitters
     call it** — until 2026-09-09 the record was read by nobody, so a `for` over a
     container of one's own emitted a drive of the container itself, which the
-    target compiler rejected (found while building [pass-fn], whose generated
+    target compiler rejected (found while building [iter-fn], whose generated
     `iter` walks the same path).
 * [iter-for-native] A `for` over an **intrinsic container** — a list, an array,
   a `Str` — records no driver at all: the backends iterate their own data
@@ -1070,7 +1070,7 @@ Conventions:
   `Emitted T | Finished` (user decision 2026-09-07; the names were
   `Next`/`Stopped` in the design). This is the manual half of the iterator
   story — `zip`, `merge`, anything reading two sources at once — which
-  `yield` cannot express.
+  a step function expresses directly.
   * `Emitted` is a *qualifier* (`qualifier Emitted<T> of T`) so the element
     keeps its own type, which is also what keeps the end of a sequence of
     optionals distinguishable: `Emitted None | Finished` has two arms where
@@ -1127,14 +1127,14 @@ Conventions:
   subject as a **pass** and reach its `next` through a `?Yield<It, T>` spread
   [implicit-group] — the group std declares for iteration — so any pass is a
   subject: the one an `iter` hands back for a `List<T>`, an array or a `Str`,
-  the origin of a `yield fn`, or a pass type of one's own. A container is
+  the one an `iter fn` generates, or a pass type of one's own. A container is
   iterated by *writing* its `iter` (`map(iter(xs), f)`), which is what keeps
   the inference ordinary: `It` is bound by an argument, so nothing depends on
   feeding one implicit's resolution into another (user decision 2026-09-09,
   replacing `?Iterable`). There is no `Iterable` group and no iterator type.
   * **std relies on the pass and never on an `iter`** (user decision
     2026-09-10), and the reason is stronger than the inference one: a source is
-    not guaranteed to *have* a container behind it. A `yield fn`'s machine, a
+    not guaranteed to *have* a container behind it. An `iter fn`'s pass, a
     composed pass from `map_lazy`, a hand-written `zip` — for each of those the
     pass is all there is, so a std function that asked for an `iter` would
     exclude them by construction. A *program* may still write a
@@ -1318,7 +1318,7 @@ Conventions:
   and reads `T = Int` off the `next` that fits.
   * A designated group teaches even more directly: a `?Yield<It, T>` spread
     reads `T` off `It`'s own `: Yield<self, T>` clause, reaching through the
-    machine an origin mints [yield-fn-origin]. That is what types a *bare*
+    pass an `iter fn` generates [iter-fn]. That is what types a *bare*
     lambda over an origin subject, where no declared `next` exists to resolve.
   * Two-sided unification: the *candidate's* generics bind from the known
     part of the pattern, and then the *caller's* variables bind from the
@@ -1331,7 +1331,7 @@ Conventions:
     `C` is only known after the arguments, so the sweeps between them cannot
     learn `It`, and one implicit determining another needs the sweep repeated.
     Declaration order is therefore not a constraint on the author.
-    * The motivating case is a [pass-fn] subject, whose generated pass is
+    * The motivating case is a [iter-fn] subject, whose generated pass is
       **unnameable** — so a written type-argument list is not an available
       workaround and inferring it is the only way the shape can exist.
     * **Ambiguity is accepted as the price** (user decision 2026-09-10): with
@@ -1379,36 +1379,18 @@ Conventions:
   * Param types come from annotation or the expected fn type; early
     `return` inside expression-position lambdas is a codegen error
     (deliberate cut).
-* [fn-iterator] `yield` belongs to a **`yield fn`** [yield-fn-origin] and
-  nowhere else: `yield` produces elements, `return` only short-circuits (no
-  value), and a `yield` in an ordinary function is a declaration error naming
-  the origin form. There is no iterator *type* — the `Iter<T>` intrinsic and
-  its factory representation went with the reduction to `next` (user decision
-  2026-09-08, roadmap R5).
-  * **A producer is lazy, on both backends**: an element is produced when the
-    consumer asks for it, so the producer's work interleaves with the loop that
-    drives it and an unbounded generator (`while true { yield … }`) is a normal
-    thing to write. Building a pass runs none of the body.
-  * **Replay is the origin's, not the pass's**: driving a pass consumes it,
-    while a `for` over an *origin* mints a fresh machine, so two loops over the
-    same origin both start from the beginning [yield-fn-origin].
-  * **Two producers have unrelated types**, since each pass is its own struct
-    and each machine its own type. A position holding either is a union (read
-    with `when`) or a re-wrap — a `yield fn` of one's own driving the pass it
-    was given. Nothing is boxed implicitly and nothing is dynamically
-    dispatched.
-* [pass-fn] A **`pass fn`** is a hand-written `next` whose **pass struct is
+* [iter-fn] A **`iter fn`** is a hand-written `next` whose **pass struct is
   generated** (user decision 2026-09-09): the subject stays ordinary data, the
   `state { … }` block declares the pass's own fields, and the compiler writes the
   pass struct plus the `iter` that mints one. It is the third way to be
-  iterable, beside a written-out pass [iter-protocol] and a `yield fn`
-  [yield-fn-origin], and the one with the least to declare — the subject needs
-  no `: Yield<self, T>` clause, because the `pass fn` *is* the declaration.
+  iterable, beside a written-out pass [iter-protocol], and the one with the
+  least to declare — the subject needs
+  no `: Yield<self, T>` clause, because the `iter fn` *is* the declaration.
 
   ```
   struct Countdown { from: Int }
 
-  pass fn next(c: Countdown) -> Emitted Int | Finished {
+  iter fn next(c: Countdown) -> Emitted Int | Finished {
       state {
           at: Int = c.from
       }
@@ -1467,235 +1449,8 @@ Conventions:
     and a binding in the body that would **shadow** the subject or a `state`
     field (it would silently mean something else).
   * **Effects are ordinary effects**: each `next` is a separate call, so
-    `[Console]` on a `pass fn` needs no threading of handlers across a
+    `[Console]` on an `iter fn` needs no threading of handlers across a
     suspension — a `for` passes them per turn [fn-effects].
-
-* [yield-fn-origin] A **`yield fn`** is the sugared way to discharge a
-  `: Yield<self, T>` obligation [group-obligation] (user direction 2026-09-08,
-  roadmap R3): the subject is the **origin** struct, the return type is the
-  **element** type, and the state machine the compiler builds from the body is
-  *hidden*.
-
-  ```
-  struct Counter : Yield<self, Int> { start: Int }
-
-  yield fn next(c: Counter) [Console] -> Int {
-      let num = copy(c.start)
-      while num >= 0 { yield copy(num); num = num - 1 }
-  }
-  ```
-
-  * **The machine is not nameable**, not constructible and not readable —
-    there is no second type to declare, so nothing is half-owned: `Counter`
-    is wholly the author's and the machine wholly the compiler's. Whoever
-    wants the state struct writes the raw `next` instead [iter-protocol],
-    which *is* that struct's.
-  * **Declared, not inferred**: the keyword marks it, so a `yield` fn is
-    recognized from its signature rather than by scanning its body — which
-    is what lets a `yield` in an ordinary fn be reported at the declaration
-    rather than guessed at [fn-iterator].
-  * **The declaration rules**, all reported at the `yield fn`: it must be
-    named `next` (it is a member of an obligation, so a free-standing one
-    would reintroduce an anonymous generator type); exactly one parameter;
-    the origin **not `Mut`** (it is read, not advanced — the machine holds
-    the position); the origin's declaration must carry the
-    `: Yield<self, T>` clause; the return type must be that clause's `T`; and the body must
-    contain a `yield`. A type may declare **one** form, not both: the sugar
-    generates the state struct a hand-written `next` would be.
-  * **It is not callable.** A call is an error naming the remedy (iterate the
-    origin), because a call would have to hand back the hidden machine. One
-    consequence worth stating: since only the `for` sugar can hold a
-    generated pass, and the sugar always closes, a generated pass **cannot
-    be abandoned** — the unchecked-`while`-driver hole applies to raw passes
-    only.
-  * **Driving does not consume the origin.** Each `for` mints a *fresh*
-    machine from it, so a second loop replays from the beginning and the loop
-    binding stays an ordinary projection. Only a real pass — the value that
-    holds the position — is moved into the loop [iter-resolve].
-  * **An origin can be passed where a pass is expected** (user decision
-    2026-09-09): anything whose declaration says `: Yield<self, T>` is
-    accepted as it stands. A raw pass is taken as it stands; an origin is
-    **minted** — the argument is rewritten to a fresh instance of its hidden
-    machine, the same construction `for` performs per loop. Without this the
-    sugar could not reach a combinator at all: the machine is unnameable, so
-    the author has nothing `Mut` to hand over.
-    * The position that mints is a **generic** one: a parameter written
-      `Mut It` whose `It` the signature spreads as `?Yield<It, T>`
-      [implicit-group]. A signature naming the concrete origin type still
-      takes the origin itself.
-    * **Generic signatures always name the pass.** Desugaring happens at the
-      call site, before the body runs, so `It` *is* a pass inside the body —
-      which is why `Mut It` is the only spelling a combinator needs, and why
-      a generic body never has to ask whether its subject was an origin.
-    * The rewrite happens **during** overload selection, per candidate:
-      `Mut It` substitutes to `Mut <machine>`, and a `Mut` position requires
-      the argument to carry `Mut`, which a minted pass does and an origin
-      does not.
-    * The implicit `next` for a minted pass resolves to **no declared fn** —
-      the machine is generated — so the emitters wrap the machine's own
-      advance into the two arms of `Emitted T | Finished`.
-    * **Selection is unambiguous** because a type discharges its obligation
-      by a raw `next` *or* by the sugar, never both.
-    * **The mint is released by the caller** (2026-09-09): the machine is the
-      compiler's value, so the compiler owns its lifetime — the construction
-      is hoisted into a local and `close` is spliced *after the call*,
-      whatever the callee did with it. So a combinator that abandons the pass
-      after one element still runs the origin's deferred blocks, which a
-      hand-written driving loop has no way to do. The release is idempotent,
-      so a drained pass pays nothing.
-    * **Each mint is its own machine**: two minted arguments in one call are
-      independent, including two mints of the *same* origin value — both
-      replay from the beginning, and both are released. That is the same
-      "driving does not consume the origin" rule, one call instead of two
-      loops.
-    * **A raw pass is released by its driver** (user decision 2026-09-09): a
-      pass type that owns something declares `: Linear<self>` beside its
-      `: Yield<self, T>`, which makes [group-obligation] require the `close` —
-      and the `for` sugar calls that `close` on every exit (exhaustion,
-      `break`, `return`), so driving *is* the release. `for_drivers` carries
-      the resolved `close` beside the resolved `next`; Rust splices the call
-      after the loop and registers it as a deferred entry, Kotlin puts it in a
-      `finally` [kt-defer-finally].
-      * Linearity alone was **not** enough, which is why the `for` half is the
-        rule: the obligation is discharged by the *move into the loop*, so
-        before this a `close`-bearing pass leaked while the checker was
-        satisfied.
-      * A combinator **keeps** its pass parameter (`[it: Mut]`), so the
-        obligation stays with the caller, who must close it — the existing
-        [linear-obligation] rule, no new one. A generic combinator that may be
-        handed one says so with `<It canbe Linear>` [linear-generics].
-      * A pass that owns nothing declares no obligation and is untouched:
-        every generated machine and every ordinary hand-written pass stays as
-        it is, which is what keeps them composable.
-      * A hand-written `while` driver over a linear pass is the author's own
-        to release, and [linear-obligation] reports it if they do not — the
-        honest answer, since the driver is the owner.
-      * **Not** auto-released at a call boundary the way a *minted* pass is: a
-        mint has no name and cannot be referenced again, while a raw pass is a
-        named, resumable value, so closing it behind the author's back would
-        be surprising.
-  * **Effects are declared normally** (`yield fn next(c: Counter) [Console]
-    -> Int`) and performed **while driving**: nothing calls the fn, so no
-    call site is burdened, and the `for` is what needs the handler in scope.
-    This is why [iter-effects]' claim-on-the-type apparatus is not needed
-    here — [fn-effects] already says it.
-  * **Emission**: the machine is `generator.rs`'s plan unchanged
-    [iter-generator], rendered as a plain struct/class named after the
-    *origin* type (`__Pass_Counter`, since every `yield fn` is `next`), with
-    no factory, no `SalvoIter`, no boxing and no trait — the drive site knows
-    the concrete type. `for` constructs it, calls `__advance` per turn and
-    `__close` on every exit (Rust splices the call and registers a deferred
-    entry; Kotlin uses `finally` [kt-defer-finally]). Rust *clones* a place
-    subject, Kotlin shares the reference, and the two agree because of the
-    rule below. Refused for now [backend-never-wrong]: a `for` over an origin
-    in **value position**, whose machine would have to be closed inside a
-    block that is also producing a value.
-  * **An origin may not be mutated while it is being driven.** The origin does
-    not have to be *immutable* — a mutable-origin type is legal, and an origin
-    is ordinary data the caller keeps — it has to be **stable for the duration
-    of a drive**: a machine reads its origin across suspensions, so a write
-    while the loop runs would mean the machine's own copy on one backend and
-    the caller's object on the other. Refused rather than sided with
-    [backend-parity], which is also what keeps a value *derived* from the
-    origin valid for the whole drive. Reported at the mutation itself, keyed on
-    the subject's **root**, so a write through a projection
-    (`add(b.rows, 9)`) and passing the origin to a `Mut` parameter both count;
-    scoped to the loop, so another loop's body may mutate it. The remedies the
-    diagnostic names: move the write outside the loop, or drive `copy(origin)`.
-* [iter-mut-param] A **stored callback** may not carry mutable state in
-  (user decision 2026-09-08; retargeted by R5, 2026-09-09). A lambda passed to
-  a fn-typed parameter the callee **keeps** — a composed pass storing the
-  callback it maps with — is called once per element for as long as the pass
-  lives, so a capture carrying mutable state accumulates by however often the
-  pass was driven. Both kinds are refused: a capture the closure *writes*
-  through, and one it merely *reads* mutable data through, since
-  snapshot-vs-alias is what makes the second observable.
-  * **Why.** "Who owns the captured state?" has no answer the two targets
-    agree on — a capture-by-clone convention gives the callback a private copy
-    (the caller sees nothing), a capture-by-reference one gives it the caller's
-    own collection (the writes land) — so the shape is refused rather than
-    sided with [backend-parity]. Rust rejects it structurally anyway (a stored
-    callback is `impl Fn + 'static` [rs-fn-field], so neither a write nor a
-    borrow of outer mutable data compiles) while Kotlin ran it happily: a
-    checker-clean program only one backend could build.
-  * **An immutable capture is free**, which is the standing parity argument,
-    and is the remedy: bind a snapshot at a non-`Mut` type before the lambda.
-  * **The trigger is the deduction**, not the callee's shape: a fn-typed
-    parameter the deduction list omits is *moved into* the callee, which is
-    exactly "kept past the call". A callback the callee merely calls and drops
-    is untouched by this rule.
-  * `use` is barred inside a `yield fn` for the same reason: a suspended body
-    must not hold state someone else can see.
-* [iter-effects] **Deleted** (roadmap R5, 2026-09-09). A producer used to be a
-  *type*, so its effects were written on that type in qualifier position
-  (`FileSystem Iter<Str>`); with the reduction to `next` a producer is a struct
-  and its `next` is an ordinary function, so [fn-effects] says everything: a
-  `yield fn` declares its effects in its own list, *driving* is what performs
-  them (the `for` needs the handler, since nothing calls the function), and a
-  fn taking a pass needs no list of its own only because it does not drive it.
-  Writing an effect in qualifier position is now an error naming the
-  replacement, and `[iter-effect-free]` — the rule that forbade producer
-  effects outright — is gone with it.
-  * **`use` stays barred inside a `yield fn`**: it would let the body register
-    a handler the machine then has to carry across every suspension.
-  * **A generic effect is ordinary** (2026-09-09): `yield fn next(r: Rolls)
-    [Random<Int>] -> Int` works, because the machine takes its handlers as
-    parameters rendered from the effect *type* — exactly as any fn's are. The
-    refusal this replaces was about the per-effect-set trait's *name*, which R5
-    deleted along with the trait.
-    * The drive site is what supplies the handler, so the effects are checked
-      there and **not recorded at the subject's span**: a subject that is a call
-      (`rolls(3)` — a builder declaring no effects) would otherwise have them
-      threaded into *it*.
-  * **`[Throw<M>]` is still never allowed on a `yield fn`** (user decision
-    2026-09-07): `Throw` exists so *intermediate* frames stay silent, and a
-    suspended machine is not an intermediate frame — it is a value the consumer
-    drives, so its failure belongs in the value it hands over
-    (`Emitted (Ok T | Err E) | Finished`).
-* [iter-generator] A `yield` fn's body is planned as a **state machine
-  once**, in `salvo-core`'s `generator.rs`, and *rendered* by each backend:
-  neither emitter re-derives control flow (roadmap I2c/I3). The plan is a
-  list of numbered states, each a list of steps ending in a jump — the shape
-  the I3 prototype fixed and verified against a push-style oracle (its body
-  is the planner's acceptance fixture, `salvo-core/tests/fixtures/gnarly.sv`).
-  * **The body's locals become fields** of the generated pass, together with
-    the parameters, each flattened `for`'s element binding, and a slot per
-    nested pass (which must survive the outer body's suspensions). Nothing
-    is captured, which is what lets `advance` take the effect handlers as
-    parameters — the mechanism [iter-effects] rests on.
-  * **Only control flow that crosses a suspension is flattened.** A
-    statement that neither yields nor jumps out of itself stays one
-    statement to the emitter, brace to brace — a `while` with no `yield` in
-    it keeps its own `break`.
-  * **A `defer` at flattened level becomes a flag** plus register/discharge
-    steps, and the plan carries a **release path**: pending blocks
-    latest-first, open passes closed. Flags and empty slots make it
-    idempotent, so one `close` after the consumer's loop covers `break`,
-    `return` and exhaustion alike.
-    * **Every `for` over a producer calls it** (2026-09-08): a pass is not a
-      target-language iterator on either backend, precisely because an iterator
-      has nowhere to put a release path. A subject that is a list, an array or
-      a `Str` keeps a native loop — there is nothing suspended to release.
-  * **States are numbered in the order their code is written**, and states
-    that only forward are collapsed: the resume point of a `yield` at the
-    end of a loop body *is* the loop head.
-  * Refused rather than guessed at [backend-never-wrong], each naming the
-    remedy: a `when` or `try` containing a `yield` or a loop exit (use
-    `if`); a `yield` in a value position; a `return` or loop exit inside a
-    *value-position* expression (`let x = while … { … return … }` — write
-    the loop as a statement); a loop with an `else` block (the `else` runs
-    only if the loop never ran, which the pass has nowhere to record); a
-    destructuring `let` or `for` binding in a suspending block; a `for` in a
-    suspending loop over anything but an array, a `List<T>` or a `Str` — a
-    **pass** as the subject of a suspending loop is not lowered yet;
-    and a local **shadowing** another local or a parameter — the body's
-    locals become fields of one struct, so two of a name would collide.
-  * Each backend *renders* the plan: `[rs-generator]`, `[kt-generator]`. The
-    machine is the whole representation since R5 — there is no factory to mint
-    it from, and an origin is the recipe [yield-fn-origin] — so it implements
-    nothing and is reached only by the drive site that names it.
-
-## Effects
 
 * [effect-decl] `effect E<G> { fn member(...) -> T }` declares an effect:
   a set of functions available to code that depends on `E`.
@@ -1959,7 +1714,7 @@ Conventions:
     are stored in the typed IR (`Checked::deductions`); Kotlin ignores
     them — they are the Rust backend's ownership/borrow contract.
   * Moves are inferred when a bare parameter is: passed to a call whose
-    deduction omits it, returned, `break`- or `yield`-ed, stored in a
+    deduction omits it, returned, `break`-ed, stored in a
     struct/array/tuple literal, or passed to a `use` handler
     constructor. Binding a bare parameter (or a projection of one) with
     `let`/assignment is *not* a move by itself — it fate-links the new
@@ -1996,10 +1751,10 @@ Conventions:
   * Every other move event consumes a bare identifier the same way (L2,
     mirroring the [deduce-infer] move list): storing it in a
     struct/array/tuple literal, spreading it (`...n` — in a struct
-    literal or any spread position), `return n`, `break n`, `yield n`,
+    literal or any spread position), `return n`, `break n`,
     and passing it to a `use` handler constructor. The use-site
     diagnostic names the consuming event ("consumed (moved) by a
-    literal store / a `...` spread / a `break` / a `yield` / a `use`
+    literal store / a `...` spread / a `break` / a `use`
     handler registration / an earlier call"). Reads never consume —
     in particular string interpolation `"${n}"` is a read [type-str]
     (user decision 2026-09-02, L2a).
@@ -2009,11 +1764,6 @@ Conventions:
     consumed after the loop even when the `break` sits inside an
     always-exiting branch (which contributes nothing to the merge
     *inside* the body — the loop exit is where its state lands).
-  * `yield n` inside a loop consumes anew every iteration; the loop
-    back-edge re-check reports the second-iteration use at the `yield`
-    itself. `return n` is terminal — the consumption is visible only to
-    unreachable code and to derived-variable poison on that path
-    [fate-poison].
   * A *kept* parameter sheds its removal set: the argument's narrowed
     type loses whatever the entry's effect drops — everything unnamed for
     an exhaustive entry, the named ones for a delta — so a follow-up call
@@ -2092,7 +1842,7 @@ Conventions:
     for L7 (see COMPLETED.md, and ROADMAP.md for what is left of it).
 * [fate-derived-readonly] A fate-linked (derived) variable in
   *borrow-mode* is read-only: moving it (a call that does not keep it,
-  `return`, `break value`, `yield`, a struct/array/tuple literal store,
+  `return`, `break value`, a struct/array/tuple literal store,
   spread `...`, a `use` handler-constructor argument) or mutating it (a
   `Mut` call argument, projection assignment, `++`) is an error at that
   site; the remedy is `copy`. Since S2, this is the rule's *residual*
@@ -2123,7 +1873,7 @@ Conventions:
     discovered in a later round triggers one more round, so it is
     applied rather than left as a strict error.
   * A **projection in a moved position** (consuming call argument,
-    literal store, spread, `return`/`break`/`yield`, `use` ctor
+    literal store, spread, `return`/`break`, `use` ctor
     argument) moves data out of its provenance roots — but only
     projections of *transitively mutable* data are tracked (`Mut` at
     any depth, following struct fields): for immutable data the
@@ -2190,7 +1940,7 @@ Conventions:
     remedy capture `copy(x)`); an inferable parameter is *claimed* as
     moved [deduce-infer].
   * A lambda that *consumes* a capture (a call that moves it, a store,
-    spread, `return`/`break`/`yield`) is `Once`-typed [once-fn]: the
+    spread, `return`/`break`) is `Once`-typed [once-fn]: the
     capture is consumed at creation and the closure is callable at most
     once. Consuming a *linear* capture remains an error
     [linear-lambda].
@@ -2385,7 +2135,7 @@ Conventions:
     `close` function is an ordinary function. Attaching an obligation on the
     strength of a function name is what [qual-*] keeps the compiler from
     doing — and it is what keeps a generated pass with a `defer`, which gets
-    a `close`, composable [yield-fn-origin].
+    a `close`, composable [iter-fn].
   * **`canbe` no longer grants it**: `canbe` means only "may be qualified
     thus" (`canbe Mut`, `canbe Once`), and `canbe Linear` on a *declaration*
     is an error naming `: Linear<self>`. On a **type parameter** it keeps its
@@ -2401,7 +2151,7 @@ Conventions:
 * [linear-obligation] A linear value carries a *use obligation*: on
   every path it must be moved onward before it goes out of scope
   (decision L6b: consumption = any move, exactly as the deduction
-  system defines it — consuming call, `return`, `break`/`yield` value,
+  system defines it — consuming call, `return`, `break` value,
   literal store, spread, `use` constructor argument, move-mode
   binding). Moves *transfer* the obligation: a callee that receives the
   value by move discharges it in turn; a kept parameter leaves the

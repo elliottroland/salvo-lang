@@ -479,84 +479,22 @@ same programs running ([rs-effect-fusion]).
     lowering and the generated host skeleton all take them — one helper
     renders a member's parameter list, so they cannot drift — and a member
     call passes them as trailing arguments after the receiver's own.
-* [fn-iterator] A `yield fn` emits **no function at all**: it *is* the machine
-  the drive site constructs [yield-fn-origin]. There is no factory and no
-  `Iterable` wrapper — R5 removed both with `Iter<T>`.
-  * [kt-generator] The class renders the shared plan [iter-generator]:
-    `class __Pass_<Origin>(private var <origin>)` with the body's locals as
-    properties, `fun __advance(<handlers>): Boolean` as one
-    `while (true) { when (__state) { … } }`, and a `__close(<handlers>)`
-    running the pending deferred blocks. An element is handed over by writing
-    `__current` and returning `true`; `__current` is `Any?` so a **null
-    element** is an element like any other, with a `__current()` accessor
-    casting it back.
-    * There is no supertype and no runtime base class: the drive site knows the
-      concrete machine, so nothing is dispatched through an interface. (The
-      former `SalvoPass<T>`/`SalvoClosable` runtime module is gone.)
-    * A **nested** `for` inside a suspending body keeps its walk in a property
-      (`private var x__pass: Iterator<T>? = null`), and the plan's `ClosePass`
-      drops it. Only data reaches there — a pass as the subject of a suspending
-      loop is refused [iter-generator] — so there is nothing to release.
-    * Reads need no rewriting — a Kotlin property is in scope in its own
-      class's methods — so only a `let` changes: it assigns the property.
-      A property whose type has no zero value is nullable, and reads of it
-      unwrap with `!!`.
-    * The `iterator { … }` coroutine builder is **gone** (2026-09-07), and
-      with it `return@iterator`. It was lazy and repeatable, so it was
-      never wrong; what it could not do is take an effect handler *per
-      resume* — it could only capture one at creation, and when a handler
-      is bound is observable (the backend-parity principle). One lowering on both
-      backends is the point [iter-generator].
-  * [yield-fn-origin] **The origin form renders the same machine as a public
-    class with nothing around it.** A `yield fn next(c: Counter) -> Int`
-    emits `class __Pass_Counter(private var c: Counter)` — no supertype, so
-    nothing is dispatched through and the class holds its own `__current: Any?`
-    with a `__current()` accessor (`Any?` for the reason the protocol tags its
-    end: a null element is an element). `fun __advance(<handlers>): Boolean` and
-    `fun __close(<handlers>)` are public. Named after the *origin*, since every
-    `yield fn` is called `next`, and not `private` because the drive site names
-    it — which may be another module.
-    * `for` becomes `val p = __Pass_Counter(<origin>)`, then
-      `try { while (p.__advance(<handlers>)) { val v = p.__current() … } }
-      finally { p.__close(<handlers>) }` — the `close` in a `finally`, which
-      is how `defer` is lowered here anyway [kt-defer-finally], so `break`,
-      `return` and exhaustion all reach it.
-    * The origin is shared by **reference**, where Rust clones, and the
-      difference is unobservable because the checker refuses mutation of an
-      origin while its loop is open [yield-fn-origin]. That rule is what lets
-      the two backends keep different conventions here, as [backend-parity]
-      allows — not an immutability requirement on the origin's type.
-  * A captured handler is what the parity principle rules out here: Kotlin
-    could happily perform an effect from inside a builder long after the call
-    returned, and Rust could not, so the program would mean two different
-    things. The handlers are **parameters** of `__advance`/`__close`/`__run_dN`
-    instead, in the checker's order [fn-effects].
-  * [kt-pass-loop] A pass is driven by a guarded `while`, since Kotlin has no
-    pattern-matching loop condition: `var p = <subject>`, then
-    `while (true) { val step = next(p); if (step !is U2_1<…>) break; val v =
-    step.value as E; … }`. The arm is spelled with its *real* type arguments
-    where it can be (a non-generic `next`), which keeps the element read free of
-    an unchecked cast; a generic `next` — or an implicit one — falls back to star
-    projections plus a cast. A raw pass with a `close` is released in a
-    `finally`, like an origin's machine.
-    * [iter-drive-in-place] A pass the fn **keeps** gets *no local*: the subject
-      is named directly (`next(it)`). Kotlin's local aliased the same object and
-      behaved this way already; saying so directly is what makes the two backends
-      identical here rather than accidentally equal.
-    * [iter-generic-drive] A **generic** pass's `next` is an implicit parameter,
-      so the call is `next(p)` by that name — the parameter shadows the fns of
-      that name in the body anyway [implicit-param] — and an implicit `close`
-      (the `?Linear<It>` member) is called the same way, in the `finally`.
-  * **A minted origin at an argument position** (`map_lazy(counter(2), f)`)
-    becomes `val __mintN = __Pass_Counter(<origin>)` hoisted before the call,
-    with the implicit `next` an **anonymous function** rather than a lambda —
-    `fun(__p: __Pass_Counter): Union2<E, Finished> { … }` — because kotlinc
-    cannot infer the callee's element type from two `U2_n` branches. The mint is
-    closed after the call only when the callee **keeps** it: a callee that moves
-    it (a lazy combinator storing it in the pass it returns) drives it long
-    afterwards, and closing it there handed the pass a finished machine.
-  * A file that drives *or* mints a pass imports the module declaring the
-    protocol (`Finished`), which its own source need never mention.
+* [kt-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
+  no `Sequence`, no `iterator { … }` builder, no runtime support class. A pass is
+  a data class, `next` is a function, and a `for` over one is
+  `while (true) { val step = next(p); if (step !is U2_1<…>) break; … }` — the
+  guard-and-cast shape Kotlin needs because it has no pattern-matching loop
+  condition.
+  * [iter-fn] An `iter fn` is desugared before emission into that same shape, so
+    the backend has no rule of its own for the form.
+  * A `for` over a **container** calls its `iter` once before the loop and drives
+    the result [iter-pass]; a list, an array or a `String` keeps Kotlin's own
+    `for` instead [iter-for-native].
+  * An **effectful `next`** takes its handlers as leading arguments, threaded
+    into every turn of the loop [fn-effects].
+  * [linear-group] A pass with a `close` is released in a `finally`, so
+    exhaustion, `break` and `return` all reach it [kt-defer-finally].
+
 * [kt-none-unit] `None` is Kotlin's `Unit`, and a fn returning it renders no
   return type — so `return None` emits a **bare** `return`. The test is the
   *fn's* rendered return type, not the value's: `return None` in a

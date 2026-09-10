@@ -87,9 +87,8 @@ Module {
                     "[linear-generics].",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "ok",
                     span: 1079..1081,
@@ -196,9 +195,8 @@ Module {
                     "[qual-ctor-fn] Tags a value as the failure arm of a result union.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "err",
                     span: 1219..1222,

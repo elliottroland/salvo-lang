@@ -20,7 +20,7 @@ use std::process::Command;
 /// Every static runtime module, with the emitter accessor that ships it.
 /// A new one belongs here the moment it exists — the list is what makes
 /// this test complete rather than a sample.
-const RUNTIME_MODULES: &[&str] = &["iter.rs", "strings.rs", "seq.rs"];
+const RUNTIME_MODULES: &[&str] = &["strings.rs", "seq.rs"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.

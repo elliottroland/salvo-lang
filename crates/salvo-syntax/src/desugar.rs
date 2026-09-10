@@ -1,13 +1,13 @@
-//! [pass-fn] Expanding a `pass fn` into ordinary declarations.
+//! [iter-fn] Expanding an `iter fn` into ordinary declarations.
 //!
-//! A `pass fn` is the hand-written half of iteration [iter-protocol] with the
+//! An `iter fn` is the hand-written half of iteration [iter-protocol] with the
 //! boilerplate removed: the author writes the `next`, and the **pass struct is
 //! generated**.
 //!
 //! ```text
 //! struct Countdown { from: Int }
 //!
-//! pass fn next(c: Countdown) -> Emitted Int | Finished {
+//! iter fn next(c: Countdown) -> Emitted Int | Finished {
 //!     state {
 //!         at: Int = c.from
 //!     }
@@ -50,7 +50,7 @@
 //!   ordinary effect error at that call.
 //!
 //! The generated struct is named `__Pass_<Subject>` — unnameable, since a type
-//! reference beginning with `_` is refused [pass-fn] — which is what keeps the
+//! reference beginning with `_` is refused [iter-fn] — which is what keeps the
 //! first boundary the design rests on: a pass you must *name* is still written
 //! by hand.
 
@@ -60,10 +60,10 @@ use crate::ast::*;
 use crate::diag::Diagnostic;
 use crate::span::Span;
 
-/// Expands every `pass fn` in `module` into its three declarations, in place.
-/// Diagnostics are returned rather than thrown: a `pass fn` that cannot be
+/// Expands every `iter fn` in `module` into its three declarations, in place.
+/// Diagnostics are returned rather than thrown: an `iter fn` that cannot be
 /// expanded is dropped, so the rest of the module still parses and checks.
-pub fn expand_pass_fns(module: &mut Module) -> Vec<Diagnostic> {
+pub fn expand_iter_fns(module: &mut Module) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     // The subject's own declaration, when it is in this file: that is what makes
     // a *per-field* snapshot possible, since a generated field needs the field's
@@ -79,7 +79,7 @@ pub fn expand_pass_fns(module: &mut Module) -> Vec<Diagnostic> {
     let mut expanded: Vec<Item> = Vec::with_capacity(module.items.len());
     for item in std::mem::take(&mut module.items) {
         match item {
-            Item::Fn(f) if f.is_pass => {
+            Item::Fn(f) if f.is_iter => {
                 if let Some(items) = expand(&f, &structs, &mut diags) {
                     expanded.extend(items);
                 }
@@ -98,7 +98,7 @@ pub fn expand_pass_fns(module: &mut Module) -> Vec<Diagnostic> {
 /// `expr_ty`, `coerce`, `call_fn`, and `fn_refs` (which is how the emitters find
 /// a fn's effect list) — so two synthesized nodes sharing one span silently
 /// overwrite each other's entry. It cost an afternoon: the generated `iter`
-/// inherited the `pass fn`'s `[Console]` because their name spans were equal,
+/// inherited the `iter fn`'s `[Console]` because their name spans were equal,
 /// and then a `copy` argument was typed as the struct literal that shared its
 /// span. Every span here still points *inside* the declaration, so a diagnostic
 /// that somehow escapes lands in the right place.
@@ -117,7 +117,7 @@ impl Spans {
 
     /// The next unused byte of the declaration, as a one-byte span. Falls back
     /// to the declaration's start when a very short declaration runs out —
-    /// which cannot happen for anything the grammar accepts (`pass fn next(x: T)`
+    /// which cannot happen for anything the grammar accepts (`iter fn next(x: T)`
     /// is already longer than the node count), but a wrap is better than a
     /// panic.
     fn take(&mut self) -> Span {
@@ -144,12 +144,12 @@ fn expand(
     let mut error = |message: String, span: Span| diags.push(Diagnostic::error(message, span));
 
     // The name is the obligation's member name, as for a `yield fn`: `for`
-    // reads a declaration, and a `pass fn` called anything else answers to
+    // reads a declaration, and an `iter fn` called anything else answers to
     // nothing [iter-protocol].
     if f.name.name != "next" {
         error(
             format!(
-                "a `pass fn` must be called `next`: it is the member of the \
+                "an `iter fn` must be called `next`: it is the member of the \
                  `Yield` obligation that `for` drives, and `{}` answers to \
                  nothing",
                 f.name.name
@@ -161,7 +161,7 @@ fn expand(
     if f.params.len() != 1 {
         error(
             format!(
-                "a `pass fn` takes exactly one parameter — the subject it \
+                "an `iter fn` takes exactly one parameter — the subject it \
                  iterates (found {})",
                 f.params.len()
             ),
@@ -171,7 +171,7 @@ fn expand(
     }
     let Some(body) = f.body.clone() else {
         error(
-            "a `pass fn` needs a body: it *is* the `next` the compiler would \
+            "an `iter fn` needs a body: it *is* the `next` the compiler would \
              otherwise generate"
                 .to_string(),
             span,
@@ -184,7 +184,7 @@ fn expand(
     // opposite.
     let Type::Named { qualifiers, base } = &subject.ty else {
         error(
-            "a `pass fn`'s subject must be a named type — the generated pass \
+            "an `iter fn`'s subject must be a named type — the generated pass \
              is named after it; wrap an array, tuple or union in a struct of \
              your own"
                 .to_string(),
@@ -195,7 +195,7 @@ fn expand(
     if let Some(q) = qualifiers.first() {
         error(
             format!(
-                "a `pass fn`'s subject is read, not advanced: drop the `{}` \
+                "an `iter fn`'s subject is read, not advanced: drop the `{}` \
                  from `{}` — the generated pass holds the position, and each \
                  drive mints a fresh one",
                 q.name.name, subject.name.name
@@ -209,7 +209,7 @@ fn expand(
     // obligation's own shape.
     let elem = element_type(f.return_type.as_ref()).or_else(|| {
         error(
-            "a `pass fn` returns `Emitted T | Finished`: it reports either an \
+            "an `iter fn` returns `Emitted T | Finished`: it reports either an \
              element or the end of the sequence"
                 .to_string(),
             f.return_type
@@ -222,9 +222,9 @@ fn expand(
 
     // Names the body may not rebind: the subject and the state fields all
     // become fields of the pass, and a shadowing local would silently mean
-    // something else [pass-fn].
+    // something else [iter-fn].
     let mut reserved: Vec<&Ident> = vec![&subject.name];
-    for (i, field) in f.pass_state.iter().enumerate() {
+    for (i, field) in f.iter_state.iter().enumerate() {
         if field.name.name == subject.name.name {
             error(
                 format!(
@@ -235,7 +235,7 @@ fn expand(
             );
             return None;
         }
-        if f.pass_state[..i]
+        if f.iter_state[..i]
             .iter()
             .any(|prev| prev.name.name == field.name.name)
         {
@@ -260,11 +260,11 @@ fn expand(
         return None;
     }
 
-    // [pass-fn] Every generated declaration needs a **distinct name span**:
+    // [iter-fn] Every generated declaration needs a **distinct name span**:
     // the checker's side tables (`fn_refs` → `fn_effects`, deductions, the LSP's
     // definition sites) are keyed by it, so two declarations sharing one span
     // collide and the later wins — which showed up as the generated `iter`
-    // inheriting the `pass fn`'s effect list. Each borrows a different real
+    // inheriting the `iter fn`'s effect list. Each borrows a different real
     // token of the source, so diagnostics still land somewhere meaningful.
     let mut spans = Spans::new(f.span);
     let struct_span = spans.take();
@@ -304,7 +304,7 @@ fn expand(
         },
     };
 
-    // [pass-fn] How much of the subject the pass has to hold. A pass exists to
+    // [iter-fn] How much of the subject the pass has to hold. A pass exists to
     // carry the position, and the subject rides along only because the body may
     // read it on any turn — so the cheapest correct answer is looked for first,
     // in three tiers:
@@ -320,7 +320,7 @@ fn expand(
     // can never see a later write to the subject, so a per-field snapshot at the
     // mint says exactly what a whole copy says.
     let state_names: Vec<String> = f
-        .pass_state
+        .iter_state
         .iter()
         .map(|field| field.name.name.clone())
         .collect();
@@ -400,7 +400,7 @@ fn expand(
             span: subject_field_span,
         });
     }
-    for field in &f.pass_state {
+    for field in &f.iter_state {
         fields.push(FieldDecl {
             docs: field.docs.clone(),
             name: field.name.clone(),
@@ -412,7 +412,7 @@ fn expand(
     }
     let pass_struct = StructDecl {
         docs: vec![format!(
-            "The pass over `{}`, generated from its `pass fn next` [pass-fn].",
+            "The pass over `{}`, generated from its `iter fn next` [iter-fn].",
             base.name.name
         )],
         name: pass_name.clone(),
@@ -495,7 +495,7 @@ fn expand(
             span: read_span,
         });
     }
-    for field in &f.pass_state {
+    for field in &f.iter_state {
         lit_fields.push(StructLitField {
             kind: StructLitFieldKind::Named {
                 name: field.name.clone(),
@@ -510,13 +510,12 @@ fn expand(
     let iter_fn = FnDecl {
         docs: vec![format!(
             "A fresh pass over [{}] [iter-pass], generated from its \
-             `pass fn next` [pass-fn].",
+             `iter fn next` [iter-fn].",
             subject.name.name
         )],
         intrinsic: false,
-        is_yield: false,
-        is_pass: false,
-        pass_state: vec![],
+        is_iter: false,
+        iter_state: vec![],
         name: Ident {
             name: "iter".to_string(),
             span: iter_span,
@@ -569,9 +568,8 @@ fn expand(
     let next_fn = FnDecl {
         docs: f.docs.clone(),
         intrinsic: false,
-        is_yield: false,
-        is_pass: false,
-        pass_state: vec![],
+        is_iter: false,
+        iter_state: vec![],
         name: f.name.clone(),
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
@@ -671,7 +669,7 @@ fn element_type(ty: Option<&Type>) -> Option<Type> {
 struct Rewrite {
     subject: String,
     state: Vec<String>,
-    /// Subject field -> the pass field standing in for it [pass-fn]. Empty when
+    /// Subject field -> the pass field standing in for it [iter-fn]. Empty when
     /// the whole subject is kept (or when the body never reads it).
     snapshots: BTreeMap<String, String>,
     /// Scanning rather than rewriting: record, change nothing.
@@ -724,7 +722,6 @@ impl Rewrite {
                 }
             }
             Stmt::Continue { .. } => {}
-            Stmt::Yield { value, .. } => self.expr(value),
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Defer { body, .. } => self.block(body),
             Stmt::Rename(_) => {}
@@ -733,7 +730,7 @@ impl Rewrite {
     }
 
     fn expr(&mut self, expr: &mut Expr) {
-        // [pass-fn] `c.field` on the subject is the shape a snapshot can stand
+        // [iter-fn] `c.field` on the subject is the shape a snapshot can stand
         // in for, and it has to be caught *before* the base is visited — after
         // that the base is no longer the subject.
         if let Expr::Field { base, field, span } = expr {
@@ -959,7 +956,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                         walk_expr(value, reserved, out);
                     }
                 }
-                Stmt::Yield { value, .. } => walk_expr(value, reserved, out),
                 Stmt::Use { handler, .. } => walk_expr(handler, reserved, out),
                 Stmt::Defer { body, .. } => walk_block(body, reserved, out),
                 Stmt::Continue { .. } | Stmt::Rename(_) => {}

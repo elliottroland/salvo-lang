@@ -42,7 +42,7 @@ Module {
         Struct(
             StructDecl {
                 docs: [
-                    "The pass over `Countdown`, generated from its `pass fn next` [pass-fn].",
+                    "The pass over `Countdown`, generated from its `iter fn next` [iter-fn].",
                 ],
                 name: Ident {
                     name: "__Pass_Countdown",
@@ -120,12 +120,11 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "A fresh pass over [c] [iter-pass], generated from its `pass fn next` [pass-fn].",
+                    "A fresh pass over [c] [iter-pass], generated from its `iter fn next` [iter-fn].",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "iter",
                     span: 42..43,
@@ -262,9 +261,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "next",
                     span: 44..48,

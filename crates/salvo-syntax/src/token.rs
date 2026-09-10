@@ -60,13 +60,13 @@ pub enum TokenKind {
     KwReturn,
     KwBreak,
     KwContinue,
-    KwYield,
-    /// [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished`: a
-    /// hand-written `next` whose pass struct the compiler generates.
-    KwPass,
-    /// [pass-fn] The `state { ... }` block at the top of a `pass fn`: the
+    /// [iter-fn] The `state { ... }` block at the top of an `iter fn`: the
     /// pass's own fields, declared like a struct's and initialized once per
     /// pass.
+    ///
+    /// `iter` itself is *not* a keyword — it has to stay callable, since that is
+    /// the name of the function an `iter fn` generates — so the form is
+    /// recognised at item level from `iter` followed by `fn`.
     KwState,
     KwUse,
     KwDefer,
@@ -155,8 +155,6 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("return", TokenKind::KwReturn),
     ("break", TokenKind::KwBreak),
     ("continue", TokenKind::KwContinue),
-    ("yield", TokenKind::KwYield),
-    ("pass", TokenKind::KwPass),
     ("state", TokenKind::KwState),
     ("use", TokenKind::KwUse),
     ("defer", TokenKind::KwDefer),

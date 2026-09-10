@@ -372,37 +372,20 @@ impl<'s> Parser<'s> {
                 }
                 Some(Item::Type(t))
             }
-            // [yield-fn-origin] `yield fn next(c: Counter) -> Int` — the
-            // origin-struct sugar. Only `fn` may follow `yield` at item
-            // level.
-            TokenKind::KwYield => {
+            // [iter-fn] `iter fn next(c: Countdown) -> Emitted T | Finished` —
+            // a hand-written `next` whose pass struct is generated, named after
+            // the `iter` it generates.
+            //
+            // A **contextual** keyword, and it has to be: `iter` is the name of
+            // the function this form generates, so it must stay callable and
+            // declarable. At item level a bare identifier is otherwise a parse
+            // error, which is what makes `iter fn` unambiguous with no lookahead
+            // beyond the next token.
+            TokenKind::Ident(name)
+                if name == "iter" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
+            {
                 self.bump();
-                if !self.at(&TokenKind::KwFn) {
-                    let found = self.kind().describe();
-                    let span = self.peek().span;
-                    self.error(
-                        format!("expected `fn` after `yield`, found {found}"),
-                        span,
-                    );
-                    return None;
-                }
-                self.parse_fn_flavored(false, FnFlavor::Yield).map(Item::Fn)
-            }
-            // [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished` —
-            // a hand-written `next` whose pass struct is generated. Only `fn`
-            // may follow `pass` at item level.
-            TokenKind::KwPass => {
-                self.bump();
-                if !self.at(&TokenKind::KwFn) {
-                    let found = self.kind().describe();
-                    let span = self.peek().span;
-                    self.error(
-                        format!("expected `fn` after `pass`, found {found}"),
-                        span,
-                    );
-                    return None;
-                }
-                self.parse_fn_flavored(false, FnFlavor::Pass).map(Item::Fn)
+                self.parse_fn_flavored(false, FnFlavor::Iter).map(Item::Fn)
             }
             TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
             TokenKind::KwQualifier => self
@@ -1067,12 +1050,10 @@ impl<'s> Parser<'s> {
         self.parse_fn_flavored(intrinsic, FnFlavor::Plain)
     }
 
-    /// [yield-fn-origin] `yield fn` is the origin-struct sugar and [pass-fn]
-    /// `pass fn` is the generated-pass form; both are carried on the
-    /// declaration rather than inferred from the body.
+    /// [iter-fn] `iter fn` is the generated-pass form; the flavour is carried on
+    /// the declaration rather than inferred from the body.
     fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {
-        let is_yield = flavor == FnFlavor::Yield;
-        let is_pass = flavor == FnFlavor::Pass;
+        let is_iter = flavor == FnFlavor::Iter;
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
@@ -1109,13 +1090,13 @@ impl<'s> Parser<'s> {
             }
         }
 
-        // [pass-fn] A `pass fn`'s body opens with the pass's own fields. It is
+        // [iter-fn] An `iter fn`'s body opens with the pass's own fields. It is
         // parsed here rather than as a statement so the body that follows is an
         // ordinary block: `state` declares data, it does not run.
-        let mut pass_state = Vec::new();
+        let mut iter_state = Vec::new();
         let body = if self.at(&TokenKind::LBrace) && self.same_line() {
-            if is_pass {
-                Some(self.parse_pass_body(&mut pass_state)?)
+            if is_iter {
+                Some(self.parse_iter_body(&mut iter_state)?)
             } else {
                 Some(self.parse_block()?)
             }
@@ -1132,9 +1113,8 @@ impl<'s> Parser<'s> {
         Some(FnDecl {
             docs,
             intrinsic,
-            is_yield,
-            is_pass,
-            pass_state,
+            is_iter,
+            iter_state,
             name,
             generics,
             generic_canbe,
@@ -1511,7 +1491,7 @@ impl<'s> Parser<'s> {
     /// makes that decidable.
     fn type_ref_name(&mut self) -> Option<Ident> {
         let head = self.ident()?;
-        // [pass-fn] A leading `_` is the compiler's namespace: a generated pass
+        // [iter-fn] A leading `_` is the compiler's namespace: a generated pass
         // struct is `__Pass_<Subject>`, and it exists as a real declaration
         // after the desugaring, so without this a program could *name* it —
         // and the whole point of generating it is that a pass you must name is
@@ -1575,12 +1555,12 @@ impl<'s> Parser<'s> {
 
     // --- Blocks and statements ---
 
-    /// [pass-fn] A `pass fn`'s body: an optional `state { … }` field block,
+    /// [iter-fn] An `iter fn`'s body: an optional `state { … }` field block,
     /// then ordinary statements. The block is *declarations only* (user
     /// decision 2026-09-09) — it is the pass's shape, not code that runs — so
     /// it is parsed with the same `parse_field_decl` a struct body uses, and
     /// every field needs an annotation and an initializer.
-    fn parse_pass_body(&mut self, state: &mut Vec<FieldDecl>) -> Option<Block> {
+    fn parse_iter_body(&mut self, state: &mut Vec<FieldDecl>) -> Option<Block> {
         let start = self.expect(&TokenKind::LBrace)?.span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
@@ -1721,12 +1701,6 @@ impl<'s> Parser<'s> {
             TokenKind::KwContinue => {
                 let span = self.bump().span;
                 Some(Stmt::Continue { span })
-            }
-            TokenKind::KwYield => {
-                let start = self.bump().span;
-                let value = self.parse_expr()?;
-                let span = start.to(value.span());
-                Some(Stmt::Yield { value, span })
             }
             TokenKind::KwUse => {
                 let start = self.bump().span;
@@ -3055,11 +3029,10 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
 
 
 /// Which flavour of `fn` is being parsed. A modifier is carried on the
-/// declaration rather than inferred from the body: [yield-fn-origin] for
-/// `yield fn`, [pass-fn] for `pass fn`.
+/// declaration rather than inferred from the body: [iter-fn] for
+/// `yield fn`, [iter-fn] for `iter fn`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FnFlavor {
     Plain,
-    Yield,
-    Pass,
+    Iter,
 }

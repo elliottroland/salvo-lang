@@ -604,7 +604,7 @@ Details worth knowing:
 - **The block, not the function, is the scope.** A `defer` inside a loop body runs at the end of each iteration; one inside an `if` runs when that `if` block ends.
 - **Latest first.** Several `defer`s in one block run in reverse order of registration, so a value acquired later is released first.
 - **The block's value is computed first.** A deferred block runs after the `return` value (or the block's own value) has been evaluated, so it can release what that value was read from.
-- **No control flow out of it.** `return`, `break`, `continue` and `yield` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Throwing](#throwing-leaving-early-with-a-message) from one is an error for the same reason.
+- **No control flow out of it.** `return`, `break` and `continue` are errors inside a deferred block — it *is* the way out of the block, so there is nothing to leave through. Loops and lambdas written inside the body own their own control flow as usual. [Throwing](#throwing-leaving-early-with-a-message) from one is an error for the same reason.
 - **It is checked where it stands.** The body sees the scope and the flow facts at the `defer` statement, and those facts must still hold at each exit: if a call in between takes the value away, or invalidates a narrowing the deferred block relied on, the deferred block is rejected there (bind the narrowed value to a local and defer that instead).
 
 ## Functions
@@ -623,7 +623,7 @@ Function syntax largely resembles the Rust function syntax, except for the extra
 fn function_name<generic_param1, generic_param2, ...>(arg1: type1, arg2: type2, ...) [effect1, effect2, ...] -> [deduction1, deduction2, ...] return_type
 ```
 
-There are no implicit returns of functions (unlike `if`, `while`, and `for` blocks). A function with a return type other than `None` must return on every path: an `if` needs an `else` (or a return after it), and a `when` counts when every branch returns. Iterator functions built from `yield` are exempt. The `generic_param`s define generics which can be used throughout the rest of the function signature.
+There are no implicit returns of functions (unlike `if`, `while`, and `for` blocks). A function with a return type other than `None` must return on every path: an `if` needs an `else` (or a return after it), and a `when` counts when every branch returns. The `generic_param`s define generics which can be used throughout the rest of the function signature.
 
 Like Koka, we support "dot-notation" for calling functions: the first argument can be pulled forward before the function name, like a method call:
 
@@ -836,7 +836,7 @@ Details worth knowing:
   Resolution runs *between* the arguments, not after them, so a variable that
   appears only in the implicit's type is still inferred. A `?Yield<It, T>`
   spread goes one step further: `T` is read off `It`'s own declaration (see
-  [Iterating anything](#iterating-anything-yield)), so the element type of a
+  [Iteration](#iteration-passes-and-next)), so the element type of a
   combinator is never written.
 
 ### Iterating anything: `Yield`
@@ -871,7 +871,7 @@ position in a sequence — so a container is iterated by writing its `iter`:
 ```
 let doubled = map(iter(xs), double)         // a list
 let letters = filter(iter("hello"), keep)   // a string's characters
-let capped = map(counter(3), double)        // a `yield fn`'s origin
+let capped = map(iter(counter(3)), double)   // a pass of your own
 ```
 
 A type of your own joins in by declaring an `iter` that hands back a pass:
@@ -983,7 +983,7 @@ Two things keep this a where-clause rather than a trait:
 
 Two groups are **designated**: the compiler knows them by name and reads the
 clause itself. `Yield<self, T>` is what makes a type a pass, so `for` resolves
-its `next` from the declaration ([Iteration](#iteration-passes-next-and-yield-fn)),
+its `next` from the declaration ([Iteration](#iteration-passes-and-next)),
 and `Linear<self>` is what makes a value linear, so its `close` is the
 discharge ([Linearity](#linearity)). Both are ordinary `params` groups
 otherwise — declared in std, spreadable with `?`.
@@ -1083,7 +1083,7 @@ The rules follow from "the caller supplies it":
 - **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
 - `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.
 
-### Iteration: passes, `next` and `yield fn`
+### Iteration: passes and `next`
 
 Iteration is ordinary Salvo, not a built-in protocol. A **pass** is a value
 that holds a position in a sequence, and a pass is advanced by a `next`
@@ -1120,7 +1120,7 @@ not — a `for` over a list leaves the list alone.
 
 #### Writing a pass by hand
 
-Declaring a `next` is what makes the iterators `yield` cannot express writable
+Declaring a `next` is what makes iteration writable
 — `zip`, `merge`, anything reading two sources at once. The method alone does
 not make a struct a pass: the tie is stated as an obligation, `: Yield<self,
 T>`, and checked at the struct (declaring it without a matching `next` is an
@@ -1179,11 +1179,11 @@ resource-owning pass and dropping it silently is the leak the obligation exists
 to prevent. A pass that is *not* opted in needs nothing, and neither does one
 the function keeps.
 
-#### Letting the compiler write the struct: `pass fn`
+#### Letting the compiler write the struct: `iter fn`
 
 Writing the pass out is the right thing when it needs a *name* — to store it, to
 hand it to a function, to zip two of them. Most passes need none of that: they
-are only ever driven by a `for`. A **`pass fn`** is the same hand-written `next`
+are only ever driven by a `for`. A **`iter fn`** is the same hand-written `next`
 with the boilerplate removed:
 
 ```
@@ -1191,7 +1191,7 @@ struct Countdown {
     from: Int
 }
 
-pass fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn next(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -1228,71 +1228,9 @@ hand-written pass works here.
 - **Nothing suspends.** The body *is* the `next`: it returns on every turn, so
   there is no state machine, and effects are ordinary effects on an ordinary
   function.
-- A `pass fn` must be called `next`, must take exactly one parameter, and must
+- An `iter fn` must be called `next`, must take exactly one parameter, and must
   return `Emitted T | Finished` — it is the obligation's member, so the subject
   needs no `: Yield<self, T>` clause of its own.
-
-#### Letting the compiler write the state: `yield fn`
-
-Writing `next` by hand means writing the position out as fields. A **`yield
-fn`** says the same thing as a body, and the state machine stays the
-compiler's. The subject is an **origin** — the starting data — and the return
-type is the element type:
-
-```
-struct Counter : Yield<self, Int> {
-    start: Int
-}
-
-fn counter(start: Int) -> [] Counter {
-    return Counter { start: start }
-}
-
-yield fn next(c: Counter) [Console] -> Int {
-    println("counting down from ${c.start}")
-    defer { println("done counting") }
-    let num = copy(c.start)
-    while num >= 0 {
-        yield copy(num)
-        num = num - 1
-    }
-}
-
-for n in counter(2) { ... }   // 2, 1, 0
-```
-
-An iterator is **lazy**: an element is produced when whatever consumes it asks
-for the next one, so a producer's work interleaves with the loop that drives
-it, and an unbounded generator (`while true { yield ... }`) is a normal thing
-to write — the consumer decides when to stop. Both backends behave identically
-in all of this.
-
-Both forms discharge the same obligation, and a type declares one of them, not
-both — the sugar *generates* the struct a hand-written `next` would be. What
-differs is what you can hold:
-
-- **The origin is ordinary data.** `Counter` is yours: you construct it, read
-  its fields, pass it around. Driving it neither consumes nor mutates it —
-  every `for` builds a *fresh* machine from it, so looping twice over the same
-  origin runs from the beginning both times.
-- **The machine is nobody's.** It has no name, so no variable can hold one, no
-  field can store one, and `next` itself cannot be called (the error says to
-  iterate the origin instead). If you need to hold an iteration in progress —
-  to write `zip`, or to hand one to a function — that is what the raw form is
-  for: there, the state struct is yours too.
-- **Effects go where they always go.** A `yield fn` declares them in its own
-  list, like any function — generic ones (`[Random<Int>]`) included — and
-  *driving* is what performs them: the `for` is what needs the handler, since
-  nothing calls the function. A `defer` inside runs when the loop ends *however*
-  it ends, including a `break` — the machine is closed on every path out.
-- **The origin may not be mutated while it is being driven.** It does not have
-  to be immutable — a `Counter` holding a `Mut List<Int>` is a perfectly good
-  origin — but for as long as a `for` over it is running, it has to hold still:
-  the machine reads it as it goes, so a write in the middle has no answer that
-  means the same thing everywhere. Write before the loop, after it, or drive
-  `copy(origin)` to work from a snapshot.
-- **`use` is barred inside a `yield fn`**: it would register a handler the
-  machine then has to carry across every suspension.
 
 #### What a container hands you
 
@@ -1311,17 +1249,16 @@ straight over a list, an array or a string, which is why *that* form neither
 allocates a pass nor consumes the container.
 
 A type of your own becomes iterable by declaring any one of three things: a
-`pass fn next` (the compiler writes the pass *and* the `iter`), an `iter` that
+`iter fn next` (the compiler writes the pass *and* the `iter`), an `iter` that
 hands back a pass (so combinators reach it), or its own `: Yield<self, T>` plus
 `next` (so it *is* a pass). `for x in bag` works as soon as `iter(bag)` does —
 the loop calls it once and drives what it answers.
 
 #### There is no iterator *type*
 
-Every pass is its own struct and every `yield fn` its own machine, so two
-producers have unrelated types. A position that has to hold either of two
+Every pass is its own struct, so two producers have unrelated types. A position that has to hold either of two
 different producers is therefore a union — `when` reads it like any other — or
-a re-wrap: drive the one you have inside a `yield fn` of your own and yield its
+a re-wrap: drive the one you have from an `iter fn` of your own and emit its
 elements. Nothing is boxed behind your back, and nothing is dynamically
 dispatched: an element costs an inlined call.
 
@@ -1546,7 +1483,7 @@ fn consume<T>(list: List<T>) -> [] Unit
 
 In this case calling `consume(list)` would _move_ the variable to the function: `list`'s type narrows to `Nothing` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the deduction list is written out or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
 
-Consuming calls are not the only way a value moves. Every other escape route consumes a bare variable the same way, and the error at a later use names the event: storing it in a struct, array, or tuple literal (the literal owns it now), spreading it (`...n` reads all of its fields into a new value and consumes the source), returning it, `break`-ing with it, `yield`-ing it (an iterator function that yields the same variable inside a loop consumes it anew every iteration — an error the loop analysis reports on the second iteration), and passing it to a `use` handler constructor (the handler stores it for the rest of the scope). A `break` with a value reaches the code after the loop on every exit path, so a variable consumed by `break` is unusable after the loop even when the `break` sits inside a branch. Reads, by contrast, never consume anything — in particular, string interpolation is a read: `"${n}"` formats the value and retains nothing, so `n` stays usable. As always, `copy(...)` at the move site keeps the original usable, and reassignment revives it.
+Consuming calls are not the only way a value moves. Every other escape route consumes a bare variable the same way, and the error at a later use names the event: storing it in a struct, array, or tuple literal (the literal owns it now), spreading it (`...n` reads all of its fields into a new value and consumes the source), returning it, `break`-ing with it, and passing it to a `use` handler constructor (the handler stores it for the rest of the scope). A `break` with a value reaches the code after the loop on every exit path, so a variable consumed by `break` is unusable after the loop even when the `break` sits inside a branch. Reads, by contrast, never consume anything — in particular, string interpolation is a read: `"${n}"` formats the value and retains nothing, so `n` stays usable. As always, `copy(...)` at the move site keeps the original usable, and reassignment revives it.
 
 When the deduction list is not specified, then it is implied that all parameters are included, with the qualifiers that are inferred from their usage in the function. For example:
 
@@ -1564,7 +1501,7 @@ Deductions must be statically computable, and so do not depend on the return typ
 
 ### Why returning a parameter is a move
 
-A parameter that is kept (listed in the deductions) compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is always *owned* by the caller. If a function returns one of its parameters, these two facts collide: returning a borrowed parameter would tie the return value's lifetime to the argument, and Salvo deliberately has no lifetimes to express that — the alternative, an implicit clone, is a hidden cost the compiler never inserts. So returning a parameter transfers ownership out through the return channel, and the value is deduced as _moved_: the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, `yield`-ing it, or passing it to a consuming call. Consequently, a written deduction list cannot promise a parameter back when the body returns it: `-> [x] T` with `return x` is a compile-time error.
+A parameter that is kept (listed in the deductions) compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is always *owned* by the caller. If a function returns one of its parameters, these two facts collide: returning a borrowed parameter would tie the return value's lifetime to the argument, and Salvo deliberately has no lifetimes to express that — the alternative, an implicit clone, is a hidden cost the compiler never inserts. So returning a parameter transfers ownership out through the return channel, and the value is deduced as _moved_: the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, or passing it to a consuming call. Consequently, a written deduction list cannot promise a parameter back when the body returns it: `-> [x] T` with `return x` is a compile-time error.
 
 This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere. When the caller should keep access to a value, keep the parameter and return something derived from it instead (an element copy, an index, a new value).
 
@@ -2209,7 +2146,6 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * When `None` is the only return type of a function, it should be translated to `Unit`.
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
-* A `yield fn` becomes a class the compiler writes — the body as a flat state machine — rather than Kotlin's `iterator { … }` builder, so that a machine can take its effect handlers per resume instead of capturing them at creation.
 * `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
 
 ### Rust
@@ -2219,5 +2155,4 @@ Two restrictions follow from the host implementing one concrete interface: neith
 * Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
 * Effects map to traits with `&mut self` methods; effect dependencies become leading `&mut dyn` parameters, and `use` instantiates a handler into a local that is threaded as `&mut local`.
 * `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
-* A `yield fn` becomes a struct the compiler writes: stable Rust has no generators, so the machine is explicit — the body's locals as fields and a flat dispatch on a state number — which is also what lets it take its effect handlers per resume rather than capturing them.
 * See BACKEND_SPEC.rust.md for the full rules.

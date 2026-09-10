@@ -131,6 +131,67 @@ passes; verified as already true (`grep`: every `?`-spread in `std/` is
 type that ask for no `iter`). Recorded under [seq-pass] so the next combinator
 author, and S-IO, inherit it.
 
+**`yield fn` is deleted and `pass fn` is now `iter fn` (user decisions
+2026-09-10).** With both forms in the language side by side, the user picked:
+`iter fn` covers the same ground without a state machine, so the sugar goes —
+and the name moves to `iter`, which ties the form to the `iter()` function it
+generates and says what the pass is *for*.
+
+**`iter fn` is a contextual keyword, and it has to be.** `iter` is the name of
+the function the form generates, so it must stay callable and declarable; at item
+level a bare identifier is otherwise a parse error, which makes `iter` followed by
+`fn` unambiguous with one token of lookahead. `pass` stopped being a keyword with
+the rename (`state` stays one).
+
+**What the deletion removed**, and it is the largest subtraction the compiler has
+had: the `yield` keyword and the `yield` *statement*; `generator.rs` (1,339
+lines) with its plan, numbered states, per-`defer` flags and release path; both
+backends' machine renderers, their `Option`-slot bindings, the origin-mint paths
+at `for` and at call arguments, and the Rust `SalvoPass`/`SalvoWalk` runtime
+module; the checker's `check_yield_fn_decl`, `origin_mints`, `origin_pass_ty`,
+`origin_pass_next`, `in_yield_fn`, the mutation-during-drive rule the origin
+needed, and `PassDriver::origin`; and the rules `[yield-fn-origin]`,
+`[iter-generator]`, `[fn-iterator]`, `[rs-generator]`, `[kt-generator]` and
+`[rs-iter-lazy]`. The test count went from 848 to **789** — 59 tests deleted with
+the machinery whose behaviour they pinned, and nothing else lost.
+
+**What replaced the affordances the machine had.** Three things a `yield fn`
+could do needed a plain answer rather than a port:
+
+- **Effects while driving.** A machine took its handlers per resume; an `iter
+  fn`'s `next` is an ordinary call, so `[Console]` is an ordinary effect and the
+  `for` supplies the handler once per turn. (Which is why the "effectful `next`"
+  codegen cut had to be lifted first — it is what made the deletion possible.)
+- **Replay.** A `for` over an origin minted a fresh machine each time; an `iter
+  fn` copies the subject at the mint, so a second drive starts over for the same
+  reason.
+- **Passing a subject straight to a combinator.** `origin_mints` let `map(fibs(6),
+  f)` work. It is now `map(iter(fibs(6)), f)` — the container convention, and the
+  same rule R5 chose for everything else: a combinator's subject *is* the pass.
+
+**What it costs, stated plainly**: a body whose control flow you would rather not
+invert by hand. `while … { yield a; … }` becomes "one turn, then return", which
+for a nested loop or a tree walk means writing the state out. And a `defer`
+bracketing a whole drive is gone — nothing suspends, so cleanup is a `close` on
+the pass rather than a `defer` inside the producer. The examples show the trade:
+`examples/iteration`'s Fibs went from an eight-line generator with an
+`opening`/`closing` `defer` to an eleven-line step function with no machine
+behind it — 81 lines of generated Rust down to 24.
+
+**Two things the deletion turned up in passing**, both worth knowing because they
+are the shape of every large deletion in this compiler:
+
+- **A cut that spans a section marker takes general helpers with it.** Removing
+  the Rust emitter's "iterator functions" section swallowed `rust_fn_name`,
+  `enter_generics` and four more that happened to live under the same heading;
+  the compiler caught it immediately, but the lesson is to cut by *function*, not
+  by region.
+- **Deleting a struct field is a behaviour change when a table is keyed by it.**
+  `Viable::pairings` looked dead once the mint bookkeeping beside it was gone —
+  and it carried the *argument coercions*, so dropping it silently stopped
+  `[str-drop-mut]` firing at call arguments. The test that caught it was a
+  Kotlin string-builder assertion, four files away from the edit.
+
 **A generic function may now take a *container* and infer its pass type (user
 decision 2026-09-10).** The shape:
 
@@ -142,14 +203,14 @@ fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
     return sum
 }
 
-total(countdown)      // a `pass fn` subject — its pass has no name
+total(countdown)      // an `iter fn` subject — its pass has no name
 total(bag)            // a container with a written `iter`
 total(list(1, 2, 3))  // std's own `iter`
 ```
 
 `?iter` was always *declarable* — there is nothing special about the name — but
 `It` could not be inferred, so `next` was reported ambiguous with `It` still `?`
-and the caller had to write both type arguments. **For a `pass fn` subject that
+and the caller had to write both type arguments. **For an `iter fn` subject that
 was not a workaround at all**: the generated pass is unnameable, so there is no
 type argument to write. That is what made this worth doing rather than recording.
 
@@ -174,7 +235,7 @@ type argument to write. That is what made this worth doing rather than recording
   *option* rather than as std's convention. std still takes passes; a container
   combinator is now something a program can write.
 
-**`pass fn` landed (user decision 2026-09-09): a hand-written `next` whose pass
+**`iter fn` landed (user decision 2026-09-09): a hand-written `next` whose pass
 struct is generated.** The question behind it was the user's: the generated state
 machine for a `yield fn` is a lot of code per producer, so what if the *other*
 form — writing `next` by hand — lost its boilerplate instead? The hurdle was
@@ -183,7 +244,7 @@ having to declare a pass struct for the position. Now:
 ```
 struct Countdown { from: Int }
 
-pass fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn next(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -201,8 +262,8 @@ are required for now in all three places at once), the subject is read-only, and
 the generated pass stays unnameable.
 
 **It is a desugaring in the syntax crate, and that is the whole reason it was
-cheap** [pass-fn]. `desugar::expand_pass_fns` runs inside `parse_module` and
-expands one `pass fn` into three ordinary declarations: a hidden
+cheap** [iter-fn]. `desugar::expand_pass_fns` runs inside `parse_module` and
+expands one `iter fn` into three ordinary declarations: a hidden
 `struct __Pass_<Subject> : Yield<self, T> canbe Mut` holding the subject and the
 `state` fields, an `iter` whose body is the struct literal (so the initializers
 land where they can read the subject), and the author's body as an ordinary
@@ -235,7 +296,7 @@ being written:
 - **Synthesized AST needs unique spans.** The checker's side tables are keyed by
   span — `fn_refs` → `fn_effects`, `expr_ty`, `coerce`, `call_fn` — so the
   generated `iter` and `next` sharing one name span made `iter` inherit the
-  `pass fn`'s `[Console]`, and a shared expression span typed a `copy` argument
+  `iter fn`'s `[Console]`, and a shared expression span typed a `copy` argument
   as the struct literal that shared it. Fixed with a span allocator that hands
   each synthesized node its own byte *inside* the declaration, so every span is
   still real. Recorded as a gotcha: it is the first desugaring in the compiler,
@@ -244,7 +305,7 @@ being written:
 **And one recorded cut is gone**: an **effectful `next` driven by a `for`** was a
 codegen error on both backends ("the handlers would have to be threaded into
 every turn of the loop"). It is threading, and the loop site has the handlers, so
-both emitters now pass them per turn — which is what makes an effectful `pass fn`
+both emitters now pass them per turn — which is what makes an effectful `iter fn`
 work, and it lifts the same cut for hand-written passes. A *generic* `next` with
 effects is still refused (its effects live on a fn value the caller supplied).
 
@@ -256,7 +317,7 @@ call and the handler threading. Verified with one program on both backends to
 byte-identical stdout — a `for` over a subject, the subject replayed, a pass held
 and driven by hand then finished by a `for`, three `state` fields, a subject field
 read per turn, and an effectful `next` — plus 22 new tests (17 checker, a parser
-snapshot of the expansion itself, 2 per backend) and a `pass fn` producer added to
+snapshot of the expansion itself, 2 per backend) and an `iter fn` producer added to
 `examples/iteration`.
 
 **A follow-up the same day: the pass holds as little of the subject as the body
@@ -292,7 +353,7 @@ generic subject, or a declaration this file cannot see.
   three tiers.
 
 **Known limitation, inherited rather than introduced**: a *generic* subject
-(`pass fn next<T>(w: Window<T>)`) reaching tier 3 is refused by the Kotlin `copy`
+(`iter fn next<T>(w: Window<T>)`) reaching tier 3 is refused by the Kotlin `copy`
 lowering [kt-copy], which cannot decide mutability through a type variable. Rust
 handles it; Kotlin says so loudly. `yield fn` is untouched and still the answer
 when a body's control flow should not be inverted by hand.
@@ -8708,6 +8769,22 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- (iter-fn) **Cut by function, not by region.** Deleting the Rust emitter's
+  "iterator functions" section took `rust_fn_name`, `enter_generics`,
+  `emit_return_type` and three more with it — they happened to live under that
+  heading. The compiler caught it, but a section marker is not a scope, and the
+  restore cost more than the delete.
+- (iter-fn) **A struct field that looks dead may be the only path a side table
+  has.** `Viable::pairings` was reported as never-read once the code beside it
+  was gone; it carried the per-argument *coercions*, so removing it silently
+  stopped `[str-drop-mut]` from firing at call arguments — caught four files away
+  by a Kotlin string-builder assertion. When the compiler says a field is unread,
+  check what stopped reading it.
+- (iter-fn) **An assertion on a substring of generated code can start matching
+  something else.** `!src.contains("_pass = it")` was pinning "a kept pass is not
+  bound into a local"; once a mint appeared it matched `__loop2_pass = iter__4(…)`
+  and failed for the wrong reason. Name the loop.
+
 - (implicit-infer) **A learning pass that only runs *between* arguments cannot
   learn from the arguments.** `extend_subst_from_implicits` existed, was correct,
   and was called in the one place where the variable it needed (`C` in
@@ -8717,22 +8794,22 @@ snapshot diffs.
   does; the fix here was one extra call after the argument loop, plus repeating
   the sweep to a fixpoint.
 
-- (pass-fn) **A desugaring must give every synthesized node its own span.** The
+- (iter-fn) **A desugaring must give every synthesized node its own span.** The
   checker's side tables are keyed by span, so two generated declarations sharing
   a name span silently share their `fn_effects` entry, and two generated
   expressions sharing a span share their type. Both happened within an hour of
-  each other while building [pass-fn] — the generated `iter` inheriting a
+  each other while building [iter-fn] — the generated `iter` inheriting a
   `[Console]` it never declared, then a `copy` argument typed as the struct
   literal beside it. The fix that scales is a span allocator over the original
   declaration's byte range: unique by construction, and every span still points
   at real source, so an escaped diagnostic lands in the right place.
-- (pass-fn) **A table the checker fills and nobody reads is a defect waiting.**
+- (iter-fn) **A table the checker fills and nobody reads is a defect waiting.**
   `PassDriver::mint_iter_fn` was recorded from R5 onward and read by neither
   emitter, so `for x in bag` over a container of one's own emitted a drive of the
   container. `grep` for a field's readers when adding one; a `Checked` field with
   no consumer is either dead or a hole.
-- (pass-fn) **Desugaring into declarations the checker already supports is the
-  cheapest way to add a form.** `pass fn` needed no checker rule, no emitter
+- (iter-fn) **Desugaring into declarations the checker already supports is the
+  cheapest way to add a form.** `iter fn` needed no checker rule, no emitter
   rule, and no `Checked` field: expanding it in `parse_module` bought `for`,
   `iter`, the combinators, deductions and narrowing at once. The contrast with
   `yield fn` — whose machine needed a planner, two renderers and a per-effect-set

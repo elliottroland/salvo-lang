@@ -414,9 +414,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "qualifies",
                             span: 301..310,
@@ -534,9 +533,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "qualifies",
                             span: 415..424,
@@ -666,9 +664,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "qualifies",
                             span: 536..545,
@@ -798,9 +795,8 @@ Module {
                     "return plain Int values which gain the qualifier by construction.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "random_positive_int",
                     span: 799..818,
@@ -954,9 +950,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "checks",
                     span: 966..972,
@@ -1377,9 +1372,8 @@ Module {
                     "with the qualifier *removed*, which is what opens a qualified union.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "describe",
                     span: 1490..1498,
@@ -1724,9 +1718,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "read_only",
                     span: 1918..1927,
@@ -1966,9 +1959,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "qualifies",
                             span: 2360..2369,

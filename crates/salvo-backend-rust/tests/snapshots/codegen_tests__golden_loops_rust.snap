@@ -160,6 +160,25 @@ pub fn range(start: i32, end: i32) -> Range {
     return Range { start: start, end: end };
 }
 
+#[derive(Clone, Debug)]
+pub struct __Pass_Range {
+    pub end: i32,
+    pub at: i32,
+}
+
+pub fn iter__4(r: &Range) -> __Pass_Range {
+    return __Pass_Range { end: r.end, at: r.start };
+}
+
+pub fn next__6(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
+    if __p.at >= __p.end {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut v = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(v));
+}
+
 pub fn main() {
     let mut console = StdOutConsole::new();
     let mut i = 0;
@@ -206,12 +225,11 @@ __loop3
         println(&mut console, &(format!("found: {}", f)));
     }
     let mut __loop4_ran = false;
-    let mut __loop5_pass = __Pass_Range::new(range(0, 0));
-    while let Some(mut x) = __loop5_pass.__advance() {
+    let mut __loop5_pass = iter__4(&(range(0, 0)));
+    while let Union2::U1(mut x) = next__6(&mut __loop5_pass) {
         __loop4_ran = true;
         println(&mut console, &("unreachable".to_string()));
     }
-    __loop5_pass.__close();
     if !__loop4_ran {
         println(&mut console, &("empty range".to_string()));
     }
@@ -253,53 +271,6 @@ __loop7.unwrap()
         Union2::U2(_) => {
             println(&mut console, &(format!("err: {}", verdict.u2().clone())));
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct __Pass_Range {
-    r: Range,
-    i: i32,
-    __state: u32,
-}
-
-impl __Pass_Range {
-    pub fn new(r: Range) -> Self {
-        Self {
-            r,
-            i: 0,
-            __state: 0,
-        }
-    }
-
-    pub fn __advance(&mut self) -> Option<i32> {
-        loop {
-            match self.__state {
-                0 => {
-                    self.i = self.r.start;
-                    self.__state = 1;
-                    continue;
-                }
-                1 => {
-                    if !((({ let __t = self.i; self.i += 1; __t }) < self.r.end)) {
-                        self.__state = 2;
-                        continue;
-                    }
-                    let __v = self.i - 1;
-                    self.__state = 1;
-                    return Some(__v);
-                }
-                2 => {
-                    self.__state = 2;
-                    return None;
-                }
-                _ => return None,
-            }
-        }
-    }
-
-    pub fn __close(&mut self) {
-        self.__state = 2;
     }
 }
 

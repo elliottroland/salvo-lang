@@ -307,26 +307,20 @@ pub struct FnDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
-    /// [yield-fn-origin] `yield fn next(c: Counter) -> Int`: the sugar form
-    /// of a `: Yield<self, T>` obligation's member. The subject is the *origin*
-    /// struct, the return type is the **element** type, and the compiler
-    /// generates a hidden state machine the `for` sugar drives — the fn
-    /// itself is never callable. Declared with the keyword, not inferred
-    /// from the body (user direction 2026-09-08).
-    pub is_yield: bool,
-    /// [pass-fn] `pass fn next(c: Countdown) -> Emitted T | Finished`: a
+    /// [iter-fn] `iter fn next(c: Countdown) -> Emitted T | Finished`: a
     /// hand-written `next` whose **pass struct is generated**. The subject is
     /// ordinary data; the pass's own fields are declared in the `state { … }`
-    /// block below and initialized once per pass. Desugared away before the
-    /// checker ever sees it (`desugar::expand_pass_fns`), into a hidden struct,
-    /// an `iter` that mints it, and this body as an ordinary `next` — so
-    /// nothing downstream knows the form exists.
-    pub is_pass: bool,
-    /// [pass-fn] The `state { … }` block's fields, in declaration order. Each
+    /// block below and initialized once per pass. Named after the `iter` it
+    /// generates — that function is what a combinator or a `for` reaches it
+    /// through. Desugared away before the checker ever sees it
+    /// (`desugar::expand_iter_fns`), into a hidden struct, that `iter`, and this
+    /// body as an ordinary `next` — so nothing downstream knows the form exists.
+    pub is_iter: bool,
+    /// [iter-fn] The `state { … }` block's fields, in declaration order. Each
     /// carries an annotation and an initializer, exactly like a handler's state
     /// [effect-handler]; the initializer may read the subject and runs when the
     /// pass is minted.
-    pub pass_state: Vec<FieldDecl>,
+    pub iter_state: Vec<FieldDecl>,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
@@ -576,8 +570,6 @@ pub enum Stmt {
     Break { value: Option<Expr>, span: Span },
     /// `continue`
     Continue { span: Span },
-    /// `yield expr`
-    Yield { value: Expr, span: Span },
     /// `use HandlerExpr(...)` — register a handler for the current context.
     Use { handler: Expr, span: Span },
     /// `defer { ... }` — run the block when the enclosing block ends

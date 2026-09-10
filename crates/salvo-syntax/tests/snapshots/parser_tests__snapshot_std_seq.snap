@@ -10,9 +10,8 @@ Module {
                     "Applies [f] to every element of [it], in order.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "map",
                     span: 1198..1201,
@@ -331,9 +330,8 @@ Module {
                     "The elements of [it] that [keep] accepts, in order.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "filter",
                     span: 1440..1446,
@@ -670,9 +668,8 @@ Module {
                     "[f] — the accumulator first, the element second.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "reduce",
                     span: 1797..1803,
@@ -981,9 +978,8 @@ Module {
                     "when the subject really is a `List` [fn-overload-rank].",
                 ],
                 intrinsic: true,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "map",
                     span: 2281..2284,
@@ -1142,9 +1138,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: true,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "filter",
                     span: 2360..2366,
@@ -1299,9 +1294,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: true,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "reduce",
                     span: 2448..2454,
@@ -1726,9 +1720,8 @@ Module {
                     "pulls. Chain freely — the result is a pass like any other.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "map_lazy",
                     span: 3891..3899,
@@ -2055,9 +2048,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "next",
                     span: 4063..4067,
@@ -2685,9 +2677,8 @@ Module {
                     "The elements of [it] that [keep] accepts, lazily.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "filter_lazy",
                     span: 4819..4830,
@@ -2988,9 +2979,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "next",
                     span: 5003..5007,
@@ -3429,9 +3419,8 @@ Module {
                     "move `?Yield` makes for the subject [implicit-group].",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "map_to",
                     span: 5972..5978,
@@ -3831,9 +3820,8 @@ Module {
                     "The same, keeping the elements [keep] accepts rather than mapping them.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "filter_to",
                     span: 6289..6298,

@@ -134,12 +134,12 @@ fn main() [use] {
   scope), then the most specific signature; an ambiguity is an error, and the
   caller picks with `size@core.list(xs)` or `rename fn size2 = size(...)` —
   dot-notation
-  (`list.size()` ≡ `size(list)`), variadics, lambdas, generics, and
-  `yield fn` producers. Iteration is ordinary Salvo: a **pass** is a struct
-  with a `next`, `for` is sugar for calling it until `Finished`, and
-  `map`/`filter`/`reduce` take a pass — `params Yield<It, T>` is a bundle of
-  implicit parameters, not a trait, so a type of your own joins in by declaring
-  one function.
+  (`list.size()` ≡ `size(list)`), variadics, lambdas and generics.
+  Iteration is ordinary Salvo: a **pass** is a struct with a `next`, `for` is
+  sugar for calling it until `Finished`, an `iter fn` writes the pass struct for
+  you, and `map`/`filter`/`reduce` take a pass — `params Yield<It, T>` is a
+  bundle of implicit parameters, not a trait, so a type of your own joins in by
+  declaring one function.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible
   in signatures. A handler may itself depend on another effect (declared as

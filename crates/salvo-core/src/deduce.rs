@@ -768,9 +768,9 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(value);
                 }
             }
-            Stmt::Return { value: Some(v), .. }
-            | Stmt::Break { value: Some(v), .. }
-            | Stmt::Yield { value: v, .. } => self.moving_expr(v),
+            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
+                self.moving_expr(v)
+            }
             Stmt::Use { handler, .. } => {
                 // Handler constructor arguments are stored in the handler.
                 if let Expr::Call { args, .. } = handler {

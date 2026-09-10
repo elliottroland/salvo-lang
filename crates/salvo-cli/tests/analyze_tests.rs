@@ -224,8 +224,10 @@ fn missing_return_is_an_error() {
     fs::write(
         dir.join("bad.sv"),
         "fn sign(x: Int) -> Int {\n    if x < 0 {\n        return -1\n    } else {\n        return 1\n    }\n}\n\
-         struct Nums : Yield<self, Int> {\n    from: Int\n}\n\
-         yield fn next(n: Nums) -> Int {\n    yield 1\n    yield 2\n}\n\
+         struct Nums {\n    limit: Int\n}\n\
+         iter fn next(n: Nums) -> Emitted Int | Finished {\n    \
+         state {\n        at: Int = 0\n    }\n    if at >= n.limit {\n        \
+         return finished()\n    }\n    at = at + 1\n    return emitted(copy(at))\n}\n\
          fn nothing(x: Int) {\n    let y = x\n}\n",
     )
     .unwrap();
@@ -871,7 +873,7 @@ fn fate_mut_projection_arguments_poison_derived() {
 // identifier exactly like a call-site move — storing it in a
 // struct/array/tuple literal, spreading it (`...n`), `break n` (the code
 // after the loop sees it moved, even when the `break` sits inside a
-// branch), `yield n` (anew every iteration — the loop re-check surfaces
+// branch), and the remedies that keep each of them clean
 // the back edge), and passing it to a `use` handler constructor. The
 // use-site diagnostic names the consuming event. Derived variables
 // cannot be moved by any of these [fate-derived-readonly].
@@ -892,9 +894,6 @@ fn l2_move_sites_consume_roots() {
          read(b.item)\n}\n\n\
          fn break_in_branch() {\n    let s = \"x\"\n    let r = while true {\n        \
          if true {\n            break s\n        }\n    }\n    read(s)\n}\n\n\
-         struct Yielding : Yield<self, Str> {\n    seed: Str\n}\n\n\
-         yield fn next(y: Yielding) -> Str {\n    let s = \"x\"\n    \
-         for i in [1, 2] {\n        yield s\n    }\n}\n\n\
          fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n\n\
          fn store_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
          read_list(xs)\n}\n\n\
@@ -925,12 +924,6 @@ fn l2_move_sites_consume_roots() {
         stderr.contains("`s` cannot be used here: it was consumed (moved) by a `break`"),
         "stderr: {stderr}"
     );
-    // `yield s` in a loop consumes anew every iteration: the back edge
-    // errors at the yield itself on the re-check.
-    assert!(
-        stderr.contains("`s` cannot be used here: it was consumed (moved) by a `yield`"),
-        "stderr: {stderr}"
-    );
     // Handler-constructor arguments are stored in the handler.
     assert!(
         stderr.contains(
@@ -953,7 +946,7 @@ fn l2_move_sites_consume_roots() {
         ),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("9 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("8 errors"), "stderr: {stderr}");
 }
 
 // [deduce-consume] L2 positive matrix: `copy` at each new move site keeps
@@ -976,9 +969,6 @@ fn l2_move_sites_remedies_stay_clean() {
          let b = Box {item: copy(s)}\n    let c = Box {...copy(b)}\n    \
          use FixedGreeter(copy(s))\n    read(s)\n    read(b.item)\n}\n\n\
          fn revive() {\n    let s = \"x\"\n    let t = (s, 1)\n    s = \"y\"\n    read(s)\n}\n\n\
-         struct Reassigning : Yield<self, Str> {\n    seed: Str\n}\n\n\
-         yield fn next(r: Reassigning) -> Str {\n    let s = \"x\"\n    \
-         for i in [1, 2] {\n        yield s\n        s = \"y\"\n    }\n}\n\n\
          fn break_consumes_only_its_operand() {\n    let s = \"x\"\n    let n = 0\n    \
          let r = while n < 3 {\n        if n == 2 {\n            break n\n        }\n        \
          n++\n    }\n    read(s)\n}\n\n\

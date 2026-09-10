@@ -22,9 +22,9 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
     let mut module = parser.parse_module();
     diagnostics.extend(parser.into_diagnostics());
-    // [pass-fn] A `pass fn` is expanded into ordinary declarations here, so
+    // [iter-fn] An `iter fn` is expanded into ordinary declarations here, so
     // every consumer of a parsed module — resolve, the checker, both emitters,
     // the LSP — sees the shape it already supports.
-    diagnostics.extend(desugar::expand_pass_fns(&mut module));
+    diagnostics.extend(desugar::expand_iter_fns(&mut module));
     (module, diagnostics)
 }

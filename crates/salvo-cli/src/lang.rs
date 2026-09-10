@@ -20,12 +20,12 @@ use std::process::ExitCode;
 /// keyword from `KEYWORDS`; `keywords_are_fully_categorized` asserts the
 /// partition is exact (no missing, no unknown, no duplicates) [cli-lang].
 const CONTROL_KEYWORDS: &[&str] = &[
-    "if", "elif", "else", "when", "while", "for", "in", "return", "break", "continue", "yield",
+    "if", "elif", "else", "when", "while", "for", "in", "return", "break", "continue",
     "defer", "try",
 ];
 const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
-    "platform", "import", "provenance", "refn", "rename", "pass", "state",
+    "platform", "import", "provenance", "refn", "rename", "state",
 ];
 const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "canbe", "is", "use"];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];

@@ -166,9 +166,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "build",
                     span: 137..142,
@@ -677,9 +676,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "mutate",
                     span: 601..607,
@@ -761,9 +759,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "interpolate",
                     span: 669..680,

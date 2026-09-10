@@ -14,7 +14,6 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use salvo_core::generator::{FieldKind, Step};
 use salvo_core::check::{Checked, Coercion, UnionTest};
 use salvo_core::types::Ty;
 use salvo_core::{ModulePath, Program, Symbols};
@@ -194,31 +193,6 @@ pub fn emit_program_reporting(
     } else {
         Err(errors)
     }
-}
-
-/// The Kotlin package of a Salvo module [kt-package]: `salvo.` plus the
-/// module path (`core.console` -> `salvo.core.console`). The generated
-/// `unions.kt` lives in the root package `salvo`.
-/// [iter-generator] The value a property of this Kotlin type starts at.
-/// `None` where the type has none — a class, a union wrapper, a generic —
-/// which becomes a nullable property instead.
-fn zero_of_kotlin_type(rendered: &str) -> Option<String> {
-    let zero = match rendered {
-        "Int" => "0",
-        "Long" => "0L",
-        "Byte" => "0",
-        "Float" => "0.0f",
-        "Double" => "0.0",
-        "Boolean" => "false",
-        "Char" => "'\\u0000'",
-        "String" => "\"\"",
-        "Unit" => "Unit",
-        other if other.starts_with("MutableList<") => "mutableListOf()",
-        other if other.starts_with("List<") => "listOf()",
-        other if other.ends_with('?') => "null",
-        _ => return None,
-    };
-    Some(zero.to_string())
 }
 
 fn kotlin_package(module: &ModulePath) -> String {
@@ -489,36 +463,22 @@ struct Emitter<'p> {
     /// names a bare call inside the body reaches as *values* rather than
     /// resolving as overloads.
     implicits: Vec<salvo_core::ImplicitParam>,
-    /// [yield-fn-origin] Passes minted at the arguments of the call being
+    /// [iter-fn] Passes minted at the arguments of the call being
     /// rendered: (local name, construction, release). The mint is the
     /// compiler's value, so the compiler releases it after the call —
     /// whatever the callee did with it — which is the `for` lowering's
     /// discipline (construct, drive, close) at a call site.
     pending_mints: Vec<(String, String, String)>,
-    mint_counter: usize,
-    /// [yield-fn-origin] The machine types minted at the call being emitted, in
+    /// [iter-fn] The machine types minted at the call being emitted, in
     /// argument order: the advance adapter writes one on its lambda parameter,
     /// which is what pins the callee's type argument.
     mint_machines: Vec<String>,
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
-    /// [iter-generator] Inside an iterator fn's body: the names that are
-    /// properties of the generated pass rather than locals. A Kotlin property
-    /// is in scope in its own class's methods, so reads need no rewriting —
-    /// what this set decides is that a `let` *assigns* instead of declaring.
-    gen_fields: HashSet<String>,
-    /// [iter-generator] Of those, the ones held in a nullable property
+    /// [iter-fn] Of those, the ones held in a nullable property
     /// because their type has no zero value: reads unwrap with `!!`.
     gen_slots: HashSet<String>,
-    /// [fn-effects] The handler arguments the machine being rendered
-    /// forwards to its own methods (`console`), empty for a pure producer. A
-    /// `defer` discharge is a call to `__run_dN`, and a deferred block may
-    /// itself perform effects.
-    gen_handler_args: String,
-    /// [iter-generator] The fields by plan index: the steps name a slot or an
-    /// element binding by number.
-    gen_field_names: Vec<String>,
     /// The indentation of the statement being emitted, so an
     /// expression-position `try` block reads like the rest of the output.
     expr_indent: usize,
@@ -550,7 +510,7 @@ struct Emitter<'p> {
     /// match the effect interface).
     handler_deps: Vec<EffectEntry>,
     /// Statement context: inside an `iterator {}` builder, bare `return`
-    /// re-targets to `return@iterator` [fn-iterator] — carried as state
+    /// re-targets to `return@iterator` [iter-protocol] — carried as state
     /// so value-position lowerings (value blocks, loop lowering, `when`
     /// expressions) inherit it; lambda bodies reset it (a lambda's
     /// `return` never targets the enclosing iterator).
@@ -590,14 +550,10 @@ impl<'p> Emitter<'p> {
             effect_paths: HashMap::new(),
             ret_is_unit: false,
             needs_throw: false,
-            gen_fields: HashSet::new(),
             gen_slots: HashSet::new(),
-            gen_handler_args: String::new(),
-            gen_field_names: Vec::new(),
-            implicits: Vec::new(),
+                            implicits: Vec::new(),
             pending_mints: Vec::new(),
-            mint_counter: 0,
-            mint_machines: Vec::new(),
+                    mint_machines: Vec::new(),
             expr_indent: 0,
             effect_env: Vec::new(),
             mutated: HashSet::new(),
@@ -881,72 +837,6 @@ impl<'p> Emitter<'p> {
         Some(self.kotlin_ty(&ty))
     }
 
-    /// Looks up a checker-resolved fn declaration by its stable key.
-    /// [yield-fn-origin] The loop header for a `for` over an **origin**, and
-    /// the trailer that ends it:
-    ///
-    /// ```text
-    /// val __loop0_pass = __Pass_Counter(c)
-    /// try {
-    /// while (__loop0_pass.__advance(console)) {
-    ///     val n = __loop0_pass.__current()
-    /// ```
-    ///
-    /// The machine is constructed here — "getting a fresh pass is constructing
-    /// one", with the state struct hidden — so a second `for` over the same
-    /// origin starts over. The `close` goes in a `finally`, which is how
-    /// `defer` is lowered here anyway [kt-defer-finally], so `break`, `return`
-    /// and exhaustion all reach it.
-    ///
-    /// The origin needs no copy: it is non-`Mut` and transitively immutable
-    /// ([iter-mut-param] refuses a mutable one), so sharing the reference with
-    /// every machine is unobservable — which is what keeps this parity-equal
-    /// with Rust's clone.
-    fn emit_origin_loop_header(
-        &mut self,
-        driver: salvo_core::PassDriver,
-        pattern: &Pattern,
-        iterable: &Expr,
-        indent: usize,
-    ) -> (String, String) {
-        let pad = "    ".repeat(indent);
-        let inner_pad = "    ".repeat(indent + 1);
-        let Some(next_key) = driver.next.key() else {
-            self.error("an origin's `for` needs the `yield fn` behind it");
-            return (String::new(), String::new());
-        };
-        let Some(decl) = self.fn_by_key(next_key) else {
-            self.error("the `yield fn` this `for` resolved to is not available");
-            return (String::new(), String::new());
-        };
-        let machine = self.origin_machine_name(decl);
-        let effects: Vec<Ty> = self
-            .checked
-            .fn_effects
-            .get(&next_key)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| !is_throw_effect_ty(t))
-            .collect();
-        let args: Vec<String> = effects
-            .iter()
-            .map(|ty| self.lookup_effect_handler_by_ty(ty))
-            .collect();
-        let args = args.join(", ");
-        let place = format!("{}_pass", self.fresh_loop_var());
-        let subject = self.emit_expr(iterable);
-        let var = self.for_pattern_var(pattern);
-        (
-            format!(
-                "{pad}val {place} = {machine}({subject})\n\
-                 {pad}try {{\n\
-                 {pad}while ({place}.__advance({args})) {{\n\
-                 {inner_pad}val {var} = {place}.__current()\n"
-            ),
-            format!("{pad}}} finally {{\n{inner_pad}{place}.__close({args})\n{pad}}}\n"),
-        )
-    }
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
         match self.program.modules.get(key.file)?.items.get(key.item)? {
             Item::Fn(f) => Some(f),
@@ -975,13 +865,9 @@ impl<'p> Emitter<'p> {
                 Item::Effect(e) if e.name.name == salvo_core::THROW_EFFECT => {}
                 Item::Effect(e) => body.push_str(&self.emit_effect(e)),
                 Item::Handler(h) => body.push_str(&self.emit_handler(h)),
-                // [yield-fn-origin] A `yield fn` is not a function in the
+                // [iter-fn] A `yield fn` is not a function in the
                 // output: it *is* the hidden state machine the `for` sugar
                 // constructs, so nothing callable is emitted for it.
-                Item::Fn(f) if f.is_yield && f.body.is_some() => {
-                    let item = self.emit_origin_machine(f);
-                    body.push_str(&item);
-                }
                 Item::Fn(f) if f.body.is_some() => body.push_str(&self.emit_fn(f)),
                 Item::Qualifier(q) => body.push_str(&self.emit_qualifier(q)),
                 _ => {}
@@ -1387,13 +1273,10 @@ impl<'p> Emitter<'p> {
         // *platform* effect, which the host supplies by calling the entry
         // point. Every other effect `main` needs is registered inside it
         // with `use`.
-        // [fn-effects] A producer's effects belong to its *machine*, not to
-        // the call that mints one: none of the body runs here, so the factory
-        // takes no handler and its call sites supply none (the checker's
-        // `call_effects` is empty for it).
-        let effect_params_wanted =
-            (!is_main || self.declares_platform_effect(f)) && !contains_yield(body);
-        if effect_params_wanted {
+        // [platform-effect] `main` takes only its *platform* effects: the host
+        // supplies those by calling the entry point, and everything else it
+        // needs is registered inside it with `use`.
+        if !is_main || self.declares_platform_effect(f) {
             let keep = |emitter: &Self, ty: Option<&Ty>, rendered: &str| {
                 !is_main || emitter.is_platform_effect(ty, rendered)
             };
@@ -1505,12 +1388,6 @@ impl<'p> Emitter<'p> {
             params.join(", ")
         );
 
-        // [iter-generator] An iterator fn returns an `Iterable<T>` that mints
-        // a **pass** per iteration: a class the compiler wrote, whose
-        // `__advance` is the body as a flat state machine. See
-        // `emit_generator`; the `iterator { … }` builder is gone, and with it
-        // the one lowering that could only ever have *captured* a handler.
-        let generated = String::new();
         {
             let saved_ctx = self.stmt_ctx;
             self.stmt_ctx = StmtCtx::Normal;
@@ -1518,7 +1395,6 @@ impl<'p> Emitter<'p> {
             self.stmt_ctx = saved_ctx;
         }
         out.push_str(&format!("{pad}}}\n"));
-        out.push_str(&generated);
 
         self.generics = saved_generics;
         self.effect_env = saved_env;
@@ -1527,406 +1403,6 @@ impl<'p> Emitter<'p> {
         self.implicits = saved_implicits;
         self.ret_is_unit = saved_ret_unit;
         out
-    }
-
-    // ================= iterator functions [iter-generator] =================
-
-    /// [kt-generator] [iter-generator] An iterator fn's body as a **pass**: the shared plan
-    /// (`salvo_core::generator`) rendered as a class whose properties are the
-    /// body's locals and whose `__advance` is one flat dispatch loop. Returns
-    /// the fn's own body — an `Iterable` that mints a pass per iteration —
-    /// and the class, which the caller emits beside the fn.
-    ///
-    /// The fn still returns Kotlin's `Iterable<T>`, the representation
-    /// `Iter<T>` has always had here: a *factory*, so a second `for` starts
-    /// from the beginning. What changed is the pass — a class the compiler
-    /// wrote instead of the `iterator { … }` coroutine builder, which is what
-    /// lets `__advance` take the effect handlers as parameters later (roadmap
-    /// I4). Kotlin *could* have kept the builder and captured the handlers at
-    /// creation; it must not, because when a handler is bound is observable —
-    /// the backend-parity principle.
-    /// [rs-generator] [kt-generator] The machine a `yield` body becomes.
-    /// [yield-fn-origin] The machine a `yield fn` body becomes — the only form
-    /// since R5: there is no factory to mint it from, because the **origin** is
-    /// the recipe and each `for` builds a fresh machine from it.
-    fn emit_generator_machine(&mut self, f: &FnDecl, elem: &str, pass_name: &str) -> String {
-        // [implicit-param] The implicits are properties of the pass like any
-        // other parameter: the body calls them on every turn, long after the
-        // call that filled them.
-        let implicits = self.implicits_of(f);
-        let plan = match salvo_core::plan_generator_with_implicits(f, &implicits) {
-            Ok(plan) => plan,
-            Err(errors) => {
-                for e in errors {
-                    self.error(e.message);
-                }
-                return String::new();
-            }
-        };
-        // [fn-effects] A producer that performs effects takes its handlers
-        // as *parameters* of the machine — nothing is captured, which is what
-        // lets a pass perform effects at all. Kotlin could have kept the
-        // `iterator { … }` builder and captured them at creation; it must not,
-        // because *when* a handler is bound is observable — the
-        // backend-parity principle.
-        //
-        // The claim comes from `Checked::producer_effects`, the same table the
-        // Rust backend reads: the handler *order* has to be the same in the
-        // generated interface, in this machine and at every drive site.
-        // [yield-fn-origin] The origin form declares its effects on the fn,
-        // normally — nothing calls it, so there is no call site to burden.
-        let claimed: Vec<Ty> = self
-            .checked
-            .fn_refs
-            .get(&(self.file_idx, f.name.span))
-            .and_then(|k| self.checked.fn_effects.get(k))
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| !is_throw_effect_ty(t))
-            .collect();
-        // [fn-effects] The handlers, as parameters of the machine — named from
-        // the *rendered* effect type, exactly as an ordinary fn's are, so a
-        // **generic** effect (`Random<Int>`) needs nothing special: the type
-        // carries its arguments and the name is derived from it (R5 removed the
-        // per-effect-set interface whose naming used to forbid this).
-        let mut handler_params: Vec<String> = Vec::new();
-        let mut handler_args: Vec<String> = Vec::new();
-        let mut handler_env: Vec<EffectEntry> = Vec::new();
-        for ty in &claimed {
-            let rendered = self.kotlin_ty(ty);
-            let param = self.unique_name(effect_param_name(&rendered));
-            handler_params.push(format!("{param}: {rendered}"));
-            handler_args.push(param.clone());
-            handler_env.push(EffectEntry {
-                ty: Some(ty.clone()),
-                rendered,
-                expr: param,
-            });
-        }
-        let handler_sig = handler_params.join(", ");
-        let handler_call = handler_args.join(", ");
-        let pass = pass_name.to_string();
-        let generic_decl = if f.generics.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                f.generics
-                    .iter()
-                    .map(|g| g.name.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-
-        // The properties, in plan order: the parameters become constructor
-        // properties; everything else starts at its type's zero, or is
-        // nullable when the type has none.
-        let mut ctor: Vec<String> = Vec::new();
-        let mut props = String::new();
-        let mut slots: HashSet<String> = HashSet::new();
-        for field in &plan.fields {
-            let name = kt_ident(&field.name);
-            match &field.kind {
-                FieldKind::Param(p) => {
-                    let ty = self.emit_type(&p.ty);
-                    ctor.push(format!("private var {name}: {ty}"));
-                }
-                FieldKind::Implicit(imp) => {
-                    let ty: Ty = imp.ty.clone();
-                    let rendered = self.kotlin_ty(&ty);
-                    ctor.push(format!("private var {name}: {rendered}"));
-                }
-                FieldKind::Local { ty, value, .. } => {
-                    let rendered = match ty {
-                        Some(t) => self.emit_type(t),
-                        None => match self.ty_of(value.span()).cloned() {
-                            Some(t) => self.kotlin_ty(&t),
-                            None => {
-                                self.error(format!(
-                                    "the type of `{}` is not known, so it cannot become a \
-                                     property of the generated pass",
-                                    field.name
-                                ));
-                                "Any?".to_string()
-                            }
-                        },
-                    };
-                    props.push_str(&self.gen_property(&name, &rendered, &field.name, &mut slots));
-                }
-                FieldKind::Element { subject, span } => {
-                    let rendered = self.gen_elem_type(subject, *span);
-                    props.push_str(&self.gen_property(&name, &rendered, &field.name, &mut slots));
-                }
-                FieldKind::Pass { subject, span } => {
-                    let rendered = self.gen_elem_type(subject, *span);
-                    // [fn-effects] A *claiming* inner producer would need its
-                    // handlers threaded through the outer machine's own
-                    // parameters and its slot typed as the generated interface
-                    // — the nested case the prototype does not cover. Refused
-                    // rather than driven without them [backend-never-wrong].
-                    if self
-                        .ty_of(subject.span())
-                        .is_some_and(|t| !t.effect_claims().is_empty())
-                    {
-                        self.error(
-                            "a producer nested inside another producer may not perform \
-                             effects yet: its handlers would have to thread through the \
-                             outer machine",
-                        );
-                    }
-                    props.push_str(&format!(
-                        "    private var {name}: Iterator<{rendered}>? = null\n"
-                    ));
-                }
-            }
-        }
-        for i in 0..plan.defers.len() {
-            props.push_str(&format!("    private var __d{i}: Boolean = false\n"));
-        }
-        props.push_str("    private var __state: Int = 0\n");
-        // The machine holds the element itself: `Any?` rather than `T`, for the
-        // reason the protocol tags its end — a null element is an element like
-        // any other [iter-protocol].
-        props.push_str("    private var __current: Any? = null\n");
-
-        let saved_fields = std::mem::take(&mut self.gen_fields);
-        let saved_slots = std::mem::replace(&mut self.gen_slots, slots);
-        let saved_names = std::mem::take(&mut self.gen_field_names);
-        for field in &plan.fields {
-            self.gen_fields.insert(field.name.clone());
-            self.gen_field_names.push(kt_ident(&field.name));
-        }
-        // The machine's handler parameters are the effect environment its
-        // body's calls resolve against [kt-effect-params].
-        let saved_env = std::mem::take(&mut self.effect_env);
-        self.effect_env.extend(handler_env);
-        let saved_handler_args =
-            std::mem::replace(&mut self.gen_handler_args, handler_call.clone());
-
-        let fin = plan.finished_state;
-        let mut machine = String::new();
-        for (i, state) in plan.states.iter().enumerate() {
-            machine.push_str(&format!("                {i} -> {{\n"));
-            machine.push_str(&self.emit_gen_steps(&state.steps, 5, i, fin));
-            machine.push_str("                }\n");
-        }
-        let mut runners = String::new();
-        for (i, site) in plan.defers.iter().enumerate() {
-            let body = self.emit_block_stmts(site.body, 3);
-            runners.push_str(&format!(
-                "\n    private fun __run_d{i}({handler_sig}) {{\n        if (__d{i}) {{\n            \
-                 __d{i} = false\n{body}        }}\n    }}\n"
-            ));
-        }
-        // The release path, for when the *consumer* stops driving the body:
-        // pending deferred blocks, latest first, and the flags make it
-        // idempotent — so one `close` after the consumer's loop covers
-        // `break`, `return` and exhaustion alike. A claiming producer's
-        // `close` takes the handlers too, because a deferred block may itself
-        // perform effects [fn-effects].
-        let close = self.emit_gen_steps(&plan.close, 2, usize::MAX, fin);
-
-        self.gen_fields = saved_fields;
-        self.gen_slots = saved_slots;
-        self.gen_field_names = saved_names;
-        self.effect_env = saved_env;
-        self.gen_handler_args = saved_handler_args;
-
-        // [yield-fn-origin] No supertype: the drive site knows the concrete
-        // machine, so there is nothing to dispatch through. The class is named
-        // by that drive site, which may be in another module, so it is not
-        // `private`.
-        let advance_kw = format!("fun __advance({handler_sig})");
-        let close_kw = format!("fun __close({handler_sig})");
-        let mut item = format!("\nclass {pass}{generic_decl}({}) {{\n", ctor.join(", "));
-        item.push_str(&props);
-        item.push_str(&format!(
-            "\n    {advance_kw}: Boolean {{\n        while (true) {{\n            \
-             when (__state) {{\n{machine}                else -> return false\n            \
-             }}\n        }}\n    }}\n"
-        ));
-        item.push_str(&format!(
-            "\n    {close_kw} {{\n{close}        __state = {fin}\n    }}\n"
-        ));
-        item.push_str(&runners);
-        {
-            // The element accessor: `__advance` reports and this hands over,
-            // because a `T?` return could not tell "no more" from "the element
-            // is null" — the reason the protocol tags its end [iter-protocol].
-            item.push_str(&format!(
-                "\n    @Suppress(\"UNCHECKED_CAST\")\n    fun __current(): {elem} = \
-                 __current as {elem}\n"
-            ));
-        }
-        item.push_str("}\n");
-
-        item
-    }
-
-    /// [yield-fn-origin] The hidden state machine a `yield fn` stands for,
-    /// named after the **origin** type because every `yield fn` is `next`.
-    fn emit_origin_machine(&mut self, f: &FnDecl) -> String {
-        let elem = match f.return_type.as_ref() {
-            Some(t) => self.emit_type(t),
-            None => "Unit".to_string(),
-        };
-        let machine = self.origin_machine_name(f);
-        self.emit_generator_machine(f, &elem, &machine)
-    }
-
-    /// The machine type name for a `yield fn`, from its origin parameter.
-    fn origin_machine_name(&mut self, f: &FnDecl) -> String {
-        let origin = f
-            .params
-            .first()
-            .map(|p| {
-                let rendered = self.emit_type(&p.ty);
-                rendered
-                    .split(['<', '?'])
-                    .next()
-                    .unwrap_or("Origin")
-                    .trim()
-                    .to_string()
-            })
-            .unwrap_or_else(|| "Origin".to_string());
-        format!("__Pass_{origin}")
-    }
-
-    /// One property of a generated pass: at its type's zero where there is
-    /// one, nullable where there is not (reads then unwrap [iter-generator]).
-    fn gen_property(
-        &mut self,
-        name: &str,
-        rendered: &str,
-        salvo_name: &str,
-        slots: &mut HashSet<String>,
-    ) -> String {
-        match zero_of_kotlin_type(rendered) {
-            Some(zero) => format!("    private var {name}: {rendered} = {zero}\n"),
-            None => {
-                slots.insert(salvo_name.to_string());
-                let ty = if rendered.ends_with('?') {
-                    rendered.to_string()
-                } else {
-                    format!("{rendered}?")
-                };
-                format!("    private var {name}: {ty} = null\n")
-            }
-        }
-    }
-
-    /// One state's (or the release path's) steps.
-    fn emit_gen_steps(
-        &mut self,
-        steps: &[Step<'_>],
-        indent: usize,
-        state: usize,
-        fin: usize,
-    ) -> String {
-        let pad = "    ".repeat(indent);
-        let mut out = String::new();
-        for step in steps {
-            match step {
-                Step::Plain(stmt) => out.push_str(&self.emit_stmt(stmt, indent)),
-                Step::Register(i) => out.push_str(&format!("{pad}__d{i} = true\n")),
-                Step::Discharge(i) => {
-                    let args = self.gen_handler_args.clone();
-                    out.push_str(&format!("{pad}__run_d{i}({args})\n"))
-                }
-                Step::OpenPass { slot, subject } => {
-                    let name = self.gen_field_name(*slot);
-                    let code = self.emit_expr(subject);
-                    out.push_str(&format!("{pad}{name} = ({code}).iterator()\n"));
-                }
-                Step::ClosePass(slot) => {
-                    let name = self.gen_field_name(*slot);
-                    // The release path drops the open nested pass. There is
-                    // nothing to close: a *suspending* loop's subject is data (a
-                    // list, an array, a string) — a pass as the subject of one
-                    // is refused rather than driven, so no deferred blocks of
-                    // another producer can be pending here.
-                    out.push_str(&format!("{pad}{name} = null\n"));
-                }
-                Step::Drive {
-                    slot,
-                    binding,
-                    finished,
-                    ..
-                } => {
-                    let pass = self.gen_field_name(*slot);
-                    let elem = self.gen_field_name(*binding);
-                    out.push_str(&format!("{pad}if ({pass}?.hasNext() != true) {{\n"));
-                    out.push_str(&self.emit_gen_steps(finished, indent + 1, state, fin));
-                    out.push_str(&format!("{pad}}}\n"));
-                    out.push_str(&format!("{pad}{elem} = {pass}!!.next()\n"));
-                }
-                Step::Branch { cond, negate, then } => {
-                    let code = self.emit_expr(cond);
-                    let test = if *negate {
-                        format!("!({code})")
-                    } else {
-                        code
-                    };
-                    out.push_str(&format!("{pad}if ({test}) {{\n"));
-                    out.push_str(&self.emit_gen_steps(then, indent + 1, state, fin));
-                    out.push_str(&format!("{pad}}}\n"));
-                }
-                Step::Goto(t) => out.push_str(&format!("{pad}__state = {t}\n{pad}continue\n")),
-                Step::Emit { value, resume } => {
-                    let code = self.emit_expr(value);
-                    out.push_str(&format!(
-                        "{pad}__current = {code}\n{pad}__state = {resume}\n{pad}return true\n"
-                    ));
-                }
-                Step::Finish => {
-                    out.push_str(&format!("{pad}__state = {fin}\n{pad}return false\n"))
-                }
-            }
-        }
-        out
-    }
-
-    /// The Kotlin name of a plan field, by index.
-    fn gen_field_name(&mut self, index: usize) -> String {
-        match self.gen_field_names.get(index) {
-            Some(name) => name.clone(),
-            None => {
-                self.error("internal: a generator step names a field that is not in the plan");
-                "__missing".to_string()
-            }
-        }
-    }
-
-    /// The element type of a `for` subject inside a suspending body: the pass
-    /// it drives is a property, so its element type is written down rather
-    /// than inferred.
-    fn gen_elem_type(&mut self, subject: &Expr, span: Span) -> String {
-        let _ = span;
-        let Some(ty) = self.ty_of(subject.span()).cloned() else {
-            self.error(
-                "the type of a `for` subject inside an iterator function is not known, so the \
-                 pass it drives cannot be typed",
-            );
-            return "Any?".to_string();
-        };
-        let elem = match ty.strip_quals() {
-            Ty::Array(elem) => Some((**elem).clone()),
-            Ty::Named { name, args } if name == "List" => args.first().cloned(),
-            _ => None,
-        };
-        match elem {
-            Some(t) => self.kotlin_ty(&t),
-            None => {
-                self.error(
-                    "a `for` inside an iterator function iterates an array, a `List<T>` or a \
-                     `Str` for now — a pass as the subject of a *suspending* loop is not \
-                     lowered yet",
-                );
-                "Any?".to_string()
-            }
-        }
     }
 
     /// The generated Kotlin imports of one file [kt-imports]: a wildcard
@@ -1961,12 +1437,7 @@ impl<'p> Emitter<'p> {
             .checked
             .for_drivers
             .keys()
-            .any(|(file, _)| *file == self.file_idx)
-            || self
-                .checked
-                .origin_mints
-                .keys()
-                .any(|(file, _)| *file == self.file_idx);
+            .any(|(file, _)| *file == self.file_idx);
         if drives_or_mints {
             for module in scope.name_origins.get("Finished").into_iter().flatten() {
                 if *module != own && emitted_modules.contains(*module) {
@@ -2567,14 +2038,6 @@ impl<'p> Emitter<'p> {
                 }
             }
             Stmt::Continue { .. } => format!("{pad}continue\n"),
-            Stmt::Yield { .. } => {
-                // [iter-generator] A `yield` is a step of the generated
-                // machine, never a statement: the plan turns every one into a
-                // `Step::Emit`, and only statements that neither suspend nor
-                // jump reach here.
-                self.error("internal: a `yield` reached the statement emitter");
-                String::new()
-            }
             Stmt::Use { handler, span } => self.emit_use(handler, *span, indent),
             // [kt-defer-finally] Handled by `emit_stmts`, which wraps the
             // rest of the block in `try`/`finally`; reaching it here means
@@ -2598,14 +2061,6 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
-        // [iter-generator] Inside an iterator fn the body's locals are
-        // properties of the pass, so a `let` *assigns* one.
-        if let Pattern::Ident(name) = pattern {
-            if self.gen_fields.contains(name.name.as_str()) {
-                let code = self.emit_expr(value);
-                return format!("{pad}{} = {code}\n", kt_ident(&name.name));
-            }
-        }
         // Bare struct literals pick up the annotated type.
         let value_code = match (value, ty) {
             (
@@ -2823,29 +2278,20 @@ impl<'p> Emitter<'p> {
                     .as_ref()
                     .map(|_| format!("{}_ran", self.fresh_loop_var()));
                 let inner_pad = "    ".repeat(indent + 1);
-                // [yield-fn-origin] An **origin** is driven, not iterated: its
+                // [iter-fn] An **origin** is driven, not iterated: its
                 // machine is constructed, advanced, and closed in a `finally`.
                 // That is where the injected `close` gets its caller — native
                 // `for` iteration had nowhere to put one, so an abandoned
                 // producer skipped its deferred blocks.
-                let origin_driver = self.pass_driver_of(iterable).filter(|d| d.origin);
-                // [linear-group] A **raw** pass with a `close` is released by
-                // the loop too, in the same `finally` (user decision
-                // 2026-09-09).
-                let raw_closing = self
-                    .pass_driver_of(iterable)
-                    .filter(|d| !d.origin && d.close.is_some());
-                let claiming = match origin_driver {
-                    Some(driver) => {
-                        Some(self.emit_origin_loop_header(driver, pattern, iterable, indent))
-                    }
-                    None => raw_closing.map(|driver| {
-                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
-                    }),
-                };
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
                 // after it is the same as for any other loop.
+                let claiming = self
+                    .pass_driver_of(iterable)
+                    .filter(|d| d.close.is_some())
+                    .map(|driver| {
+                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
+                    });
                 let pass = if claiming.is_some() {
                     None
                 } else {
@@ -3561,7 +3007,7 @@ impl<'p> Emitter<'p> {
                     // needs (a pure fn ignores the rest).
                     self.named_fn_value(&id.name, id.span)
                 } else if self.gen_slots.contains(id.name.as_str()) {
-                    // [iter-generator] A pass property with no zero value is
+                    // [iter-fn] A pass property with no zero value is
                     // nullable; the machine assigns it before every read.
                     format!("{}!!", kt_ident(&id.name))
                 } else {
@@ -4110,7 +3556,7 @@ impl<'p> Emitter<'p> {
                          value position yet: write the loop as a statement",
                     );
                 }
-                // [yield-fn-origin] [backend-never-wrong] Same cut for an
+                // [iter-fn] [backend-never-wrong] Same cut for an
                 // origin: its machine has to be closed after the loop, which a
                 // value-position loop has nowhere to put.
                 if self.pass_driver_of(iterable).is_some_and(|d| d.origin) {
@@ -4953,7 +4399,7 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 salvo_core::ImplicitArg::OriginNext { name: _, next_fn } => {
-                    // [yield-fn-origin] The pass is the machine minted at the
+                    // [iter-fn] The pass is the machine minted at the
                     // argument, so the adapter wraps its own advance into the
                     // protocol's two arms — the same machine API the `for`
                     // lowering drives (`__advance` → `Boolean`, then
@@ -5046,13 +4492,11 @@ impl<'p> Emitter<'p> {
         // body, so it takes no handlers — even though `call_effects` records
         // the claim at this span when the call is a `for` subject: that entry
         // is the *drive* site's, and the drive site is where it is read.
-        let producer = f.body.as_ref().is_some_and(contains_yield);
         match self
             .checked
             .call_effects
             .get(&(self.file_idx, span))
             .cloned()
-            .filter(|_| !producer)
         {
             Some(effs) if effs.iter().all(ty_is_concrete) => {
                 for ty in &effs {
@@ -5076,55 +4520,7 @@ impl<'p> Emitter<'p> {
             }
         }
         let outer_mints = std::mem::take(&mut self.pending_mints);
-        for (arg_index, a) in args.iter().enumerate() {
-            // [yield-fn-origin] An **origin** in a pass position mints the
-            // hidden machine here, exactly as the `for` lowering constructs
-            // one (user decision 2026-09-09).
-            if let Some((origin, _)) = self
-                .checked
-                .origin_mints
-                .get(&(self.file_idx, a.span()))
-                .cloned()
-            {
-                let name = match origin.strip_quals() {
-                    Ty::Named { name, .. } => name.clone(),
-                    other => {
-                        self.error(format!(
-                            "a pass can only be minted from a struct origin (found `{other}`)"
-                        ));
-                        "TODO()".to_string()
-                    }
-                };
-                let value = self.emit_expr(a);
-                let machine = format!("__Pass_{}", kt_ident(&name));
-                self.mint_machines.push(machine.clone());
-                let hs = self.origin_handler_args(a.span());
-                let var = {
-                    self.mint_counter += 1;
-                    format!("__mint{}", self.mint_counter)
-                };
-                // [yield-fn-origin] The machine is released here only when the
-                // callee *keeps* the pass: an eager combinator drains it during
-                // the call, so closing after it returns is exactly right. A
-                // callee that **moves** it (a lazy combinator stores it in the
-                // composed pass it returns) drives it long afterwards — closing
-                // here handed it a finished machine, and the loop saw nothing.
-                if self.callee_keeps(span, f, arg_index) {
-                    self.pending_mints.push((
-                        var.clone(),
-                        format!("val {var} = {machine}({value})"),
-                        format!("{var}.__close({hs})"),
-                    ));
-                } else {
-                    self.pending_mints.push((
-                        var.clone(),
-                        format!("val {var} = {machine}({value})"),
-                        String::new(),
-                    ));
-                }
-                all.push(var);
-                continue;
-            }
+        for a in args.iter() {
             all.push(self.emit_expr(a));
         }
         // [implicit-resolve] The implicit parameters, in the callee's order:
@@ -5147,7 +4543,7 @@ impl<'p> Emitter<'p> {
             kotlin_name
         };
         let call = format!("{kt_name}{generics}({})", all.join(", "));
-        // [yield-fn-origin] A minted pass is released here, so a combinator
+        // [iter-fn] A minted pass is released here, so a combinator
         // that abandons it early cannot leak it. `__close` is idempotent, so
         // a drained pass pays nothing.
         let mints = std::mem::replace(&mut self.pending_mints, outer_mints);
@@ -5164,55 +4560,6 @@ impl<'p> Emitter<'p> {
             .map(|(_, _, close)| format!("{close}; "))
             .collect();
         format!("run {{ {ctors}val __call = {call}; {closes}__call }}")
-    }
-
-    /// [deduce-syntax] Whether the callee **keeps** the argument at `index`:
-    /// its deduction list names that parameter. Read from the checker's table
-    /// (written *and* inferred lists), falling back to kept — the lenient
-    /// default the checker itself uses.
-    fn callee_keeps(&self, call_span: Span, f: &FnDecl, index: usize) -> bool {
-        let Some(param) = f.params.iter().filter(|p| !p.implicit).nth(index) else {
-            return true;
-        };
-        let Some(key) = self.checked.call_fn.get(&(self.file_idx, call_span)) else {
-            return true;
-        };
-        match self.checked.deductions.get(key) {
-            Some(ds) => ds
-                .iter()
-                .find(|d| d.param == param.name.name)
-                .map(|d| d.kept)
-                .unwrap_or(true),
-            None => true,
-        }
-    }
-
-    /// [yield-fn-origin] The handler arguments a minted pass's machine takes,
-    /// in the checker's canonical order — the same list the advance adapter
-    /// threads, so the release cannot disagree with the driving.
-    fn origin_handler_args(&mut self, arg_span: Span) -> String {
-        let Some(key) = self
-            .checked
-            .origin_mints
-            .get(&(self.file_idx, arg_span))
-            .map(|(_, k)| *k)
-        else {
-            return String::new();
-        };
-        let effects: Vec<Ty> = self
-            .checked
-            .fn_effects
-            .get(&key)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| !is_throw_effect_ty(t))
-            .collect();
-        let hs: Vec<String> = effects
-            .iter()
-            .map(|ty| self.lookup_effect_handler_by_ty(ty))
-            .collect();
-        hs.join(", ")
     }
 
     /// Resolves the handler expression for a call to an effect member fn.
@@ -5288,7 +4635,7 @@ impl<'p> Emitter<'p> {
 enum StmtCtx {
     /// The only context left: the `IteratorBody` one died with the
     /// `iterator { … }` builder — an iterator fn's `yield`s and `return`s are
-    /// steps of the generated machine now [iter-generator], so they never
+    /// steps of the generated machine now [iter-fn], so they never
     /// reach `emit_stmt`. Kept because the next context to need one is
     /// cheaper to add than to thread (removal is part of the I6 sweep).
     Normal,
@@ -5590,7 +4937,7 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
             Stmt::Let { value, .. } => collect_mutated_expr(value, out),
             Stmt::Return { value: Some(v), .. }
             | Stmt::Break { value: Some(v), .. }
-            | Stmt::Yield { value: v, .. } => collect_mutated_expr(v, out),
+            => collect_mutated_expr(v, out),
             Stmt::Use { handler, .. } => collect_mutated_expr(handler, out),
             Stmt::Expr(e) => collect_mutated_expr(e, out),
             _ => {}
@@ -5752,7 +5099,7 @@ fn collect_declared(block: &Block, out: &mut HashSet<String>) {
             }
             Stmt::Return { value: Some(v), .. }
             | Stmt::Break { value: Some(v), .. }
-            | Stmt::Yield { value: v, .. } => collect_declared_expr(v, out),
+            => collect_declared_expr(v, out),
             Stmt::Use { handler, .. } => collect_declared_expr(handler, out),
             Stmt::Expr(e) => collect_declared_expr(e, out),
             _ => {}
@@ -5893,36 +5240,6 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         _ => {}
-    }
-}
-
-fn contains_yield(block: &Block) -> bool {
-    block.stmts.iter().any(|stmt| match stmt {
-        Stmt::Yield { .. } => true,
-        Stmt::Expr(e) => expr_contains_yield(e),
-        Stmt::Let { value, .. } => expr_contains_yield(value),
-        _ => false,
-    })
-}
-
-fn expr_contains_yield(expr: &Expr) -> bool {
-    match expr {
-        Expr::If {
-            branches,
-            else_block,
-            ..
-        } => {
-            branches.iter().any(|(_, b)| contains_yield(b))
-                || else_block.as_ref().is_some_and(contains_yield)
-        }
-        Expr::While {
-            body, else_block, ..
-        }
-        | Expr::For {
-            body, else_block, ..
-        } => contains_yield(body) || else_block.as_ref().is_some_and(contains_yield),
-        Expr::When { branches, .. } => branches.iter().any(|b| contains_yield(&b.body)),
-        _ => false,
     }
 }
 

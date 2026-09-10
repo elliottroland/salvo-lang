@@ -139,43 +139,22 @@ fun range(start: Int, end: Int): Range {
     return Range(start = start, end = end)
 }
 
-class __Pass_Range(private var r: Range) {
-    private var i: Int = 0
-    private var __state: Int = 0
-    private var __current: Any? = null
+data class __Pass_Range(
+    var end: Int,
+    var at: Int,
+)
 
-    fun __advance(): Boolean {
-        while (true) {
-            when (__state) {
-                0 -> {
-                    i = r.start
-                    __state = 1
-                    continue
-                }
-                1 -> {
-                    if (!(i++ < r.end)) {
-                        __state = 2
-                        continue
-                    }
-                    __current = i - 1
-                    __state = 1
-                    return true
-                }
-                2 -> {
-                    __state = 2
-                    return false
-                }
-                else -> return false
-            }
-        }
+fun iter__4(r: Range): __Pass_Range {
+    return __Pass_Range(end = r.end, at = r.start)
+}
+
+fun next__6(__p: __Pass_Range): Union2<Int, Finished> {
+    if (__p.at >= __p.end) {
+        return U2_2<Int, Finished>(finished())
     }
-
-    fun __close() {
-        __state = 2
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    fun __current(): Int = __current as Int
+    val v = __p.at
+    __p.at = __p.at + 1
+    return U2_1<Int, Finished>(emitted(v))
 }
 
 fun main() {
@@ -224,15 +203,13 @@ __loop3
         println(console, "found: $f")
     }
     var __loop4_ran = false
-    val __loop5_pass = __Pass_Range(range(0, 0))
-    try {
-    while (__loop5_pass.__advance()) {
-        val x = __loop5_pass.__current()
+    var __loop5_pass = iter__4(range(0, 0))
+    while (true) {
+        val __loop5_step = next__6(__loop5_pass)
+        if (__loop5_step !is U2_1<Int, Finished>) { break }
+        val x = __loop5_step.value
         __loop4_ran = true
         println(console, "unreachable")
-    }
-    } finally {
-        __loop5_pass.__close()
     }
     if (!__loop4_ran) {
         println(console, "empty range")

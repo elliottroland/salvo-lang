@@ -35,9 +35,10 @@ fn do_something() {
     transform(list, i -> { return "${i}" })
 }
 
-// A producer is an *origin* struct plus a `yield fn next` [yield-fn-origin]:
-// the state machine is the compiler's, and it is not nameable.
-struct Range : Yield<self, Int> {
+// A pass is an ordinary struct with an ordinary `next` [iter-protocol] —
+// or, when it needs no name, an `iter fn` whose pass struct the compiler
+// writes [iter-fn].
+struct Range {
     start: Int,
     end: Int
 }
@@ -46,30 +47,34 @@ fn range(start: Int, end: Int) -> [] Range {
     return Range {start: start, end: end}
 }
 
-yield fn next(range: Range) -> Int {
-    let i = range.start
-    while i++ < range.end {
-        yield copy(i)
+iter fn next(range: Range) -> Emitted Int | Finished {
+    state {
+        at: Int = range.start
     }
+    if at >= range.end {
+        return finished()
+    }
+    let v = copy(at)
+    at = at + 1
+    return emitted(v)
 }
 
-struct RangeIncl : Yield<self, Int> {
-    start: Int,
-    end: Int
+// The written-out form, for a pass a program has to name.
+struct Countdown : Yield<self, Int> canbe Mut {
+    at: Int
 }
 
-fn range_incl(start: Int, end: Int) -> [] RangeIncl {
-    return RangeIncl {start: start, end: end}
+fn countdown(from: Int) -> [] Mut Countdown {
+    return Mut Countdown {at: from}
 }
 
-yield fn next(range: RangeIncl) -> Int {
-    if range.start > range.end {
-        return
+fn next(p: Mut Countdown) -> [p: Mut] Emitted Int | Finished {
+    if p.at <= 0 {
+        return finished()
     }
-    for i in range(range.start, range.end) {
-        yield i
-    }
-    yield copy(range.end)
+    let now = copy(p.at)
+    p.at = p.at - 1
+    return emitted(now)
 }
 
 fn arrays() {

@@ -72,9 +72,9 @@ fn take(p: Mut Countdown, count: Int) [Console] -> [p: Mut] None {
     }
 }
 
-// ===== 2b. the same pass, with the struct generated: `pass fn` =====
+// ===== 2b. the same pass, with the struct generated: `iter fn` =====
 //
-// Most passes need no name — they are only ever driven by a `for`. A `pass fn`
+// Most passes need no name — they are only ever driven by a `for`. An `iter fn`
 // is the same hand-written `next` with the boilerplate removed: the subject
 // stays ordinary data, the `state { … }` block declares the pass's own fields,
 // and the compiler writes the struct and the `iter` that mints one.
@@ -85,7 +85,7 @@ struct Halving {
     start: Int
 }
 
-pass fn next(h: Halving) -> Emitted Int | Finished {
+iter fn next(h: Halving) -> Emitted Int | Finished {
     state {
         // Evaluated once, when the pass is minted, and readable and writable
         // for the rest of its life. The subject's own fields are read-only.
@@ -99,13 +99,11 @@ pass fn next(h: Halving) -> Emitted Int | Finished {
     return emitted(now)
 }
 
-// ===== 3. a generator: `yield fn` =====
+// ===== 3. an effectful pass, and an unbounded one =====
 //
-// The same obligation, discharged by sugar. The subject is an **origin** —
-// ordinary data you construct and keep — and the state machine the compiler
-// writes from the body has no name, so nobody can hold one. Driving performs
-// the effects, and a `defer` inside runs however the loop ends.
-struct Fibs : Yield<self, Int> {
+// A `next` is an ordinary function, so effects are ordinary effects: declare
+// them and the `for` that drives supplies the handler, once per turn.
+struct Fibs {
     // How many numbers to produce before the sequence ends.
     count: Int
 }
@@ -114,24 +112,27 @@ fn fibs(count: Int) -> [] Fibs {
     return Fibs { count: count }
 }
 
-yield fn next(f: Fibs) [Console] -> Int {
-    println("3. opening")
-    defer { println("3. closing") }
-    let a = 0
-    let b = 1
-    let made = 0
-    while made < f.count {
-        yield copy(a)
-        let sum = a + b
-        a = copy(b)
-        b = copy(sum)
-        made = made + 1
+iter fn next(f: Fibs) [Console] -> Emitted Int | Finished {
+    state {
+        a: Int = 0,
+        b: Int = 1,
+        made: Int = 0
     }
+    if made >= f.count {
+        println("3. finished")
+        return finished()
+    }
+    let now = copy(a)
+    let sum = a + b
+    a = copy(b)
+    b = copy(sum)
+    made = made + 1
+    return emitted(now)
 }
 
-// An unbounded generator is an ordinary thing to write: nothing runs until a
-// consumer pulls, so the `break` below is what ends it.
-struct Naturals : Yield<self, Int> {
+// Nothing runs until a consumer pulls, so an unbounded pass is an ordinary
+// thing to write: the `break` below is what ends it.
+struct Naturals {
     // The first number to emit.
     from: Int
 }
@@ -140,12 +141,13 @@ fn naturals(from: Int) -> [] Naturals {
     return Naturals { from: from }
 }
 
-yield fn next(n: Naturals) -> Int {
-    let i = copy(n.from)
-    while true {
-        yield copy(i)
-        i = i + 1
+iter fn next(n: Naturals) -> Emitted Int | Finished {
+    state {
+        at: Int = n.from
     }
+    let now = copy(at)
+    at = at + 1
+    return emitted(now)
 }
 
 // ===== 4. a combinator of your own =====
@@ -191,7 +193,9 @@ fn main() [use] {
     for n in fibs(6) {
         println("3. fib ${n}")
     }
-    println("3. again sums to ${sum_of(fibs(6))}")
+    // An effectful pass is driven by `for`, which supplies the handler per
+    // turn. It cannot fill a *pure* `?Yield` position, so a combinator over it
+    // would have to declare `[Console]` too — the ordinary effect rule.
 
     // An unbounded one, stopped by the consumer.
     for n in naturals(10) {
@@ -219,14 +223,15 @@ fn main() [use] {
     println("5. vowels: ${size(vowels)}")
 
     // A generator is a pass like any other, so it composes with them too.
-    println("5. fibs total ${reduce(fibs(6), 0, (acc, n) -> acc + n)}")
+    // A pass of your own composes with them exactly like a container's.
+    println("5. halving total ${reduce(iter(Halving { start: 20 }), 0, (acc, n) -> acc + n)}")
 
     // ===== 6. laziness, asked for by name =====
     //
     // `map_lazy`/`filter_lazy` hand back a composed pass instead of a list.
     // Nothing runs until it is driven, so an unbounded source is fine — the
     // consumer decides when to stop.
-    let squares = map_lazy(naturals(1), (n: Int) -> n * n)
+    let squares = map_lazy(iter(naturals(1)), (n: Int) -> n * n)
     let big = filter_lazy(squares, (n: Int) -> n > 10)
     for n in big {
         println("6. big square ${n}")

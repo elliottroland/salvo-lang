@@ -204,9 +204,8 @@ Module {
                     "types, a real copy for Mut-capable ones; Rust: `.clone()`).",
                 ],
                 intrinsic: true,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "copy",
                     span: 579..583,
@@ -304,9 +303,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "close",
                             span: 1317..1322,
@@ -370,9 +368,8 @@ Module {
                     "its own `close`, and `discard` on one is refused, naming it.",
                 ],
                 intrinsic: true,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "discard",
                     span: 1572..1579,

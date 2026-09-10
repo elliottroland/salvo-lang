@@ -87,72 +87,28 @@ fun fibs(count: Int): Fibs {
     return Fibs(count = count)
 }
 
-class __Pass_Fibs(private var f: Fibs) {
-    private var a: Int = 0
-    private var b: Int = 0
-    private var made: Int = 0
-    private var sum: Int = 0
-    private var __d0: Boolean = false
-    private var __state: Int = 0
-    private var __current: Any? = null
+data class __Pass_Fibs(
+    var count: Int,
+    var a: Int,
+    var b: Int,
+    var made: Int,
+)
 
-    fun __advance(console: Console): Boolean {
-        while (true) {
-            when (__state) {
-                0 -> {
-                    println(console, "3. opening")
-                    __d0 = true
-                    a = 0
-                    b = 1
-                    made = 0
-                    __state = 1
-                    continue
-                }
-                1 -> {
-                    if (!(made < f.count)) {
-                        __state = 3
-                        continue
-                    }
-                    __current = a
-                    __state = 2
-                    return true
-                }
-                2 -> {
-                    sum = a + b
-                    a = b
-                    b = sum
-                    made = made + 1
-                    __state = 1
-                    continue
-                }
-                3 -> {
-                    __run_d0(console)
-                    __state = 4
-                    return false
-                }
-                4 -> {
-                    __state = 4
-                    return false
-                }
-                else -> return false
-            }
-        }
+fun iter__5(f: Fibs): __Pass_Fibs {
+    return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
+}
+
+fun next__8(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
+    if (__p.made >= __p.count) {
+        println(console, "3. finished")
+        return U2_2<Int, Finished>(finished())
     }
-
-    fun __close(console: Console) {
-        __run_d0(console)
-        __state = 4
-    }
-
-    private fun __run_d0(console: Console) {
-        if (__d0) {
-            __d0 = false
-            println(console, "3. closing")
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    fun __current(): Int = __current as Int
+    val now = __p.a
+    val sum = __p.a + __p.b
+    __p.a = __p.b
+    __p.b = sum
+    __p.made = __p.made + 1
+    return U2_1<Int, Finished>(emitted(now))
 }
 
 data class Naturals(
@@ -163,48 +119,18 @@ fun naturals(from: Int): Naturals {
     return Naturals(from = from)
 }
 
-class __Pass_Naturals(private var n: Naturals) {
-    private var i: Int = 0
-    private var __state: Int = 0
-    private var __current: Any? = null
+data class __Pass_Naturals(
+    var at: Int,
+)
 
-    fun __advance(): Boolean {
-        while (true) {
-            when (__state) {
-                0 -> {
-                    i = n.from
-                    __state = 1
-                    continue
-                }
-                1 -> {
-                    if (!(true)) {
-                        __state = 3
-                        continue
-                    }
-                    __current = i
-                    __state = 2
-                    return true
-                }
-                2 -> {
-                    i = i + 1
-                    __state = 1
-                    continue
-                }
-                3 -> {
-                    __state = 3
-                    return false
-                }
-                else -> return false
-            }
-        }
-    }
+fun iter__6(n: Naturals): __Pass_Naturals {
+    return __Pass_Naturals(at = n.from)
+}
 
-    fun __close() {
-        __state = 3
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    fun __current(): Int = __current as Int
+fun next__9(__p: __Pass_Naturals): Union2<Int, Finished> {
+    val now = __p.at
+    __p.at = __p.at + 1
+    return U2_1<Int, Finished>(emitted(now))
 }
 
 fun<It> sum_of(it: It, next: (It) -> Union2<Int, Finished>): Int {
@@ -235,27 +161,22 @@ fun main() {
     }
     val hp = iter__4(h)
     println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__7)}")
-    val __loop4_pass = __Pass_Fibs(fibs(6))
-    try {
-    while (__loop4_pass.__advance(console)) {
-        val n = __loop4_pass.__current()
+    var __loop4_pass = iter__5(fibs(6))
+    while (true) {
+        val __loop4_step = next__8(console, __loop4_pass)
+        if (__loop4_step !is U2_1<Int, Finished>) { break }
+        val n = __loop4_step.value
         println(console, "3. fib $n")
     }
-    } finally {
-        __loop4_pass.__close(console)
-    }
-    println(console, "3. again sums to ${run { val __mint1 = __Pass_Fibs(fibs(6)); val __call = sum_of(__mint1, fun(__p: __Pass_Fibs): Union2<Int, Finished> { return if (__p.__advance(console)) U2_1<Int, Finished>(__p.__current()) else U2_2<Int, Finished>(finished()) }); __mint1.__close(console); __call }}")
-    val __loop5_pass = __Pass_Naturals(naturals(10))
-    try {
-    while (__loop5_pass.__advance()) {
-        val n = __loop5_pass.__current()
+    var __loop5_pass = iter__6(naturals(10))
+    while (true) {
+        val __loop5_step = next__9(__loop5_pass)
+        if (__loop5_step !is U2_1<Int, Finished>) { break }
+        val n = __loop5_step.value
         if (n > 12) {
             break
         }
         println(console, "3. natural $n")
-    }
-    } finally {
-        __loop5_pass.__close()
     }
     val doubled = xs.map({ n -> n * 2 }).toMutableList()
     val odd = xs.filter({ n -> n % 2 == 1 }).toMutableList()
@@ -266,8 +187,8 @@ fun main() {
     println(console, "5. lengths: ${reduce(iter__2(lengths), 0, { acc, n -> acc + n }, ::next__2)}")
     val vowels = filter(iter__3("iteration"), { c -> c == 'i' || c == 'o' }, ::next__5)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. fibs total ${run { val __mint2 = __Pass_Fibs(fibs(6)); val __call = reduce(__mint2, 0, { acc, n -> acc + n }, fun(__p: __Pass_Fibs): Union2<Int, Finished> { return if (__p.__advance(console)) U2_1<Int, Finished>(__p.__current()) else U2_2<Int, Finished>(finished()) }); __mint2.__close(console); __call }}")
-    val squares = run { val __mint3 = __Pass_Naturals(naturals(1)); val __call = map_lazy(__mint3, { n: Int -> n * n }, fun(__p: __Pass_Naturals): Union2<Int, Finished> { return if (__p.__advance()) U2_1<Int, Finished>(__p.__current()) else U2_2<Int, Finished>(finished()) }); __call }
+    println(console, "5. halving total ${reduce(iter__4(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__7)}")
+    val squares = map_lazy(iter__6(naturals(1)), { n: Int -> n * n }, ::next__9)
     val big = filter_lazy(squares, { n: Int -> n > 10 }, ::next__3)
     var __loop6_pass = big
     while (true) {

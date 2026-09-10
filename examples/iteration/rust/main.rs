@@ -106,12 +106,52 @@ pub fn fibs(count: i32) -> Fibs {
 }
 
 #[derive(Clone, Debug)]
+pub struct __Pass_Fibs {
+    pub count: i32,
+    pub a: i32,
+    pub b: i32,
+    pub made: i32,
+}
+
+pub fn iter__5(f: &Fibs) -> __Pass_Fibs {
+    return __Pass_Fibs { count: f.count, a: 0, b: 1, made: 0 };
+}
+
+pub fn next__8(console: &mut dyn Console, __p: &mut __Pass_Fibs) -> Union2<i32, Finished> {
+    if __p.made >= __p.count {
+        println(console, &("3. finished".to_string()));
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut now = __p.a;
+    let mut sum = __p.a + __p.b;
+    __p.a = __p.b;
+    __p.b = sum.clone();
+    __p.made = __p.made + 1;
+    return Union2::<i32, Finished>::U1(emitted(now));
+}
+
+#[derive(Clone, Debug)]
 pub struct Naturals {
     pub from: i32,
 }
 
 pub fn naturals(from: i32) -> Naturals {
     return Naturals { from: from };
+}
+
+#[derive(Clone, Debug)]
+pub struct __Pass_Naturals {
+    pub at: i32,
+}
+
+pub fn iter__6(n: &Naturals) -> __Pass_Naturals {
+    return __Pass_Naturals { at: n.from };
+}
+
+pub fn next__9(__p: &mut __Pass_Naturals) -> Union2<i32, Finished> {
+    let mut now = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(now));
 }
 
 pub fn sum_of<It: Clone + 'static>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<i32, Finished>) -> i32 {
@@ -136,20 +176,17 @@ pub fn main() {
     }
     let mut hp = iter__4(&h);
     println(&mut console, &(format!("2b. summed from a held pass: {}", sum_of::<__Pass_Halving>(&mut hp, &mut |__i0| next__7(__i0)))));
-    let mut __loop4_pass = __Pass_Fibs::new(fibs(6));
-    while let Some(mut n) = __loop4_pass.__advance(&mut console) {
+    let mut __loop4_pass = iter__5(&(fibs(6)));
+    while let Union2::U1(mut n) = next__8(&mut console, &mut __loop4_pass) {
         println(&mut console, &(format!("3. fib {}", n)));
     }
-    __loop4_pass.__close(&mut console);
-    { let __a1 = &(format!("3. again sums to {}", { let mut __mint1 = __Pass_Fibs::new(fibs(6)); let __call = sum_of::<__Pass_Fibs>(&mut __mint1, &mut |__p: &mut __Pass_Fibs| match __p.__advance(&mut console) { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) }); __mint1.__close(&mut console); __call })); println(&mut console, __a1) };
-    let mut __loop5_pass = __Pass_Naturals::new(naturals(10));
-    while let Some(mut n) = __loop5_pass.__advance() {
+    let mut __loop5_pass = iter__6(&(naturals(10)));
+    while let Union2::U1(mut n) = next__9(&mut __loop5_pass) {
         if n > 12 {
             break;
         }
         println(&mut console, &(format!("3. natural {}", n)));
     }
-    __loop5_pass.__close();
     let mut doubled = salvo_map(&xs[..], |n| *n * 2);
     let mut odd = salvo_filter(&xs[..], |n| *n % 2 == 1);
     let mut total = salvo_reduce(&xs[..], 0, |acc, n| *acc + *n);
@@ -159,8 +196,8 @@ pub fn main() {
     println(&mut console, &(format!("5. lengths: {}", reduce::<ListYield<i32>, i32, i32>(&mut (iter__2(lengths)), 0, &mut (|acc, n| *acc + *n), &mut |__i0| next__2(__i0)))));
     let mut vowels = filter::<StrYield, char>(&mut (iter__3("iteration".to_string())), &mut (|c| *c == 'i' || *c == 'o'), &mut |__i0| next__5(__i0));
     println(&mut console, &(format!("5. vowels: {}", (vowels.len() as i32))));
-    { let __a2 = &(format!("5. fibs total {}", { let mut __mint2 = __Pass_Fibs::new(fibs(6)); let __call = reduce::<__Pass_Fibs, i32, i32>(&mut __mint2, 0, &mut (|acc, n| acc.clone() + n.clone()), &mut |__p: &mut __Pass_Fibs| match __p.__advance(&mut console) { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) }); __mint2.__close(&mut console); __call })); println(&mut console, __a2) };
-    let mut squares = { let mut __mint3 = __Pass_Naturals::new(naturals(1)); let __call = map_lazy::<__Pass_Naturals, i32, i32>(__mint3, move |n: &i32| *n * *n, move |__p: &mut __Pass_Naturals| match __p.__advance() { Some(__v) => Union2::<i32, Finished>::U1(__v), None => Union2::<i32, Finished>::U2(Finished {}) });  __call };
+    println(&mut console, &(format!("5. halving total {}", reduce::<__Pass_Halving, i32, i32>(&mut (iter__4(&(Halving { start: 20 }))), 0, &mut (|acc, n| *acc + *n), &mut |__i0| next__7(__i0)))));
+    let mut squares = map_lazy::<__Pass_Naturals, i32, i32>(iter__6(&(naturals(1))), move |n: &i32| *n * *n, move |__i0| next__9(__i0));
     let mut big = filter_lazy::<MapYield<__Pass_Naturals, i32, i32>, i32>(squares, move |n: &i32| *n > 10, move |__i0| next__3(__i0));
     let mut __loop6_pass = big;
     while let Union2::U1(mut n) = next__4(&mut __loop6_pass) {
@@ -171,136 +208,4 @@ pub fn main() {
     }
     let mut collected = map_to::<Vec<i32>, Countdown, i32, i32>(vec![], &mut (countdown(3)), &mut (|n: &i32| *n * 10), &mut |__i0, __i1| __i0.push(__i1), &mut |__i0| next__6(__i0));
     println(&mut console, &(format!("6. collected {}", (collected.len() as i32))));
-}
-
-#[derive(Clone)]
-pub struct __Pass_Fibs {
-    f: Fibs,
-    a: i32,
-    b: i32,
-    made: i32,
-    sum: i32,
-    __state: u32,
-    __d0: bool,
-}
-
-impl __Pass_Fibs {
-    pub fn new(f: Fibs) -> Self {
-        Self {
-            f,
-            a: 0,
-            b: 0,
-            made: 0,
-            sum: 0,
-            __state: 0,
-            __d0: false,
-        }
-    }
-
-    pub fn __advance(&mut self, console: &mut dyn Console) -> Option<i32> {
-        loop {
-            match self.__state {
-                0 => {
-                    println(console, &("3. opening".to_string()));
-                    self.__d0 = true;
-                    self.a = 0;
-                    self.b = 1;
-                    self.made = 0;
-                    self.__state = 1;
-                    continue;
-                }
-                1 => {
-                    if !(self.made < self.f.count) {
-                        self.__state = 3;
-                        continue;
-                    }
-                    let __v = self.a.clone();
-                    self.__state = 2;
-                    return Some(__v);
-                }
-                2 => {
-                    self.sum = self.a + self.b;
-                    self.a = self.b.clone();
-                    self.b = self.sum.clone();
-                    self.made = self.made + 1;
-                    self.__state = 1;
-                    continue;
-                }
-                3 => {
-                    self.__run_d0(console);
-                    self.__state = 4;
-                    return None;
-                }
-                4 => {
-                    self.__state = 4;
-                    return None;
-                }
-                _ => return None,
-            }
-        }
-    }
-
-    pub fn __close(&mut self, console: &mut dyn Console) {
-        self.__run_d0(console);
-        self.__state = 4;
-    }
-
-    fn __run_d0(&mut self, console: &mut dyn Console) {
-        if self.__d0 {
-            self.__d0 = false;
-            println(console, &("3. closing".to_string()));
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct __Pass_Naturals {
-    n: Naturals,
-    i: i32,
-    __state: u32,
-}
-
-impl __Pass_Naturals {
-    pub fn new(n: Naturals) -> Self {
-        Self {
-            n,
-            i: 0,
-            __state: 0,
-        }
-    }
-
-    pub fn __advance(&mut self) -> Option<i32> {
-        loop {
-            match self.__state {
-                0 => {
-                    self.i = self.n.from;
-                    self.__state = 1;
-                    continue;
-                }
-                1 => {
-                    if !(true) {
-                        self.__state = 3;
-                        continue;
-                    }
-                    let __v = self.i.clone();
-                    self.__state = 2;
-                    return Some(__v);
-                }
-                2 => {
-                    self.i = self.i + 1;
-                    self.__state = 1;
-                    continue;
-                }
-                3 => {
-                    self.__state = 3;
-                    return None;
-                }
-                _ => return None,
-            }
-        }
-    }
-
-    pub fn __close(&mut self) {
-        self.__state = 3;
-    }
 }

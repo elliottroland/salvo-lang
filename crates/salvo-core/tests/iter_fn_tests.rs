@@ -1,10 +1,10 @@
-//! [pass-fn] The `pass fn` form (user decision 2026-09-09): a hand-written
+//! [iter-fn] The `iter fn` form (user decision 2026-09-09): a hand-written
 //! `next` whose **pass struct is generated**.
 //!
 //! ```
 //! struct Countdown { from: Int }
 //!
-//! pass fn next(c: Countdown) -> Emitted Int | Finished {
+//! iter fn next(c: Countdown) -> Emitted Int | Finished {
 //!     state {
 //!         at: Int = c.from
 //!     }
@@ -46,7 +46,7 @@ const STD_PRELUDE: &str =
      handler StdOutConsole of Console {\n    fn print(message: Str) -> [] None {}\n}\n\
      fn println(message: Str) [Console] -> [] None {}\n";
 
-/// Every diagnostic — parse, resolve and check — because a `pass fn`'s own
+/// Every diagnostic — parse, resolve and check — because an `iter fn`'s own
 /// rules are reported by the desugaring, which runs inside the parser.
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -94,7 +94,7 @@ struct Countdown {
     from: Int
 }
 
-pass fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn next(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -110,7 +110,7 @@ pass fn next(c: Countdown) -> Emitted Int | Finished {
 
 /// One declaration makes the subject iterable: no pass struct, no constructor.
 #[test]
-fn a_pass_fn_makes_its_subject_iterable() {
+fn an_iter_fn_makes_its_subject_iterable() {
     let errs = errors(&format!(
         "{COUNTDOWN}\nfn go() -> [] None {{\n    let c = Countdown {{ from: 3 }}\n    \
          for n in c {{}}\n}}\n"
@@ -147,7 +147,7 @@ fn the_generated_iter_hands_back_a_pass_you_can_hold() {
 fn a_state_field_is_type_checked() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = \"not a number\"\n    }\n    \
          return finished()\n}\n",
     );
@@ -164,7 +164,7 @@ fn a_state_field_is_type_checked() {
 fn the_subject_is_read_only() {
     let errs = errors(
         "struct S canbe Mut { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
          s.n = 5\n    return finished()\n}\n",
     );
@@ -176,13 +176,13 @@ fn the_subject_is_read_only() {
 
 /// A `state` initializer runs when the pass is minted, and the mint is an
 /// effect-free call — so an effectful initializer is refused where it is
-/// written, with no rule of its own [pass-fn].
+/// written, with no rule of its own [iter-fn].
 #[test]
 fn a_state_initializer_may_not_perform_effects() {
     let errs = errors(
         "struct S { n: Int }\n\
          fn noisy() [Console] -> [] Int {\n    println(\"hi\")\n    return 1\n}\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = noisy()\n    }\n    \
          return finished()\n}\n",
     );
@@ -196,10 +196,10 @@ fn a_state_initializer_may_not_perform_effects() {
 
 /// The name is the obligation's member name: `for` reads a declaration.
 #[test]
-fn a_pass_fn_must_be_called_next() {
+fn an_iter_fn_must_be_called_next() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn step(s: S) -> Emitted Int | Finished {\n    return finished()\n}\n",
+         iter fn step(s: S) -> Emitted Int | Finished {\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("must be called `next`")),
@@ -208,10 +208,10 @@ fn a_pass_fn_must_be_called_next() {
 }
 
 #[test]
-fn a_pass_fn_takes_exactly_one_parameter() {
+fn an_iter_fn_takes_exactly_one_parameter() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S, k: Int) -> Emitted Int | Finished {\n    return finished()\n}\n",
+         iter fn next(s: S, k: Int) -> Emitted Int | Finished {\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("exactly one parameter")),
@@ -225,7 +225,7 @@ fn a_pass_fn_takes_exactly_one_parameter() {
 fn a_mut_subject_is_refused() {
     let errs = errors(
         "struct S canbe Mut { n: Int }\n\
-         pass fn next(s: Mut S) -> Emitted Int | Finished {\n    return finished()\n}\n",
+         iter fn next(s: Mut S) -> Emitted Int | Finished {\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("read, not advanced")),
@@ -239,7 +239,7 @@ fn a_mut_subject_is_refused() {
 fn the_result_must_be_emitted_or_finished() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Int {\n    return 1\n}\n",
+         iter fn next(s: S) -> Int {\n    return 1\n}\n",
     );
     assert!(
         errs.iter()
@@ -249,12 +249,12 @@ fn the_result_must_be_emitted_or_finished() {
 }
 
 /// A binding of a field's name would silently mean something else, so it is
-/// reported rather than renamed [pass-fn].
+/// reported rather than renamed [iter-fn].
 #[test]
 fn a_binding_may_not_shadow_a_state_field() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
          let at = 3\n    return finished()\n}\n",
     );
@@ -268,7 +268,7 @@ fn a_binding_may_not_shadow_a_state_field() {
 fn a_binding_may_not_shadow_the_subject() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
          for s in list(1, 2) {}\n    return finished()\n}\n",
     );
@@ -284,7 +284,7 @@ fn a_binding_may_not_shadow_the_subject() {
 fn a_state_field_may_not_be_named_like_the_subject() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        s: Int = 0\n    }\n    \
          return finished()\n}\n",
     );
@@ -299,7 +299,7 @@ fn a_state_field_may_not_be_named_like_the_subject() {
 #[test]
 fn a_structural_subject_is_refused() {
     let errs = errors(
-        "pass fn next(items: Int[]) -> Emitted Int | Finished {\n    return finished()\n}\n",
+        "iter fn next(items: Int[]) -> Emitted Int | Finished {\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("must be a named type")),
@@ -313,7 +313,7 @@ fn a_structural_subject_is_refused() {
 fn a_state_field_needs_an_initializer() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int\n    }\n    \
          return finished()\n}\n",
     );
@@ -327,7 +327,7 @@ fn a_state_field_needs_an_initializer() {
 fn an_empty_state_block_is_refused() {
     let errs = errors(
         "struct S { n: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n    }\n    \
          return finished()\n}\n",
     );
@@ -354,14 +354,14 @@ fn the_generated_pass_type_cannot_be_written() {
 
 // --- how much of the subject the pass holds ---------------------------------
 
-/// [pass-fn] Tier 2: reading a subject field on every turn is fine — the mint
+/// [iter-fn] Tier 2: reading a subject field on every turn is fine — the mint
 /// snapshots that field. What matters here is that it still *checks*: the
 /// snapshot carries the field's declared type.
 #[test]
 fn a_subject_field_read_per_turn_is_typed_by_its_declaration() {
     let errs = errors(
         "struct S { limit: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
          if at >= s.limit {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(at))\n}\n",
@@ -376,7 +376,7 @@ fn a_subject_field_read_per_turn_is_typed_by_its_declaration() {
 fn an_unknown_subject_field_is_reported_against_the_subject() {
     let errs = errors(
         "struct S { limit: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
          if at >= s.limmit {\n        return finished()\n    }\n    \
          return finished()\n}\n",
@@ -395,7 +395,7 @@ fn the_whole_subject_may_be_handed_on() {
     let errs = errors(
         "struct S { n: Int }\n\
          fn describe(s: S) -> [s] Int {\n    return s.n\n}\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        left: Int = s.n\n    }\n    \
          if left <= 0 {\n        return finished()\n    }\n    \
          left = left - 1\n    return emitted(describe(s))\n}\n",
@@ -409,7 +409,7 @@ fn the_whole_subject_may_be_handed_on() {
 fn a_state_field_may_share_a_name_with_a_subject_field() {
     let errs = errors(
         "struct S { at: Int, limit: Int }\n\
-         pass fn next(s: S) -> Emitted Int | Finished {\n    \
+         iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = s.at\n    }\n    \
          if at >= s.limit {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(copy(at))\n}\n",
@@ -424,7 +424,7 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// the pass type `It` is decided by *which `iter` fills it* — and then the
 /// `?Yield<It, T>` beside it resolves against what that taught.
 ///
-/// The reason this had to work: with a `pass fn` the pass type is **unnameable**,
+/// The reason this had to work: with an `iter fn` the pass type is **unnameable**,
 /// so writing the type arguments is not an available workaround. Before the
 /// learning sweep ran after the arguments were typed, `next` was reported as
 /// ambiguous with `It` still `?`.
@@ -439,10 +439,10 @@ fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
 }
 "#;
 
-/// The case that was impossible: the pass is the one a `pass fn` generated, so
+/// The case that was impossible: the pass is the one an `iter fn` generated, so
 /// no type argument could name it.
 #[test]
-fn a_generic_fn_infers_the_pass_type_of_a_pass_fn_subject() {
+fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
     let errs = errors(&format!(
         "{COUNTDOWN}{CONTAINER_COMBINATOR}\n\
          fn go() -> [] Int {{\n    let c = Countdown {{ from: 3 }}\n    return total(c)\n}}\n"

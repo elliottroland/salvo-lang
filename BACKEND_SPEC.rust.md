@@ -29,7 +29,7 @@ Conventions:
     paths are flat, generated imports use `crate::core_console::*`.
   * The generated union enums live in `unions.rs`, mounted as
     `mod unions` [rs-union-enums]; the lazy-iterator support in `iter.rs`
-    [rs-iter-lazy] and the string helpers in `strings.rs` [rs-mut-str],
+    [rs-iter-pass] and the string helpers in `strings.rs` [rs-mut-str],
     each emitted only when the program needs it.
 * [rs-imports] Files get generated `use` items: `use crate::<mod>::*;`
   per foreign *emitted* module whose names the file uses, and
@@ -123,90 +123,28 @@ Conventions:
 * [type-array] `T[]` maps to `Vec<T>`; literals emit `vec![...]`;
   `Int[5] { i: Int -> 0 }` emits an iterator-map-collect; indexing casts
   the `i32` index (`v[(i) as usize]`).
-* [rs-iter-lazy] Iteration is **lazy** and matches Kotlin element for element
-  [fn-iterator]. There is no iterator type to map: R5 deleted `Iter<T>` and with
-  it `SalvoIter` — a pass is a struct with a `next`, and a `yield fn` is a
-  machine the compiler writes.
-  * A `for` over **data** (a `Vec` from a list or an array, a `String`) is a
-    native Rust `for`; a `String` is not an iterator, so the subject becomes
-    `.chars()` [iter-for-native]. Everything else is driven by its `next`:
-    `let mut p = <subject>; while let Union2::U1(v) = next(&mut p) { … }`, with a
-    raw pass's `close` spliced after the loop and registered as a deferred entry
-    so a `return` out of the body releases it. The subject is **moved** into the
-    local, never cloned: a clone would leave the original unreleased, which for a
-    linear pass is the leak `close` exists to prevent.
-    * [iter-drive-in-place] A pass the fn **keeps** gets *no local at all* — the
-      loop calls `next(it)` on the `&mut` parameter itself. Binding it cloned the
-      borrow, so the caller never saw the position the loop reached while Kotlin's
-      aliasing did: the same program, two answers [backend-parity].
-    * [iter-generic-drive] A **generic** pass's `next` is an implicit parameter
-      (`&mut dyn FnMut(&mut It) -> Union2<T, Finished>`), called by its own name;
-      an implicit `close` (the `?Linear<It>` member) is called the same way and
-      **consumes** the local, so the pass is moved into it.
-  * `trait SalvoPass<T>` and `SalvoWalk<I>` survive in `iter.rs` for **one**
-    purpose: a *suspending* loop inside a `yield fn` holds its walk in an
-    `Option<Box<dyn SalvoPass<T>>>` slot. Only data reaches there (a pass as the
-    subject of a suspending loop is refused), so `SalvoWalk`'s default no-op
-    `close` is the whole release path. The file is mounted like `unions.rs`,
-    only when a machine needs a slot.
-  * [rs-generator] **A machine is a struct the compiler writes**, from the
-    shared plan [iter-generator]: `pub struct __Pass_<Origin> { <origin>, <the
-    body's locals>, __state: u32, __d<i>: bool }` with `pub fn new`, `fn
-    __advance(&mut self, <handlers>) -> Option<T>` — one
-    `loop { match self.__state { … } }` — and a `__close` running the pending
-    deferred blocks. It implements **nothing**: the drive site knows the
-    concrete type, so an element costs an inlined call and no allocation. The
-    body's names are `self.` fields (`BindKind::SelfField`), so a `let`
-    *assigns* one.
-    * The `async` borrowing is **gone** (2026-09-07), and with it
-      `SalvoGen`, `SalvoYield`, `Pin`, `Future` and `Waker`: rustc used to
-      build the state machine, and the price was that the machine captured
-      its environment `'static`, which is what forced the old effect-free rule.
-      Handlers are parameters of `__advance`/`__close`/`__run_d<i>` instead, in
-      the checker's order [fn-effects].
-    * A field whose type has **no zero value** — a generic element, a
-      struct, a union — is held in an `Option` instead
-      (`BindKind::SelfSlot`): reads clone out of it, `&`/`&mut` borrow
-      through it (`as_ref()`/`as_mut()`), and assignments re-wrap. The
-      zero-able types get plain fields, which is what keeps the common
-      machine readable.
-    * `#[derive(Clone)]` **unless the machine holds a nested pass slot**: a
-      `Box<dyn SalvoPass<T>>` is not `Clone`, and the derive would fail at
-      rustc. The cost is stated rather than hidden: such a machine cannot be a
-      type argument, so a producer that drives a suspending loop cannot be
-      *composed* — rustc reports the missing bound [backend-never-wrong].
-    * [yield-fn-origin] `for` becomes `let mut p = __Pass_Counter::new(<origin>.clone());`
-      then `while let Some(v) = p.__advance(<handlers>)`, with
-      `p.__close(<handlers>);` spliced after the loop *and* registered as a
-      deferred entry. A **place** subject is cloned — driving mints a fresh
-      machine, so a second `for` over the same origin replays — while a
-      temporary is moved. The clone is unobservable because the checker refuses
-      mutation of an origin while its loop is open [yield-fn-origin].
-    * **A minted origin at an argument position** is hoisted:
-      `let mut __mintN = __Pass_Counter::new(<origin>);`. It is closed after the
-      call only when the callee **keeps** the pass (a kept-`Mut` position,
-      `&mut __mintN`); a callee that *moves* it takes it by value and closes
-      nothing — a lazy combinator stores it and drives it long afterwards, and
-      closing it at the call handed the pass a finished machine. The turbofish
-      substitutes the machine type for the origin type, since that is what the
-      value is.
-  * A fn-typed parameter is **owned** — `impl Fn(…) + 'static`, `Rc`-held once
-    stored — exactly when the callee keeps it past the call [rs-fn-field]:
-    a `yield fn`'s machine calls it on every turn, and a composed pass calls it
-    once per element. `Fn` rather than `FnMut` because a shared `Rc` can only
-    offer `Fn`.
-    * A **lambda** in that position is emitted as a `move` closure, since
-      `'static` is what the declared type promises: a borrowing closure is
-      E0373 for *any* capture, immutable ones included. Its captures are
-      **cloned** into a block around it (`{ let mut x = x.clone(); move |…| … }`),
-      which is what lets two stored callbacks read the same local — legal Salvo
-      (an immutable read), and E0382 without the clone. What may be captured at
-      all is the checker's business [iter-mut-param].
-    * `copy(f)` on a function value lowers to the value itself: a callback is
-      shared, not duplicated, and an owned `impl Fn` parameter has no `clone`.
-  * Generic parameters carry `'static` alongside the blanket `Clone`
-    bound: every Salvo type is owned data with no lifetime of its own, and
-    a captured element type has to outlive the call.
+* [rs-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
+  there is no iterator type and no runtime support module for one. A pass is a
+  plain struct, `next` is a plain function, and a `for` over one is
+  `while let Union2::U1(x) = next(&mut p) { … }` — an inlined call per element,
+  no allocation, no trait object.
+  * [iter-fn] An `iter fn` is desugared before emission into that same shape: a
+    struct holding what the body reads of the subject plus its `state` fields, an
+    `iter` that mints one, and the body as the `next`. The backend has no rule
+    of its own for the form.
+  * A `for` over a **container** calls its `iter` once before the loop and drives
+    the result [iter-pass]; the intrinsic containers (`Vec`, arrays, `String`)
+    keep their native loop instead [iter-for-native].
+  * An **effectful `next`** takes its handlers as leading arguments, threaded
+    into every turn of the loop from the scope the `for` is written in
+    [fn-effects].
+  * [linear-group] A pass with a `close` is released by the loop on every exit —
+    exhaustion, `break` and `return` — through the same deferred-splice path
+    `defer` uses [rs-defer-splice].
+  * [rs-fn-field] A fn-typed **field** is `Rc<dyn Fn…>`, which is what lets a
+    composed pass (`map_lazy`) store its source's `next`; a fn that stores a
+    callback therefore takes it owned and `'static` rather than borrowed.
+
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
   spells out its type arguments (`map_to::<Vec<i32>, Vec<i32>, i32, i32>(…)`),
   from `Checked::call_type_args`. Each implicit arrives as an adapter *closure*
@@ -237,7 +175,7 @@ Conventions:
   (roadmap R5, 2026-09-08 — it was a codegen error until then, while Kotlin
   accepted the same source: a live backend divergence, now closed). The
   representation is the one a *generated* pass has always used for a stored
-  callback [rs-iter-lazy], reused rather than reinvented:
+  callback [rs-iter-pass], reused rather than reinvented:
   * the field renders as `std::rc::Rc<dyn Fn(A) -> R>` — `Fn`, not `FnMut`,
     because it is reached through a shared `Rc` (the same rendering an
     iterator fn's callback parameter gets, with `impl `/` + 'static`

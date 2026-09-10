@@ -368,43 +368,6 @@ fn an_effect_on_a_fn_type_names_the_bracket_form() {
     );
 }
 
-/// And `yield` outside a `yield fn` is a declaration error: the
-/// `Iter<T>`-returning producer is gone, so there is one form left
-/// [yield-fn-origin].
-#[test]
-fn a_yield_outside_a_yield_fn_is_refused() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn counted(n: Int) -> [] Int {{\n\
-         yield n\n\
-         }}\n"
-    ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("it has to be a `yield fn`")),
-        "expected the yield-form error, got: {errs:?}"
-    );
-}
-
-/// A `yield fn` declares its effects like any function, and driving it is
-/// what performs them — checked at the loop, which
-/// `yield_origin_tests::drive_site_effects_are_required_at_the_loop` covers.
-/// Here: the declaration itself is legal, effects and all.
-#[test]
-fn a_yield_fn_declares_its_effects_in_its_own_list() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Chatty : Yield<self, Int> {{\n\
-         limit: Int\n\
-         }}\n\
-         yield fn next(c: Chatty) [Logger] -> Int {{\n\
-         log(\"one\")\n\
-         yield copy(c.limit)\n\
-         }}\n"
-    ));
-    assert!(errs.is_empty(), "{errs:?}");
-}
-
 /// The restriction is on *producing*, not consuming: a `for` loop sits in an
 /// ordinary fn and may perform whatever that fn declares.
 #[test]

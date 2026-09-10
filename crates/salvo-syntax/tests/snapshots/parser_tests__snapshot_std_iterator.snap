@@ -70,9 +70,8 @@ Module {
                     "since the obligation travels with them [linear-generics].",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "emitted",
                     span: 1555..1562,
@@ -179,9 +178,8 @@ Module {
                     "The end of a sequence.",
                 ],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "finished",
                     span: 1662..1670,
@@ -281,9 +279,8 @@ Module {
                     FnDecl {
                         docs: [],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "next",
                             span: 2689..2693,

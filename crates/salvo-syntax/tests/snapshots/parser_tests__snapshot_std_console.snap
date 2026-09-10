@@ -19,9 +19,8 @@ Module {
                             "Prints to the console without emitting a newline",
                         ],
                         intrinsic: false,
-                        is_yield: false,
-                        is_pass: false,
-                        pass_state: [],
+                        is_iter: false,
+                        iter_state: [],
                         name: Ident {
                             name: "print",
                             span: 80..85,
@@ -116,9 +115,8 @@ Module {
             FnDecl {
                 docs: [],
                 intrinsic: false,
-                is_yield: false,
-                is_pass: false,
-                pass_state: [],
+                is_iter: false,
+                iter_state: [],
                 name: Ident {
                     name: "println",
                     span: 168..175,

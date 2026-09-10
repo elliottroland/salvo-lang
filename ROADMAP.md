@@ -65,11 +65,11 @@ first.
 
 - ✅ **A generic function over *containers*** landed 2026-09-10: `?iter` as an
   implicit whose result determines the pass type, which is the only way the shape
-  can work for a `pass fn` subject (its pass has no name to write). See
+  can work for an `iter fn` subject (its pass has no name to write). See
   COMPLETED.md. **std stays pass-only** (user decision 2026-09-10): a source need
   not have a container behind it, so anything new in `std/` — S-IO's streams
   included — takes a pass and lets the caller write `iter(c)`.
-- ✅ **`pass fn` with a `state { … }` block** landed 2026-09-09 — a hand-written
+- ✅ **`iter fn` with a `state { … }` block** landed 2026-09-09 — a hand-written
   `next` whose pass struct is generated, which is the answer to "the generated
   state machine is a lot of code": most producers need no machine at all. The
   generated pass holds only as much of the subject as the body reads (nothing, a
@@ -91,13 +91,11 @@ first.
   passes, and three compiler comments still describing `Iter<T>` as current.
 - Optional, and priced as an optimization rather than a fix: **mutable origins,
   option (e)**.
-- **Open, and now answerable from evidence: does `yield fn` stay?** `pass fn`
-  covers the same ground without a state machine, so the question is which bodies
-  are genuinely worse written by hand — nested loops and tree walks are the
-  honest cases. Rewriting the `examples/iteration` producers both ways is the
-  comparison; deleting `yield fn` would take `generator.rs`, both machine
-  renderers and the per-`defer` flag machinery with it.
-
+- ✅ **`yield fn` is deleted** (user decision 2026-09-10): `iter fn` covers the
+  same ground without a state machine, so the sugar, the `yield` keyword and
+  the whole machine apparatus went — `generator.rs`, both backends' renderers,
+  the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
+  COMPLETED.md.
 **2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
 Field-disjoint precision on the `Place` substrate P1 built. No decision
 outstanding: it is analysis engineering under decisions already made.
@@ -389,21 +387,10 @@ The list the flip left behind ("Known cuts and gaps" under "R5 part 2 as built"
 in COMPLETED.md). Every one of them is a diagnostic today, so none can produce
 wrong output [backend-never-wrong]:
 
-- **A *suspending* loop may not iterate a pass.** Inside a `yield fn`, a `for`
-  takes an array, a `List<T>` or a `Str`. This is the one capability the
-  reduction *lost* — a nested producer used to work — because the nested-pass
-  slot machinery was built for `Iter<T>` and driving a pass out of a slot is
-  unbuilt. The workaround is to collect first (`map(upto(3), f)` into a list).
-  It is also what the planner's own acceptance fixture exercises, so the plan
-  side is already correct: `crates/salvo-core/tests/fixtures/gnarly.sv` plans
-  the nested-pass field and only emission is missing.
-- **A machine holding a nested pass slot is not `Clone` on Rust**, so such an
-  origin cannot be a type argument: a producer that drives a suspending loop
-  cannot be composed there. rustc reports the missing bound.
 - **A callback handed *onward*** to another storing fn stays borrowed on Rust —
   the "does this fn store its callback?" predicate is deliberately
   non-transitive — and rustc reports the lifetime.
-- **A `pass fn` with a *generic* subject is refused on Kotlin** [pass-fn], and
+- **An `iter fn` with a *generic* subject is refused on Kotlin** [iter-fn], and
   only when it reaches the whole-subject tier: the mint copies the subject, and
   the Kotlin `copy` lowering [kt-copy] cannot decide whether a value typed by a
   type variable holds mutable data. A body that only reads plain fields of it
@@ -411,13 +398,12 @@ wrong output [backend-never-wrong]:
   which today means a non-generic subject declared in the same file, so the two
   limits reinforce each other. Lifting either means a structural copy Kotlin can
   generate for a generic struct, or making the snapshot type-aware (which is the
-  same work as "Mutable origins", option (e), for the generated machines).
+  same idea as a per-field snapshot, which the `iter fn` desugaring already does
+  where it can [iter-fn]).
 - **A *generic* `next` that performs effects** cannot be driven by `for` on
   either backend: its effects live on a fn value the caller supplied, so the
   handlers would have to reach through the implicit rather than being threaded
   per turn. The non-generic case works as of 2026-09-09.
-- **Value-position `for` over an origin** is unsupported on both backends: the
-  machine has nowhere to be closed.
 - **A user type named like one of std's passes collides.** Implicit resolution
   matches by name and does not module-qualify a nominal type, so a program
   declaring its own `ListYield` plus `next` makes the `next` ambiguous. Worth
@@ -437,24 +423,6 @@ Two open *questions* the iterator work forwarded to the qualifier roadmap
 rather than answering: **D6** (`Once` on any type — the I2b collision forces it
 in a narrower form; see COMPLETED.md) and **D7** (qualifier-conditional
 linearity). Both are under "Deductions and qualifier reasoning" below.
-
-### Mutable origins — option (e), the field-level snapshot
-
-An **optimization**, priced as one. Mutation of an origin during a drive is
-already sound: option (d) refuses the overlap ([yield-fn-origin], built
-2026-09-08), so the backends cannot disagree. Option (e) would remove the clone
-Rust makes per loop *and* give defence in depth — a rule gap could not produce
-divergent output — by having the machine snapshot only the origin *fields* the
-body reads, at construction, before any suspension exists.
-
-What makes it more than an afternoon, and why two cheaper routes are blocked, is
-recorded under "Mutable origins: the question, and the options" in COMPLETED.md.
-The short version: it needs `FieldKind::OriginField { param, field }` in the
-plan plus a rewrite of `o.field` in both emitters, and the predicate ("every use
-of the origin is a plain field read") needs a *complete* expression walk —
-`collect_bindings_expr` is not one, and a walk that misses a bare use would emit
-a reference to a field that does not exist, i.e. wrong output rather than an
-error [backend-never-wrong].
 
 ### An early-stopping combinator cannot close its source
 
@@ -620,7 +588,7 @@ the pattern, and it is the most demanding customer this roadmap has:
   "Representation, and why it cannot panic" is written to avoid.
 - **It makes replayability a question rather than a promise.** `Iter<T>` is a
   factory whose contract is that a second `for` starts from the beginning
-  [fn-iterator]. Sharing a cell with the caller keeps the *elements*
+  [iter-protocol]. Sharing a cell with the caller keeps the *elements*
   replayable while the side effect accumulates, so two loops over one factory
   stop being interchangeable. Whether that is acceptable is a language call,
   not a representation detail.
