@@ -707,6 +707,15 @@ fn generate_unions_file(sizes: &BTreeSet<usize>) -> String {    let mut out = St
                  Union{n}::U{i}(v) => v,\n            _ => panic!(\"unreachable union arm\"),\n        \
                  }}\n    }}\n"
             ));
+            // [rs-narrow-mut] The mutable accessor: a value narrowed to this
+            // arm and then *mutated* must reach the payload in place. The
+            // read accessor above would force a clone at the call, and the
+            // mutation would land on it.
+            out.push_str(&format!(
+                "    pub fn u{i}_mut(&mut self) -> &mut T{i} {{\n        match self {{\n            \
+                 Union{n}::U{i}(v) => v,\n            _ => panic!(\"unreachable union arm\"),\n        \
+                 }}\n    }}\n"
+            ));
         }
         out.push_str("}\n");
         let bounds: Vec<String> = (1..=n)
@@ -822,10 +831,22 @@ fn rs_ident(name: &str) -> String {
     }
 }
 
+/// What a narrowed span's declared representation looks like, so the read
+/// unwrap and the mutable one agree [rs-narrow-mut] [union-arm-identity].
+#[derive(Clone, Copy)]
+struct Narrowing {
+    /// The wrapper-union arm the narrowed type identifies; `None` when the
+    /// representation is a plain optional (`T?`) narrowed to its value.
+    arm: Option<usize>,
+    /// An `Option` sits in front of the payload, so it is unwrapped first.
+    optional: bool,
+    /// The payload is `Copy`, so a read dereferences rather than clones.
+    copy: bool,
+}
+
 /// How a name in scope is bound in the emitted Rust [rs-borrows].
 #[derive(Clone, Copy, PartialEq)]
-enum BindKind {
-    /// An owned binding (locals, moved parameters, lambda/loop bindings).
+enum BindKind {    /// An owned binding (locals, moved parameters, lambda/loop bindings).
     Owned,
     /// A `&T` parameter.
     Ref,
@@ -4501,8 +4522,7 @@ impl<'p> Emitter<'p> {
         self.narrow_unwrap(id.span, storage)
     }
 
-    /// The narrowing unwrap for a *projection place* read [flow-place]:
-    /// `h.field` narrowed by `h.field is T` reads its payload out of the
+    /// The narrowing unwrap for a *projection place* read [flow-place]:    /// `h.field` narrowed by `h.field is T` reads its payload out of the
     /// declared representation, exactly as a narrowed identifier does. The
     /// storage code keeps the base's own unwraps (a narrowed base must be
     /// unwrapped before its field can be reached) but not this place's.
@@ -4519,6 +4539,90 @@ impl<'p> Emitter<'p> {
         }
         let storage = self.place_storage(expr);
         self.narrow_unwrap(expr.span(), storage)
+    }
+
+    /// [rs-narrow-mut] `ident_unwrap`'s mutable twin: the place to assign
+    /// through or take `&mut` of, already a `&mut T` into the storage.
+    fn ident_unwrap_mut(&mut self, id: &Ident) -> Option<String> {
+        if !self.checked.repr_ty.contains_key(&(self.file_idx, id.span)) {
+            return None;
+        }
+        let storage = self.binding_place(&id.name);
+        self.narrow_unwrap_mut(id.span, storage)
+    }
+
+    /// [rs-narrow-mut] `place_unwrap`'s mutable twin. The base is rendered
+    /// mutably too, so a chain of narrowed places stays a path into storage
+    /// rather than becoming a temporary at any link.
+    fn place_unwrap_mut(&mut self, expr: &Expr) -> Option<String> {
+        if !matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. }) {
+            return None;
+        }
+        if !self
+            .checked
+            .repr_ty
+            .contains_key(&(self.file_idx, expr.span()))
+        {
+            return None;
+        }
+        let storage = self.place_storage_mut(expr);
+        self.narrow_unwrap_mut(expr.span(), storage)
+    }
+
+    /// [rs-narrow-mut] `place_storage`'s mutable twin: the same chain with
+    /// every *base* narrowing unwrapped mutably. A field cast
+    /// [qual-field-override] is likewise unwrapped in place — writing
+    /// through a cast field must reach the field, not a copy of it.
+    fn place_storage_mut(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Field { base, field, span } => {
+                let base_code = self.emit_place_mut(base);
+                let code = format!("{base_code}.{}", rs_ident(&field.name));
+                if self
+                    .checked
+                    .field_casts
+                    .contains_key(&(self.file_idx, *span))
+                {
+                    return format!("{code}.as_mut().unwrap()");
+                }
+                code
+            }
+            Expr::TupleIndex { base, index, .. } => {
+                format!("{}.{index}", self.emit_place_mut(base))
+            }
+            Expr::Ident(id) if id.name != "None" => self.binding_place(&id.name),
+            other => self.emit_place_mut(other),
+        }
+    }
+
+    /// [rs-narrow-mut] `emit_place`'s mutable twin, for the base of an
+    /// assignment target and for an argument in a `&mut` position. The
+    /// difference is only at a narrowed link: the read form clones out of
+    /// the representation, this one borrows into it.
+    fn emit_place_mut(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Ident(id) => {
+                if id.name == "None" {
+                    return "None".to_string();
+                }
+                if let Some(unwrapped) = self.ident_unwrap_mut(id) {
+                    return unwrapped;
+                }
+                self.binding_place(&id.name)
+            }
+            Expr::Field { .. } | Expr::TupleIndex { .. } => {
+                if let Some(unwrapped) = self.place_unwrap_mut(expr) {
+                    return unwrapped;
+                }
+                self.place_storage_mut(expr)
+            }
+            Expr::Index { base, index, .. } => {
+                let base_code = self.emit_place_mut(base);
+                let idx = self.emit_owned(index);
+                format!("{base_code}[({idx}) as usize]")
+            }
+            other => self.emit_place(other),
+        }
     }
 
     /// A place's storage rendering: the read *without* its own narrowing
@@ -4549,12 +4653,14 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// Reads a narrowed value out of the declared representation at
-    /// `span`, given the code for its storage [rs-union-enums]
-    /// [rs-option]. Shared by identifier and projection-place reads.
-    fn narrow_unwrap(&mut self, span: Span, storage: String) -> Option<String> {
+    /// How a narrowed span reads out of its declared representation
+    /// [rs-union-enums] [rs-option]: which arm (if the representation is a
+    /// wrapper union), whether an `Option` sits in front of it, and whether
+    /// the payload is `Copy`. Computed once and shared by the read unwrap
+    /// and the *mutable* one, so the two cannot disagree about arm identity
+    /// [union-arm-identity].
+    fn narrowing_of(&mut self, span: Span) -> Option<Narrowing> {
         let (repr, logical) = (self.repr_of(span)?, self.ty_of(span)?);
-        let name = storage;
         // Wrapper union narrowed to a single non-`None` arm.
         if repr.is_wrapper_union()
             && !matches!(logical, Ty::Union(_))
@@ -4575,17 +4681,12 @@ impl<'p> Emitter<'p> {
                 self.error(format!(
                     "narrowed type `{logical}` matches no arm of `{repr}`"
                 ));
-                return Some(name);
+                return None;
             };
-            let access = if repr.has_none_arm() {
-                format!("{name}.as_ref().unwrap()")
-            } else {
-                name
-            };
-            return Some(if Self::is_copy_ty(&logical) {
-                format!("*{access}.u{}()", arm + 1)
-            } else {
-                format!("{access}.u{}().clone()", arm + 1)
+            return Some(Narrowing {
+                arm: Some(arm),
+                optional: repr.has_none_arm(),
+                copy: Self::is_copy_ty(&logical),
             });
         }
         // `T?` representation narrowed to its value arm: unlike Kotlin,
@@ -4597,14 +4698,68 @@ impl<'p> Emitter<'p> {
             && !logical.is_none_ty()
             && !matches!(logical, Ty::Union(_))
         {
-            let logical = logical.clone();
-            return Some(if Self::is_copy_ty(&logical) {
-                format!("{name}.unwrap()")
-            } else {
-                format!("{name}.as_ref().unwrap().clone()")
+            return Some(Narrowing {
+                arm: None,
+                optional: true,
+                copy: Self::is_copy_ty(logical),
             });
         }
         None
+    }
+
+    /// Reads a narrowed value out of the declared representation at
+    /// `span`, given the code for its storage [rs-union-enums]
+    /// [rs-option]. Shared by identifier and projection-place reads. The
+    /// result is **owned** — see `narrow_unwrap_mut` for a mutable use.
+    fn narrow_unwrap(&mut self, span: Span, storage: String) -> Option<String> {
+        let n = self.narrowing_of(span)?;
+        let name = storage;
+        match n.arm {
+            Some(arm) => {
+                let access = if n.optional {
+                    format!("{name}.as_ref().unwrap()")
+                } else {
+                    name
+                };
+                Some(if n.copy {
+                    format!("*{access}.u{}()", arm + 1)
+                } else {
+                    format!("{access}.u{}().clone()", arm + 1)
+                })
+            }
+            None => Some(if n.copy {
+                format!("{name}.unwrap()")
+            } else {
+                format!("{name}.as_ref().unwrap().clone()")
+            }),
+        }
+    }
+
+    /// Reads a narrowed value as a **mutable** place [rs-narrow-mut]: the
+    /// same unwrap through the mutable accessors, so the result is a
+    /// `&mut T` *into the storage* rather than an owned temporary.
+    ///
+    /// This exists because the owned form is silently wrong for a mutation:
+    /// `&mut (p.as_ref().unwrap().clone())` compiles, and mutates the
+    /// clone — a pass driven through a narrowed handle re-emitted its first
+    /// element forever, while Kotlin (whose smart cast is the storage
+    /// itself) advanced. Both mutable sites go through here: an argument in
+    /// a `&mut` position and the base of an assignment target.
+    fn narrow_unwrap_mut(&mut self, span: Span, storage: String) -> Option<String> {
+        let n = self.narrowing_of(span)?;
+        let name = storage;
+        // An `Option` in front of the payload is unwrapped mutably first;
+        // then a wrapper union's arm accessor, whose `_mut` form the
+        // generated union file carries for exactly this purpose.
+        let access = if n.optional {
+            format!("{name}.as_mut().unwrap()")
+        } else {
+            name
+        };
+        Some(match n.arm {
+            Some(arm) => format!("{access}.u{}_mut()", arm + 1),
+            None => access,
+        })
     }
 
     /// The place expression for a bound name: `self.x` for handler
@@ -4873,6 +5028,11 @@ impl<'p> Emitter<'p> {
 
     /// Raw rendering for assignment targets and `++` operands: no
     /// narrowing unwraps, no casts, no clones.
+    ///
+    /// [rs-narrow-mut] The *outermost* node keeps that rule — assigning to
+    /// a narrowed variable writes its storage, not through the narrowing —
+    /// but a **base** must be unwrapped mutably, or `p.at = 2` on a
+    /// narrowed `Mut ListYield<Int>?` reaches for a field of the `Option`.
     fn emit_raw(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Ident(id) => {
@@ -4883,14 +5043,14 @@ impl<'p> Emitter<'p> {
                 }
             }
             Expr::Field { base, field, .. } => {
-                format!("{}.{}", self.emit_raw(base), rs_ident(&field.name))
+                format!("{}.{}", self.emit_place_mut(base), rs_ident(&field.name))
             }
             Expr::TupleIndex { base, index, .. } => {
-                format!("{}.{index}", self.emit_raw(base))
+                format!("{}.{index}", self.emit_place_mut(base))
             }
             Expr::Index { base, index, .. } => {
                 let idx = self.emit_owned(index);
-                format!("{}[({idx}) as usize]", self.emit_raw(base))
+                format!("{}[({idx}) as usize]", self.emit_place_mut(base))
             }
             other => self.emit_raw_like(other),
         }
@@ -5331,6 +5491,26 @@ impl<'p> Emitter<'p> {
 
     /// Renders an argument for a `&mut T` parameter position [rs-borrows].
     fn borrowed_mut_arg(&mut self, expr: &Expr) -> String {
+        // [rs-narrow-mut] A *narrowed* place is reached through the mutable
+        // unwrap, which is already a `&mut T` into the storage. Without
+        // this the fallback below borrowed the read form — a clone — and
+        // the mutation landed on the temporary. The gate is the unwrap
+        // itself producing something: a recorded representation is not
+        // necessarily one of the two narrowing shapes (a `Mut` drop records
+        // one too), and a bare name still needs its `&mut`.
+        match expr {
+            Expr::Ident(id) if id.name != "None" => {
+                if let Some(code) = self.ident_unwrap_mut(id) {
+                    return code;
+                }
+            }
+            Expr::Field { .. } | Expr::TupleIndex { .. } => {
+                if let Some(code) = self.place_unwrap_mut(expr) {
+                    return code;
+                }
+            }
+            _ => {}
+        }
         if let Expr::Ident(id) = expr {
             if id.name != "None" && self.ident_unwrap(id).is_none() {
                 match self.bindings.get(id.name.as_str()) {
@@ -5345,7 +5525,7 @@ impl<'p> Emitter<'p> {
         }
         match expr {
             Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
-                format!("&mut {}", self.emit_place(expr))
+                format!("&mut {}", self.emit_place_mut(expr))
             }
             other => {
                 let code = self.emit_expr(other);

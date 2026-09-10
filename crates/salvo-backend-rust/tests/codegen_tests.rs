@@ -4537,6 +4537,120 @@ fn main() [use] {
 
 const PLAIN_GROUP_OUTPUT: &str = "str one\nint 2\nfinished\n";
 
+/// [rs-narrow-mut] Mutating through a **narrowed** place. Every shape the
+/// unwrap can take is here, because the read form of each was silently wrong:
+/// `&mut` of `p.as_ref().unwrap().clone()` compiles and mutates the clone, so
+/// a pass driven through a narrowed handle re-emitted its first element for
+/// ever while Kotlin — whose smart cast *is* the storage — advanced.
+///
+/// - a narrowed optional passed to a `Mut` parameter (`Option::as_mut`);
+/// - a narrowed union arm, same thing through `u1_mut()`;
+/// - an assignment whose *base* is narrowed (`r.at = 2`), which reached for a
+///   field of the `Option` and was an E0609 rather than a silent wrong answer;
+/// - a narrowed `state` slot of an `iter fn`, which is the shape that found it:
+///   a lazy flatten holding the inner pass. That one also needed the
+///   desugaring to stop giving the synthesized `__p` base the read's span.
+const NARROW_MUT_DEMO: &str = r#"
+struct Flat {
+    rows: List<List<Int>>
+}
+
+fn show(step: Emitted Int | Finished) [Console] {
+    when step {
+        ^ Emitted { println("got ${step}") }
+        is Finished { println("end") }
+    }
+}
+
+iter fn next(f: Flat) -> Emitted Int | Finished {
+    state { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    while true {
+        if inner is Mut ListYield<Int> {
+            let step = next(inner)
+            when step {
+                ^ Emitted { return emitted(step) }
+                is Finished { inner = None }
+            }
+        }
+        let row = get(f.rows, at)
+        if row is None {
+            return finished()
+        }
+        at = at + 1
+        inner = iter(row)
+    }
+    return finished()
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p: Mut ListYield<Int>? = iter(list(1, 2))
+    if p is Mut ListYield<Int> {
+        show(next(p))
+        show(next(p))
+        show(next(p))
+    }
+    let q: Mut ListYield<Int> | Int = iter(list(7, 8))
+    if q is Mut ListYield<Int> {
+        show(next(q))
+        show(next(q))
+    }
+    let r: Mut ListYield<Int>? = iter(list(1, 2, 3))
+    if r is Mut ListYield<Int> {
+        r.at = 2
+        show(next(r))
+    }
+    let all = Flat { rows: list(list(1, 2), list(3, 4, 5)) }
+    for n in iter(all) {
+        println("n ${n}")
+    }
+}
+"#;
+
+const NARROW_MUT_OUTPUT: &str =
+    "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
+
+#[test]
+fn rustc_compiles_and_runs_mutation_through_narrowed_places() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NARROW_MUT_DEMO)]);
+    run_rust_files(&files, "narrow-mut", NARROW_MUT_OUTPUT);
+}
+
+/// [rs-narrow-mut] The same thing read off the generated source, so the
+/// regression is caught with no toolchain on PATH: a mutable use borrows into
+/// the storage, and the tell-tale `&mut` of a clone appears nowhere.
+#[test]
+fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
+    let files = generate(&[("main.sv", NARROW_MUT_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs");
+    let src = &main.content;
+    for needle in [
+        // The optional, and the `state` slot inside the generated pass.
+        "next__2(p.as_mut().unwrap())",
+        "next__2(__p.inner.as_mut().unwrap())",
+        // The union arm.
+        "next__2(q.u1_mut())",
+        // The assignment base.
+        "r.as_mut().unwrap().at = 2",
+    ] {
+        assert!(
+            src.contains(needle),
+            "expected `{needle}` in:\n{src}"
+        );
+    }
+    assert!(
+        !src.contains("&mut (p.as_ref"),
+        "a mutable use must not borrow a clone:\n{src}"
+    );
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_group_over_plain_arms() {
     if !rustc_available() {

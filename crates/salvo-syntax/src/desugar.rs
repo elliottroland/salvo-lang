@@ -327,6 +327,9 @@ fn expand(
     let mut scan = Rewrite {
         subject: subject.name.name.clone(),
         state: state_names.clone(),
+        // Scan mode synthesizes nothing, so this allocator is never drawn on;
+        // the rewrite below gets the live one.
+        spans: Spans::new(f.span),
         snapshots: BTreeMap::new(),
         scan: true,
         used_fields: Vec::new(),
@@ -558,6 +561,7 @@ fn expand(
     let mut rewrite = Rewrite {
         subject: subject.name.name.clone(),
         state: state_names,
+        spans,
         snapshots,
         scan: false,
         used_fields: Vec::new(),
@@ -669,6 +673,10 @@ fn element_type(ty: Option<&Type>) -> Option<Type> {
 struct Rewrite {
     subject: String,
     state: Vec<String>,
+    /// Distinct spans for the `__p` bases this rewrite synthesizes, continuing
+    /// the declaration's allocation so no two synthesized nodes collide. Unused
+    /// in `scan` mode, which rewrites nothing.
+    spans: Spans,
     /// Subject field -> the pass field standing in for it [iter-fn]. Empty when
     /// the whole subject is kept (or when the body never reads it).
     snapshots: BTreeMap<String, String>,
@@ -689,15 +697,17 @@ struct Rewrite {
 impl Rewrite {
     /// The pass field a bare name refers to: the subject itself, or a `state`
     /// field.
-    fn field_of(&self, ident: &Ident) -> Option<Expr> {
+    fn field_of(&mut self, ident: &Ident) -> Option<Expr> {
         let field = if ident.name == self.subject {
             SUBJECT
         } else if self.state.iter().any(|s| *s == ident.name) {
             &ident.name
         } else {
             return None;
-        };
-        Some(pass_field(field, ident.span))
+        }
+        .to_string();
+        let base_span = self.spans.take();
+        Some(pass_field(&field, ident.span, base_span))
     }
 
     fn block(&mut self, block: &mut Block) {
@@ -741,8 +751,9 @@ impl Rewrite {
                     }
                     return;
                 }
-                if let Some(pass_name) = self.snapshots.get(&field.name) {
-                    *expr = pass_field(pass_name, *span);
+                if let Some(pass_name) = self.snapshots.get(&field.name).cloned() {
+                    let base_span = self.spans.take();
+                    *expr = pass_field(&pass_name, *span, base_span);
                     return;
                 }
             }
@@ -889,11 +900,19 @@ impl Rewrite {
 }
 
 /// A field read of the pass parameter: `__p.<name>`.
-fn pass_field(name: &str, span: Span) -> Expr {
+///
+/// The **base** takes a span of its own, never the original identifier's. The
+/// checker's side tables are keyed by span, so a base sharing the read's span
+/// answers to that read's narrowing — and a backend that unwraps a narrowing
+/// physically then unwraps `__p` itself before reaching the field (a narrowed
+/// `state` slot emitted `__p.as_mut().unwrap().inner…`, which rustc rejected).
+/// The `Field` node keeps the original span, since that is what a diagnostic
+/// about this read should point at [iter-fn].
+fn pass_field(name: &str, span: Span, base_span: Span) -> Expr {
     Expr::Field {
         base: Box::new(Expr::Ident(Ident {
             name: PASS.to_string(),
-            span,
+            span: base_span,
         })),
         field: Ident {
             name: name.to_string(),

@@ -82,8 +82,17 @@ first.
   It also closed a latent emission gap on the same path (a group over plain
   arms, `Emitted (Str | Int)`, emitted one wrap where two were needed). See
   COMPLETED.md.
-- A **suspending loop driving a pass** — the one capability the reduction lost.
-  The planner already produces the nested-pass field; only emission is missing.
+- ✅ **"A suspending loop driving a pass" is retired, not built** (2026-09-10).
+  The item described a `for` inside a `yield fn` body, driving a nested pass out
+  of a machine slot — and `yield fn`, the planner it named and the slot
+  machinery all went with the deletion earlier the same day. Nothing suspends
+  any more: a `for` inside an `iter fn`'s `next` is an ordinary loop, and the
+  capability the cut actually cost — *lazily* interleaving with an inner pass,
+  as a flatten does — is written by holding that pass in `state`. Checking that
+  found the defect below instead. See COMPLETED.md.
+- ✅ **Mutation through a narrowed place on Rust** closed 2026-09-10 — the
+  worst class of bug this repo has had: silently wrong output rather than a
+  diagnostic. See COMPLETED.md.
 - The **`?close` implicit**, so an early-stopping combinator (`take`, `first`)
   can release its source. Phase 4 needs precisely this when it stops reading a
   file part-way.

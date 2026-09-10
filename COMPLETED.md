@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 797 tests, complete: the toolchain tests are
+cargo test                  # 800 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -119,6 +119,79 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Mutating through a narrowed place emitted a borrow of a clone on Rust
+(defect closed 2026-09-10) — the one [backend-never-wrong] violation this
+compiler has shipped.** Found while checking whether ROADMAP's "a suspending
+loop driving a pass" item still meant anything. It did not: the item described a
+`for` inside a `yield fn` body driving a nested pass out of a machine slot, and
+`yield fn`, the planner the bullet named and the slot machinery were all deleted
+earlier the same day. Nothing suspends now — a `for` inside an `iter fn`'s
+`next` is an ordinary loop, verified on both backends — so the bullet was
+retired rather than built.
+
+**What the check turned up instead.** The capability that cut actually cost is
+*lazy* interleaving with an inner pass, which under `iter fn` is written by
+holding that pass in `state`. A flatten written that way type-checked, ran
+correctly on Kotlin, and on Rust printed the first element of the first row for
+ever. Reduced to three lines with no iterators in sight:
+
+```
+let p: Mut ListYield<Int>? = iter(list(1, 2))
+if p is Mut ListYield<Int> { show(next(p)); show(next(p)) }   // Rust: 1, 1
+```
+
+**Root cause.** `narrow_unwrap` reads a narrowed value *out of* its declared
+representation, and its result is an owned temporary
+(`p.as_ref().unwrap().clone()`) — correct for a read, which is all it was
+written for. `borrowed_mut_arg`'s fast path skipped any ident needing an unwrap
+and fell through to `&mut (<expression>)`, so the mutable borrow was taken of
+the clone. It compiles, and the mutation lands on the temporary. Kotlin's smart
+cast *is* the storage and its objects are references, so Kotlin was right by
+construction — which is exactly why the parity principle catches this class of
+bug and a single-backend test never would.
+
+**The fix is a mutable twin of the whole read path** [rs-narrow-mut]:
+`narrow_unwrap_mut` unwraps through `Option::as_mut` and a new
+`u{i}_mut(&mut self) -> &mut T{i}` on the generated union enums, so the result
+is a `&mut` into the storage; `emit_place_mut`/`place_storage_mut` render a
+*chain* mutably, so no link becomes a temporary. Both mutable sites now go
+through it — an argument in a `&mut` position, and the **base** of an
+assignment target, which had the same fault with a louder symptom (`r.at = 2` on
+a narrowed `Mut ListYield<Int>?` reached for a field of the `Option`: E0609).
+The outermost node of an assignment target deliberately keeps the read rule,
+since assigning to a narrowed *variable* writes its storage.
+
+**Two things worth keeping from how it was built:**
+
+- **The read and mutable unwraps share one classification** (`Narrowing`: arm
+  index, whether an `Option` sits in front, whether the payload is `Copy`).
+  Duplicating the arm lookup would have put [union-arm-identity] in two places
+  in one file, which is the drift the checker/emitter invariant exists to
+  prevent.
+- **The gate is the unwrap producing something, not the presence of a recorded
+  representation.** The first attempt keyed on `repr_ty` containing the span,
+  which is also true for a `Mut` drop — so a plain `Mut` argument lost its
+  `&mut` and five golden tests plus a refinement e2e failed. A recorded
+  representation is not a narrowing.
+
+**A second, independent defect had to be fixed to finish it**: the `iter fn`
+desugaring gave the synthesized `__p` base of a state-field read *the read's own
+span*, so the base answered to the field's narrowing and the emitter unwrapped
+`__p` itself (`__p.as_mut().unwrap().inner…`, E0599). This is precisely the
+gotcha already recorded from `iter fn`'s construction — "a desugaring must give
+every synthesized node its own span" — and the `Spans` allocator written for it
+was already there; `pass_field` simply had not been wired to it. The `Field`
+node keeps the original span, since that is what a diagnostic about the read
+should point at.
+
+**What it cost**: 3 tests (797 → 800) — one program per backend that mutates
+through all four narrowing shapes (optional, union arm, assignment base,
+`iter fn` state slot) with output asserted identical, plus a generated-source
+assertion so the regression is caught with no toolchain on PATH. Two snapshot
+groups moved for reasons worth checking before accepting: the five Rust goldens
+gained the `u{i}_mut` accessors (additions only, nothing changed), and two
+parser AST snapshots changed exactly the `__p` base spans.
+
 **A qualifier applied to an already-qualified value now builds a group arm
 (defect closed 2026-09-10).** The last open defect, and the reason it was first
 in phase 1: `emitted(ok("x"))` matched no arm of
@@ -177,7 +250,8 @@ the language should. The inventory totals are corrected here as well: they
 claimed 817 and 812 by two different routes while `cargo test` and a `#[test]`
 count both said 789 — the per-crate figures had not been swept after the `yield
 fn` deletion removed 59 tests. They now read 378 / 80 / 73 / 146 / 120 = **797**,
-each measured with `cargo test -p`.
+each measured with `cargo test -p` (and 147 / 122 for the two backends after the
+entry above).
 
 **std takes a pass and never asks for an `iter` (user decision 2026-09-10).** The
 boundary drawn around the previous entry, and the reason given is stronger than
@@ -3352,6 +3426,33 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
+### ~~Mutation through a narrowed place borrows a clone on Rust~~ — found and closed 2026-09-10
+
+**Was reproduced** by *running* both backends — `analyze` is silent, and the
+Rust output is wrong rather than absent, which is what makes this the one
+[backend-never-wrong] violation the compiler has shipped:
+
+```
+let p: Mut ListYield<Int>? = iter(list(1, 2))
+if p is Mut ListYield<Int> {
+    show(next(p))      // Rust: got 1     Kotlin: got 1
+    show(next(p))      // Rust: got 1     Kotlin: got 2
+    show(next(p))      // Rust: got 1     Kotlin: end
+}
+```
+
+The emitted call was `next__2(&mut (p.as_ref().unwrap().clone()))`: a mutable
+borrow of a fresh clone, so every call advanced a different copy. Three more
+shapes had the same fault — a narrowed *union arm* (silently wrong the same
+way), an assignment whose **base** is narrowed (`r.at = 2` reached for a field
+of the `Option`: E0609), and a narrowed `state` slot of an `iter fn`, which is
+where it was found: a lazy flatten holding its inner pass.
+
+**Fixed as [rs-narrow-mut]** — the decision-log entry at the top of this
+document has the reasoning, the two false starts, and the second defect it
+uncovered (the desugaring gave the synthesized `__p` base the read's span, so
+the base answered to the field's narrowing).
+
 ### ~~A qualifier applied to an already-qualified value flattens~~ — found 2026-09-07, closed 2026-09-10
 
 **Was reproduced** (`analyze`), found while answering whether a fallible
@@ -5299,9 +5400,15 @@ drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
   one capability the flip *lost* (a nested producer used to work), and the
   workaround is to collect first (`map(upto(3), f)` into a list) — the
   generator-defer demo does exactly that.
+  * **Retired 2026-09-10, not built**: `yield fn` and the slot machinery are
+    gone, so nothing suspends and the cut has no construct to apply to. A `for`
+    inside an `iter fn`'s `next` is an ordinary loop; the capability this
+    describes — lazily interleaving with an inner pass — is written by holding
+    that pass in `state`, which is what turned up [rs-narrow-mut].
 - **A machine holding a nested pass slot is not `Clone` on Rust**, so such an
   origin cannot be a type argument: a producer that drives a suspending loop
   cannot be composed there. rustc reports the missing bound.
+  * Retired with the entry above — there are no machines and no slots.
 - **A callback handed *onward*** to another storing fn stays borrowed on Rust
   (the predicate is deliberately non-transitive); rustc reports the lifetime.
 - **Value-position `for` over an origin** is still unsupported on both backends
@@ -7936,7 +8043,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 797)
+## Test inventory (all green: 800)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8504,7 +8611,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 146 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 147 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8676,7 +8783,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 120 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 122 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -8862,6 +8969,36 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- (rs-narrow-mut) **A read helper reused at a write site is a correctness bug,
+  not an inefficiency.** `narrow_unwrap` produces an owned temporary, which is
+  right for every read; borrowing it `&mut` compiles and mutates the temporary.
+  Rust makes this class silent because `&mut <rvalue>` is legal. When a helper's
+  doc comment says "the result is owned", every mutable caller needs a twin —
+  and the twin must render the whole *chain* mutably, or a middle link becomes
+  the temporary instead.
+- (rs-narrow-mut) **"Is a representation recorded for this span" is not "is this
+  span narrowed".** Keying the new mutable path on `repr_ty.contains_key` caught
+  `Mut` drops too, so an ordinary `Mut` argument lost its `&mut` — five golden
+  snapshots and a refinement e2e test failed at once. Gate on the unwrap
+  *returning* something.
+- (rs-narrow-mut) **A one-backend bug is found by running both, not by reading
+  either.** The checker accepted the program, rustc accepted the output, and the
+  Rust program printed a plausible answer; only the Kotlin run disagreed. The
+  parity principle is a *test procedure* as much as a design rule — a demo whose
+  output is asserted identical on both backends is the only thing that catches
+  this class.
+- (rs-narrow-mut) **`awk`-summing `cargo test` output hides failures**: a
+  `test result: FAILED. 68 passed; 2 failed;` line shifts the fields relative to
+  an `ok.` line, so a script that sums "the sixth field" reports zero failures
+  while two tests are red. Grep for `FAILED` explicitly.
+- (iter-fn) **The span-allocator gotcha below has a second instance, so it is a
+  pattern rather than an anecdote**: `pass_field` gave the synthesized `__p`
+  base the read's own span, and the side table found the field's narrowing for
+  it. The allocator to fix it already existed — written for the first instance —
+  and simply had not been wired to this constructor. When a desugaring helper
+  takes a `span` parameter, ask which of the nodes it builds may legitimately
+  share it.
 
 - (qual-group) **A subtype rule and the coercion beside it must be gated on the
   same predicate.** `is_subtype` decides *whether* a value may enter a union

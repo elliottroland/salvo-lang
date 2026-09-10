@@ -697,6 +697,84 @@ fn main() [use] {
 
 const PLAIN_GROUP_OUTPUT: &str = "str one\nint 2\nfinished\n";
 
+/// The Kotlin half of a parity check on mutation through a **narrowed** place
+/// [flow-place] (the Rust backend's copy of this program carries the reasoning,
+/// and its spec the rule). Kotlin never had the bug — a smart cast *is* the
+/// storage and objects are references — so this is here to pin the output the
+/// two backends must agree on, which is what made the divergence visible in the
+/// first place.
+const NARROW_MUT_DEMO: &str = r#"
+struct Flat {
+    rows: List<List<Int>>
+}
+
+fn show(step: Emitted Int | Finished) [Console] {
+    when step {
+        ^ Emitted { println("got ${step}") }
+        is Finished { println("end") }
+    }
+}
+
+iter fn next(f: Flat) -> Emitted Int | Finished {
+    state { at: Int = 0, inner: Mut ListYield<Int>? = None }
+    while true {
+        if inner is Mut ListYield<Int> {
+            let step = next(inner)
+            when step {
+                ^ Emitted { return emitted(step) }
+                is Finished { inner = None }
+            }
+        }
+        let row = get(f.rows, at)
+        if row is None {
+            return finished()
+        }
+        at = at + 1
+        inner = iter(row)
+    }
+    return finished()
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p: Mut ListYield<Int>? = iter(list(1, 2))
+    if p is Mut ListYield<Int> {
+        show(next(p))
+        show(next(p))
+        show(next(p))
+    }
+    let q: Mut ListYield<Int> | Int = iter(list(7, 8))
+    if q is Mut ListYield<Int> {
+        show(next(q))
+        show(next(q))
+    }
+    let r: Mut ListYield<Int>? = iter(list(1, 2, 3))
+    if r is Mut ListYield<Int> {
+        r.at = 2
+        show(next(r))
+    }
+    let all = Flat { rows: list(list(1, 2), list(3, 4, 5)) }
+    for n in iter(all) {
+        println("n ${n}")
+    }
+}
+"#;
+
+const NARROW_MUT_OUTPUT: &str =
+    "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", NARROW_MUT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "narrow-mut", NARROW_MUT_OUTPUT);
+}
+
 #[test]
 fn kotlinc_compiles_and_runs_a_group_over_plain_arms() {
     if !kotlin_toolchain() {

@@ -1561,7 +1561,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 1174..1176,
+                                                            span: 1079..1080,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -1574,7 +1574,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 1180..1189,
+                                                            span: 1080..1081,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -1634,7 +1634,7 @@ Module {
                                             base: Ident(
                                                 Ident {
                                                     name: "__p",
-                                                    span: 1241..1243,
+                                                    span: 1081..1082,
                                                 },
                                             ),
                                             field: Ident {
@@ -1654,7 +1654,7 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 1249..1251,
+                                            span: 1082..1083,
                                         },
                                     ),
                                     field: Ident {
@@ -1669,7 +1669,7 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 1254..1256,
+                                                span: 1083..1084,
                                             },
                                         ),
                                         field: Ident {

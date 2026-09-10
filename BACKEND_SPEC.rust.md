@@ -352,8 +352,10 @@ derives them mechanically:
   enums in `unions.rs`:
   `pub enum UnionN<T1..TN> { U1(T1), .., UN(TN) }` with
   `#[derive(Clone, Debug)]`, per-arm accessor methods
-  (`pub fn u1(&self) -> &T1`, panicking on the wrong arm — unreachable
-  when the checker's tables are right), and a `Display` impl (bounded on
+  (`pub fn u1(&self) -> &T1` and `pub fn u1_mut(&mut self) -> &mut T1`,
+  panicking on the wrong arm — unreachable when the checker's tables are
+  right; the `_mut` half is what a mutable use of a narrowed value needs
+  [rs-narrow-mut]), and a `Display` impl (bounded on
   every arm being `Display`) so still-union values interpolate directly.
 * [union-arm-identity] Arm indices from the checker map 1:1 onto the
   `Ui` variants (positional over the declared type's non-`None` arms,
@@ -370,6 +372,29 @@ derives them mechanically:
     temporary, so a narrowed place is *not* a pure place
     ([rs-borrow-locals]): it cannot be borrowed directly. `is` tests, `is`
     bindings and `match` subjects read the storage instead.
+* [rs-narrow-mut] A **mutable** use of a narrowed place unwraps through the
+  mutable accessors instead, so the result is a `&mut` *into the storage*:
+  `p.as_mut().unwrap()` for a nullable repr, `q.u1_mut()` for a wrapper-union
+  arm (the generated enums carry `pub fn ui_mut(&mut self) -> &mut Ti`
+  alongside `ui`), and the two compose (`x.as_mut().unwrap().u1_mut()`).
+  Two sites need it: an argument in a `&mut` position, and the **base** of an
+  assignment target (`r.at = 2` on a narrowed `Mut ListYield<Int>?` becomes
+  `r.as_mut().unwrap().at = 2`). The outermost node of an assignment target
+  keeps the read rule — assigning to a narrowed *variable* writes its
+  storage, not through the narrowing.
+  * **Why it is a rule and not an optimization**: reusing the read form was
+    silently wrong. `&mut (p.as_ref().unwrap().clone())` compiles, and the
+    mutation lands on the clone — a pass driven through a narrowed handle
+    re-emitted its first element for ever, while Kotlin (whose smart cast
+    *is* the storage) advanced. Fixed 2026-09-10; it is the one
+    [backend-never-wrong] violation this compiler has shipped.
+  * The read and mutable unwraps share one classification of the narrowing
+    (`Narrowing`: arm index, whether an `Option` sits in front, whether the
+    payload is `Copy`), so they cannot disagree about arm identity
+    [union-arm-identity].
+  * The gate is the unwrap *producing* something, not the presence of a
+    recorded representation: a `Mut` drop records one too, and a bare name
+    still needs its `&mut`.
   * `is` lowering ([is-narrowing], `is_tests` table): single arm →
     `matches!(subj, UnionN::Ui(_))`; multi-arm → a `|` pattern; all
     arms → `subj.is_some()` when nullable, `true` otherwise;

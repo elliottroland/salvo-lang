@@ -378,7 +378,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 141..143,
+                                                            span: 49..50,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -427,7 +427,7 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 187..189,
+                                            span: 50..51,
                                         },
                                     ),
                                     field: Ident {
@@ -442,7 +442,7 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 192..194,
+                                                span: 51..52,
                                             },
                                         ),
                                         field: Ident {
@@ -477,7 +477,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 218..220,
+                                                            span: 52..53,
                                                         },
                                                     ),
                                                     field: Ident {
