@@ -119,6 +119,61 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**L5: fields are tracked apart (phase 2, 2026-09-10).** Shared fate poisoned
+at whole-variable granularity: mutating any part of a value invalidated
+everything derived from any other part. The roadmap had this as "a refinement
+with no current use case — revisit only if whole-variable poison proves too
+coarse in practice", so the first step was to test that claim, and it did not
+survive: **four out of four** ordinary field-disjoint programs were rejected —
+read `p.name` while mutating `p.tags`, hold `q.left` while mutating `q.right`,
+read a field while handing a *different* field to a mutating fn, and assign to
+a disjoint field. Each demanded `copy`, which is a real clone on the Rust
+backend. That evidence is what justified building it.
+
+**What it took: less than "the largest analysis change".** The rule is one
+overlap test. A `FateLink` gained the projection path out of its root
+(`let n = p.name` → `[.name]`, `[]` for a whole variable, `None` for a
+derivation that is not a projection chain), a poison event gained the path it
+hit, and `poison_derived` fires only where the two overlap — `Place::overlaps`,
+the relation P1 built for *narrowing*, reused without modification. The
+sequencing decision (P1 before L5) paid off exactly as it was argued it would.
+Transitive links compose their paths (`let p = q.inner` then `let n = p.name`
+links `n` to `q` at `[.inner, .name]`), and `fate_mutation_through` already
+computed the `Place` it needed for narrowing invalidation, so the mutation path
+was free.
+
+**Where precision stops, deliberately.** Overlap keeps every case that could
+name the same storage: the same projection, a prefix in either direction
+(mutating `o.inner.tags` still poisons a value from `o.inner`), the whole
+variable (a `Mut` argument, a reassignment, `++` — `[]` is a prefix of
+everything), and a computed index, since `Proj::Element` may-aliases any
+element. An unknown path overlaps everything. All four are tested as *reject*
+cases alongside the three accept cases, because the risk in a precision change
+is silently losing a rule.
+
+**It needed no emitter change, and that is the interesting part.** The Rust
+backend already emits a borrow-mode binding from a pure place as a real borrow,
+and rustc permits that borrow to live across a `&mut` of a *disjoint field of
+the same local* — so `let mut n = &p.name;` held across `p.tags.push(…)` is
+accepted by rustc for the same reason Salvo now accepts it. The two analyses
+draw the same line, and the newly legal programs compile **clone-free**. Kotlin
+was already aliasing. Verified by running the four shapes on both backends with
+identical stdout.
+
+**What is left, recorded rather than built**: the *move* half. A move-mode
+binding of a projection still consumes its whole owner, so taking `p.tags` out
+leaves `p` unusable rather than leaving `p.name` readable — Salvo stricter than
+rustc here. That is the piece that genuinely needs the place lattice
+(partial-move state per root, merged across branches and back edges); the poison
+half needed none of it, since a link already names its projection. Nothing in
+std or the examples wants it. See ROADMAP "L5".
+
+Tests: 797 (was 788). Seven checker tests (three accept, four reject — each
+accept verified to fail without the change), plus a field-disjoint program run
+end to end on both backends, the Rust one asserting the borrow shape rather
+than trusting it. LANGUAGE.md's "whole-variable granularity" bullet is replaced
+by the new rule; `[fate-field-disjoint]` is the label.
+
 **Phase 1 closes: the riding-along polish, and option (e)'s residue
 (2026-09-10).** Four small items, done together as the last of "Finish the
 iterators"; no language-design calls, all under decisions already made.
@@ -1896,7 +1951,8 @@ fn-value calls, inherited by lambdas, carried by named fns, emitted as
 real Rust modes). Small recorded remainders: fn-type *effect* lists
 parse but are not yet enforced, `Once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
-if whole-variable granularity proves too coarse.
+if whole-variable granularity proves too coarse. (It did: L5's poison half
+landed 2026-09-10 — see the decision log.)
 
 **E3 step 1 landed 2026-09-04: `defer { ... }` on both backends — and was
 deleted from the language 2026-09-10** (user decision; see the decision log, and
@@ -3998,9 +4054,12 @@ The decided model:
   type at each call site.
 - **Shared fate (decided; supersedes L1b).** Links are *directed*
   (derived → root), *transitive* (`longest` → `person` → `persons`),
-  and at *whole-variable granularity* (no place lattice). Link
+  and — as decided here — at *whole-variable granularity* (no place
+  lattice). Link
   creators: `let`/assignment from a bare identifier or a projection,
-  loop bindings, destructuring.
+  loop bindings, destructuring. (Superseded for the *poison* half by L5,
+  2026-09-10: a link carries its projection path and poison needs an
+  overlap [fate-field-disjoint]. Moves are still whole-variable.)
   - Reads never consume and never poison, on any member, any time.
   - Mutation events are already defined by the deduction system:
     Mut-kept call args and projection assignments (effect-handler
@@ -8239,7 +8298,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 788)
+## Test inventory (all green: 797)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8247,7 +8306,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 370 - 19 unit tests (file classification, including the
+- `salvo-core`: 377 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8805,7 +8864,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 146 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 147 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8977,7 +9036,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 120 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 121 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

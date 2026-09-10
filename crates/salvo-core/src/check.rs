@@ -866,10 +866,39 @@ struct FateLink {
     root_id: u32,
     root_name: String,
     bind_span: Span,
+    /// [fate-field-disjoint] **Which projection of the root** the derived
+    /// value came from, as the path out of it: `let n = p.name` links with
+    /// `[.name]`, `let q = p` with `[]` (the whole variable). `None` when
+    /// the derivation is not a plain projection chain (a `!` unwrap, say) —
+    /// conservative: an unknown path overlaps every event.
+    ///
+    /// An event poisons this link only when the two paths *overlap*
+    /// ([`Place::overlaps`], the substrate P1 built), so mutating `p.tags`
+    /// leaves a value derived from `p.name` alone.
+    path: Option<Vec<Proj>>,
     /// The link passes through a derived-return call [readonly-return]:
     /// the value is *physically borrowed*, so move-mode can never take
     /// ownership through it [fate-move-mode].
     borrowed: bool,
+}
+
+impl FateLink {
+    /// [fate-field-disjoint] Whether an event on `event_path` reaches this
+    /// link. Either path unknown is conservative (they overlap): a
+    /// derivation the analysis cannot spell must not be given precision it
+    /// has not earned.
+    fn overlaps_event(&self, event_path: Option<&[Proj]>) -> bool {
+        let (Some(link), Some(event)) = (self.path.as_deref(), event_path) else {
+            return true;
+        };
+        // Same root by construction (the caller matched `root_id`), so the
+        // paths alone decide.
+        let as_place = |path: &[Proj]| Place {
+            root: String::new(),
+            path: path.to_vec(),
+        };
+        as_place(link).overlaps(&as_place(event))
+    }
 }
 
 /// What happened to a fate root [fate-poison].
@@ -3691,6 +3720,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             root_id: l.root_id,
                             root_name: l.root_name.clone(),
                             bind_span,
+                            path: l.path.clone(),
                             borrowed: l.borrowed,
                         })
                         .collect()
@@ -3699,6 +3729,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let mut sources = Vec::new();
         Self::provenance(value, &mut sources);
+        // [fate-field-disjoint] The projection this value reads out of its
+        // source, as a path: `p.name` gives `[.name]`, a bare `p` gives
+        // `[]`. `None` when the chain is not a plain projection (a `!`
+        // unwrap), which stays conservative everywhere below.
+        let extra: Option<Vec<Proj>> = Place::of_expr(value).map(|p| p.path);
         let mut links: Vec<FateLink> = Vec::new();
         let push = |link: FateLink, links: &mut Vec<FateLink>| {
             if !links.iter().any(|l| l.root_id == link.root_id) {
@@ -3715,12 +3750,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                     root_id: var.id,
                     root_name: src.name.clone(),
                     bind_span,
+                    path: extra.clone(),
                     borrowed: src_borrowed,
                 },
                 &mut links,
             );
             for l in var.links.clone() {
-                push(l, &mut links);
+                // [fate-field-disjoint] A transitive link's path is
+                // relative to the *ultimate* root, so this value's own
+                // projection extends it: with `let p = q.inner` and
+                // `let n = p.name`, `n`'s link to `q` is `[.inner, .name]`.
+                let composed = match (&l.path, &extra) {
+                    (Some(base), Some(more)) => {
+                        let mut path = base.clone();
+                        path.extend(more.iter().cloned());
+                        Some(path)
+                    }
+                    _ => None,
+                };
+                push(FateLink { path: composed, ..l }, &mut links);
             }
         }
         links
@@ -3731,10 +3779,30 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no longer exist. They narrow to `Nothing` (error at a later use,
     /// revival by reassignment — the standard possibly-consumed
     /// machinery [deduce-consume]).
-    fn poison_derived(&mut self, root_id: u32, root_name: &str, event: FateEvent, span: Span) {
+    ///
+    /// [fate-field-disjoint] `event_path` says *which projection* of the
+    /// root the event hit: only links that overlap it are poisoned, so
+    /// mutating `p.tags` leaves a value derived from `p.name` usable. An
+    /// event on the whole variable (`[]`) is a prefix of every path and so
+    /// poisons everything, as before; `None` is the conservative unknown.
+    fn poison_derived(
+        &mut self,
+        root_id: u32,
+        root_name: &str,
+        event: FateEvent,
+        span: Span,
+        event_path: Option<&[Proj]>,
+    ) {
         for frame in &mut self.locals {
             for var in frame.values_mut() {
-                if var.id != root_id && var.links.iter().any(|l| l.root_id == root_id) {
+                if var.id == root_id {
+                    continue;
+                }
+                let hit = var
+                    .links
+                    .iter()
+                    .any(|l| l.root_id == root_id && l.overlaps_event(event_path));
+                if hit {
                     var.narrowed = Ty::Nothing;
                     var.poison = Some(Poison {
                         root_name: root_name.to_string(),
@@ -3905,8 +3973,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_param_claims(&links);
         for l in &links {
             // Other variables derived from this root lose their value
-            // [fate-poison].
-            self.poison_derived(l.root_id, &l.root_name, FateEvent::Moved, bind_span);
+            // [fate-poison] — those overlapping *this* link's projection:
+            // taking ownership of `p.tags` says nothing about `p.name`
+            // [fate-field-disjoint].
+            self.poison_derived(
+                l.root_id,
+                &l.root_name,
+                FateEvent::Moved,
+                bind_span,
+                l.path.as_deref(),
+            );
             let file_idx = self.file_idx;
             let mut loop_origin = None;
             if let Some(var) = self.var_by_id_mut(l.root_id) {
@@ -4182,7 +4258,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.consume_kept_lambda_param(&name, id.span) {
                     continue;
                 }
-                self.poison_derived(var_id, &name, FateEvent::Moved, span);
+                self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = Ty::Nothing;
                     var.consumed_by = Some("an earlier call");
@@ -4299,7 +4375,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let mut consumed = Vec::new();
         for l in &links {
-            self.poison_derived(l.root_id, &l.root_name, FateEvent::Moved, span);
+            self.poison_derived(
+                l.root_id,
+                &l.root_name,
+                FateEvent::Moved,
+                span,
+                l.path.as_deref(),
+            );
             let file_idx = self.file_idx;
             let mut loop_origin = None;
             if let Some(var) = self.var_by_id_mut(l.root_id) {
@@ -5238,6 +5320,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// derived variable is an error [fate-derived-readonly]; mutating a
     /// root poisons its derived variables [fate-poison].
     fn fate_mutation(&mut self, name: &str, span: Span) {
+        self.fate_mutation_at(name, span, Some(&[]));
+    }
+
+    /// [fate-field-disjoint] `fate_mutation`, told *which projection* of
+    /// the variable the mutation hits: `[]` is the whole variable (every
+    /// derived value falls), `[.tags]` only what overlaps `p.tags`, `None`
+    /// the conservative unknown.
+    fn fate_mutation_at(&mut self, name: &str, span: Span, event_path: Option<&[Proj]>) {
         // [iter-fn] The origin of an open `for` may not be mutated:
         // its machine reads it across suspensions.
         if let Some((_, subject_span)) = self
@@ -5277,7 +5367,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.mark_capture_mutated(frame, id);
             }
         }
-        self.poison_derived(id, name, FateEvent::Mutated, span);
+        self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
     }
 
     // ================= place narrowing [flow-place] =================
@@ -5350,11 +5440,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut sources = Vec::new();
         Self::provenance(expr, &mut sources);
         let names: Vec<String> = sources.iter().map(|s| s.name.clone()).collect();
+        // [fate-field-disjoint] The mutation lands on the projection the
+        // argument names (`p.tags` → `[.tags]`), so only values derived
+        // from an overlapping projection are poisoned. A chain the analysis
+        // cannot spell gives `None` — conservative, as before.
+        let place = Place::of_expr(expr);
+        let event_path: Option<&[Proj]> = place.as_ref().map(|p| p.path.as_slice());
         for name in &names {
-            self.fate_mutation(name, span);
+            self.fate_mutation_at(name, span, event_path);
         }
-        match Place::of_expr(expr) {
-            Some(place) => self.invalidate_place_narrows(&place),
+        match &place {
+            Some(place) => self.invalidate_place_narrows(place),
             // Not a place rooted in a variable (a call result, say): the
             // provenance roots are still mutated, so nothing projected out
             // of them survives.
@@ -7352,6 +7448,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             &root_name,
                             FateEvent::Reassigned,
                             *span,
+                            // A whole variable: every derived value falls
+                            // [fate-field-disjoint].
+                            Some(&[]),
                         );
                     }
                     if let Some(var) = self.lookup_mut(&id.name) {
@@ -7597,7 +7696,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.consume_kept_lambda_param(&name, id.span) {
             return;
         }
-        self.poison_derived(var_id, &name, FateEvent::Moved, span);
+        self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
         if let Some(var) = self.lookup_mut(&id.name) {
             var.narrowed = Ty::Nothing;
             var.consumed_by = Some(moved_by);
@@ -8086,6 +8185,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 &root_name,
                                 FateEvent::Reassigned,
                                 *span,
+                            // A whole variable: every derived value falls
+                            // [fate-field-disjoint].
+                            Some(&[]),
                             );
                         }
                         if let Some(var) = self.lookup_mut(&id.name) {
@@ -9142,7 +9244,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 // Consume the original: the closure owns the value now.
-                self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span);
+                self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.var_by_id_mut(cap.var_id) {
                     var.narrowed = Ty::Nothing;
                     var.poison = None;
@@ -9161,6 +9263,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         root_id: cap.var_id,
                         root_name: cap.name.clone(),
                         bind_span: span,
+                        // [fate-lambda] A capture is read through whatever
+                        // the body does with it; the capture analysis
+                        // records the variable, not a projection, so the
+                        // link stays whole-variable.
+                        path: Some(Vec::new()),
                         borrowed: false,
                     });
                 }
@@ -10813,6 +10920,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     &name,
                                     FateEvent::Moved,
                                     span,
+                            // A whole variable: every derived value falls
+                            // [fate-field-disjoint].
+                            Some(&[]),
                                 );
                                 if let Some(var) = self.lookup_mut(&id.name) {
                                     var.narrowed = Ty::Nothing;
@@ -11512,7 +11622,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if self.consume_kept_lambda_param(&name, id.span) {
                         continue;
                     }
-                    self.poison_derived(var_id, &name, FateEvent::Moved, span);
+                    self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = Ty::Nothing;
                         var.consumed_by = Some("an earlier call");

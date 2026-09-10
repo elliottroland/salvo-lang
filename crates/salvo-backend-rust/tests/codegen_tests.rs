@@ -5521,3 +5521,75 @@ fn rustc_compiles_and_runs_a_container_combinator() {
     let files = generate(&[("main.sv", CONTAINER_IMPLICIT_DEMO)]);
     run_rust_files(&files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT);
 }
+
+/// [fate-field-disjoint] [rs-borrow-locals] L5's payoff on this backend, and
+/// the reason it needs no new emission: a borrow-mode binding from `p.name`
+/// already emits a real borrow (`let mut n = &p.name;`), and rustc allows it
+/// to live across a `&mut` of a *disjoint field* of the same local. So
+/// Salvo's field precision and rustc's coincide — these programs were
+/// checker-rejected before L5 (the remedy was `copy`, a real clone), and they
+/// compile clone-free now.
+///
+/// Shared with the Kotlin backend, byte for byte.
+const FIELD_DISJOINT_DEMO: &str = r#"
+struct Person canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+struct Pair {
+    left: Mut List<Str>,
+    right: Mut List<Str>
+}
+
+fn touch(list: Mut List<Str>) -> [list: Mut] None {
+    add(list, "t")
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // read one field, mutate another
+    let p = Person { name: "ann", tags: mutable_list("x") }
+    let n = p.name
+    add(p.tags, "y")
+    println("A ${n} ${size(p.tags)}")
+
+    // two disjoint mutable fields
+    let q = Pair { left: mutable_list("l"), right: mutable_list("r") }
+    let l = q.left
+    add(q.right, "r2")
+    println("C ${size(l)} ${size(q.right)}")
+
+    // read a field, hand a disjoint field to a mutating fn
+    let p2 = Person { name: "dee", tags: mutable_list("x") }
+    let n2 = p2.name
+    touch(p2.tags)
+    println("D ${n2} ${size(p2.tags)}")
+
+    // assignment to a disjoint field
+    let p3 = Mut Person { name: "eve", tags: mutable_list("x") }
+    let n3 = p3.name
+    p3.tags = mutable_list("q", "r")
+    println("E ${n3} ${size(p3.tags)}")
+}
+"#;
+
+const FIELD_DISJOINT_OUTPUT: &str = "A ann 2\nC 1 2\nD dee 2\nE eve 2\n";
+
+#[test]
+fn rustc_compiles_and_runs_field_disjoint_access() {
+    let files = generate(&[("main.sv", FIELD_DISJOINT_DEMO)]);
+    // The borrow is real and lives across the disjoint mutation: that is the
+    // shape rustc has to accept for L5 to be clone-free here.
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        main.contains("let mut n = &p.name;") && main.contains("p.tags.push("),
+        "expected a disjoint-field borrow held across the mutation in:\n{main}"
+    );
+    run_rust_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
+}

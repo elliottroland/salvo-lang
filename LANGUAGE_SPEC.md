@@ -1806,7 +1806,8 @@ Conventions:
   destructuring, `for` loop bindings, `is`/`when` bindings — *links* the
   new variable to its source: they share fate. Links are directed
   (derived → root), transitive (flattened to the ultimate roots at the
-  binding), and at whole-variable granularity. Reads never consume and
+  binding), and carry **which projection of the root** the value came from
+  ([fate-field-disjoint]). Reads never consume and
   never poison, on any member, at any time. Function results are
   independent — unless the fn declares a derived return
   (`ReadOnly[from: p]` [readonly-return]), in which case the result
@@ -1892,9 +1893,11 @@ Conventions:
   * Mutation events are defined by the existing machinery: a call
     keeping a parameter whose declared type carries `Mut` — for bare
     identifier arguments *and* for projection arguments, which mutate
-    their provenance roots (`add(h.tags, 2)` poisons variables derived
-    from `h`; backend-parity fix 2026-09-02) — an assignment through a
-    projection, and `++`. Whole-variable reassignment (`x = ...`,
+    their provenance roots at the projection they name (`add(h.tags, 2)`
+    poisons values derived from `h.tags` and from `h` itself, but not one
+    derived from `h.name` [fate-field-disjoint]; the projection-argument
+    case is a backend-parity fix from 2026-09-02) — an assignment through
+    a projection, and `++`. Whole-variable reassignment (`x = ...`,
     `x++`) is revival for `x` itself but poisons `x`'s previous
     derivatives (the old value is gone).
   * The discipline is uniform across all types and purely static: on
@@ -1908,6 +1911,39 @@ Conventions:
     since L4 [fate-lambda]. Projections of immutable data in moved
     positions stay untracked by design: the difference is
     unobservable.
+* [fate-field-disjoint] **Fields are tracked apart** (L5, 2026-09-10). A
+  link records the projection path out of its root (`let n = p.name` →
+  `[.name]`, `let q = p` → `[]`), an event carries the path it hit, and
+  poison fires only where the two **overlap** — `Place::overlaps`, the
+  relation P1 built for narrowing [flow-place], reused unchanged. So
+  reading `p.name` while `p.tags` is mutated is legal, and the four
+  overlap cases still poison:
+  * the **same** projection (`p.tags` mutated, value derived from
+    `p.tags`);
+  * a **prefix** either way — mutating `o.inner.tags` poisons a value
+    derived from `o.inner` (it changed part of what that names), and
+    mutating `o.inner` poisons one derived from `o.inner.tags`;
+  * the **whole variable** (`[]`), which is a prefix of everything: a
+    `Mut` argument of a bare identifier, a reassignment, `++`;
+  * a **computed index**, since `Proj::Element` may-aliases any element
+    position — `xs[i]` and `xs[j]` are not distinguished.
+  * A derivation that is not a plain projection chain (a `!` unwrap, a
+    value the analysis cannot place) links with an **unknown** path,
+    which overlaps every event: precision is never assumed where it has
+    not been earned.
+  * Transitive links compose paths: with `let p = q.inner` then
+    `let n = p.name`, `n`'s link to `q` is `[.inner, .name]`.
+  * **The move half stays whole-variable**: a move-mode binding of a
+    projection consumes its whole owner, so moving `p.tags` out leaves
+    `p` unusable rather than leaving `p.name` readable. Only the poison
+    of *sibling derived values* gained precision here. Partial-move
+    state on a root is the recorded remainder.
+  * It changes no emission: on the Rust backend a borrow-mode binding
+    from a pure place already emits a real borrow, and rustc permits
+    that borrow to live across a `&mut` of a disjoint field of the same
+    local — Salvo's precision and rustc's coincide, so the newly legal
+    programs compile clone-free [rs-borrow-locals]. Kotlin aliases
+    regardless.
 * [fate-lambda] Lambdas are ordinary values under shared fate (decision
   L4a, 2026-09-02): a lambda's relationship to the variables it
   captures is classified from its body, and the contract binds at

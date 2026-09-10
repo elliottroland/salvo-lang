@@ -6162,3 +6162,63 @@ fn kotlinc_compiles_and_runs_a_container_combinator() {
     });
     run_kotlin_files(&files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT);
 }
+
+/// [fate-field-disjoint] The Kotlin half of L5: the same source and stdout as
+/// the Rust backend's `rustc_compiles_and_runs_field_disjoint_access`. Nothing
+/// changes in this emitter — every field read already aliased on the JVM — so
+/// this is the parity check that the newly *legal* programs behave identically
+/// on both backends.
+const FIELD_DISJOINT_DEMO: &str = r#"
+struct Person canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+struct Pair {
+    left: Mut List<Str>,
+    right: Mut List<Str>
+}
+
+fn touch(list: Mut List<Str>) -> [list: Mut] None {
+    add(list, "t")
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    // read one field, mutate another
+    let p = Person { name: "ann", tags: mutable_list("x") }
+    let n = p.name
+    add(p.tags, "y")
+    println("A ${n} ${size(p.tags)}")
+
+    // two disjoint mutable fields
+    let q = Pair { left: mutable_list("l"), right: mutable_list("r") }
+    let l = q.left
+    add(q.right, "r2")
+    println("C ${size(l)} ${size(q.right)}")
+
+    // read a field, hand a disjoint field to a mutating fn
+    let p2 = Person { name: "dee", tags: mutable_list("x") }
+    let n2 = p2.name
+    touch(p2.tags)
+    println("D ${n2} ${size(p2.tags)}")
+
+    // assignment to a disjoint field
+    let p3 = Mut Person { name: "eve", tags: mutable_list("x") }
+    let n3 = p3.name
+    p3.tags = mutable_list("q", "r")
+    println("E ${n3} ${size(p3.tags)}")
+}
+"#;
+
+const FIELD_DISJOINT_OUTPUT: &str = "A ann 2\nC 1 2\nD dee 2\nE eve 2\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_field_disjoint_access() {
+    let program = build_program(&[("main.sv", FIELD_DISJOINT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
+}

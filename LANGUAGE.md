@@ -1567,7 +1567,20 @@ Some consequences worth knowing:
 - **Values from calls are independent — unless declared derived.** `copy(x)` and most function results carry no links. A function that wants to return a projection of a *kept* parameter without copying declares a **derived return**: `fn first<T>(list: List<T>) -> [list] ReadOnly[from: list] T?` — the returned value borrows `list`, so the caller's result shares fate with the argument (mutating the collection poisons it; moving it out needs `copy`). On the Rust backend this compiles to a real borrow (`Option<&T>`, with a generated lifetime when the function keeps several parameters) — the standard library's `first` is zero-copy this way. Without the annotation, `copy` internally as before.
 - **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives. A `for`-loop binding is fresh each iteration: consuming it inside the body is fine.
 - **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation with no observable difference: Kotlin shares references throughout; Rust emits real moves for move-mode bindings and clones for borrow-mode ones (real borrows are a later stage).
-- Whole-variable granularity: mutating a struct value poisons variables derived from *any* of its fields, and a move-mode binding consumes its ancestors wholly; field-precise tracking may come later.
+- **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
+
+```
+let p = Person {name: "ann", tags: mutable_list("x")}
+let n = p.name           // derived from p.name
+add(p.tags, "y")         // mutates p.tags — a different field
+println(n)               // fine: the mutation could not have touched p.name
+
+let t = p.tags
+add(p.tags, "z")         // mutates the very field `t` came from
+size(t)                  // ERROR: t shared p.tags's fate and p.tags was mutated
+```
+
+  One half is still coarse: *moving* a field out consumes the whole owner, so taking `p.tags` by value leaves `p` unusable rather than leaving `p.name` readable. Reading a sibling of a field that was moved out is therefore still an error, and `copy` is the remedy.
 
 ### Copy semantics per backend
 

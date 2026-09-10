@@ -122,8 +122,10 @@ next.
   the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
   COMPLETED.md.
 **2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
-Field-disjoint precision on the `Place` substrate P1 built. No decision
-outstanding: it is analysis engineering under decisions already made.
+**✅ The poison half landed 2026-09-10**: field-disjoint precision, built on
+the `Place` substrate P1 built [fate-field-disjoint]. The **move half** —
+partial-move state on a root, so taking one field out leaves the others
+readable — is recorded and unforced; see "L5". Phase 3 is next.
 
 **3 — Finish linearity: composition and conditionality.** Three questions that
 have to be answered together rather than one:
@@ -208,31 +210,43 @@ repro and root cause are in COMPLETED.md.
 `Place` substrate are in COMPLETED.md ("Roadmap: toward full linear types"
 and "Roadmap: place-based flow analysis"). What is left:
 
-### L5 — Places and partial moves (phase 2)
+### L5 — Places and partial moves (phase 2) — ✅ the poison half landed 2026-09-10
 
-Track paths (`x.field`, tuple/array elements), not just whole variables:
-destructuring consumes its source; moving a field out leaves the struct
-partially unusable. This is the largest analysis change (place lattice
-instead of per-variable states).
+Field-disjoint precision for shared fate is **built** [fate-field-disjoint]:
+a link carries the projection path out of its root, an event carries the path
+it hit, and poison fires only where the two overlap (`Place::overlaps`, the
+P1 substrate, reused unchanged). See COMPLETED.md for what it took and the
+evidence that forced it — the old "no current use case" note was wrong, and
+four out of four ordinary field-disjoint programs were being rejected.
 
-- **L5a — answered by shared fate (2026-09-01):** partial moves exist
-  as *move-mode bindings* at whole-variable granularity (L1/S2); the
-  question left for L5 is only *field-disjoint precision* (using one
-  field while another is moved/borrowed), a refinement with no current
-  use case. Revisit only if whole-variable poison proves too coarse in
-  practice.
+**What is left of L5: the move half.** A move-mode binding of a projection
+still consumes its whole owner, so this is still an error:
+
+```
+let p = Person {name: "bob", tags: mutable_list("x")}
+let taken = p.tags       // move-mode: takes ownership
+add(taken, "z")
+println(p.name)          // ERROR: `p` was consumed by the binding
+```
+
+rustc would accept the equivalent (a partial move leaves the other fields
+readable), so this is Salvo being stricter than its own backend. Lifting it
+needs what the original L5 sketch called the place lattice: **partial-move
+state on a root** — a per-root set of moved places, with a use of an
+overlapping place erroring and a use of a disjoint one passing, merged across
+branches and loop back edges. The poison half needed none of that (a link
+already names its projection), which is why it landed alone.
+
+- Not forced: no shape in std or the examples needs it, and the remedy
+  (`copy`, or restructuring so the field is moved last) is available. Pick it
+  up when a real program wants to take one field and keep reading another.
 - **Not L5: field smart-casting.** Place-based *type narrowing* (reads
   of `h.field` narrowed by `h.field is T`) is a separate feature from
   place-based ownership — it was roadmap phase **P1**, done 2026-09-03.
-  L5 inherits its `Place` substrate: the projection type (fields *and*
-  elements), the prefix/overlap relations, and per-root fact storage.
-
-What it inherits, and why the sequencing worked out: place-based *ownership*
-(using one field while another is moved or borrowed) rides on the substrate P1
-built for narrowing — the `Place` type, the prefix/overlap relations, the
-per-root fact storage — and the element-projection variant is already there for
-ownership's benefit. The substrate was designed and validated under the monotone
-feature first, which is what P1-before-L5 was for.
+  L5 inherited its `Place` substrate: the projection type (fields *and*
+  elements), the prefix/overlap relations, and per-root fact storage —
+  and the sequencing paid off exactly as intended, since the poison half
+  reduced to one call to `overlaps`.
 
 ### L7 remainders — recorded, none forced
 

@@ -305,6 +305,16 @@ derives them mechanically:
     mutation/move in checker-legal code; the known loud exception is a
     single call that both passes a borrow-emitted local and moves its
     root (rustc E0505, checker-legal by left-to-right ordering).
+    * **Field-disjoint borrows need nothing extra**
+      [fate-field-disjoint]: since L5 the checker lets `let n = p.name`
+      stay live across a mutation of `p.tags`, and that emits as a real
+      borrow held across `&mut p.tags` — which rustc accepts, because
+      they are disjoint fields of one local. The two analyses draw the
+      same line (same field, prefix, whole variable and computed index
+      all still poison), so the newly legal programs compile clone-free
+      with no emitter change. Salvo stays *stricter* on the move half: a
+      projection move consumes the whole owner, where rustc would allow
+      reading a sibling after a partial move.
   * **Lambdas emit plain (borrowing) closures [fate-lambda]:** captures
     are rustc borrow-captures, which alias — the same semantics as
     Kotlin's lexical capture, so parity is direct. Checker-legal

@@ -664,3 +664,178 @@ fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
         "round-two error should have been superseded: {messages:?}"
     );
 }
+
+// ===== [fate-field-disjoint] L5: field-disjoint precision =====
+//
+// A fate link records *which projection* of the root the derived value came
+// from, and an event poisons a link only when the two places overlap
+// ([flow-place]'s `Place::overlaps`, the substrate P1 built). So reading one
+// field while another is mutated is legal, and everything that could name the
+// same storage still poisons: the same field, a prefix, the whole variable, and
+// a dynamic index (which may alias any element).
+//
+// Before this, all four accept cases below were rejected and the remedy was
+// `copy`, which costs a real clone on the Rust backend.
+
+const DISJOINT_PRELUDE: &str = r#"
+struct Person canbe Mut {
+    name: Str,
+    tags: Mut List<Str>
+}
+
+struct Outer {
+    inner: Person,
+    other: Str
+}
+
+fn touch(list: Mut List<Str>) [] -> [list: Mut] None {}
+fn touch_all(p: Mut Person) [] -> [p: Mut] None {}
+fn read(s: Str) [] -> [s] Int { return 0 }
+fn count(list: List<Str>) [] -> [list] Int { return 0 }
+fn add_tag(list: Mut List<Str>, s: Str) [] -> [list: Mut, s] None {}
+"#;
+
+fn disjoint_errors(body: &str) -> Vec<String> {
+    // `Str` and `mutable_list` are not in this file's shared std prelude, so
+    // they are declared alongside it here (as std, since `intrinsic` is the
+    // compiler's modifier [intrinsic-std-only]).
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        format!(
+            "{STD_PRELUDE}intrinsic type Str\n\
+             intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n"
+        ),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        format!("{DISJOINT_PRELUDE}\nfn probe() -> [] None {{\n{body}\n}}\n"),
+        false,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked.errors.iter().map(|e| e.message.clone()).collect()
+}
+
+/// [fate-field-disjoint] Reading `p.name` and mutating `p.tags` are disjoint,
+/// so the derived value survives — the shape that motivated L5.
+#[test]
+fn a_disjoint_field_survives_a_mutation() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   let n = p.name\n\
+         \x20   add_tag(p.tags, \"y\")\n\
+         \x20   let k = read(n)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-field-disjoint] Two disjoint fields of one struct, each reached
+/// independently.
+#[test]
+fn two_disjoint_fields_are_independent() {
+    let errs = disjoint_errors(
+        "    let o = Outer { inner: Person { name: \"a\", tags: mutable_list() }, other: \"o\" }\n\
+         \x20   let n = o.inner.name\n\
+         \x20   add_tag(o.inner.tags, \"y\")\n\
+         \x20   let k = read(n)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-field-disjoint] An assignment is an event on the field it writes:
+/// writing `p.tags` leaves a value derived from `p.name` alone.
+#[test]
+fn an_assignment_to_a_disjoint_field_does_not_poison() {
+    let errs = disjoint_errors(
+        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   let n = p.name\n\
+         \x20   p.tags = mutable_list()\n\
+         \x20   let k = read(n)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [fate-field-disjoint] The *same* field still poisons — the precision is
+/// about disjointness, not about weakening the rule.
+#[test]
+fn the_same_field_still_poisons() {
+    let errs = disjoint_errors(
+        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   let t = p.tags\n\
+         \x20   add_tag(p.tags, \"y\")\n\
+         \x20   let k = count(t)",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`t` cannot be used here")),
+        "expected the poison error, got: {errs:?}"
+    );
+}
+
+/// [fate-field-disjoint] A mutation of the **whole variable** is a prefix of
+/// every projection, so it poisons everything derived from it — the
+/// pre-L5 behavior, unchanged.
+#[test]
+fn a_whole_variable_mutation_still_poisons_every_field() {
+    let errs = disjoint_errors(
+        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+         \x20   let n = p.name\n\
+         \x20   touch_all(p)\n\
+         \x20   let k = read(n)",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`n` cannot be used here")),
+        "expected the poison error, got: {errs:?}"
+    );
+}
+
+/// [fate-field-disjoint] A **prefix** overlaps: a value derived from
+/// `o.inner` is poisoned by a mutation of `o.inner.tags`, since the mutation
+/// changes part of what it names.
+#[test]
+fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
+    let errs = disjoint_errors(
+        "    let o = Outer { inner: Person { name: \"a\", tags: mutable_list() }, other: \"o\" }\n\
+         \x20   let i = o.inner\n\
+         \x20   add_tag(o.inner.tags, \"y\")\n\
+         \x20   let k = read(i.name)",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`i` cannot be used here")),
+        "expected the poison error, got: {errs:?}"
+    );
+}
+
+/// [fate-field-disjoint] A **dynamic index** may land on any element, so
+/// `arr[i]` and `arr[j]` are treated as possibly the same storage
+/// ([`Proj::Element`]'s may-alias rule) — precision stops where the analysis
+/// cannot tell two places apart.
+#[test]
+fn a_dynamic_index_stays_conservative() {
+    let errs = disjoint_errors(
+        "    let arr: Mut List<Str>[] = [mutable_list(), mutable_list()]\n\
+         \x20   let one = arr[0]\n\
+         \x20   add_tag(arr[1], \"z\")\n\
+         \x20   let k = count(one)",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`one` cannot be used here")),
+        "expected the conservative poison, got: {errs:?}"
+    );
+}
