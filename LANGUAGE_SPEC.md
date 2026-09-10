@@ -305,15 +305,36 @@ Conventions:
     group subtype rule (exact-arm equality, then drop-quals) must be
     tried *before* the generic any-arm union rule; `maybe_coerce`
     mirrors that order.
+  * **A value may be built straight into a group arm** (fixed 2026-09-10):
+    `emitted(ok("x"))` where `Emitted (Ok Str | Err Str)` is expected.
+    Qualifier lists are flat (`Ty::Qualified`'s base is never itself
+    `Qualified`), so applying a qualifier to an already-qualified value
+    *appends* — `Qualified { quals: [Emitted, Ok], base: Str }`, which is
+    shape-identical to "two qualifiers on a `Str`". Where the expected arm
+    is `Q (A | B)`, the value is read the other way round: `Q` comes off
+    the value's list and the remainder must fit exactly one arm of the
+    inner union (`types::nested_group_arm`). Ambiguity is unresolvable
+    from a flat list, so two fitting arms is a no-match, and the arm
+    reported instead.
+  * **Two wraps, inner first.** A group over a *wrapper* union has an
+    inner physical wrapper of its own, so a value entering it is wrapped
+    into the inner union's arm before the outer one — carried as
+    `Coercion::WrapUnion`'s `inner`, which both emitters apply first.
+    This holds whether or not a qualifier is left over: `Emitted (Str |
+    Int)` needs it too, and before 2026-09-10 that case type-checked and
+    emitted a single wrap, which both target compilers rejected.
+  * **The one shape flatness cannot express** is the *same* qualifier
+    twice: `quals` is deduplicated, so `ok(ok(x))` is exactly `Ok Str` and
+    no rule can recover the nesting. It needs an annotated intermediate
+    `let` binding the inner union, and the no-arm diagnostic says so.
 * [qual-generic] Qualifiers can be generic, and as generic as their `of`
   type or less (`qualifier Ok<T> of T`, `qualifier Ints of Pair<Int,
   Int>`). Nested qualified types (`Ok (Ok Str | Err Int)`) are legal but
   discouraged.
   * `substitute_vars` re-normalizes `Ty::Qualified` through `qualify()` so
     `Ok T` with `T = Ok Str` never nests `Qualified` in `Qualified`.
-  * Constructing a nested qualified union group in a single expression
-    needs an annotated intermediate `let` (single-level coercion only;
-    errors, never mis-emits).
+  * Constructing one in a single expression works for *distinct*
+    qualifiers and not for a repeat of the same one — see [qual-group].
 * [qual-subject] A qualifier declares what its claim is *about* (D5, user
   decisions 2026-09-03). `qualifier Q of T` is a **state** claim — about
   the value's *contents*. `provenance qualifier Q of T` is a

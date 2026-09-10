@@ -559,8 +559,10 @@ fn a_fieldless_struct_is_a_plain_class() {
 /// `Throw` support" — it does not, so `Emitted T | Finished` stays exactly two
 /// arms and a `yield` fn never has to declare an effect it cannot perform
 /// while suspended. Also the regression test for the element being a union
-/// (see the open defect about wrapping an inner arm under a qualifier: the
-/// intermediate `let` here is that workaround, not decoration).
+/// under a qualifier [qual-group]: `emitted(err(...))` is a qualifier applied
+/// to an already-qualified value, so the arm it lands in is a qualified union
+/// *group* and the value needs two wraps — inner union first. That needed an
+/// intermediate annotated `let` until 2026-09-10.
 const FALLIBLE_PASS_DEMO: &str = r#"
 struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
@@ -572,11 +574,9 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
     if line is Str {
         r.at = r.at + 1
         if line == "boom" {
-            let bad: Ok Str | Err Str = err("bad line at ${r.at}")
-            return emitted(bad)
+            return emitted(err("bad line at ${r.at}"))
         }
-        let good: Ok Str | Err Str = ok(line)
-        return emitted(good)
+        return emitted(ok(line))
     }
     return finished()
 }
@@ -628,6 +628,85 @@ fn a_fallible_pass_yields_a_result() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "fallible-pass", FALLIBLE_PASS_OUTPUT);
+}
+
+/// [qual-group] The nested wrap, read off the generated source rather than
+/// only from the program's output: `emitted(err(...))` lands in the group arm
+/// `Emitted (Ok Str | Err Str)`, whose inner union is a wrapper of its own, so
+/// the value takes *two* wraps — inner arm first, and the arm index comes
+/// from the qualifier left over after the group's own is removed.
+#[test]
+fn a_flattened_qualifier_wraps_the_inner_union_first() {
+    let program = build_program(&[("main.sv", FALLIBLE_PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt");
+    for (arm, what) in [("U2_2", "err"), ("U2_1", "ok")] {
+        let needle =
+            format!("U2_1<Union2<String, String>, Finished>({arm}<String, String>(");
+        assert!(
+            main.content.contains(&needle),
+            "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
+            main.content
+        );
+    }
+}
+
+/// [qual-group] The same wrap where the remainder carries *no* qualifier at
+/// all: `Emitted (Str | Int)` is a group over plain arms. Worth its own
+/// program because the checker reaches it by a different route — the value
+/// subtypes the arm outright, so the nested reading is never consulted — while
+/// the *representation* is the same two wraps. Until 2026-09-10 this
+/// type-checked and emitted one wrap, which both target compilers rejected:
+/// [backend-never-wrong] holding, not the code being right.
+const PLAIN_GROUP_DEMO: &str = r#"
+fn step(n: Int) -> Emitted (Str | Int) | Finished {
+    if n == 1 {
+        return emitted("one")
+    }
+    if n == 2 {
+        return emitted(2)
+    }
+    return finished()
+}
+
+fn show(n: Int) [Console] {
+    let r = step(n)
+    when r {
+        ^ Emitted {
+            when r {
+                is Str { println("str ${r}") }
+                is Int { println("int ${r}") }
+            }
+        }
+        is Finished { println("finished") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show(1)
+    show(2)
+    show(3)
+}
+"#;
+
+const PLAIN_GROUP_OUTPUT: &str = "str one\nint 2\nfinished\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_a_group_over_plain_arms() {
+    if !kotlin_toolchain() {
+        return;
+    }
+    let program = build_program(&[("main.sv", PLAIN_GROUP_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "plain-group", PLAIN_GROUP_OUTPUT);
 }
 
 #[test]

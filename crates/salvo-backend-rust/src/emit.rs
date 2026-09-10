@@ -5373,7 +5373,15 @@ impl<'p> Emitter<'p> {
         match coercion {
             // [rs-option] Optionals are physical in Rust.
             Coercion::WrapOption { .. } => format!("Some({code})"),
-            Coercion::WrapUnion { target, arm } => self.wrap_union_value(&target, arm, code),
+            Coercion::WrapUnion { target, arm, inner } => {
+                // [qual-group] The inner wrap of a flattened nested group
+                // runs first: the value is physically the bare inner value.
+                let code = match inner {
+                    Some(inner) => self.render_coercion(*inner, code),
+                    None => code,
+                };
+                self.wrap_union_value(&target, arm, code)
+            }
             Coercion::Rewrap { from, to } => self.emit_rewrap(code, &from, &to),
             // [str-drop-mut] Unreachable through `coercion_of`, which
             // unwraps a `Mut` drop because `Mut` erases on this backend.

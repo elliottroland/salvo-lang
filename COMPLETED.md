@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 817 tests, complete: the toolchain tests are
+cargo test                  # 797 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~8s warm, ~80s cold
 SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
@@ -118,6 +118,66 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A qualifier applied to an already-qualified value now builds a group arm
+(defect closed 2026-09-10).** The last open defect, and the reason it was first
+in phase 1: `emitted(ok("x"))` matched no arm of
+`Emitted (Ok Str | Err Str) | Finished`, which made the *shape* unwritable
+without a workaround — and phase 4's `Ok InputStream | Err Str` is exactly that
+shape. The workaround was one `let`, so nothing was blocked; what was blocked
+was writing the obvious thing.
+
+**Root cause, restated because it decided the fix**: `Ty::Qualified` holds a
+flat, sorted, deduplicated qualifier list whose base is never itself
+`Qualified`, and `qualify` appends. So `emitted(ok("x"))` is
+`Qualified { quals: [Emitted, Ok], base: Str }` — shape-identical to "two
+qualifiers on a `Str`", and *not* `Emitted` applied to `Ok Str`. Matching it
+against the arm `Qualified { quals: [Emitted], base: Union[Ok Str, Err Str] }`
+compared `Str` against the union, and a plain value never subtypes a
+constructive qualifier [qual-constructive].
+
+**The fix is the targeted rule, not the representation change.** ROADMAP.md
+offered both: nest `Ty::Qualified` (wide reach — `strip_quals`, `quals()`,
+`qualify`, the sort/dedup invariant and every emitter that reads them assume
+flatness) or read the value the other way round where the *expected* arm is
+`Q (A | B)`. The second is 40 lines: `types::nested_group_remainder` takes the
+group's qualifiers off the value's list and asks whether the remainder fits
+exactly one arm of the inner union; `is_subtype` consults it as a fallback, and
+`nested_group_arm` hands the same answer to the coercion. Two fitting arms is a
+*no* — ambiguity is not resolvable from a flat list — so the existing no-arm
+diagnostic reports it.
+
+**It turned up a second, latent bug on the same path, and that one was already
+mis-shaping code**: a group over *plain* arms (`Emitted (Str | Int)`, one of the
+two probes ROADMAP recorded as "fine") type-checked and emitted a **single**
+wrap. The inner union is a physical wrapper of its own, so two are needed, and
+rustc rejected the output with E0308 — [backend-never-wrong] holding rather than
+the compiler being right. `Coercion::WrapUnion` gained an `inner` coercion
+applied before the wrap, and both emitters (which already render coercions
+recursively, for `DropMut`'s `then`) apply it. The rule and the coercion are
+deliberately gated on the same predicate — the inner union must be a *wrapper*
+union — so a shape the emitters could not wrap stays an error.
+
+**What flatness still cannot express**, and no rule can fix: the *same*
+qualifier twice. `quals` is deduplicated, so `ok(ok(x))` **is** `Ok Str`; the
+nesting is gone before any check sees it. That case keeps the annotated
+intermediate `let`, and the no-arm error now says so instead of printing a type
+that looks like it should fit. The inherent ambiguity is accepted the other way
+too: `emitted(ok(x))` and `ok(emitted(x))` have the same type, so either reading
+is admitted wherever the expected type picks one — harmless, because every
+qualifier erases and the representation is identical.
+
+**What it cost**: 8 tests (789 → 797) — four checker tests in `widen_tests.rs`,
+which is where the qualified union group already lived (`^` *reads* a group,
+these *build* one), a generated-source assertion per backend that the inner arm
+is wrapped first, and a running program per backend for the plain-arms case that
+rustc used to reject. Both backends' `FALLIBLE_PASS_DEMO` lost its two
+workaround `let`s, so the regression is now carried by a demo that reads the way
+the language should. The inventory totals are corrected here as well: they
+claimed 817 and 812 by two different routes while `cargo test` and a `#[test]`
+count both said 789 — the per-crate figures had not been swept after the `yield
+fn` deletion removed 59 tests. They now read 378 / 80 / 73 / 146 / 120 = **797**,
+each measured with `cargo test -p`.
 
 **std takes a pass and never asks for an `iter` (user decision 2026-09-10).** The
 boundary drawn around the previous entry, and the reason given is stronger than
@@ -3291,6 +3351,40 @@ by faithful emission. Rule [fn-contract]:
 Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
+
+### ~~A qualifier applied to an already-qualified value flattens~~ — found 2026-09-07, closed 2026-09-10
+
+**Was reproduced** (`analyze`), found while answering whether a fallible
+producer needs `Throw` support [iter-protocol]:
+
+```
+fn b(flag: Bool) -> Emitted (Ok Str | Err Str) | Finished {
+    if flag {
+        return emitted(ok("x"))    // ERROR
+        // no arm of `Emitted (Ok Str | Err Str) | Finished` accepts a value
+        // of type `Emitted Ok Str`
+    }
+    return finished()
+}
+```
+
+Two probes localized it, and *both passed*, so the fault was in the combination:
+`fn d(flag: Bool) -> Emitted (Str | Int) | Finished { … return emitted("x") }`
+and `fn c() -> Ok Str | Err Str { return ok("x") }`. The rendering
+("Emitted Ok Str", no parentheses) was the ambiguity showing through: a flat
+qualifier list cannot say whether `Emitted` is applied to `Ok Str` or sits
+beside it.
+
+**Fixed under [qual-group]** — the decision-log entry at the top of this
+document has the reasoning, the rejected representation change, and the
+second bug it uncovered (probe `d` emitted one union wrap where two were
+needed, which rustc rejected). The workaround it replaced, kept because it is
+still the answer for a *repeated* qualifier:
+
+```
+let good: Ok Str | Err Str = ok("x")
+return emitted(good)
+```
 
 ### ~~Narrowing does not survive an early-returning guard~~ — found and closed 2026-09-09
 
@@ -6647,9 +6741,9 @@ generator is not an intermediate frame: it is a value the consumer drives, so
 its failure belongs in the value it hands over. The consumer's own `throw`
 inside the loop body already works and needed nothing from the producer.
 
-The one thing this turned up is an open defect — an inner arm not wrapping
-into a union *under a qualifier*, so the element union has to be bound to a
-local first. See "Open defects"; the workaround is one `let`.
+The one thing this turned up is a defect — an inner arm not wrapping into a
+union *under a qualifier*, so the element union had to be bound to a local
+first. Closed 2026-09-10 under [qual-group]; see "Defects found and closed".
 
 ### I4/I2c implementation plan: the `yield` lowering (written 2026-09-07)
 
@@ -7842,7 +7936,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 817)
+## Test inventory (all green: 797)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -7850,7 +7944,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 383 - 19 unit tests (file classification, including the
+- `salvo-core`: 378 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8347,7 +8441,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 69 (three parser tests for the scope selector and
+- `salvo-syntax`: 73 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -8410,7 +8504,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 154 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 146 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -8582,7 +8676,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 126 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 120 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -8768,6 +8862,28 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- (qual-group) **A subtype rule and the coercion beside it must be gated on the
+  same predicate.** `is_subtype` decides *whether* a value may enter a union
+  arm; `coerce_repr` decides *how* it is wrapped. Widen one without the other
+  and the checker accepts a shape the emitter wraps wrongly — which is how the
+  plain-arms group (`Emitted (Str | Int)`) came to type-check and emit one wrap
+  where two were needed. Both now go through
+  `types::nested_group_remainder`/`nested_group_arm`, restricted to a *wrapper*
+  inner union, so a shape without a physical inner arm is an error rather than
+  output.
+- (qual-group) **"Both halves pass, so the fault is in the combination" can be
+  wrong about which combination.** The defect's two probes were
+  `Emitted (Str | Int)` and `Ok Str | Err Str`, and the second was indeed fine —
+  but the *first* was quietly broken too, at emission rather than in the checker,
+  so rustc was the only thing reporting it. When a probe is declared fine
+  because `analyze` is silent, run it end to end before building a theory on it.
+- (qual-group) **A normalizing representation deletes information you may later
+  want.** `Ty::Qualified` sorts and deduplicates its qualifier list, which makes
+  `Ok Ok Str` *equal* to `Ok Str` — not "hard to distinguish", gone. Rules can
+  recover a flattened *distinct* qualifier from the expected type; nothing can
+  recover a deduplicated one. Worth knowing before adding a normalization: the
+  cheap invariant costs a case you cannot get back.
 
 - (iter-fn) **Cut by function, not by region.** Deleting the Rust emitter's
   "iterator functions" section took `rust_fn_name`, `enter_generics`,

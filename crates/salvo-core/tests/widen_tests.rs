@@ -274,3 +274,95 @@ fn a_widening_branch_consumes_its_arms() {
         "expected the unhandled arm to be reported, got: {errs:?}"
     );
 }
+
+// ===== constructing a group [qual-group] =====
+//
+// The other half of the qualified union: `^` *reads* a group, and these build
+// one. `Ty::Qualified` keeps a flat, sorted, deduplicated qualifier list whose
+// base is never itself `Qualified`, so applying a qualifier to an
+// already-qualified value appends rather than nests — `emitted(ok(1))` is
+// `Qualified { quals: [Emitted, Ok], base: Int }`, shape-identical to "two
+// qualifiers on an `Int`". Where the expected arm is `Q (A | B)`, the value is
+// read the other way round: the group's qualifiers come off the list and the
+// remainder tries the union's arms. Fixed 2026-09-10; before that the
+// construction needed an annotated intermediate `let`.
+
+/// The declarations that make a nested group reachable: a second qualifier
+/// (`Ok` alone cannot nest, see the deduplication test below) and its
+/// constructor, in this file as [qual-ctor-same-file] requires.
+const GROUP_PRELUDE: &str = r#"
+qualifier Emitted<T> of T
+
+fn emitted<T>(value: T) [] -> [] T as Emitted {
+    return value
+}
+"#;
+
+/// [qual-group] The defect this closed: a qualifier applied to an
+/// already-qualified value flattens, and the arm it must land in is a
+/// qualified union group.
+#[test]
+fn a_qualifier_applied_to_a_qualified_value_reaches_a_group_arm() {
+    let errs = errors(&format!(
+        "{PRELUDE}{GROUP_PRELUDE}\n\
+         fn step(flag: Bool) [] -> [] Emitted (Ok Int | Err Str) | Err Str {{\n\
+         if flag {{ return emitted(ok(1)) }}\n\
+         return err(\"done\")\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [qual-group] Either inner arm, so the arm index really is derived from the
+/// remainder rather than assumed to be the first.
+#[test]
+fn the_remainder_picks_the_inner_arm() {
+    let errs = errors(&format!(
+        "{PRELUDE}{GROUP_PRELUDE}\n\
+         fn step(flag: Bool) [] -> [] Emitted (Ok Int | Err Str) | Ok Bool {{\n\
+         if flag {{ return emitted(err(\"bad\")) }}\n\
+         return emitted(ok(1))\n\
+         }}\n"
+    ));
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [qual-group] The remainder still has to fit: the group's qualifier being
+/// present is not on its own a licence to enter the arm. (The outer union's
+/// other arm is deliberately unrelated — `Emitted` is droppable, so an
+/// `Err Str` arm would legitimately accept `Emitted Err Str` and this would
+/// test nothing.)
+#[test]
+fn a_remainder_that_fits_no_inner_arm_is_rejected() {
+    let errs = errors(&format!(
+        "{PRELUDE}{GROUP_PRELUDE}\n\
+         fn step() [] -> [] Emitted (Ok Int | Ok Str) | Ok Bool {{\n\
+         return emitted(err(\"bad\"))\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("no arm of") && e.contains("Emitted Err Str")),
+        "expected the no-arm error, got: {errs:?}"
+    );
+}
+
+/// [qual-group] The limit of the flat representation, and the reason the
+/// annotated-`let` leftover survives: the *same* qualifier twice deduplicates
+/// to one, so `ok(ok(x))` is indistinguishable from `ok(x)` and no rule can
+/// recover the nesting. The diagnostic says so, since the type it prints
+/// looks like it should fit.
+#[test]
+fn the_same_qualifier_twice_deduplicates_and_says_so() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn step() [] -> [] Ok (Ok Int | Err Str) | Err Str {{\n\
+         return ok(ok(1))\n\
+         }}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("deduplicates") && e.contains("annotated local")),
+        "expected the deduplication hint, got: {errs:?}"
+    );
+}

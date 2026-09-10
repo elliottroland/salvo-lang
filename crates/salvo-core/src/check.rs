@@ -173,7 +173,17 @@ pub struct PassDriver {
 pub enum Coercion {
     /// Wrap a plain value into arm `arm` (index into non-`None` arms) of
     /// the `target` union.
-    WrapUnion { target: Ty, arm: usize },
+    ///
+    /// `inner` is a representation change applied to the value *first*, and
+    /// exists for one shape: a qualified union group arm `Q (A | B)` reached
+    /// by a value whose qualifier list flattened (`emitted(ok("x"))`
+    /// [qual-group]). Such a value is physically a bare `A`, so it must be
+    /// wrapped into the inner union before the outer one.
+    WrapUnion {
+        target: Ty,
+        arm: usize,
+        inner: Option<Box<Coercion>>,
+    },
     /// Re-wrap a value between two union representations (matching arms by
     /// type equality; unmatched source arms are unreachable at runtime).
     Rewrap { from: Ty, to: Ty },
@@ -10441,6 +10451,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             Coercion::WrapUnion {
                                 target: expected.clone(),
                                 arm: i,
+                                inner: None,
                             },
                         );
                         return;
@@ -10490,18 +10501,60 @@ impl<'p, 'r> Checker<'p, 'r> {
             match matches.len() {
                 1 => {
                     self.out.union_sizes.insert(arms.len());
+                    // [qual-group] A value whose qualifier list flattened
+                    // (`emitted(ok("x"))` for an `Emitted (Ok Str | Err Str)`
+                    // arm) is physically the bare inner value: wrap it into
+                    // the inner union first.
+                    let inner = crate::types::nested_group_arm(&effective, arms[matches[0]]).map(
+                        |(inner_ty, inner_arm)| {
+                            self.out.union_sizes.insert(inner_ty.value_arms().len());
+                            Box::new(Coercion::WrapUnion {
+                                target: inner_ty,
+                                arm: inner_arm,
+                                inner: None,
+                            })
+                        },
+                    );
                     self.out.coerce.insert(
                         self.key(span),
                         Coercion::WrapUnion {
                             target: expected.clone(),
                             arm: matches[0],
+                            inner,
                         },
                     );
                 }
-                0 => self.error(
-                    span,
-                    format!("no arm of `{expected}` accepts a value of type `{logical}`"),
-                ),
+                0 => {
+                    // [qual-group] One shape reads confusingly here: an
+                    // expected arm `Q (A | B)` whose inner arms are
+                    // themselves qualified, reached by a value carrying
+                    // nothing *but* `Q`. Qualifier lists are flat and
+                    // deduplicated, so a repeated qualifier vanishes
+                    // (`ok(ok(x))` *is* `Ok Str`) and the value cannot say
+                    // which reading it is — name the workaround, since the
+                    // type in the message looks like it should fit.
+                    let deduplicated = arms.iter().any(|arm| match arm {
+                        Ty::Qualified { quals, base } => {
+                            matches!(**base, Ty::Union(_))
+                                && effective
+                                    .quals()
+                                    .iter()
+                                    .all(|v| quals.iter().any(|q| q.name == v.name))
+                                && base.value_arms().iter().any(|a| !a.quals().is_empty())
+                        }
+                        _ => false,
+                    });
+                    let mut msg =
+                        format!("no arm of `{expected}` accepts a value of type `{logical}`");
+                    if deduplicated {
+                        msg.push_str(
+                            "; a qualifier applied to a value that already carries it \
+                             deduplicates, so bind the inner union to an annotated local \
+                             first (`let inner: A | B = ...`)",
+                        );
+                    }
+                    self.error(span, msg)
+                }
                 _ => self.error(
                     span,
                     format!(

@@ -76,10 +76,12 @@ first.
   snapshot per field, or the whole value). It also closed a
   `for`-over-a-container emission defect and lifted the effectful-`next` cut. See
   COMPLETED.md.
-- The **open defect**: a qualifier applied to an already-qualified value
-  flattens, so `emitted(ok("x"))` matches no arm. It is first because it is also
-  what makes `Emitted (Ok T | Err E)` unwritable, and phase 4 needs exactly that
-  shape.
+- ✅ **The qualifier-flattening defect** closed 2026-09-10: `emitted(ok("x"))`
+  builds straight into an `Emitted (Ok Str | Err Str)` arm, which is what makes
+  `Emitted (Ok T | Err E)` writable at all — phase 4 needs exactly that shape.
+  It also closed a latent emission gap on the same path (a group over plain
+  arms, `Emitted (Str | Int)`, emitted one wrap where two were needed). See
+  COMPLETED.md.
 - A **suspending loop driving a pass** — the one capability the reduction lost.
   The planner already produces the nested-pass field; only emission is missing.
 - The **`?close` implicit**, so an early-stopping combinator (`take`, `first`)
@@ -167,62 +169,9 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-### A qualifier applied to an already-qualified value flattens, so `emitted(ok("x"))` matches no arm
-
-Found 2026-09-07 while answering whether a fallible producer needs `Throw`
-support [iter-protocol]. Minimal repro:
-
-```
-fn b(flag: Bool) -> Emitted (Ok Str | Err Str) | Finished {
-    if flag {
-        return emitted(ok("x"))    // ERROR
-        // no arm of `Emitted (Ok Str | Err Str) | Finished` accepts a value
-        // of type `Emitted Ok Str`
-    }
-    return finished()
-}
-```
-
-**Root cause** (localized by two probes, both of which *pass*, so the fault is
-in the combination and not in either half):
-
-```
-fn d(flag: Bool) -> Emitted (Str | Int) | Finished { ... return emitted("x") }   // fine
-fn c() -> Ok Str | Err Str { return ok("x") }                                    // fine
-```
-
-`Ty::Qualified` holds a **flat** qualifier list, and `qualify` appends. So
-`emitted(ok("x"))` — a qualifier applied to an already-qualified value —
-produces `Qualified { quals: [Ok, Emitted], base: Str }`, which is
-indistinguishable from "two qualifiers on a `Str`" and is *not* `Emitted`
-applied to `Ok Str`. Matching it against the arm
-`Qualified { quals: [Emitted], base: Union[Ok Str, Err Str] }` therefore
-compares `Str` against `Ok Str | Err Str`, and a plain value never subtypes a
-constructive qualifier [qual-constructive] — hence no arm accepts it. The
-rendering ("Emitted Ok Str", no parentheses) is the same ambiguity showing
-through.
-
-So the earlier guess in this slot — "`Coercion::WrapUnion` cannot chain" — was
-wrong, though a nested wrap *is* still needed for emission once matching is
-fixed: the value would be a bare `Str` that has to be wrapped into the inner
-union's wrapper before the outer arm's.
-
-**Fix, when it is picked up**: either nest `Ty::Qualified` (a representation
-change with wide reach) or add a targeted rule where the expected arm is
-`Q (union)` — split the value's qualifier list into `Q` and the rest, and test
-whether the remainder fits the union — plus the inner wrap in both emitters.
-
-**Workaround, and it is one line**: bind the union first, so the value already
-has the arm's type.
-
-```
-let good: Ok Str | Err Str = ok("x")
-return emitted(good)
-```
-
-Verified end to end on both backends with that binding — see
-`a_fallible_pass_yields_a_result` in each backend's codegen tests. Nothing is
-blocked by it.
+**None open.** The last one — a qualifier applied to an already-qualified value
+flattens, so `emitted(ok("x"))` matched no arm — was closed 2026-09-10; its
+repro and root cause are in COMPLETED.md.
 
 ## Linear types
 
@@ -571,7 +520,8 @@ visible in the type rather than hidden behind an ordinary one.
 ### Producers: the `Mut`-parameter case (option C)
 
 Added 2026-09-08 with the decision that refused it for now
-([iter-mut-param]; the divergence that forced that is under "Open defects").
+([iter-mut-param]; the divergence that forced that is in COMPLETED.md, under
+"Defects found and closed").
 A producer taking `sink: Mut List<Int>` and appending to it as it yields is
 the pattern, and it is the most demanding customer this roadmap has:
 
@@ -1102,9 +1052,12 @@ blocking, and several are "revisit only if a customer appears".
 - Struct destructuring ignores predicate-qualifier field overrides
   (deliberate: bindings get the declared type; direct accesses get the
   override + cast).
-- Constructing a *nested* qualified union group in one expression
-  (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) needs an annotated
-  intermediate `let`; single-level coercion only (errors, never mis-emits).
+- Constructing a nested qualified union group in one expression works for
+  *distinct* qualifiers as of 2026-09-10 (`emitted(ok(x))`); repeating the
+  **same** one (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) still needs an
+  annotated intermediate `let`, and cannot be fixed by a rule — a flat
+  qualifier list deduplicates, so `Ok Ok Str` *is* `Ok Str`. The no-arm
+  diagnostic names the workaround [qual-group].
 - Deduction inference does not track bare-parameter value flow out of
   branch/loop tails as a move (documented leniency in [deduce-infer]).
 - **Array elements never narrow** ([flow-place] narrows variables, field chains

@@ -2814,7 +2814,13 @@ impl<'p> Emitter<'p> {
                     None => code,
                 }
             }
-            Coercion::WrapUnion { target, arm } => {
+            Coercion::WrapUnion { target, arm, inner } => {
+                // [qual-group] The inner wrap of a flattened nested group
+                // runs first: the value is physically the bare inner value.
+                let code = match inner {
+                    Some(inner) => self.apply_coercion_value(*inner, code),
+                    None => code,
+                };
                 let value_arms = target.value_arms();
                 let n = value_arms.len();
                 self.union_sizes.insert(n);

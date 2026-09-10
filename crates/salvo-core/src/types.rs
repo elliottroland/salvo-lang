@@ -369,7 +369,14 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             Ty::Qualified { quals: qa, base: ba },
             Ty::Qualified { quals: qb, base: bb },
         ) => {
-            is_subtype(ba, bb)
+            // `Q (A | B)` against a value whose qualifier list *flattened*
+            // [qual-group]: applying `Q` to an already-qualified value
+            // (`emitted(ok("x"))`) appends to one flat list, so
+            // `Q (A | B)` and `Q A` are indistinguishable by shape.
+            // Split the group's own qualifiers off the value's list and let
+            // the remainder try the union — which is what the value really
+            // is once `Q` is accounted for.
+            (is_subtype(ba, bb) || nested_group_remainder(qa, qb, ba, bb).is_some())
                 && qb
                     .iter()
                     .all(|q| q.name == "Once" || q.effect || qa.contains(q))
@@ -449,6 +456,78 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         _ => false,
     }
+}
+
+/// [qual-group] The *inner* arm a flattened nested group fits, if any.
+///
+/// `Ty::Qualified` holds a flat, sorted qualifier list and its base is never
+/// itself `Qualified`, so applying a qualifier to an already-qualified value
+/// appends: `emitted(ok("x"))` is `Qualified { quals: [Emitted, Ok], base:
+/// Str }`, which is shape-identical to "two qualifiers on a `Str`" and not
+/// `Emitted` applied to `Ok Str`. When the *expected* type is a qualified
+/// union group `Q (A | B)`, this reads the value the other way round: take
+/// the group's qualifiers off the value's list and ask whether what is left
+/// fits one arm of the union. Exactly one arm must fit — an ambiguity is not
+/// resolvable from a flat list, so it is left to the caller to report.
+///
+/// Returns the matching arm's index. The value is physically a bare `A` at
+/// that point, so the caller must wrap it into the inner union before the
+/// outer one; `nested_group_arm` is the entry point emitters' coercions go
+/// through.
+fn nested_group_remainder(qa: &[Qual], qb: &[Qual], ba: &Ty, bb: &Ty) -> Option<usize> {
+    if !bb.is_wrapper_union() || matches!(ba, Ty::Union(_)) {
+        // A wrapper union is the case that has a physical inner arm to wrap
+        // into. Restricting to it keeps this rule and the coercion
+        // `nested_group_arm` records in exact agreement — a shape the
+        // emitters could not wrap is an error rather than wrong output
+        // [backend-never-wrong].
+        return None;
+    }
+    // Match by *name*: a qualifier's generic arguments are rarely written
+    // (`Ok Str` implies `Ok<Str>`), so the group's `Q` and the value's `Q`
+    // need not carry identical args to be the same claim.
+    let rest: Vec<Qual> = qa
+        .iter()
+        .filter(|q| !qb.iter().any(|g| g.name == q.name))
+        .cloned()
+        .collect();
+    if rest.len() == qa.len() {
+        // None of the group's qualifiers is on the value — nothing was
+        // flattened, so this is not the nested reading.
+        return None;
+    }
+    let remainder = ba.clone().qualify(rest);
+    let arms = bb.value_arms();
+    let mut found = None;
+    for (i, arm) in arms.iter().enumerate() {
+        if is_subtype(&remainder, arm) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(i);
+        }
+    }
+    found
+}
+
+/// [qual-group] The inner union and arm index a value must be wrapped into
+/// before it is wrapped into a qualified group arm `Q (A | B)`, when the
+/// value's qualifier list flattened (`emitted(ok("x"))` for an expected
+/// `Emitted (Ok Str | Err Str)`). `None` when no inner wrap is needed —
+/// including when the value is already typed as the inner union or as the
+/// group itself.
+pub fn nested_group_arm(value: &Ty, group: &Ty) -> Option<(Ty, usize)> {
+    let Ty::Qualified { quals: qb, base: bb } = group else {
+        return None;
+    };
+    if !bb.is_wrapper_union() {
+        return None;
+    }
+    let Ty::Qualified { quals: qa, base: ba } = value else {
+        return None;
+    };
+    let arm = nested_group_remainder(qa, qb, ba, bb)?;
+    Some(((**bb).clone(), arm))
 }
 
 /// Whether a fn value with contract `a` may be used where contract `b`
