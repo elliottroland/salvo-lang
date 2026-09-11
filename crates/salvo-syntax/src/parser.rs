@@ -540,31 +540,6 @@ impl<'s> Parser<'s> {
         generics
     }
 
-    /// The optional derived-return annotation before a return type
-    /// [readonly-return]: `ReadOnly[from: param]` — the returned value
-    /// is derived from (borrows) the named kept parameter. Only
-    /// meaningful in return position; the annotation never enters the
-    /// type itself.
-    fn parse_derived_return(&mut self) -> Option<Ident> {
-        let is_readonly = matches!(
-            &self.peek().kind,
-            TokenKind::Ident(name) if name == "ReadOnly"
-        );
-        if !is_readonly || !matches!(self.peek_at(1).kind, TokenKind::LBracket) {
-            return None;
-        }
-        self.bump(); // ReadOnly
-        self.bump(); // [
-        let key = self.ident()?;
-        if key.name != "from" {
-            self.error("expected `from:` in `ReadOnly[from: param]`", key.span);
-        }
-        self.expect(&TokenKind::Colon)?;
-        let param = self.ident()?;
-        self.expect(&TokenKind::RBracket)?;
-        Some(param)
-    }
-
     /// Type parameters with optional per-parameter `canbe` opt-ins
     /// [linear-generics] [canbe-optin]: `<T canbe Linear, U>` — one
     /// qualifier per `canbe` (the comma separates parameters).
@@ -1070,7 +1045,7 @@ impl<'s> Parser<'s> {
             None
         };
 
-        // `-> [deductions] (ReadOnly[from: param])? return_type
+        // `-> [deductions] (Proj[from: param])? return_type
         // (as Qualifier)?`
         let mut deductions = None;
         let mut return_type = None;
@@ -1081,8 +1056,13 @@ impl<'s> Parser<'s> {
             if self.at(&TokenKind::LBracket) {
                 deductions = Some(self.parse_deduction_list()?);
             }
-            derived_return = self.parse_derived_return();
-            return_type = Some(self.parse_type()?);
+            let ty = self.parse_type()?;
+            // [proj-anywhere] The derived-return summary the checker and the
+            // emitters consume: the parameter named by the *first* `Proj` in
+            // the return type. `Proj[from: p] T` is now an ordinary qualifier
+            // on `T`, so the old prefix spelling reads identically.
+            derived_return = first_proj_source(&ty);
+            return_type = Some(ty);
             // `-> T as Qualifier` marks a constructive-qualifier constructor.
             if self.at(&TokenKind::KwAs) && self.same_line() {
                 self.bump();
@@ -1530,6 +1510,27 @@ impl<'s> Parser<'s> {
         let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
+        // [proj-anywhere] `Proj[from: param]`: the borrow's source, written on
+        // the qualifier itself so it can sit anywhere a type does — a union
+        // arm, a type argument, a tuple element — and so a type borrowing
+        // from two parameters names each. Only `Proj` takes the bracket; a
+        // `[` after any other name is the array postfix `T[]`, handled by
+        // the caller, so it is only consumed here when followed by an ident.
+        let mut from = None;
+        if name.name == "Proj"
+            && self.at(&TokenKind::LBracket)
+            && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+        {
+            self.bump(); // [
+            let key = self.ident()?;
+            if key.name != "from" {
+                self.error("expected `from:` in `Proj[from: param]`", key.span);
+            }
+            self.expect(&TokenKind::Colon)?;
+            let param = self.ident()?;
+            end = self.expect(&TokenKind::RBracket)?.span;
+            from = Some(param);
+        }
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
@@ -1550,7 +1551,12 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::Gt)?.span;
         }
         let span = name.span.to(end);
-        Some(TypeRef { name, args, span })
+        Some(TypeRef {
+            name,
+            args,
+            from,
+            span,
+        })
     }
 
     // --- Blocks and statements ---
@@ -2124,6 +2130,20 @@ impl<'s> Parser<'s> {
 
     fn parse_unary(&mut self) -> Option<Expr> {
         match self.kind() {
+            // [inc-dec] `++i` / `--i`: the step happens first, so the
+            // expression's value is the *new* one.
+            TokenKind::PlusPlus | TokenKind::MinusMinus => {
+                let down = matches!(self.kind(), TokenKind::MinusMinus);
+                let start = self.bump().span;
+                let operand = self.parse_unary()?;
+                let span = start.to(operand.span());
+                Some(Expr::IncDec {
+                    operand: Box::new(operand),
+                    down,
+                    prefix: true,
+                    span,
+                })
+            }
             TokenKind::Minus => {
                 let start = self.bump().span;
                 let operand = self.parse_unary()?;
@@ -2303,6 +2323,7 @@ impl<'s> Parser<'s> {
                                             elem_type: TypeRef {
                                                 name: name.clone(),
                                                 args: Vec::new(),
+                                                from: None,
                                                 span: name.span,
                                             },
                                             size: index,
@@ -2330,11 +2351,16 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
-                TokenKind::PlusPlus if self.same_line() => {
+                // [inc-dec] Postfix, same line so a leading `++`/`--` on the
+                // next line is not swallowed as this expression's suffix.
+                TokenKind::PlusPlus | TokenKind::MinusMinus if self.same_line() => {
+                    let down = matches!(self.kind(), TokenKind::MinusMinus);
                     let end = self.bump().span;
                     let span = expr.span().to(end);
-                    expr = Expr::PostIncrement {
+                    expr = Expr::IncDec {
                         operand: Box::new(expr),
+                        down,
+                        prefix: false,
                         span,
                     };
                 }
@@ -3022,4 +3048,34 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
 enum FnFlavor {
     Plain,
     Iter,
+}
+
+/// [proj-anywhere] The source parameter of the first `Proj[from: p]` in a
+/// type, searching arms, arguments and elements in order.
+pub fn first_proj_source(ty: &Type) -> Option<Ident> {
+    fn in_ref(r: &TypeRef) -> Option<Ident> {
+        if r.name.name == "Proj" {
+            if let Some(from) = &r.from {
+                return Some(from.clone());
+            }
+        }
+        r.args.iter().find_map(first_proj_source)
+    }
+    match ty {
+        Type::Named { qualifiers, base } => qualifiers
+            .iter()
+            .find_map(in_ref)
+            .or_else(|| in_ref(base)),
+        Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers
+            .iter()
+            .find_map(in_ref)
+            .or_else(|| first_proj_source(base)),
+        Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } => first_proj_source(inner),
+        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+            arms.iter().find_map(first_proj_source)
+        }
+        _ => None,
+    }
 }

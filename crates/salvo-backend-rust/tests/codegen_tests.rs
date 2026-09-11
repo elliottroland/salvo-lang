@@ -479,7 +479,7 @@ handler CyclicRandom<T>(values: List<T>) of Random<T> {
     fn next_random() -> T {
         let value = get(values, i % values.size())!
         i = i + 1
-        return value
+        return copy(value)
     }
 }
 
@@ -1297,7 +1297,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {
+fn find_adult(persons: List<Person>) -> [persons] Proj[from: persons] Person? {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -1306,7 +1306,7 @@ fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {
+fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] Proj[from: persons] Person? {
     return first(persons)
 }
 
@@ -2403,7 +2403,7 @@ handler CyclicRandom<T>(values: List<T>) of Random<T> {
     fn next_random() -> T {
         let value = get(values, i % values.size())!
         i = i + 1
-        return value
+        return copy(value)
     }
 }
 
@@ -3782,7 +3782,7 @@ fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -3908,7 +3908,7 @@ fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -4042,7 +4042,7 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
         // `dyn`, uniformly: an effect member's implicits land in an
         // object-safe trait, and forwarding has to compose in every
         // direction, so one convention serves both.
-        "pub fn total<T: Clone + 'static>(xs: &Vec<T>, add: &mut dyn FnMut(T, T) -> T, \
+        "pub fn total<T: Clone>(xs: &Vec<T>, add: &mut dyn FnMut(T, T) -> T, \
          zero: &mut dyn FnMut() -> T)",
         // A resolved default is passed as an adapter closure over the fn.
         "&mut |__i0, __i1| add(__i0, __i1)",
@@ -4181,7 +4181,7 @@ fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
     let r = get(z.right, z.at)
     if l is Str && r is Int {
         z.at = z.at + 1
-        return emitted((l, r))
+        return emitted((copy(l), r))
     }
     return finished()
 }
@@ -4271,7 +4271,7 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
         if line == "boom" {
             return emitted(err("bad line at ${r.at}"))
         }
-        return emitted(ok(line))
+        return emitted(ok(copy(line)))
     }
     return finished()
 }
@@ -5006,7 +5006,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -5490,7 +5490,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -5650,4 +5650,81 @@ fn rustc_compiles_and_runs_a_partial_move() {
         "expected a partial move with a live sibling read in:\n{main}"
     );
     run_rust_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
+}
+
+/// [inc-dec] All four step forms, in both statement and value position: the
+/// fixity decides the *value* (postfix the old, prefix the new) and the
+/// operator the direction. Rust has neither operator, so a value-position
+/// step becomes a block; the stdout is what pins the two backends together.
+///
+/// Shared with the other backend, byte for byte.
+const INC_DEC_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let i = 5
+    i++
+    i--
+    ++i
+    --i
+    println("statements: ${i}")
+
+    let a = 10
+    let post = a++
+    println("post: ${post} ${a}")
+    let b = 10
+    let pre = ++b
+    println("pre: ${pre} ${b}")
+    let c = 10
+    let cd = c--
+    println("post-dec: ${cd} ${c}")
+    let d = 10
+    let dd = --d
+    println("pre-dec: ${dd} ${d}")
+}
+"#;
+
+const INC_DEC_OUTPUT: &str =
+    "statements: 5\npost: 10 11\npre: 11 11\npost-dec: 10 9\npre-dec: 9 9\n";
+
+#[test]
+fn rustc_compiles_and_runs_inc_dec() {
+    let files = generate(&[("main.sv", INC_DEC_DEMO)]);
+    run_rust_files(&files, "inc-dec", INC_DEC_OUTPUT);
+}
+
+/// [rs-opt-borrow] A local bound from a derived-return call with an optional
+/// result holds `Option<&T>`. Narrowing it and using the value where an owned
+/// `T` is expected used to emit `.as_ref().unwrap().clone()` — a clone of the
+/// *reference* (`&&T` → `&T`), so rustc rejected checker-clean code. The
+/// unwrap now yields the reference and clones through it.
+const OPT_BORROW_DEMO: &str = r#"
+struct Person { name: Str }
+
+fn take(p: Person) -> [] Str { return p.name }
+
+fn main() [use] {
+    use StdOutConsole()
+    let people = list(Person { name: "ann" }, Person { name: "bob" })
+    let head = first(people)
+    if head is None {
+        return
+    }
+    println("${take(copy(head))}")
+    println("${head.name}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
+    let files = generate(&[("main.sv", OPT_BORROW_DEMO)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    assert!(
+        main.contains("head.unwrap().clone()") && !main.contains("head.as_ref().unwrap()"),
+        "expected the reference unwrap, not a clone of the reference, in:\n{main}"
+    );
+    run_rust_files(&files, "opt-borrow", "ann\nann\n");
 }

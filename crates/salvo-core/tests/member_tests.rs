@@ -54,6 +54,9 @@ fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     let resolution = resolve(&program);
     let mut errors: Vec<FileDiagnostic> = resolution.errors.clone();
     errors.extend(check_program(&program, &resolution, &symbols).errors);
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity, and this file is about which references are rejected.
+    errors.retain(|d| d.is_error());
     errors
 }
 
@@ -488,4 +491,149 @@ fn uninferred_types_still_pass_through() {
         "expected only the unresolved call to be reported: {errs:?}"
     );
     assert!(errs[0].contains("no function named `nowhere`"), "got {errs:?}");
+}
+
+// ===== identifier references [ident-resolve] =====
+
+/// [ident-resolve] [backend-never-wrong] A bare name nothing declares used to
+/// pass the checker as `Ty::Unknown` and reach the emitters, which spelled it
+/// straight into the output — so the *target* compiler reported it
+/// (`E0425` / "unresolved reference"). It is a Salvo error now: the same rule
+/// as a call, a field or a subscript, which this file exists to pin.
+#[test]
+fn an_undeclared_identifier_is_an_error() {
+    let errs = messages(&body("    let n = undeclared_thing"));
+    assert!(
+        errs.iter()
+            .any(|m| m == "no variable or function named `undeclared_thing` is in scope"),
+        "got {errs:?}"
+    );
+}
+
+/// [ident-resolve] Reading a variable *before* its declaration is the same
+/// mistake: scopes are not hoisted.
+#[test]
+fn using_a_variable_before_its_declaration_is_an_error() {
+    let errs = messages(&body("    let a = later\n    let later = 1"));
+    assert!(
+        errs.iter()
+            .any(|m| m == "no variable or function named `later` is in scope"),
+        "got {errs:?}"
+    );
+}
+
+/// [ident-resolve] A name that *is* declared but is not a value says what it
+/// is, rather than claiming nothing declares it — the courtesy the effect and
+/// handler rules already extend [effect-not-a-type].
+#[test]
+fn a_declared_non_value_name_says_what_it_is() {
+    let errs = messages(&body("    let s = Person"));
+    assert!(
+        errs.iter().any(|m| m.contains("`Person` is a struct type, not a value")),
+        "got {errs:?}"
+    );
+}
+
+/// [ident-resolve] [type-unknown-lenient] One mistake, one diagnostic: the
+/// unresolved name's `Unknown` type does not cascade into the read below it.
+#[test]
+fn an_undeclared_identifier_does_not_cascade() {
+    let errs = messages(&body("    let v = undeclared_thing\n    let x = v.member"));
+    assert_eq!(
+        errs.len(),
+        1,
+        "expected only the unresolved name to be reported: {errs:?}"
+    );
+}
+
+// ===== unused variables [unused-var] =====
+
+/// All diagnostics, warnings included — `check_errors` filters to errors, and
+/// the point here is the warning.
+fn all_messages(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        assert!(
+            diagnostics.iter().all(|d| !d.is_error()),
+            "parse errors: {diagnostics:?}"
+        );
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    check_program(&program, &resolution, &symbols)
+        .errors
+        .iter()
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// [unused-var] A local that is never read warns — and says how to opt out.
+#[test]
+fn an_unused_local_warns() {
+    let msgs = all_messages(&body("    let spare = 1"));
+    assert!(
+        msgs.iter().any(|m| m
+            == "`spare` is never used; prefix it with `_` (`_spare`) if that is deliberate"),
+        "got {msgs:?}"
+    );
+}
+
+/// [unused-var] A leading `_` is the opt-out, and a read is a use.
+#[test]
+fn an_underscore_prefix_and_a_read_are_both_silent() {
+    let msgs = all_messages(&body(
+        "    let _spare = 1\n    let used = 2\n    let echo = used",
+    ));
+    assert!(
+        !msgs.iter().any(|m| m.contains("`_spare`") || m.contains("`used`")),
+        "expected no warning for `_spare` or `used`: {msgs:?}"
+    );
+    // `echo` itself is never read, so it *does* warn — the rule is uniform.
+    assert!(
+        msgs.iter().any(|m| m.contains("`echo` is never used")),
+        "got {msgs:?}"
+    );
+}
+
+/// [unused-var] Assignment is not a use: a variable only ever written to has
+/// no reader, which is exactly the mistake worth reporting.
+#[test]
+fn a_variable_that_is_only_assigned_warns() {
+    let msgs = all_messages(&body("    let counter = 1\n    counter = 2"));
+    assert!(
+        msgs.iter().any(|m| m.contains("`counter` is never used")),
+        "got {msgs:?}"
+    );
+}
+
+/// [unused-var] A *parameter* never warns: a signature often dictates it —
+/// an effect or handler member implementing a declared interface cannot drop
+/// one — so the warning would fire where nothing can be done about it.
+#[test]
+fn an_unused_parameter_does_not_warn() {
+    let msgs = all_messages("fn takes(a: Int, b: Int) -> [] Int {\n    return a\n}\n");
+    assert!(
+        !msgs.iter().any(|m| m.contains("never used")),
+        "expected no parameter warning: {msgs:?}"
+    );
 }

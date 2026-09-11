@@ -62,6 +62,53 @@ Conventions:
     is accepted, because field chains flow-narrow [flow-place]. Element
     reads (`arr[i]`) do not narrow, so those still need the
     `is Str name` binding form.
+* [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on an `Int` place, in
+  either fixity (user request 2026-09-11 added all but `i++`). The operand
+  must be a place; all four forms do the same thing to it — which is why the
+  checker treats them identically — and the fixity decides only the
+  expression's *value*: postfix yields the value before the step, prefix the
+  value after. In statement position the two are indistinguishable.
+  * One AST node (`Expr::IncDec { down, prefix }`) rather than four
+    variants, because every consumer but the emitters treats them alike.
+  * Kotlin has both operators in both fixities and renders them directly
+    [kt-inc-dec]; Rust has neither, so a value-position step becomes a block
+    [rs-inc-dec].
+* [interp-to-str] An interpolated value must have a **text form**, checked
+  rather than left to the backend (user request 2026-09-11; before this a
+  non-renderable value reached rustc as "doesn't implement `Display`"
+  [backend-never-wrong]).
+  * **Native**: the scalars (`Int`, `Long`, `Float`, `Double`, `Bool`,
+    `Char`, `Byte`) and `Str`. A union is native when *every* arm is —
+    both backends reach the payload (Kotlin through the wrapper's
+    `.value`, Rust through the arm accessor). `Mut Str` never reaches the
+    question: a builder is converted first [str-drop-mut].
+  * **Otherwise a `to_str`**, resolved *at the interpolation site* like an
+    implicit parameter (user decision 2026-09-11): a `to_str` in scope
+    whose parameter accepts the type and which returns `Str`. The winner is
+    recorded in `Checked::interp_to_str` and the emitters call it.
+  * **std provides** `intrinsic fn to_str<T>(list: List<T>) -> Str`,
+    rendering `[1, 2, 3]`. The format is the *language's*, implemented per
+    backend, because the targets' own collection formatting disagrees
+    (Rust `Debug` quotes strings, Kotlin's `joinToString` does not).
+  * **`params ToStr<T>`** exists as a *convenience* only (user decision
+    2026-09-11): declaring `: ToStr<self>` does not enable interpolation —
+    a `to_str` in scope does that — it validates at the declaration that
+    one exists, which is where the mistake is easier to see.
+  * **Known limitation**: a generic `List<T>` cannot be interpolated, since
+    an opaque `T` has no text form on either backend. Composing an element
+    `?to_str` would fix it and is not built: `resolve_implicit_fn` skips
+    candidates that themselves take implicits, and `implicit_args` is keyed
+    by *call* spans, which an interpolation does not have.
+* [interp-struct] A **struct** with no `to_str` of its own interpolates
+  when every field is natively renderable (user request 2026-09-11),
+  rendering `Person { name: ann, age: 3 }` — Salvo's struct-literal shape,
+  identical on both backends. Deliberately *not* Rust's `Debug` or a
+  Kotlin data class's `toString`, which disagree with each other.
+  * An explicit `to_str` always wins: the derivation is the fallback.
+  * A field that itself needs a `to_str` is **not** followed — the
+    derivation is for the simple cases, and the diagnostic asks for a
+    `to_str` instead. Generic structs are excluded (their field types would
+    need substituting).
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let` and indexed by position ([expr-tuple-index]).
   * Backends may support only small sizes; unsupported sizes are codegen
@@ -365,7 +412,7 @@ Conventions:
     for one concept was the cost that settled it).
   * The compiler's own capability qualifiers stay intrinsic and are *not*
     user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-group],
-    `Once` [once-fn], `ReadOnly` [readonly-return] each need a
+    `Once` [once-fn], `Proj` [readonly-return] each need a
     representation choice, a flow rule, a non-standard subtyping
     direction, or a restricted position. Vocabulary: users declare
     *state* or *provenance*; the compiler owns *permissions* (droppable,
@@ -642,7 +689,7 @@ Conventions:
   * **Droppability comes from one list** — `types::qual_drop_block`, which
     `Qual T <: T` also reads, so the two cannot drift as intrinsic
     qualifiers are added. `Once` (restricts rather than refines), `Linear`
-    (carries a use obligation) and `ReadOnly` (the value is derived from
+    (carries a use obligation) and `Proj` (the value is derived from
     another) may never be dropped; every other qualifier may, since dropping
     a *claim* only loses knowledge and dropping a *permission* only loses
     permission.
@@ -958,6 +1005,26 @@ Conventions:
   undeclared name is an unresolved call ([call-resolve]), and the
   diagnostic names a `platform effect` member [platform-effect] as the way
   to reach a target-language method.
+* [ident-resolve] Every **identifier reference** must resolve to something
+  declared — a local, a parameter, a handler, or a fn passed by name.
+  Nothing else is a value, so the reference is an error (user request
+  2026-09-11; it used to be typed `Ty::Unknown` and reach the emitters,
+  which spelled the name verbatim, so rustc reported `E0425` and kotlinc
+  "unresolved reference" [backend-never-wrong]). Scopes are not hoisted:
+  reading a variable above its declaration is the same error.
+  * A name that *is* declared but is not a value says what it is instead —
+    a struct type, an effect, a qualifier, a `params` group, a type — the
+    same courtesy [effect-not-a-type] already extends.
+  * The unresolved case carries import suggestions [diag-import-suggest].
+* [unused-var] A local that is never **read** is a *warning* (user request
+  2026-09-11). Assignment is not a read: a variable only ever written to has
+  no reader, which is the mistake worth reporting. A leading `_` opts out
+  (`_spare`). Parameters are exempt — a signature often dictates them, and
+  an effect or handler member implementing a declared interface cannot drop
+  one — as are handler state fields and everything in std.
+  * A *warning*, not an error: the program is still well-defined. It is the
+    first diagnostic Salvo emits routinely at that severity, so anything
+    reading `Checked::errors` must filter by severity to mean "errors".
 * [call-resolve] Every call must resolve to something declared: a fn, an
   effect member, a handler constructor, or a value
   of fn type. Otherwise it is an error (user decision 2026-09-03) —
@@ -1810,7 +1877,7 @@ Conventions:
   ([fate-field-disjoint]). Reads never consume and
   never poison, on any member, at any time. Function results are
   independent — unless the fn declares a derived return
-  (`ReadOnly[from: p]` [readonly-return]), in which case the result
+  (`Proj[from: p]` [readonly-return]), in which case the result
   links to the argument; a fn returning a projection of a kept
   parameter *without* the annotation must `copy` internally.
   `copy(...)` produces an unlinked value [copy-fn].
@@ -1820,10 +1887,10 @@ Conventions:
   * Links are flow state: they union across branch merges (may-be-linked
     is linked) and survive loop back-edge re-checking.
   * Tooling presentation (user decision 2026-09-02): a derived variable
-    is rendered with a compiler-inserted `ReadOnly` qualifier — bare on
+    is rendered with a compiler-inserted `Proj` qualifier — bare on
     the type line, with its parameters (the fate roots and binding
     sites, recorded in `Checked::fate_reads`) shown only as on-request
-    detail. Presentation-only today; `ReadOnly` is not part of the type
+    detail. Presentation-only today; `Proj` is not part of the type
     system and cannot be written in source. Parameterized compiler
     qualifiers as *checked* signature vocabulary are the leading design
     for L7 (see COMPLETED.md, and ROADMAP.md for what is left of it).
@@ -2131,7 +2198,7 @@ Conventions:
     (rustc's capture inference already makes consuming closures
     `FnOnce`); Kotlin emits the ordinary function type — the
     multiplicity is protocol-only on the JVM.
-* [readonly-return] `-> [p] ReadOnly[from: p] T` marks a *derived
+* [readonly-return] `-> [p] Proj[from: p] T` marks a *derived
   return* (L7c, 2026-09-02; square-bracket surface — user decision:
   angle brackets read as generics, round brackets collide with
   qualified groups `Ok (A | B)`, and square brackets are already where
@@ -2149,9 +2216,12 @@ Conventions:
     move-mode can never take ownership through them
     [fate-move-mode] — moving the result or its narrowed binding stays
     an error with the `copy` remedy). The result's *type* is the plain
-    written type: `ReadOnly` never affects overloading.
+    written type: `Proj` never affects overloading.
   * v1 scope: fn declarations (incl. `intrinsic fn`s) only; plain `T` and
-    `T?` return shapes; not writable anywhere but return position.
+    `T?` return shapes; not writable anywhere but return position. **Being
+    widened** (user decisions 2026-09-11, ROADMAP "Copies only by opt-in"):
+    `Proj` in any type position but a struct field, `List<Proj T>` as a view,
+    `(Proj T)?` as an optional borrow, `[from: p]` attached per occurrence.
     Accumulator bodies (`best = person; ...; return best`) are out of
     scope — reassignable borrowed locals are a recorded refinement.
   * Backends: Kotlin unchanged (the result is the alias). Rust returns
@@ -2353,7 +2423,7 @@ Conventions:
     written as type refs), plus generic parameters in scope and the
     language-level `None`, which has no declaration. Qualifiers:
     declared qualifiers plus the compiler's intrinsic `Mut`, `Linear`,
-    `Once` (`ReadOnly` is parsed as part of the return annotation, never
+    `Once` (`Proj` is parsed as part of the return annotation, never
     as a type ref).
   * A name found in the *other* namespace gets a wording hint instead of
     an import suggestion (`unknown type `Tag` (`Tag` is a qualifier, not
@@ -2565,6 +2635,32 @@ Conventions:
 
 ## Comments and documentation
 
+* [lsp-fn-origin] Hover on a **fn** names the module its resolved overload
+  came from, and what kind of place that is — the standard library, another
+  module, or the file being edited (user request 2026-09-11). With overloading
+  by scope ladder [fn-overload-scope] this is load-bearing rather than
+  decoration: `size` may be std's, an import's or the module's own, and the
+  signature alone does not say which won. The module path is what an
+  `@module` selector would name [fn-overload-at], so it is directly
+  actionable. Other declarations carry the same section, but only when they
+  come from a *different* file — being told a local declaration is local is
+  noise.
+* [lsp-name-positions] Every *name position* resolves to its declaration for
+  hover and go-to-definition, including the two that did not until
+  2026-09-11: the group name in a struct's **obligation clause**
+  (`: Linear<self>`), and the type or qualifier name in an **`is` check**
+  (`i is Positive`). Before, hovering the latter fell through to the
+  enclosing expression and reported only its `Bool`.
+* [doc-qualifies-body] Hover on a **predicate qualifier** shows the
+  *condition* it holds under, when its `qualifies` is a single
+  `return <expression>` — the expression alone, inline (`Holds when
+  `int > 0`.`). A one-line predicate *is* the rule, so showing it saves a
+  jump; anything longer is an implementation the reader did not ask for and
+  is hidden, leaving the qualifier's own doc comment to explain it (user
+  decision 2026-09-11, narrowing an earlier five-line rule). Nothing extra
+  is shown for a body that is not exactly one `return`, an expression that
+  does not fit on one line, or a qualifier with no `qualifies` at all (a
+  constructive or provenance one).
 * [doc-comment] A declaration's *documentation* is the run of `//` comment
   lines directly above it (2026-09-03): the comment on the line
   immediately before the declaration, plus every consecutive comment line
@@ -2732,7 +2828,7 @@ Conventions:
       owner ("Member of effect `Log`."). Members have no `FnKey`, so no
       *inferred* deductions are shown — the declared list is
       [decl-explicit], which members must write anyway.
-  * A fate-linked (derived) variable hovers as `ReadOnly T` — a bare
+  * A fate-linked (derived) variable hovers as `Proj T` — a bare
     compiler qualifier on the type line — with the qualifier's parameters
     (the roots it shares fate with and their binding sites, plus the
     `copy` remedy) as detail below (progressive disclosure, user decision

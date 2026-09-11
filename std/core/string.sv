@@ -26,7 +26,7 @@ intrinsic fn char_at(str: Str, index: Int) [] -> [str, index] Char?
 
 // [iter-pass] A fresh pass over the characters of [str], in order — which is
 // what makes every sequence function work on strings.
-fn iter(str: Str) [] -> [] Mut StrYield {
+fn iter(str: Str) [] -> [str] Proj[from: str] Mut StrYield {
     return Mut StrYield { text: str, at: 0 }
 }
 
@@ -34,7 +34,7 @@ fn iter(str: Str) [] -> [] Mut StrYield {
 // in it. A `Str` is immutable, so the pass holds it and moves the index.
 struct StrYield : Yield<self, Char> canbe Mut {
     // The string being walked.
-    text: Str,
+    text: Proj Str,
     // The index of the next character to emit.
     at: Int
 }

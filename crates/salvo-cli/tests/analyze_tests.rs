@@ -1489,7 +1489,7 @@ fn l7b_once_fns() {
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
-// [readonly-return] L7c: `-> ReadOnly[from: p] T?` marks a derived
+// [readonly-return] L7c: `-> Proj[from: p] T?` marks a derived
 // return — the callee may return projections/elements of the kept
 // parameter `p` without `copy`, and the caller's result fate-links to
 // the argument. Violations: returning an independent value, annotating
@@ -1503,16 +1503,16 @@ fn l7c_derived_returns() {
         dir.join("main.sv"),
         "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
          fn take(p: Person) -> [] None {\n}\n\n\
-         fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {\n    \
+         fn find_adult(persons: List<Person>) -> [persons] Proj[from: persons] Person? {\n    \
          for person in persons {\n        if person.age >= 18 {\n            return person\n        }\n    }\n    \
          return None\n}\n\n\
-         fn forwarded(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {\n    \
+         fn forwarded(persons: List<Person>, tag: Str) -> [persons, tag] Proj[from: persons] Person? {\n    \
          return first(persons)\n}\n\n\
-         fn bad_independent(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {\n    \
+         fn bad_independent(persons: List<Person>) -> [persons] Proj[from: persons] Person? {\n    \
          return Person {name: \"made up\", age: 1}\n}\n\n\
-         fn bad_moved(persons: List<Person>) -> [] ReadOnly[from: persons] Person? {\n    \
+         fn bad_moved(persons: List<Person>) -> [] Proj[from: persons] Person? {\n    \
          return None\n}\n\n\
-         fn bad_param(persons: List<Person>) -> [persons] ReadOnly[from: nobody] Person? {\n    \
+         fn bad_param(persons: List<Person>) -> [persons] Proj[from: nobody] Person? {\n    \
          return None\n}\n\n\
          fn poison_after_mutation() -> Int {\n    \
          let people = mutable_list(Person {name: \"Ada\", age: 36})\n    \
@@ -1532,17 +1532,17 @@ fn l7c_derived_returns() {
     assert!(!out.status.success());
     assert!(
         stderr.contains(
-            "this function returns `ReadOnly[from: persons]`, so every returned \
+            "this function returns `Proj[from: persons]`, so every returned \
              value must be derived from `persons`"
         ),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`ReadOnly[from: persons]` requires `persons` to be kept"),
+        stderr.contains("`Proj[from: persons]` requires `persons` to be kept"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`ReadOnly[from: nobody]` names no parameter"),
+        stderr.contains("`Proj[from: nobody]` names no parameter"),
         "stderr: {stderr}"
     );
     // Mutating the argument poisons the derived result.
@@ -1910,7 +1910,7 @@ fn count<T canbe Linear>(list: NonEmpty List<T>) -> [list] Int {
 fn main() [use] {
     let xs: Mut List<Int> = mutable_list()
     add(xs, 1)
-    let n = count(xs)
+    let _n = count(xs)
 }
 ";
     fs::write(dir.join("main.sv"), source).unwrap();

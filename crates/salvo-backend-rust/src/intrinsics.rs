@@ -58,18 +58,29 @@ pub fn fn_call(
             format!("vec![{}]", args.join(", "))
         }
         // `T?` is physical here, so an out-of-range index must produce
-        // `None` rather than panic — and the element is cloned because no
-        // emitted signature returns a reference [rs-borrows].
+        // `None` rather than panic. The element is **borrowed**
+        // (`Option<&T>`): `get` declares `(Proj[from: list] T)?`, and a
+        // caller that needs ownership says `copy` [copy-opt-in]. (Until
+        // 2026-09-11 every read cloned, even one that only tested `None`.)
         ("get", Some("List")) | ("get", Some("[]")) => {
-            format!("{}.get(({}) as usize).cloned()", a(0), a(1))
+            format!("{}.get(({}) as usize)", a(0), a(1))
         }
         ("add", Some("List")) => format!("{}.push({})", a(0), a(1)),
-        // `first` is a derived return (`ReadOnly[from: list]`), so it
+        // `first` is a derived return (`Proj[from: list]`), so it
         // borrows rather than clones [readonly-return].
         ("first", Some("List")) | ("first", Some("[]")) => format!("{}.first()", a(0)),
         ("size", Some("List")) | ("size", Some("[]")) => {
             format!("({}.len() as i32)", a(0))
         }
+        // [interp-to-str] `[1, 2, 3]` — the format is fixed by the language,
+        // not by the target's own collection formatting, so both backends
+        // print the same text [backend-parity]. (Rust `Debug` would quote
+        // strings and Kotlin's `toString` would not.)
+        ("to_str", Some("List")) | ("to_str", Some("[]")) => format!(
+            "format!(\"[{{}}]\", {}.iter().map(|__e| __e.to_string())\
+             .collect::<Vec<_>>().join(\", \"))",
+            a(0)
+        ),
 
         // core.seq -------------------------------------------------------
         // The `List` fast paths [fn-overload-rank] go through the

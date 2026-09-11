@@ -319,10 +319,12 @@ fn expand(
                     base: TypeRef {
                         name: g.clone(),
                         args: vec![],
+                        from: None,
                         span: g.span,
                     },
                 })
                 .collect(),
+            from: None,
             span,
         },
     };
@@ -457,6 +459,7 @@ fn expand(
                 },
                 elem.clone(),
             ],
+            from: None,
             span,
         }],
         auto_qualifiers: vec![type_ref("Mut", struct_span)],
@@ -645,6 +648,7 @@ fn type_ref(name: &str, span: Span) -> TypeRef {
             span,
         },
         args: vec![],
+        from: None,
         span,
     }
 }
@@ -810,7 +814,7 @@ impl Rewrite {
             Expr::Field { base, .. }
             | Expr::TupleIndex { base, .. }
             | Expr::NonNull { operand: base, .. }
-            | Expr::PostIncrement { operand: base, .. }
+            | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. } => self.expr(base),
             Expr::Scoped { base, .. } => {
@@ -1084,7 +1088,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             Expr::Field { base, .. }
             | Expr::TupleIndex { base, .. }
             | Expr::NonNull { operand: base, .. }
-            | Expr::PostIncrement { operand: base, .. }
+            | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. }
             | Expr::Widen { subject: base, .. } => walk_expr(base, reserved, out),

@@ -119,6 +119,118 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`ReadOnly` is renamed `Proj`, and copying becomes opt-in-only (user decisions
+2026-09-11).** Found while making `get` return a borrow: std hides two copies
+the language would never let user code make silently — `filter` on a list
+clones every kept element, `get` clones every read — and the attempt exposed
+that fixing them needs a design, not a patch (the first try failed 41 tests;
+what it took is in ROADMAP "Copies only by opt-in"). The decisions: the
+provenance qualifier `ReadOnly` becomes **`Proj`** everywhere and
+**user-writable** in any type position except a struct field; `[from: p]` stays
+**attached** to each occurrence (a detached form was rejected — a tuple
+borrowing from two sources has no single "the return borrows from p");
+`List<Proj T>` is a *view* and `(Proj T)?` an optional borrow, each spelling
+being exactly its Rust representation; and **`?copy: (T) -> T`** becomes a
+general implicit, the `?to_str` mechanism reused, which is what lifts Kotlin's
+generic-`copy` refusal. The rename landed at once (17 files, no compatibility
+form); the internal place-step enum also called `Proj` became `Step`. A live
+emitter bug was found on the way — `narrow_unwrap` clones an `Option<&T>` as
+`&&T` — and is step one of the plan. Only the sequencing relative to phase 3 is
+still open.
+
+**Seven requested items: two silent-failure defects, a warning, an operator
+family, and three hover gaps (user requests 2026-09-11).** All landed
+together; the two defects are the important part, because both were the class
+AGENTS.md calls worst — a Salvo program the checker accepted and the *target*
+compiler rejected.
+
+**[ident-resolve] — an undeclared name was not an error.** The `Expr::Ident`
+arm fell through to `Ty::Unknown` when a name was neither a local, a handler,
+nor a callable; the emitters then spelled it verbatim, so rustc reported
+`E0425` and kotlinc "unresolved reference". Now an error, which also covers
+use-before-declaration (scopes are not hoisted). A name that *is* declared but
+is not a value says which it is — struct type, effect, qualifier, `params`
+group, type — following the courtesy [effect-not-a-type] already extended. The
+whole suite passed unchanged, which is the evidence that nothing legitimate had
+been relying on the silence.
+
+**[interp-to-str] — interpolation was unchecked.** `"${list}"` and `"${p}"`
+reached rustc as "doesn't implement `Display`". Now: scalars, `Str` and unions
+of those render natively; anything else resolves a `to_str` **at the
+interpolation site** (user decision — the group was explicitly *not* to be the
+mechanism), recorded in `Checked::interp_to_str` for the emitters. std gained
+`intrinsic fn to_str<T>(list: List<T>)` rendering `[1, 2, 3]`, and
+`params ToStr<T>` exists purely as declaration-site validation, per the same
+decision. Two corrections to the original sketch fell out of building it:
+`Mut Str` needed **no** intrinsic (the existing [str-drop-mut] coercion already
+converts a builder — verified running), and a union of renderable arms had to
+be *allowed* — the first version rejected an un-narrowed `Ok Str | Err Str`,
+which a test caught, and both backends do render it (Kotlin through the
+wrapper's `.value`, Rust through the arm accessor). Recorded limitation: a
+generic `List<T>` cannot interpolate, since an opaque `T` has no text form;
+composing an element `?to_str` is blocked because `resolve_implicit_fn` skips
+candidates that take implicits and `implicit_args` is keyed by call spans,
+which an interpolation has none of.
+
+**[interp-struct] — structs interpolate by default.** With no `to_str` of its
+own, a struct whose every field is natively renderable renders as
+`Person { name: ann, age: 3 }`. The format is the *language's* deliberately:
+Rust's `Debug` prints `name: "ann"` and a Kotlin data class prints
+`Person(name=ann)`, so deferring to either target would have made one program
+print two different things [backend-parity]. An explicit `to_str` wins; a field
+that itself needs one is not followed.
+
+**[unused-var] — a warning, with `_` to opt out.** Only *reads* count, so a
+write-only variable warns too; parameters, handler state and std are exempt.
+Its side effect was the instructive part: **~14 test helpers conflated errors
+and warnings**, because `Checked::errors` holds both severities and nothing had
+previously warned routinely. They were filtered to `is_error()` — except
+`refine_tests`' helper, deliberately named `diagnostics`, which *needs*
+warnings; filtering it broke a test and the filter was reverted. Worth knowing
+before the next warning is added.
+
+**[inc-dec] — all four step forms.** Only `i++` existed. Rather than add three
+near-identical AST variants, `Expr::PostIncrement` became
+`Expr::IncDec { down, prefix }`: about twenty consumers treated the old node
+uniformly, so a mechanical rename covered them and only three sites needed real
+logic. The checker ignores both new fields on purpose — all four forms do the
+same thing to the operand, and only the *value* differs. Kotlin renders them
+directly; Rust, having neither operator, emits compound assignment in statement
+position and a block in value position. All eight combinations were run on both
+backends and print identically.
+
+**Three hover gaps.** A `params` group had no hover at all (`DeclAt` had no
+variant for it). A predicate qualifier now shows the *condition* it holds under
+when its `qualifies` is a single `return <expression>` — the expression alone
+[doc-qualifies-body]. That is narrower than the five-line rule first built:
+the user cut it the same day, on the grounds that a one-line predicate is the
+rule while a longer body is an implementation the reader did not ask for, and
+the qualifier's own doc comment is the place for that. And **fate links** were already shown
+at a *use* — the gap was the **declaration**, where a reader looks first:
+`fate_reads` was keyed only by read spans, so `declare_var` now records it too,
+after the move-mode decision so a binding that took ownership honestly shows no
+links. It also names the projection (`p.name`, not `p`), which L5 made
+necessary — saying "shares fate with `p`" would overstate the link. Hovering a
+name inside an `import` line works now as well.
+
+Hover on a **fn** also names the module its resolved overload came from
+[lsp-fn-origin], which with scope-ladder overloading is load-bearing: the
+signature alone does not say whether `size` was std's, an import's or the
+module's own. Other declarations get the same section only when they come from
+another file.
+
+Two more name positions were reported the same day and fixed
+[lsp-name-positions]: a struct's **obligation clause** (`: Linear<self>`) and
+the type or qualifier name in an **`is` check** (`i is Positive`, which used
+to fall through to the enclosing expression and report only its `Bool`). Both
+were missing `def_refs` records; `parse_check` turned out to be the single
+site where every `is`-check name is classified, so one call covers type and
+qualifier checks alike.
+
+Tests: 822 (797 at the start of the batch). Examples regenerated: the only diff
+is `use crate::core_string::*;` in `core/list.rs` and its Kotlin twin, because
+`to_str` returns `Str`.
+
 **L5: fields are tracked apart (phase 2, 2026-09-10).** Shared fate poisoned
 at whole-variable granularity: mutating any part of a value invalidated
 everything derived from any other part. The roadmap had this as "a refinement
@@ -8360,7 +8472,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 806)
+## Test inventory (all green: 822)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8368,7 +8480,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 384 - 19 unit tests (file classification, including the
+- `salvo-core`: 396 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8697,7 +8809,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
-- `salvo-cli`: 80 - 47 `analyze` integration tests running the built
+- `salvo-cli`: 82 - 47 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -8926,7 +9038,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 148 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 149 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9098,7 +9210,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 122 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 123 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

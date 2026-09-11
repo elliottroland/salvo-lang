@@ -53,6 +53,12 @@ pub fn fn_call(
         ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),
         ("first", Some("List")) => format!("{}.firstOrNull()", a(0)),
         ("size", Some("List")) => format!("{}.size", a(0)),
+        // [interp-to-str] `[1, 2, 3]`, the language's format rather than the
+        // JVM's — `joinToString` already produces exactly it, but writing it
+        // out is what pins the parity with Rust [backend-parity].
+        ("to_str", Some("List")) | ("to_str", Some("[]")) => {
+            format!("{}.joinToString(\", \", \"[\", \"]\")", a(0))
+        }
 
         // core.seq -------------------------------------------------------
         // [kt-seq] The `List` fast paths [fn-overload-rank]: Kotlin's own

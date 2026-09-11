@@ -23,7 +23,7 @@ use salvo_syntax::ast::{self, *};
 use salvo_syntax::Span;
 
 use crate::diag::FileDiagnostic;
-use crate::place::{Place, Proj};
+use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
 use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
@@ -364,10 +364,22 @@ pub struct Checked {
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
-    /// variable's type with a bare `ReadOnly` compiler qualifier and
+    /// variable's type with a bare `Proj` compiler qualifier and
     /// serves the parameters (roots, binding sites) as on-request detail
     /// (user decision 2026-09-02, progressive disclosure).
     pub fate_reads: HashMap<Key, Vec<FateRead>>,
+    /// [interp-to-str] String interpolations whose value is not natively
+    /// renderable, keyed by the *interpolated expression's* span: the
+    /// `to_str` the checker resolved for it at that site. The emitters call
+    /// it instead of formatting the value directly.
+    pub interp_to_str: HashMap<Key, FnKey>,
+    /// [interp-struct] Interpolations of a **struct** with no `to_str` of its
+    /// own, whose every field renders natively: the struct's name, keyed by
+    /// the interpolated expression's span. The emitters render it field-wise
+    /// (`Person { name: ann, age: 3 }`) — the same text on both, which is why
+    /// the *language* fixes the format rather than deferring to Rust's
+    /// `Debug` or Kotlin's `toString` (those disagree).
+    pub interp_struct: HashMap<Key, String>,
     /// Move-mode bind events [fate-move-mode]: the spans of `let`/
     /// assignment statements (and, for `for` loops, of the iterable
     /// expression) where the binding took ownership of the bound value —
@@ -383,7 +395,7 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
-    /// Calls to fns with a derived return (`ReadOnly[from: param]`
+    /// Calls to fns with a derived return (`Proj[from: param]`
     /// [readonly-return]), keyed by the call span: the index of the
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
@@ -451,6 +463,12 @@ pub struct ImplicitParam {
     pub ty: Ty,
     /// Where it was written: the parameter, or the `?Group<T>` spread.
     pub span: Span,
+    /// [proj-anywhere] Which union arms of the member's *written* return
+    /// type carry `Proj` — a borrow the lowered `Ty` no longer shows. `Yield`'s
+    /// `next` has `[0]`: `Emitted (Proj[from: it] T) | Finished`. A backend
+    /// that distinguishes borrows from values (Rust) renders those arms as
+    /// references. Empty for a non-union return or a plain implicit.
+    pub borrowed_arms: Vec<usize>,
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -485,6 +503,12 @@ pub enum ImplicitArg {
 pub struct FateRead {
     pub root: String,
     pub bind_span: Span,
+    /// [fate-field-disjoint] The projection the value was taken from,
+    /// rendered (`.name`, or empty for the whole variable). `None` when the
+    /// derivation is not a plain projection chain. Tooling appends it to
+    /// `root` so the hover names the storage actually shared — since L5,
+    /// "shares fate with `p`" would overstate a link to `p.name` alone.
+    pub path: Option<String>,
 }
 
 /// One captured variable of a lambda [fate-lambda]: the outer local the
@@ -678,8 +702,11 @@ fn check_once<'p>(
             lambda_links: HashMap::new(),
             assign_target: false,
             projection_base: 0,
+            is_std: _file.is_std,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
+            own_proj_arms: Vec::new(),
+            lending_ctor: None,
             own_implicits: Vec::new(),
             renames: Vec::new(),
             try_stack: Vec::new(),
@@ -847,6 +874,10 @@ struct LocalVar {
     /// keeps `snapshot_narrows`/`restore_narrows`/`merge_fallthrough` the
     /// single source of truth for flow state.
     place_narrows: Vec<PlaceNarrow>,
+    /// [unused-var] Whether the variable has been *read*. Assignment is
+    /// not a read: `let x = 1` followed only by `x = 2` never uses the
+    /// value. Checked when the scope closes; a `_` prefix opts out.
+    used: bool,
     /// [fate-partial-move] Projections that have been **moved out** of
     /// this variable. The variable stays usable: a read of a disjoint
     /// projection passes, a read overlapping a moved one (or of the whole
@@ -862,7 +893,7 @@ struct LocalVar {
 /// both the checker (`repr_ty`) and the emitters need it.
 #[derive(Clone, PartialEq)]
 struct PlaceNarrow {
-    path: Vec<Proj>,
+    path: Vec<Step>,
     narrowed: Ty,
     declared: Ty,
 }
@@ -873,7 +904,7 @@ struct PlaceNarrow {
 /// (or a place overlapping it, or the whole value) is an error.
 #[derive(Clone, Debug, PartialEq)]
 struct MovedPlace {
-    path: Vec<Proj>,
+    path: Vec<Step>,
     span: Span,
 }
 
@@ -882,8 +913,8 @@ impl MovedPlace {
     /// overlap ([`Place::overlaps`]), so the use could read storage that
     /// has left. A use of the *whole* variable (`[]`) is a prefix of every
     /// moved path and so is always blocked.
-    fn blocks(&self, path: &[Proj]) -> bool {
-        let as_place = |p: &[Proj]| Place {
+    fn blocks(&self, path: &[Step]) -> bool {
+        let as_place = |p: &[Step]| Place {
             root: String::new(),
             path: p.to_vec(),
         };
@@ -917,7 +948,7 @@ struct FateLink {
     /// An event poisons this link only when the two paths *overlap*
     /// ([`Place::overlaps`], the substrate P1 built), so mutating `p.tags`
     /// leaves a value derived from `p.name` alone.
-    path: Option<Vec<Proj>>,
+    path: Option<Vec<Step>>,
     /// The link passes through a derived-return call [readonly-return]:
     /// the value is *physically borrowed*, so move-mode can never take
     /// ownership through it [fate-move-mode].
@@ -929,13 +960,13 @@ impl FateLink {
     /// link. Either path unknown is conservative (they overlap): a
     /// derivation the analysis cannot spell must not be given precision it
     /// has not earned.
-    fn overlaps_event(&self, event_path: Option<&[Proj]>) -> bool {
+    fn overlaps_event(&self, event_path: Option<&[Step]>) -> bool {
         let (Some(link), Some(event)) = (self.path.as_deref(), event_path) else {
             return true;
         };
         // Same root by construction (the caller matched `root_id`), so the
         // paths alone decide.
-        let as_place = |path: &[Proj]| Place {
+        let as_place = |path: &[Step]| Place {
             root: String::new(),
             path: path.to_vec(),
         };
@@ -1086,6 +1117,10 @@ struct Checker<'p, 'r> {
     /// derived from the transitively-mutable variables it reads (keyed
     /// by the lambda expression's span, this file only).
     lambda_links: HashMap<Span, Vec<FateLink>>,
+    /// [unused-var] Whether this file is part of the embedded std: an
+    /// unused-variable warning there is the compiler's own business, not
+    /// the user's, so std is exempt.
+    is_std: bool,
     /// [fate-partial-move] Whether the expression being checked is an
     /// assignment *target*: writing a place puts data back, so it is not a
     /// read of moved-out storage and must not be reported as one.
@@ -1101,10 +1136,22 @@ struct Checker<'p, 'r> {
     /// linear types.
     own_linear_generics: HashSet<String>,
     /// The current fn's derived-return parameter
-    /// (`-> ReadOnly[from: p] T` [readonly-return]): every returned
+    /// (`-> Proj[from: p] T` [readonly-return]): every returned
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
+    /// [proj-anywhere] When the return type is a union, the *qualifier
+    /// names* of the arms that carry `Proj` (`Emitted` for
+    /// `Emitted (Proj[from: p] T) | Finished`). A returned value whose
+    /// constructor builds one of these arms must be derived from the
+    /// source; a value into any other arm is an ordinary move. Empty when
+    /// the whole return type is the borrow (the pre-2b shape).
+    own_proj_arms: Vec<String>,
+    /// [proj-anywhere] The span of a constructor call whose result is being
+    /// returned into a `Proj` arm: its argument is *lent* into the arm, not
+    /// moved (the caller receives a borrow of it), so the call contract's
+    /// consumption is suppressed for exactly that call.
+    lending_ctor: Option<Span>,
     /// The implicit parameters of the fn being checked [implicit-forward]:
     /// what an inner call can have forwarded to it. Matching is by name and
     /// type, not by how they were declared, so a group spread here can fill
@@ -1374,6 +1421,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for field in &h.state {
                         self.validate_type(&field.ty);
+                        self.check_proj_field(&h.name.name, field);
                         self.check_linear_field(&h.name.name, field);
                         // A state field's initializer is checked against its
                         // declared type, exactly like a struct field's
@@ -1448,6 +1496,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
+                        // [proj-pass-field] A pass (`: Yield<self, T>`) may
+                        // hold a borrow of the data it walks; every other
+                        // struct owns its fields [proj-no-field].
+                        let is_pass = s.obligations.iter().any(|o| o.name.name == "Yield");
+                        if !is_pass {
+                            self.check_proj_field(&s.name.name, field);
+                        }
                         self.check_linear_field(&s.name.name, field);
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(&field.ty);
@@ -1499,6 +1554,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 continue;
             }
+            // [lsp-definition] The group name in an obligation clause
+            // (`: Linear<self>`) points at the group's declaration, so hover
+            // and go-to-definition reach it like any other reference.
+            self.record_def_ref(ob.name.span, &ob.name.name);
             let Some(group) = scope.param_groups.get(ob.name.name.as_str()).copied() else {
                 // A name that exists as something else is a position
                 // mistake, not a missing declaration: say which.
@@ -1929,6 +1988,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 name: p.name.name.clone(),
                 ty,
                 span: p.span,
+                borrowed_arms: match &p.ty {
+                    ast::Type::Fn { ret, .. } => proj_arm_indices(ret),
+                    _ => Vec::new(),
+                },
             });
         }
         for g in &f.implicit_groups {
@@ -1976,10 +2039,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
+                // [yield-proj] `?Yield<It, Proj T>`: a `Proj` on a spread
+                // argument marks the arms of the member's return that mention
+                // that generic as borrows — the caller requires a pass that
+                // *walks* data. The member's own return may mark arms too.
+                let mut borrowed_arms = member
+                    .return_type
+                    .as_ref()
+                    .map(proj_arm_indices)
+                    .unwrap_or_default();
+                for (gi, arg) in g.args.iter().enumerate() {
+                    if first_proj_span(arg).is_none() {
+                        continue;
+                    }
+                    let Some(generic) = group.generics.get(gi) else { continue };
+                    if let Some(ast::Type::Union { arms, .. }) = member.return_type.as_ref() {
+                        for (i, arm) in arms.iter().enumerate() {
+                            if type_mentions_generic(arm, &generic.name) && !borrowed_arms.contains(&i) {
+                                borrowed_arms.push(i);
+                            }
+                        }
+                    }
+                }
+                borrowed_arms.sort_unstable();
                 out.push(ImplicitParam {
                     name: member.name.name.clone(),
                     ty,
                     span: g.span,
+                    borrowed_arms,
                 });
             }
         }
@@ -3059,23 +3146,50 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
-        // [readonly-return] `-> ReadOnly[from: p] T`: `p` must be a
+        // [readonly-return] `-> Proj[from: p] T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
         self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
+        self.own_proj_arms = f
+            .return_type
+            .as_ref()
+            .map(proj_arm_qualifiers)
+            .unwrap_or_default();
+        // [proj-anywhere] Every `Proj` in the return type — in an arm, a type
+        // argument, a tuple element — must say what it borrows from: without
+        // `[from: p]` there is nothing to link the result to, and the caller
+        // could not know which argument it depends on. Parameters may write a
+        // bare `Proj` (it names the *kind* of value expected, not a source).
+        if let Some(rt) = &f.return_type {
+            for r in proj_refs(rt) {
+                if r.from.is_none() {
+                    self.error(
+                        r.span,
+                        "`Proj` in a return type must name its source: `Proj[from: param]`"
+                            .to_string(),
+                    );
+                } else if let Some(from) = &r.from {
+                    let is_param = f.params.iter().any(|p| p.name.name == from.name)
+                        || extra_params.iter().any(|p| p.name.name == from.name);
+                    if !is_param {
+                        self.error(
+                            from.span,
+                            format!(
+                                "`Proj[from: {}]` names no parameter of this function",
+                                from.name
+                            ),
+                        );
+                    }
+                }
+            }
+        }
         if let Some(id) = &f.derived_return {
             let is_param = f.params.iter().any(|p| p.name.name == id.name)
                 || extra_params.iter().any(|p| p.name.name == id.name);
-            if !is_param {
-                self.error(
-                    id.span,
-                    format!(
-                        "`ReadOnly[from: {}]` names no parameter of this function",
-                        id.name
-                    ),
-                );
-            } else if self.inferred.is_some() {
+            // A source that names no parameter was reported by the
+            // per-occurrence loop above; only the kept rule is left here.
+            if is_param && self.inferred.is_some() {
                 let kept = match &f.deductions {
                     Some(list) => {
                         crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {})
@@ -3093,7 +3207,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         id.span,
                         format!(
-                            "`ReadOnly[from: {}]` requires `{}` to be kept: a \
+                            "`Proj[from: {}]` requires `{}` to be kept: a \
                              moved parameter is owned by this function, so its \
                              data is returned by ordinary moves",
                             id.name, id.name
@@ -3211,6 +3325,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
             place_narrows: Vec::new(),
             moved_places: Vec::new(),
+            used: false,
                 },
             );
         }
@@ -3240,6 +3355,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
                     place_narrows: Vec::new(),
             moved_places: Vec::new(),
+            used: false,
                 },
             );
         }
@@ -3268,6 +3384,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     widened: None,
             place_narrows: Vec::new(),
             moved_places: Vec::new(),
+            used: false,
                 },
             );
         }
@@ -3685,6 +3802,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fate-move-mode] A move-mode binding takes ownership: its
         // ancestors are consumed here and the binding carries no links.
         let links = self.apply_binding_mode(&name.name, links);
+        // [fate-link] Tooling hovers a *declaration* too, and that is where
+        // a reader looks first to learn what a variable shares fate with —
+        // so the presentation table is recorded here as well as at each
+        // read. Recorded after the move-mode decision, which is what makes
+        // the answer honest: a binding that took ownership has no links,
+        // and its hover says so by carrying none.
+        if !links.is_empty() {
+            let reads: Vec<FateRead> = links
+                .iter()
+                .map(|l| FateRead {
+                    root: l.root_name.clone(),
+                    bind_span: l.bind_span,
+                    path: l
+                        .path
+                        .as_ref()
+                        .map(|p| p.iter().map(|s| s.to_string()).collect()),
+                })
+                .collect();
+            self.out.fate_reads.insert(self.key(name.span), reads);
+        }
         let id = self.next_var_id;
         self.next_var_id += 1;
         self.locals.last_mut().expect("scope stack").insert(
@@ -3704,6 +3841,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 widened: None,
             place_narrows: Vec::new(),
             moved_places: Vec::new(),
+            used: false,
             },
         );
     }
@@ -3737,6 +3875,36 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// lets move-mode candidates cover every binding of a consuming
     /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
+        // [proj-pass-field] A struct literal with `Proj` fields is derived
+        // from the values stored in them: a pass minted over `list` shares
+        // fate with `list`. Other fields are moved in and carry no link.
+        if let Expr::StructLit { fields, span, .. } = value {
+            if let Some(struct_ty) = self.out.ty_of(self.file_idx, *span) {
+                let proj_fields = self.proj_fields_of(struct_ty);
+                if !proj_fields.is_empty() {
+                    let mut links: Vec<FateLink> = Vec::new();
+                    for f in fields {
+                        if let StructLitFieldKind::Named { name, value } = &f.kind {
+                            if proj_fields.contains(&name.name) {
+                                for l in self.links_for_value(value, bind_span) {
+                                    if !links.iter().any(|e| e.root_id == l.root_id) {
+                                        links.push(l);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return links;
+                }
+            }
+        }
+        // [readonly-return] `get(xs, i)!` is still the borrow `get` handed
+        // back: a `!` unwrap changes the type, not the provenance.
+        if let Expr::NonNull { operand, .. } = value {
+            if matches!(operand.as_ref(), Expr::Call { .. }) {
+                return self.links_for_value(operand, bind_span);
+            }
+        }
         // [readonly-return] The result of a derived-return call borrows
         // the annotated argument: it carries that argument's links
         // (dot-notation receivers are argument 0).
@@ -3791,7 +3959,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // source, as a path: `p.name` gives `[.name]`, a bare `p` gives
         // `[]`. `None` when the chain is not a plain projection (a `!`
         // unwrap), which stays conservative everywhere below.
-        let extra: Option<Vec<Proj>> = Place::of_expr(value).map(|p| p.path);
+        let extra: Option<Vec<Step>> = Place::of_expr(value).map(|p| p.path);
         let mut links: Vec<FateLink> = Vec::new();
         let push = |link: FateLink, links: &mut Vec<FateLink>| {
             if !links.iter().any(|l| l.root_id == link.root_id) {
@@ -3900,6 +4068,112 @@ impl<'p, 'r> Checker<'p, 'r> {
         true
     }
 
+    /// [interp-to-str] Whether a type renders natively in an interpolation on
+    /// *both* backends: the scalars and `Str`. Rust formats these with
+    /// `Display` and Kotlin with `toString`, and the text agrees — which is
+    /// the requirement, since one program must print the same thing on both
+    /// [backend-parity].
+    fn interp_native(ty: &Ty) -> bool {
+        // A union renders natively when *every* arm does: the value is one of
+        // them, and both backends reach the payload (Kotlin through the
+        // wrapper's `.value`, Rust through the arm accessor). `None` arms are
+        // already refused before this [interp-no-none].
+        if let Ty::Union(arms) = ty.strip_quals() {
+            return arms.iter().all(Self::interp_native);
+        }
+        matches!(
+            ty.strip_quals(),
+            Ty::Named { name, args }
+                if args.is_empty()
+                    && matches!(
+                        name.as_str(),
+                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char"
+                            | "Byte" | "Str"
+                    )
+        )
+    }
+
+    /// [interp-to-str] Checks that an interpolated value has a text form, and
+    /// records the `to_str` to reach it by when it is not native.
+    ///
+    /// Resolution is the ordinary implicit machinery at this site: a `to_str`
+    /// in scope whose parameter accepts this type and which returns `Str`.
+    /// std provides one for `List<T>`; `Mut Str` never arrives here (a
+    /// builder is converted first [str-drop-mut]).
+    fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
+        if ty.is_unknown() || matches!(ty, Ty::Nothing) || Self::interp_native(ty) {
+            return;
+        }
+        let want = Ty::Fn {
+            params: vec![ty.clone()],
+            ret: Box::new(Ty::named("Str")),
+            contract: None,
+            effects: Vec::new(),
+        };
+        match self.resolve_implicit_fn("to_str", &want) {
+            Ok(key) => {
+                self.out.interp_to_str.insert(self.key(expr.span()), key);
+                return;
+            }
+            Err(_) => {}
+        }
+        // [interp-struct] No `to_str` of its own: a struct whose every field
+        // renders natively is rendered field-wise (user decision 2026-09-11 —
+        // "structs should interpolate by default when all their fields do").
+        // An explicit `to_str` wins, which is why this is tried second.
+        if let Some(name) = self.struct_interp_name(ty) {
+            self.out
+                .interp_struct
+                .insert(self.key(expr.span()), name);
+            return;
+        }
+        self.error(
+            expr.span(),
+            format!(
+                "`{ty}` has no text form, so it cannot be interpolated: \
+                 declare `fn to_str({ty}) -> Str` (or one that accepts it) \
+                 and it will be used here"
+            ),
+        );
+    }
+
+    /// [interp-struct] The struct name to render field-wise, when `ty` is a
+    /// struct every one of whose fields renders natively. Fields that need a
+    /// `to_str` of their own are deliberately *not* followed: the derivation
+    /// exists for the simple cases, and anything else is clearer as a
+    /// hand-written `to_str` (which takes precedence anyway).
+    fn struct_interp_name(&self, ty: &Ty) -> Option<String> {
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return None;
+        };
+        if !args.is_empty() {
+            // A generic struct's field types need substituting before they
+            // can be judged; out of scope for the derivation.
+            return None;
+        }
+        let decl = self.scope.structs.get(name.as_str())?;
+        if decl.fields.is_empty() {
+            return None;
+        }
+        // Judged on the *written* type: a native name, unqualified and
+        // without type arguments. Reading the AST keeps this a pure query,
+        // and every native type is spelled directly anyway (an alias to one
+        // simply does not qualify — the remedy is a `to_str`).
+        let all_native = decl.fields.iter().all(|f| match &f.ty {
+            ast::Type::Named { qualifiers, base } => {
+                qualifiers.is_empty()
+                    && base.args.is_empty()
+                    && matches!(
+                        base.name.name.as_str(),
+                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char"
+                            | "Byte" | "Str"
+                    )
+            }
+            _ => false,
+        });
+        all_native.then(|| name.clone())
+    }
+
     /// Poisons every live variable fate-linked to `root_id` [fate-poison]:
     /// the root was mutated, moved, or reassigned, so derived values may
     /// no longer exist. They narrow to `Nothing` (error at a later use,
@@ -3917,7 +4191,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         root_name: &str,
         event: FateEvent,
         span: Span,
-        event_path: Option<&[Proj]>,
+        event_path: Option<&[Step]>,
     ) {
         for frame in &mut self.locals {
             for var in frame.values_mut() {
@@ -3950,6 +4224,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// candidate for the next round, and parameter roots are claimed as
     /// moved when the fn's contract is inferable (no written list).
     fn error_derived(&mut self, span: Span, action: &str, name: &str, links: &[FateLink]) {
+        // [copy-scalar-free] Moving a derived *Copy scalar* is a read: an
+        // `Int` taken out of a borrow is the value itself on both backends,
+        // so nothing can observe the difference and no `copy` is owed.
+        // Poison still applies to it (a mutated root can change the number);
+        // only the *move* is free.
+        let scalar = self
+            .lookup(name)
+            .map(|v| v.narrowed.clone())
+            .is_some_and(|t| {
+                !matches!(t, Ty::Union(_))
+                    && Self::interp_native(&t)
+                    && t.strip_quals() != &Ty::named("Str")
+            });
+        if scalar {
+            return;
+        }
         self.record_move_candidates(links);
         self.record_param_claims(links);
         let root = &links[0].root_name;
@@ -4252,6 +4542,50 @@ impl<'p, 'r> Checker<'p, 'r> {
         false
     }
 
+    /// [proj-anywhere] The qualifier a constructor call builds (`emitted(x)`
+    /// → `Emitted`), when `value` is a call to a `-> T as Q` fn.
+    fn constructed_qualifier(&self, value: &Expr) -> Option<String> {
+        let Expr::Call { span, .. } = value else { return None };
+        self.constructed_qualifier_at(*span)
+    }
+
+    /// [proj-anywhere] `constructed_qualifier` by the call's span.
+    fn constructed_qualifier_at(&self, span: Span) -> Option<String> {
+        let key = *self.out.call_fn.get(&(self.file_idx, span))?;
+        self.scope
+            .fns
+            .values()
+            .flatten()
+            .find(|e| e.key == key)
+            .and_then(|e| e.decl.constructs.as_ref())
+            .map(|c| c.name.name.clone())
+    }
+
+    /// [proj-anywhere] The value a one-argument constructor call wraps, or
+    /// the expression itself.
+    fn constructor_operand(value: &'p Expr) -> &'p Expr {
+        match value {
+            Expr::Call { args, .. } if args.len() == 1 => &args[0],
+            _ => value,
+        }
+    }
+
+    /// [proj-pass-field] The names of a struct type's `Proj` fields (empty
+    /// for anything that is not a struct with one).
+    fn proj_fields_of(&self, ty: &Ty) -> Vec<String> {
+        let Ty::Named { name, .. } = ty.strip_quals() else {
+            return Vec::new();
+        };
+        let Some(decl) = self.scope.structs.get(name.as_str()) else {
+            return Vec::new();
+        };
+        decl.fields
+            .iter()
+            .filter(|f| first_proj_span(&f.ty).is_some())
+            .map(|f| f.name.name.clone())
+            .collect()
+    }
+
     /// Validates a returned value against the fn's derived-return
     /// annotation [readonly-return]: `None` is fine (no borrow), and
     /// everything else must be derived from the annotated parameter —
@@ -4276,7 +4610,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 value.span(),
                 format!(
-                    "this function returns `ReadOnly[from: {from}]`, so every \
+                    "this function returns `Proj[from: {from}]`, so every \
                      returned value must be derived from `{from}` (a projection, \
                      element, or alias of it) or be `None`"
                 ),
@@ -4357,7 +4691,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let declared_q: Vec<String> = param_ty
                 .map(|t| t.quals().iter().map(|q| q.name.clone()).collect())
                 .unwrap_or_default();
-            let (kept, effect, mutable) = match contract.and_then(|c| c.get(i)) {
+            let (mut kept, effect, mutable) = match contract.and_then(|c| c.get(i)) {
                 Some(e) => (e.kept, e.effect.clone(), e.mutable),
                 None => (
                     true,
@@ -4365,6 +4699,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     declared_q.iter().any(|q| q == "Mut"),
                 ),
             };
+            // [proj-anywhere] A constructor lending into a `Proj` arm keeps
+            // its argument: the caller receives a borrow of it. Only when
+            // the call really builds a constructive qualifier — otherwise
+            // the ordinary contract stands and the return check reports.
+            if self.lending_ctor == Some(span) && self.constructed_qualifier_at(span).is_some() {
+                kept = true;
+            }
             let Expr::Ident(id) = arg else {
                 if kept && mutable {
                     self.fate_mutation_through(arg, span);
@@ -5362,7 +5703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Is { .. }
             | Expr::Widen { .. }
             | Expr::NonNull { .. }
-            | Expr::PostIncrement { .. }
+            | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
             | Expr::Error { .. } => false,
@@ -5432,7 +5773,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Is { .. }
             | Expr::Widen { .. }
             | Expr::NonNull { .. }
-            | Expr::PostIncrement { .. }
+            | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
             | Expr::Error { .. } => false,
@@ -5495,7 +5836,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the variable the mutation hits: `[]` is the whole variable (every
     /// derived value falls), `[.tags]` only what overlaps `p.tags`, `None`
     /// the conservative unknown.
-    fn fate_mutation_at(&mut self, name: &str, span: Span, event_path: Option<&[Proj]>) {
+    fn fate_mutation_at(&mut self, name: &str, span: Span, event_path: Option<&[Step]>) {
         // [iter-fn] The origin of an open `for` may not be mutated:
         // its machine reads it across suspensions.
         if let Some((_, subject_span)) = self
@@ -5613,7 +5954,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // from an overlapping projection are poisoned. A chain the analysis
         // cannot spell gives `None` — conservative, as before.
         let place = Place::of_expr(expr);
-        let event_path: Option<&[Proj]> = place.as_ref().map(|p| p.path.as_slice());
+        let event_path: Option<&[Step]> = place.as_ref().map(|p| p.path.as_slice());
         for name in &names {
             self.fate_mutation_at(name, span, event_path);
         }
@@ -6138,6 +6479,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Vec<Qual> {
         qualifiers
             .iter()
+            // [proj-anywhere] `Proj` is provenance about the *handle* — a
+            // borrow — and never part of the lowered type: the result of a
+            // derived return "is the plain written type; `Proj` never affects
+            // overloading" [readonly-return]. The borrow itself is carried by
+            // fate links, not by `Ty`. So it is stripped here, wherever it
+            // appears; its *placement* is validated separately.
+            .filter(|q| q.name.name != "Proj")
             .map(|q| {
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
@@ -6183,6 +6531,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         // alias itself rather than its target.
         let name_span = base.name.span;
         self.record_def_ref(name_span, name);
+        // [proj-type-arg] A `Proj` type argument makes a *container of
+        // borrows* (`List<Proj T>` is a view, `Vec<&T>`). That is only
+        // meaningful for the intrinsic containers the backends render that
+        // way; on a user struct it would smuggle a borrow into a field
+        // through the back door of generics, which [proj-no-field] forbids.
+        if !matches!(name, "List") && self.scope.structs.contains_key(name) {
+            for arg in &base.args {
+                if let Some(span) = first_proj_span(arg) {
+                    self.error(
+                        span,
+                        format!(
+                            "`Proj` cannot be a type argument of `{name}`: a struct's \
+                             fields own their values, so it cannot hold a borrow \
+                             through a generic parameter (only the intrinsic \
+                             containers — `List`, arrays — may be views)"
+                        ),
+                    );
+                }
+            }
+        }
         // [type-any-nothing] The written `Nothing` *is* the bottom type,
         // not a nominal type that happens to be called that: `throw`
         // declares `-> [] Nothing` and its callers must see a value that
@@ -6256,7 +6624,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// intrinsic ones (which have no declaration to find — their
     /// position-specific rules are enforced by `validate_quals`).
     fn qual_name_exists(&self, name: &str) -> bool {
-        matches!(name, "Mut" | "Linear" | "Once")
+        matches!(name, "Mut" | "Linear" | "Once" | "Proj")
             || self.scope.is_qualifier(name)
             // [fn-effects] An effect claims what driving a producer
             // performs, and it is written where a qualifier goes. Where it
@@ -6446,6 +6814,24 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// message can name the field. (Composite field *types* —
     /// `xs: List<Lines>` — are refused by `validate_type`; this catches
     /// the bare `h: Lines`.)
+    /// [proj-no-field] A struct field may not be `Proj`: a struct holding a
+    /// borrow is a struct with a lifetime, which Salvo does not put on user
+    /// data. Every other type position (parameter, return, union arm, type
+    /// argument) is allowed [proj-anywhere].
+    fn check_proj_field(&mut self, owner: &str, field: &ast::FieldDecl) {
+        if let Some(span) = first_proj_span(&field.ty) {
+            self.error(
+                span,
+                format!(
+                    "field `{owner}.{}` cannot be `Proj`: a struct that holds a borrow \
+                     would carry a lifetime, so a field must own its value — store a \
+                     `copy`, or keep the borrow in a local",
+                    field.name.name
+                ),
+            );
+        }
+    }
+
     fn check_linear_field(&mut self, owner: &str, field: &ast::FieldDecl) {
         if let Some(linear) = self.ast_type_own_linear(&field.ty) {
             self.refuse_linear_composite(
@@ -6987,7 +7373,7 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
 /// diagnostic. A new variant must be classified, not defaulted.
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
-        Expr::PostIncrement { operand, .. } => {
+        Expr::IncDec { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
             }
@@ -7183,7 +7569,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         }),
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
-        | Expr::PostIncrement { operand, .. }
+        | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => expr_mentions(operand, name),
         Expr::Binary { lhs, rhs, .. } => {
             expr_mentions(lhs, name) || expr_mentions(rhs, name)
@@ -7430,6 +7816,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_branch_block(block, Vec::new()).0
     }
 
+    /// [unused-var] Warns for locals in the scope about to close that were
+    /// never read. A leading `_` opts out — the conventional way to say "I
+    /// know, and I mean it" — and so do parameters (a signature often
+    /// dictates them, especially an effect or handler member implementing a
+    /// declared interface) and handler state. std is exempt: its unused
+    /// bindings are the compiler's business, not the user's.
+    ///
+    /// A *warning*, not an error: an unused variable is a smell, and the
+    /// program it appears in is still well-defined.
+    fn warn_unused_locals(&mut self) {
+        if self.is_std {
+            return;
+        }
+        let Some(frame) = self.locals.last() else { return };
+        let mut unused: Vec<(String, Span)> = frame
+            .iter()
+            .filter(|(name, var)| {
+                !var.used
+                    && !var.is_param
+                    && !var.is_handler_state
+                    && !name.starts_with('_')
+            })
+            .map(|(name, var)| (name.clone(), var.decl_span))
+            .collect();
+        // Deterministic order: frames are hash maps, and a diagnostic list
+        // that reorders between runs is not comparable in tests.
+        unused.sort_by_key(|(_, span)| span.start);
+        for (name, span) in unused {
+            self.warn(
+                span,
+                format!(
+                    "`{name}` is never used; prefix it with `_` (`_{name}`) if \
+                     that is deliberate"
+                ),
+            );
+        }
+    }
+
     /// Checks a block with `is`-bindings pre-declared in its scope.
     fn check_branch_block(
         &mut self,
@@ -7461,6 +7885,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [linear-obligation] Nothing linear may die with the scope.
         self.check_linear_frame_drop();
+        self.warn_unused_locals();
         self.locals.pop();
         self.effect_env.truncate(effect_depth);
         self.renames.truncate(rename_depth);
@@ -7669,7 +8094,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let expected = self.ret_ty.clone();
                 match value {
                     Some(v) => {
+                        // [proj-anywhere] A constructor call whose result
+                        // goes into a `Proj` arm lends its argument: mark
+                        // it before checking so the contract does not
+                        // consume the value the caller is about to borrow.
+                        // The call is resolved during checking, so the arm
+                        // test itself happens after; the mark is on the
+                        // *shape* (a one-argument call under a union-return
+                        // derived fn) and the arm decides below.
+                        let saved_lending = self.lending_ctor;
+                        if self.own_derived_return.is_some() && !self.own_proj_arms.is_empty() {
+                            if let Expr::Call { span, args, .. } = v {
+                                if args.len() == 1 {
+                                    self.lending_ctor = Some(*span);
+                                }
+                            }
+                        }
                         let vty = self.check_expr(v, Some(&expected));
+                        self.lending_ctor = saved_lending;
                         if !is_subtype(&vty, &expected) {
                             self.error(
                                 v.span(),
@@ -7680,8 +8122,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // *borrows* its result out: the value must be
                         // derived from the annotated parameter (or be
                         // `None`), and nothing is consumed.
-                        if let Some(from) = self.own_derived_return.clone() {
-                            self.check_derived_return_value(v, &from);
+                        let into_proj_arm = match self.own_derived_return.clone() {
+                            None => None,
+                            Some(from) if self.own_proj_arms.is_empty() => Some(from),
+                            // [proj-anywhere] A union return: only a value
+                            // built for a `Proj` arm is a borrow. The arm is
+                            // read off the constructor the value goes
+                            // through (`emitted(x)` builds `Emitted`).
+                            Some(from) => self
+                                .constructed_qualifier(v)
+                                .filter(|q| self.own_proj_arms.contains(q))
+                                .map(|_| from),
+                        };
+                        if let Some(from) = into_proj_arm {
+                            let inner = Self::constructor_operand(v);
+                            self.check_derived_return_value(inner, &from);
                         } else {
                             // Returning a value moves it: a fate-linked
                             // (derived) variable cannot be moved
@@ -7874,6 +8329,34 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => value,
         };
         let Expr::Ident(id) = inner else {
+            // [proj-anywhere] A *value* that borrows — the result of a
+            // derived-return call (`iter(bag.items)`, `first(xs)`) or a
+            // literal with `Proj` fields — cannot be moved out: it is a view
+            // of something the caller keeps, and moving it (a `return`, a
+            // store) would let the view outlive what it borrows. The remedy
+            // is the same as for a derived variable: `copy`.
+            if matches!(inner, Expr::Call { .. } | Expr::StructLit { .. }) {
+                let links = self.links_for_value(inner, span);
+                if let Some(l) = links.first() {
+                    let root = l.root_name.clone();
+                    // Inside a fn that *itself* returns a borrow of that root,
+                    // returning the view is the declared contract — the
+                    // derived-return validation covers it.
+                    if action == "return" && self.own_derived_return.as_deref() == Some(root.as_str()) {
+                        return;
+                    }
+                    self.error(
+                        inner.span(),
+                        format!(
+                            "cannot {action} this value: it is a view of `{root}` (it \
+                             borrows from it), so it can only be read here; use `copy` \
+                             to make an independent value, or declare the borrow on \
+                             this function's return (`Proj[from: {root}]`)"
+                        ),
+                    );
+                    return;
+                }
+            }
             // A projection in a moved position moves data out of its
             // provenance roots [fate-move-mode].
             self.projection_move(inner, span);
@@ -7972,7 +8455,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     )
                                 };
                                 self.error(e.span(), message);
+                                continue;
                             }
+                            // [interp-to-str] The value has to have a text
+                            // form. Scalars and `Str` render natively on both
+                            // backends; anything else needs a `to_str`,
+                            // resolved *here* like an implicit parameter
+                            // (user decision 2026-09-11). Without one this
+                            // used to reach the backend and become rustc's
+                            // "doesn't implement Display"
+                            // [backend-never-wrong].
+                            self.check_interpolable(e, &ty);
                         }
                     }
                 }
@@ -7981,6 +8474,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Ident(id) => {
                 if id.name == "None" {
                     return Ty::none();
+                }
+                // [unused-var] An identifier *expression* is a read — the
+                // only thing that counts as a use. An assignment target
+                // looks the variable up directly instead, so writing to a
+                // variable without ever reading it leaves it unused.
+                if let Some(var) = self.lookup_mut(&id.name) {
+                    var.used = true;
                 }
                 if let Some(var) = self.lookup(&id.name) {
                     let narrowed = var.narrowed.clone();
@@ -8069,13 +8569,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.out.repr_ty.insert(self.key(id.span), declared);
                     }
                     // Expose the fate links of derived-variable reads for
-                    // tooling (`ReadOnly` presentation) [fate-link].
+                    // tooling (`Proj` presentation) [fate-link].
                     if !links.is_empty() {
                         let reads: Vec<FateRead> = links
                             .iter()
                             .map(|l| FateRead {
                                 root: l.root_name.clone(),
                                 bind_span: l.bind_span,
+                                path: l.path.as_ref().map(|p| {
+                                    p.iter().map(|s| s.to_string()).collect()
+                                }),
                             })
                             .collect();
                         self.out.fate_reads.insert(self.key(id.span), reads);
@@ -8090,6 +8593,50 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // same selection every call goes through, against the
                     // expected fn type instead of an argument list.
                     return self.fn_value_by_name(&id.name, id.span, None, expected);
+                }
+                // [ident-resolve] Nothing declares this name *as a value*.
+                // Salvo assumes it can see everything, so a reference no
+                // declaration justifies is an error here rather than a
+                // `Ty::Unknown` that reaches a backend and becomes rustc's or
+                // kotlinc's problem [backend-never-wrong].
+                //
+                // A name that *is* declared, but as something that is not a
+                // value, says so instead — the same courtesy the effect and
+                // handler rules already extend [effect-not-a-type].
+                let kind = if self.scope.structs.contains_key(id.name.as_str()) {
+                    Some("a struct type, not a value: construct one (`Name { … }`)")
+                } else if self.scope.effects.contains_key(id.name.as_str()) {
+                    Some(
+                        "an effect, not a value: call one of its members, \
+                         having registered a handler with `use`",
+                    )
+                } else if self.scope.qualifiers.contains_key(id.name.as_str()) {
+                    Some(
+                        "a qualifier, not a value: write it on a type \
+                         (`Name value`) or test it with `is`",
+                    )
+                } else if self.scope.param_groups.contains_key(id.name.as_str()) {
+                    Some(
+                        "a `params` group, not a value: spread it into a \
+                         signature (`?Name<…>`)",
+                    )
+                } else if self.scope.opaque_types.contains_key(id.name.as_str())
+                    || self.scope.type_aliases.contains_key(id.name.as_str())
+                {
+                    Some("a type, not a value")
+                } else {
+                    None
+                };
+                match kind {
+                    Some(what) => self.error(
+                        id.span,
+                        format!("`{}` is {what}", id.name),
+                    ),
+                    None => self.error_unresolved(
+                        id.span,
+                        format!("no variable or function named `{}` is in scope", id.name),
+                        &id.name,
+                    ),
                 }
                 Ty::Unknown
             }
@@ -8329,8 +8876,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Storing a value in a struct literal moves it; spreading
                 // a value moves it too (its fields are stored)
                 // [deduce-consume].
+                let proj_fields = self.proj_fields_of(&struct_ty);
                 for f in fields {
                     match &f.kind {
+                        // [proj-pass-field] A `Proj` field *borrows* what is
+                        // stored in it: the literal becomes derived from the
+                        // value (see `links_for_value`), and nothing moves.
+                        StructLitFieldKind::Named { name, .. }
+                            if proj_fields.contains(&name.name) => {}
                         StructLitFieldKind::Named { value, .. } => {
                             self.fate_move(value, "store", "a literal store", value.span());
                         }
@@ -8403,7 +8956,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let t = self.check_expr(operand, None);
                 t.without_none()
             }
-            Expr::PostIncrement { operand, span } => {
+            // [inc-dec] All four forms do the same thing to the operand — a
+            // step of one on an `Int` place — so the checker ignores the
+            // direction and the fixity; they only decide the expression's
+            // *value*, which is the emitters' business.
+            Expr::IncDec { operand, down: _, prefix: _, span } => {
                 let ty = self.check_expr(operand, None);
                 // `i++` rebinds a whole variable (revival: severs its own
                 // links, poisons variables derived from it [fate-poison]);
@@ -8553,17 +9110,56 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.fate_mutation_root(&root, iterable.span());
                     }
                 }
+                // [yield-proj] Whether the pass's `next` emits a *borrow*:
+                // then each element shares fate with the pass's source, and
+                // driving the pass is a read of that source, not a move.
+                let next_borrows = recorded.as_ref().is_some_and(|d| match &d.next {
+                    PassMember::Fn(key) => self
+                        .scope
+                        .fns
+                        .values()
+                        .flatten()
+                        .find(|e| e.key == *key)
+                        .is_some_and(|e| {
+                            e.decl.return_type.as_ref().is_some_and(|t| !proj_arm_indices(t).is_empty())
+                        }),
+                    PassMember::Implicit(_) => false,
+                });
+                // A pass that is itself a *view* — a local bound from
+                // `iter(xs)`, or a call result borrowing its argument — has
+                // links of its own; those are the source the elements borrow.
+                let view_links: Vec<FateLink> = match iterable.as_ref() {
+                    Expr::Ident(id) => self
+                        .lookup(&id.name)
+                        .map(|v| v.links.clone())
+                        .unwrap_or_default(),
+                    other => self.links_for_value(other, other.span()),
+                };
+                let is_view = !view_links.is_empty();
                 let links = if drives_pass || drives_in_place {
-                    if drives_pass {
+                    if drives_pass && !is_view {
                         self.fate_move(iterable, "iterate", "a `for` loop", iterable.span());
                     }
-                    // A pass **hands the element over**: `next` returns
-                    // `Emitted T` by value, so the binding is an owned value and
-                    // not a projection of the pass — which is what lets a
-                    // combinator move each element into its output. (A native
-                    // container loop is the other case: there the binding really
-                    // is a projection, and it links [fate-link].)
-                    Vec::new()
+                    if next_borrows && is_view {
+                        // The element is a borrow of what the pass walks: it
+                        // links to the pass's own links (its source), and the
+                        // `borrowed` flag keeps it from ever taking ownership
+                        // [readonly-return].
+                        view_links
+                            .into_iter()
+                            .map(|mut l| {
+                                l.borrowed = true;
+                                l
+                            })
+                            .collect()
+                    } else {
+                        // A pass **hands the element over**: `next` returns
+                        // `Emitted T` by value, so the binding is an owned
+                        // value and not a projection of the pass — which is
+                        // what lets a combinator move each element into its
+                        // output.
+                        Vec::new()
+                    }
                 } else {
                     // The loop binding is a projection of the iterated
                     // collection: it shares the collection's fate
@@ -9983,8 +10579,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.require_name(r, true);
                     unresolved = true;
                 }
+                // [lsp-definition] The qualifier name in an `is` check points
+                // at its declaration, so hovering `Positive` in
+                // `i is Positive` reaches the qualifier rather than falling
+                // through to the enclosing expression's `Bool`.
+                self.record_def_ref(r.name.span, name);
                 quals.push(r.name.name.clone());
             } else if is_type {
+                // The same for a *type* check (`x is Str`).
+                self.record_def_ref(r.name.span, name);
                 let empty = HashMap::new();
                 base = Some(self.lower_base_ref(r, &empty, 0));
             } else {
@@ -11796,6 +12399,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 else {
                     continue;
                 };
+                // [proj-anywhere] A constructor lending into a `Proj` arm
+                // keeps its argument: the caller receives a borrow of it,
+                // so nothing is moved here. Only a real constructive
+                // qualifier call (`-> T as Q`) lends — anything else keeps
+                // its contract and the return check reports.
+                let lends = self.lending_ctor == Some(span) && decl.constructs.is_some();
+                let d = if lends {
+                    &crate::deduce::ParamDeduction {
+                        kept: true,
+                        ..d.clone()
+                    }
+                } else {
+                    d
+                };
                 let Expr::Ident(id) = arg else {
                     // A non-identifier argument in a *kept `Mut`* position
                     // lets the callee mutate through the projection: that
@@ -12501,3 +13118,129 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     }
 }
 
+/// [proj-anywhere] The span of the first `Proj` qualifier in a type, if any —
+/// searching arms, arguments and elements in order.
+fn first_proj_span(ty: &ast::Type) -> Option<Span> {
+    fn in_ref(r: &TypeRef) -> Option<Span> {
+        if r.name.name == "Proj" {
+            return Some(r.span);
+        }
+        r.args.iter().find_map(first_proj_span)
+    }
+    match ty {
+        ast::Type::Named { qualifiers, base } => qualifiers
+            .iter()
+            .find_map(in_ref)
+            .or_else(|| in_ref(base)),
+        ast::Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers
+            .iter()
+            .find_map(in_ref)
+            .or_else(|| first_proj_span(base)),
+        ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
+            first_proj_span(inner)
+        }
+        ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
+            arms.iter().find_map(first_proj_span)
+        }
+        _ => None,
+    }
+}
+
+/// [proj-anywhere] Every `Proj` qualifier reference in a type, in order.
+fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {
+    fn walk<'a>(ty: &'a ast::Type, out: &mut Vec<&'a TypeRef>) {
+        fn in_ref<'a>(r: &'a TypeRef, out: &mut Vec<&'a TypeRef>) {
+            if r.name.name == "Proj" {
+                out.push(r);
+            }
+            for a in &r.args {
+                walk(a, out);
+            }
+        }
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                in_ref(base, out);
+            }
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                walk(base, out);
+            }
+            ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
+                walk(inner, out)
+            }
+            ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
+                for a in arms {
+                    walk(a, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, &mut out);
+    out
+}
+
+/// [proj-anywhere] The qualifier names of the union arms that carry a
+/// `Proj`, for a union return type; empty for a non-union.
+fn proj_arm_qualifiers(ty: &ast::Type) -> Vec<String> {
+    let ast::Type::Union { arms, .. } = ty else {
+        return Vec::new();
+    };
+    arms.iter()
+        .filter(|arm| first_proj_span(arm).is_some())
+        .filter_map(|arm| match arm {
+            ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => {
+                qualifiers
+                    .iter()
+                    .find(|q| q.name.name != "Proj")
+                    .map(|q| q.name.name.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// [proj-anywhere] The indices of a union type's arms that carry `Proj`;
+/// empty for a non-union.
+fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
+    let ast::Type::Union { arms, .. } = ty else {
+        return Vec::new();
+    };
+    arms.iter()
+        .enumerate()
+        .filter(|(_, arm)| first_proj_span(arm).is_some())
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// [yield-proj] Whether a written type mentions a generic parameter by name.
+fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
+    fn in_ref(r: &TypeRef, name: &str) -> bool {
+        r.name.name == name || r.args.iter().any(|a| type_mentions_generic(a, name))
+    }
+    match ty {
+        ast::Type::Named { qualifiers, base } => {
+            qualifiers.iter().any(|q| in_ref(q, name)) || in_ref(base, name)
+        }
+        ast::Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers.iter().any(|q| in_ref(q, name)) || type_mentions_generic(base, name),
+        ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
+            type_mentions_generic(inner, name)
+        }
+        ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
+            arms.iter().any(|a| type_mentions_generic(a, name))
+        }
+        _ => false,
+    }
+}

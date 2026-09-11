@@ -1436,6 +1436,69 @@ impl<'p> Emitter<'p> {
         out
     }
 
+
+    /// [interp-to-str] Wraps an interpolated value in the `to_str` the
+    /// checker resolved for it, or returns it unchanged when it renders
+    /// natively.
+    fn apply_interp_to_str(&mut self, expr: &Expr, code: String) -> String {
+        let key = (self.file_idx, expr.span());
+        // [interp-struct] A struct with no `to_str` of its own renders
+        // field-wise, in the language's format rather than the JVM's
+        // `toString` (a data class prints `Person(name=ann)`).
+        if let Some(name) = self.checked.interp_struct.get(&key).cloned() {
+            if let Some(fields) = self.struct_field_names(&name) {
+                let inner: Vec<String> = fields
+                    .iter()
+                    .map(|f| format!("{f}: ${{{code}.{}}}", kt_ident(f)))
+                    .collect();
+                return format!("\"{name} {{ {} }}\"", inner.join(", "));
+            }
+        }
+        let Some(fn_key) = self.checked.interp_to_str.get(&key).copied() else {
+            return code;
+        };
+        let Some(decl) = self.fn_by_key(fn_key) else {
+            self.error("the `to_str` this interpolation resolved to is not available");
+            return code;
+        };
+        if decl.intrinsic {
+            let recv = decl.params.first().and_then(|p| type_base_name(&p.ty));
+            return match crate::intrinsics::fn_call(
+                &decl.name.name,
+                recv,
+                &[code.clone()],
+                &[],
+            ) {
+                Some(rendered) => rendered,
+                None => {
+                    self.error(
+                        "`to_str` for this type has no lowering on the Kotlin backend"
+                            .to_string(),
+                    );
+                    code
+                }
+            };
+        }
+        format!("{}({code})", self.kotlin_fn_name(decl))
+    }
+
+
+    /// [interp-struct] The field names of a declared struct, in order.
+    fn struct_field_names(&self, name: &str) -> Option<Vec<String>> {
+        for module in self.program.modules.iter() {
+            for item in &module.items {
+                if let Item::Struct(decl) = item {
+                    if decl.name.name == name {
+                        return Some(
+                            decl.fields.iter().map(|f| f.name.name.clone()).collect(),
+                        );
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// The generated Kotlin imports of one file [kt-imports]: a wildcard
     /// import per foreign emitted module whose names the file uses, plus
     /// Kotlin alias imports for every aliased Salvo import of an item
@@ -3156,8 +3219,17 @@ impl<'p> Emitter<'p> {
                 format!("{subj} is {ty}")
             }
             Expr::NonNull { operand, .. } => format!("{}!!", self.emit_expr(operand)),
-            Expr::PostIncrement { operand, .. } => {
-                format!("{}++", self.emit_expr_raw(operand))
+            // [inc-dec] [kt-inc-dec] Kotlin has both fixities and both
+            // directions, with the same value semantics, so this is a direct
+            // rendering.
+            Expr::IncDec { operand, down, prefix, .. } => {
+                let place = self.emit_expr_raw(operand);
+                let op = if *down { "--" } else { "++" };
+                if *prefix {
+                    format!("{op}{place}")
+                } else {
+                    format!("{place}{op}")
+                }
             }
             Expr::If {
                 branches,
@@ -3218,6 +3290,10 @@ impl<'p> Emitter<'p> {
                             code = format!("{code}{access}.value");
                         }
                     }
+                    // [interp-to-str] [kt-interp-to-str] A value with no
+                    // native text form is rendered by the `to_str` the
+                    // checker resolved here.
+                    code = self.apply_interp_to_str(expr, code);
                     // Simple names can use the short form.
                     if code.chars().all(|c| c.is_alphanumeric() || c == '_') {
                         out.push_str(&format!("${code}"));
@@ -4869,6 +4945,7 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
                 base: TypeRef {
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),
+                    from: None,
                     span: base.span,
                 },
             }
@@ -4941,7 +5018,7 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
-        Expr::PostIncrement { operand, .. } => {
+        Expr::IncDec { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
             }
@@ -5200,7 +5277,7 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         }
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
-        | Expr::PostIncrement { operand, .. }
+        | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => collect_declared_expr(operand, out),
         Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
             collect_declared_expr(base, out)

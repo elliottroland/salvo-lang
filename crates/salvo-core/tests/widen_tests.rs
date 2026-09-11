@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn first<T>(list: List<T>) [] -> [list] Proj[from: list] T?\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -55,6 +55,7 @@ fn errors(src: &str) -> Vec<String> {
         .errors
         .iter()
         .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect()
 }
@@ -148,9 +149,9 @@ fn a_widened_value_loses_what_the_qualifier_granted() {
 /// the two cannot drift.
 #[test]
 fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
-    // `ReadOnly` is in the same list but cannot be *written* in source (it
-    // is a presentation-only compiler qualifier), so it is unreachable from
-    // a `^` — the list carries it for the day that changes.
+    // `Proj` is in the same list; since 2026-09-11 it *is* writable
+    // [proj-anywhere], but it is stripped at lowering (a borrow is
+    // provenance, not part of the type), so a `^` never meets it.
     for (qual, needle) in [("Once", "once-callable"), ("Linear", "use obligation")] {
         let errs = errors(&format!(
             "{PRELUDE}\n\
@@ -364,5 +365,77 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
         errs.iter()
             .any(|e| e.contains("deduplicates") && e.contains("annotated local")),
         "expected the deduplication hint, got: {errs:?}"
+    );
+}
+
+// ===== `Proj` placement [proj-anywhere] [proj-no-field] =====
+
+/// [proj-anywhere] `Proj[from: p]` is an ordinary qualifier now, writable
+/// wherever a type appears: the old return prefix and the union-arm spelling
+/// mean the same thing, and a parameter may be a bare `Proj`.
+#[test]
+fn proj_is_writable_in_arm_and_parameter_positions() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn head_a(list: List<Person>) [] -> [list] Proj[from: list] Person? {{\n    return first(list)\n}}\n\
+         fn head_b(list: List<Person>) [] -> [list] (Proj[from: list] Person)? {{\n    return first(list)\n}}\n\
+         fn hold(p: Proj Person) [] -> [p] Int {{\n    return 1\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [proj-anywhere] A `Proj` in a *return* type must say what it borrows from.
+#[test]
+fn a_proj_return_without_a_source_is_an_error() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn head(list: List<Person>) [] -> [list] Proj Person? {{\n    return first(list)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("must name its source")),
+        "got: {errs:?}"
+    );
+}
+
+/// [proj-anywhere] The source must be a parameter — checked for every
+/// occurrence, so a tuple borrowing from two parameters names each.
+#[test]
+fn a_proj_source_must_be_a_parameter() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn head(list: List<Person>) [] -> [list] (Proj[from: nope] Person)? {{\n    return first(list)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("`Proj[from: nope]` names no parameter")),
+        "got: {errs:?}"
+    );
+}
+
+/// [proj-no-field] A struct field may not be `Proj`: a struct holding a
+/// borrow would carry a lifetime, which Salvo does not put on user data.
+#[test]
+fn a_proj_field_is_an_error() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         struct Holder {{\n    held: Proj Person\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("cannot be `Proj`") && e.contains("lifetime")),
+        "got: {errs:?}"
+    );
+}
+
+/// [proj-anywhere] A `Proj` parameter is a kept parameter: the body may read
+/// it and may not move it.
+#[test]
+fn a_proj_parameter_cannot_be_moved() {
+    let errs = errors(&format!(
+        "{PRELUDE}\n\
+         fn eat(p: Person) [] -> [] None {{}}\n\
+         fn hold(p: Proj Person) [] -> [p] Int {{\n    eat(p)\n    return 1\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("promises `p` back") && e.contains("moves it")),
+        "got: {errs:?}"
     );
 }

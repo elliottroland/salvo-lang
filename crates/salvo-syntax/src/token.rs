@@ -103,6 +103,7 @@ pub enum TokenKind {
     Slash,    // /
     Percent,  // %
     PlusPlus, // ++
+    MinusMinus, // --
     Caret,    // ^ — the qualifier-widening check [qual-widen]
     At,       // @ — the scope selector on a call [fn-overload-at]
 
@@ -223,6 +224,7 @@ impl TokenKind {
             TokenKind::Slash => "/",
             TokenKind::Percent => "%",
             TokenKind::PlusPlus => "++",
+            TokenKind::MinusMinus => "--",
             TokenKind::Caret => "^",
             TokenKind::At => "@",
             _ => unreachable!("symbol() called on non-symbol token"),

@@ -1,6 +1,11 @@
 import random.Random
 import random.DefaultRandom
 
+struct Person {
+    name: Str,
+    age: Int
+}
+
 fn main() [use] {
     use StdOutConsole
     // use DefaultRandom
@@ -15,11 +20,17 @@ fn main() [use] {
         let num2: Int = list.remove_first()
     }
 
-    println(list)
+    let person = Person { name: "Roland", age: 36 }
+    let name = person.name
+    println("${name}")
+    consume(name)
+    println("${person.name}")
+
+    println("${list}")
 
     let i = 21
     if i is Positive {
-        println(repeat(i, 100))
+        println("${repeat(i, 100)}")
     }
 
     random_number()
@@ -28,10 +39,6 @@ fn main() [use] {
     when v {
         is Ok { println("it was ok: ${v}") }
         is Err { println("it was an err: ${v}") }
-    }
-
-    if i is Positive {
-        let generated = repeat(i, () -> random_int())
     }
 
     close(file)
@@ -45,11 +52,15 @@ fn main() [use] {
     }
 }
 
+fn consume(name: Str) -> [] None {
+
+}
+
 fn repeat(n: Positive Int, gen: () [Random] -> Int) -> NonEmpty List<Int> {
     let list = mutable_list<Int>()
     let i = 0
     while i++ < n {
-        list.add(copy(value))
+        list.add(copy(i))
     }
     return list
 }
@@ -81,14 +92,6 @@ fn maybe_fail() [Random] -> Ok Mut Str | Err Int {
     return err(1)
 }
 
-fn println(list: List<Int>) [Console] {
-    print("[")
-    for i in list {
-        print("${i},")
-    }
-    println("]")
-}
-
 fn repeat(n: Positive Int, value: Int) -> NonEmpty List<Int> {
     let list: Mut List<Int> = mutable_list()
     let i = 0
@@ -116,6 +119,7 @@ fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
     return list.get(0)!
 }
 
+// Determines that an integer is greater than 0
 qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
@@ -142,5 +146,3 @@ struct FileStream : Linear<self> {
 fn close(fs: FileStream) [Console] -> [] None {
     println("Closing file: ${fs.name}")
 }
-
-fn random_int() [Random] -> Int {}

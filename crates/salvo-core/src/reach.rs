@@ -340,7 +340,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         Expr::Unary { operand, .. }
         | Expr::NonNull { operand, .. }
-        | Expr::PostIncrement { operand, .. }
+        | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => expr_names(operand, used),
         Expr::Binary { lhs, rhs, .. } => {
             expr_names(lhs, used);

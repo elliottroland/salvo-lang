@@ -430,6 +430,11 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::PlusPlus
             }
+            // [inc-dec] Before the `-` cases below, so `--` is one token.
+            ('-', Some('-')) => {
+                self.bump();
+                TokenKind::MinusMinus
+            }
             ('(', _) => TokenKind::LParen,
             (')', _) => TokenKind::RParen,
             ('{', _) => TokenKind::LBrace,

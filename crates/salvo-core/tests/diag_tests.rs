@@ -270,9 +270,12 @@ fn check_errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity, and these tests are about which programs are rejected.
     checked
         .errors
         .iter()
+        .filter(|d| d.is_error())
         .map(|d| d.render(&program.files))
         .collect()
 }

@@ -237,7 +237,11 @@ fn diagnostics_hover_and_shutdown() {
     let response = expect_response(&lsp.rx, 4);
     assert_eq!(
         response["result"]["contents"]["value"].as_str(),
-        Some("```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```"),
+        // [lsp-fn-origin] The origin section follows the signature.
+        Some(
+            "```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```\n\n---\n\n\
+             Declared in this file.",
+        ),
         "unexpected hover: {response}"
     );
 
@@ -255,12 +259,16 @@ fn diagnostics_hover_and_shutdown() {
     let response = expect_response(&lsp.rx, 5);
     assert_eq!(
         response["result"]["contents"]["value"].as_str(),
-        Some("```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```"),
+        // [lsp-fn-origin] The origin section follows the signature.
+        Some(
+            "```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```\n\n---\n\n\
+             Declared in this file.",
+        ),
         "unexpected hover: {response}"
     );
 
     // [fate-link] Hovering a fate-linked (derived) variable presents the
-    // compiler qualifier: a bare `ReadOnly` on the type line, with the
+    // compiler qualifier: a bare `Proj` on the type line, with the
     // qualifier's parameters (root, binding site) as detail below
     // (progressive disclosure).
     send(
@@ -292,14 +300,72 @@ fn diagnostics_hover_and_shutdown() {
         .as_str()
         .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
     assert!(
-        value.starts_with("```salvo\nReadOnly Str\n```"),
+        value.starts_with("```salvo\nProj Str\n```"),
         "unexpected hover type line: {value}"
     );
     assert!(
-        value.contains("Compiler qualifier `ReadOnly`")
+        value.contains("Compiler qualifier `Proj`")
             && value.contains("shares fate with `xs` (bound at 6:")
             && value.contains("`copy(...)`"),
         "unexpected hover detail: {value}"
+    );
+
+    // [fate-link] The same at the *declaration* of the derived variable:
+    // hovering `ys` in `let ys = xs` must also say what it shares fate
+    // with — that is where a reader looks first.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 7, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 5, "character": 9}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 7);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
+    assert!(
+        value.contains("shares fate with `xs`"),
+        "declaration hover should carry the fate link: {value}"
+    );
+
+    // [fate-field-disjoint] The link names the *projection* it came from,
+    // not just the root: a value taken from `p.name` does not share fate
+    // with all of `p`, and the hover must not say it does.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 5},
+                "contentChanges": [{
+                    "text": "struct Person {\n    name: Str\n}\n\nfn derived(p: Person) -> [p] None {\n    let n = p.name\n    let _k = n\n}\n"
+                }]
+            }
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0);
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 8, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 5, "character": 8}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 8);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
+    assert!(
+        value.contains("shares fate with `p.name`"),
+        "hover should name the projection, not the whole root: {value}"
     );
 
     // Clean shutdown.
@@ -425,7 +491,8 @@ fn goto_definition_resolves_names() {
     // 17     use Loud
     // 18     let p = Point {x: 1, y: 2}
     // 19     let d = double(beep())
-    // 20 }
+    // 20     let _used = d + p.x + size("ab")
+    // 21 }
     let text = "import shapes.Point\n\
                 \n\
                 effect Beeper {\n\
@@ -446,6 +513,7 @@ fn goto_definition_resolves_names() {
                 \x20   use Loud\n\
                 \x20   let p = Point {x: 1, y: 2}\n\
                 \x20   let d = double(beep())\n\
+                \x20   let _used = d + p.x + size(\"ab\")\n\
                 }\n";
     send(
         &mut lsp.stdin,
@@ -487,6 +555,45 @@ fn goto_definition_resolves_names() {
     // The effect name in the handler's `of` clause.
     let loc = definition(&mut lsp, 14, &uri, 6, 16);
     assert_eq!(loc["range"]["start"], json!({"line": 2, "character": 7}));
+
+    // [lsp-fn-origin] A fn's hover says which module it came from — the
+    // fact that matters when a name is overloaded across scopes (user
+    // request 2026-09-11). `double` is declared in this file.
+    let value = hover(&mut lsp, 30, &uri, 19, 12);
+    assert!(
+        value.contains("Declared in this file."),
+        "a local fn should say so: {value}"
+    );
+
+    // A std fn names its std module instead.
+    let value = hover(&mut lsp, 31, &uri, 20, 27);
+    assert!(
+        value.contains("the standard library"),
+        "a std fn should name the standard library: {value}"
+    );
+
+    // A declaration from the *other* file names its module.
+    let value = hover(&mut lsp, 32, &uri, 18, 12);
+    assert!(
+        value.contains("From `shapes`"),
+        "a cross-file declaration should name its module: {value}"
+    );
+
+    // [doc-comment] Hover reaches a declaration in *another* file: the
+    // imported struct's name on line 18 shows its declaration and fields,
+    // exactly as a local one would (user request 2026-09-11).
+    let value = hover(&mut lsp, 20, &uri, 18, 12);
+    assert!(
+        value.contains("struct Point") && value.contains("x"),
+        "imported struct hover should show its declaration: {value}"
+    );
+
+    // ...and on the `import` line itself, where a reader looks first.
+    let value = hover(&mut lsp, 21, &uri, 0, 15);
+    assert!(
+        value.contains("struct Point"),
+        "hover on the import should show the imported declaration: {value}"
+    );
 
     // A position with no name under it yields no location.
     send(
@@ -890,4 +997,203 @@ fn main() [use] {
     expect_response(&lsp.rx, 99);
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+// [doc-comment] [doc-qualifies-body] Hover on the two declaration kinds that
+// had none: a `params` group (its members are the point of it), and a
+// predicate qualifier, which shows its `qualifies` body when short (user
+// requests 2026-09-11).
+#[test]
+fn hover_covers_params_groups_and_short_qualifies_bodies() {
+    let root = std::env::temp_dir().join("salvo_lsp_hover_decls");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    // Lines (0-based):
+    // 0 params Show<T> {
+    // 1     fn show(v: T) -> Str
+    // 2 }
+    // 3
+    // 4 qualifier Positive of Int {
+    // 5     fn qualifies(int: Int) -> Bool {
+    // 6         return int > 0
+    // 7     }
+    // 8 }
+    let text = "params Show<T> {\n\
+                \x20   fn show(v: T) -> Str\n\
+                }\n\
+                \n\
+                qualifier Positive of Int {\n\
+                \x20   fn qualifies(int: Int) -> Bool {\n\
+                \x20       return int > 0\n\
+                \x20   }\n\
+                }\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": text
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+
+    // The group's name: its declaration, members included.
+    let value = hover(&mut lsp, 40, &uri, 0, 8);
+    assert!(
+        value.contains("params Show<T>") && value.contains("fn show"),
+        "params hover should show the group and its members: {value}"
+    );
+
+    // The qualifier's name: its declaration plus the short predicate body.
+    let value = hover(&mut lsp, 41, &uri, 4, 12);
+    assert!(
+        value.contains("qualifier Positive"),
+        "qualifier hover should show its declaration: {value}"
+    );
+    assert!(
+        value.contains("Holds when `int > 0`."),
+        "a single-`return` predicate should show the expression alone: {value}"
+    );
+    assert!(
+        !value.contains("return int > 0"),
+        "the `return` and braces should not be shown: {value}"
+    );
+
+    // A `qualifies` that is more than one `return` shows nothing extra: the
+    // qualifier's own doc comment is the place for that.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 2},
+                "contentChanges": [{
+                    "text": "qualifier Big of Int {\n\
+                             \x20   fn qualifies(int: Int) -> Bool {\n\
+                             \x20       let limit = 10\n\
+                             \x20       return int > limit\n\
+                             \x20   }\n\
+                             }\n"
+                }]
+            }
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let value = hover(&mut lsp, 42, &uri, 0, 12);
+    assert!(
+        value.contains("qualifier Big") && !value.contains("Holds when"),
+        "a multi-statement `qualifies` should be hidden: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    let status = lsp.child.wait().expect("failed to wait for salvo lsp");
+    assert!(status.success(), "exit status: {status}");
+}
+
+// [lsp-definition] [doc-comment] Two name positions that had no hover: the
+// group name in a struct's obligation clause (`: Linear<self>`), and the
+// qualifier name in an `is` check — where hovering used to fall through to
+// the enclosing expression's `Bool` (user reports 2026-09-11).
+#[test]
+fn hover_reaches_obligation_and_is_check_names() {
+    let root = std::env::temp_dir().join("salvo_lsp_hover_names");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    // Lines (0-based):
+    // 0 params Show<T> {
+    // 1     fn show(v: T) -> Str
+    // 2 }
+    // 3
+    // 4 struct Card : Show<self> {
+    // 5     face: Str
+    // 6 }
+    // 7
+    // 8 fn show(c: Card) -> [c] Str {
+    // 9     return c.face
+    // 10 }
+    // 11
+    // 12 qualifier Positive of Int {
+    // 13     fn qualifies(int: Int) -> Bool {
+    // 14         return int > 0
+    // 15     }
+    // 16 }
+    // 17
+    // 18 fn probe(i: Int) -> [i] Int {
+    // 19     if i is Positive {
+    // 20         return 1
+    // 21     }
+    // 22     return 0
+    // 23 }
+    let text = "params Show<T> {\n\
+                \x20   fn show(v: T) -> Str\n\
+                }\n\
+                \n\
+                struct Card : Show<self> {\n\
+                \x20   face: Str\n\
+                }\n\
+                \n\
+                fn show(c: Card) -> [c] Str {\n\
+                \x20   return c.face\n\
+                }\n\
+                \n\
+                qualifier Positive of Int {\n\
+                \x20   fn qualifies(int: Int) -> Bool {\n\
+                \x20       return int > 0\n\
+                \x20   }\n\
+                }\n\
+                \n\
+                fn probe(i: Int) -> [i] Int {\n\
+                \x20   if i is Positive {\n\
+                \x20       return 1\n\
+                \x20   }\n\
+                \x20   return 0\n\
+                }\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": text
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "unexpected diagnostics: {params}"
+    );
+
+    // The group name in the obligation clause: `Show` on line 4.
+    let value = hover(&mut lsp, 50, &uri, 4, 15);
+    assert!(
+        value.contains("params Show<T>") && value.contains("fn show"),
+        "obligation-clause group hover should reach the group: {value}"
+    );
+
+    // The qualifier name in the `is` check: `Positive` on line 19.
+    let value = hover(&mut lsp, 51, &uri, 19, 14);
+    assert!(
+        value.contains("qualifier Positive") && value.contains("Holds when `int > 0`."),
+        "`is`-check qualifier hover should reach the qualifier: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 98, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 98);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    let status = lsp.child.wait().expect("failed to wait for salvo lsp");
+    assert!(status.success(), "exit status: {status}");
 }

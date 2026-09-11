@@ -85,7 +85,15 @@ fn errors(src: &str) -> Vec<String> {
     parse_errors
         .into_iter()
         .chain(resolution.errors.iter().map(|d| d.message.clone()))
-        .chain(checked.errors.iter().map(|d| d.message.clone()))
+        // Errors only: an unused-variable *warning* [unused-var] is a
+        // different severity, and these tests are about legality.
+        .chain(
+            checked
+                .errors
+                .iter()
+                .filter(|d| d.is_error())
+                .map(|d| d.message.clone()),
+        )
         .collect()
 }
 

@@ -451,8 +451,17 @@ derives them mechanically:
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body (same shape as
   Kotlin).
-* [rs-postincrement] Rust has no `++`: statement-position `i++` emits
-  `i += 1;`; value-position emits `({ let __t = i; i += 1; __t })`.
+* [rs-inc-dec] Rust has neither `++` nor `--` [inc-dec], so:
+  * statement position is a compound assignment — `i += 1;` / `i -= 1;`,
+    the same for both fixities since the value is discarded;
+  * value position is a block: postfix `({ let __t = i; i += 1; __t })`
+    (the old value), prefix `({ i += 1; i })` (the new one).
+* [rs-interp-to-str] A non-native interpolated value [interp-to-str] is
+  wrapped in the `to_str` the checker resolved: an `intrinsic` one goes
+  through its lowering template with a pre-rendered argument, a declared one
+  is an ordinary call on a borrow. A derived struct [interp-struct] renders
+  as a nested `format!` over its fields — *not* `{:?}`, which would quote
+  strings and so disagree with Kotlin.
 * [qual-widen] [rs-widen-shadow] A `^` check emits the same test `is` would
   (or `true` when the qualifiers are statically present — qualifiers are
   erased, so widening is a typing act). Where it *peels a wrapper arm*, the

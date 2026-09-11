@@ -19,12 +19,12 @@ use salvo_syntax::ast::Expr;
 
 /// One projection step of a place path.
 ///
-/// [`Proj::Field`] and [`Proj::Index`] steps narrow
+/// [`Step::Field`] and [`Step::Index`] steps narrow
 /// ([`Place::narrowable`], user decision on P1a) — both name one storage
-/// location statically. [`Proj::Element`] does not, and exists so
+/// location statically. [`Step::Element`] does not, and exists so
 /// place-based *ownership* (roadmap L5) can name array elements too.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Proj {
+pub enum Step {
     /// `.name` — a struct field.
     Field(String),
     /// A constant element index: a tuple position, written `t.0`
@@ -36,28 +36,28 @@ pub enum Proj {
     Element,
 }
 
-impl Proj {
+impl Step {
     /// Whether two steps out of the *same* base may name the same storage.
     /// Conservative for unknown indices: `arr[i]` may hit any element.
-    pub fn may_alias(&self, other: &Proj) -> bool {
+    pub fn may_alias(&self, other: &Step) -> bool {
         match (self, other) {
-            (Proj::Field(a), Proj::Field(b)) => a == b,
-            (Proj::Index(a), Proj::Index(b)) => a == b,
+            (Step::Field(a), Step::Field(b)) => a == b,
+            (Step::Index(a), Step::Index(b)) => a == b,
             // An unknown index may land on any element position; a field
             // and an element never share storage.
-            (Proj::Element, Proj::Element | Proj::Index(_))
-            | (Proj::Index(_), Proj::Element) => true,
-            (Proj::Field(_), _) | (_, Proj::Field(_)) => false,
+            (Step::Element, Step::Element | Step::Index(_))
+            | (Step::Index(_), Step::Element) => true,
+            (Step::Field(_), _) | (_, Step::Field(_)) => false,
         }
     }
 }
 
-impl fmt::Display for Proj {
+impl fmt::Display for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Proj::Field(name) => write!(f, ".{name}"),
-            Proj::Index(i) => write!(f, ".{i}"),
-            Proj::Element => write!(f, "[?]"),
+            Step::Field(name) => write!(f, ".{name}"),
+            Step::Index(i) => write!(f, ".{i}"),
+            Step::Element => write!(f, "[?]"),
         }
     }
 }
@@ -68,7 +68,7 @@ impl fmt::Display for Proj {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Place {
     pub root: String,
-    pub path: Vec<Proj>,
+    pub path: Vec<Step>,
 }
 
 impl Place {
@@ -88,12 +88,12 @@ impl Place {
             Expr::Ident(id) => Some(Place::root(id.name.clone())),
             Expr::Field { base, field, .. } => {
                 let mut place = Place::of_expr(base)?;
-                place.path.push(Proj::Field(field.name.clone()));
+                place.path.push(Step::Field(field.name.clone()));
                 Some(place)
             }
             Expr::TupleIndex { base, index, .. } => {
                 let mut place = Place::of_expr(base)?;
-                place.path.push(Proj::Index(*index));
+                place.path.push(Step::Index(*index));
                 Some(place)
             }
             Expr::Index { base, .. } => {
@@ -101,7 +101,7 @@ impl Place {
                 // Salvo has no constant-index projection syntax, so every
                 // `Index` expression is an array subscript with a
                 // statically unknown index.
-                place.path.push(Proj::Element);
+                place.path.push(Step::Element);
                 Some(place)
             }
             _ => None,
@@ -121,7 +121,7 @@ impl Place {
     pub fn narrowable(&self) -> bool {
         self.path
             .iter()
-            .all(|p| matches!(p, Proj::Field(_) | Proj::Index(_)))
+            .all(|p| matches!(p, Step::Field(_) | Step::Index(_)))
     }
 
     /// Whether an event on `self` reaches `other`: same root, and `self`'s
@@ -162,15 +162,15 @@ impl fmt::Display for Place {
 mod tests {
     use super::*;
 
-    fn place(root: &str, path: &[Proj]) -> Place {
+    fn place(root: &str, path: &[Step]) -> Place {
         Place {
             root: root.to_string(),
             path: path.to_vec(),
         }
     }
 
-    fn field(name: &str) -> Proj {
-        Proj::Field(name.to_string())
+    fn field(name: &str) -> Step {
+        Step::Field(name.to_string())
     }
 
     /// [flow-place] A place is a prefix of itself and of anything below
@@ -216,9 +216,9 @@ mod tests {
     /// `arr[?]` overlaps every element place — including a constant one.
     #[test]
     fn unknown_index_aliases_every_element() {
-        let elem = place("arr", &[Proj::Element]);
-        let zero = place("arr", &[Proj::Index(0)]);
-        let one = place("arr", &[Proj::Index(1)]);
+        let elem = place("arr", &[Step::Element]);
+        let zero = place("arr", &[Step::Index(0)]);
+        let one = place("arr", &[Step::Index(1)]);
 
         assert!(elem.overlaps(&zero));
         assert!(elem.overlaps(&one));
@@ -235,9 +235,9 @@ mod tests {
     fn narrowable_is_statically_identified_paths() {
         assert!(place("h", &[]).narrowable());
         assert!(place("h", &[field("a"), field("b")]).narrowable());
-        assert!(place("h", &[Proj::Index(0)]).narrowable());
-        assert!(place("h", &[field("a"), Proj::Index(1), field("b")]).narrowable());
-        assert!(!place("h", &[Proj::Element]).narrowable());
-        assert!(!place("h", &[field("a"), Proj::Element]).narrowable());
+        assert!(place("h", &[Step::Index(0)]).narrowable());
+        assert!(place("h", &[field("a"), Step::Index(1), field("b")]).narrowable());
+        assert!(!place("h", &[Step::Element]).narrowable());
+        assert!(!place("h", &[field("a"), Step::Element]).narrowable());
     }
 }

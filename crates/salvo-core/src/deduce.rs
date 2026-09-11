@@ -135,6 +135,26 @@ pub(crate) fn infer(
         })
         .collect();
     let effect_calls = checked.effect_calls.clone();
+    // [proj-pass-field] Which struct fields are borrows: storing into one
+    // lends the value, so the parameter it came from stays kept.
+    let proj_fields: HashMap<String, HashSet<String>> = program
+        .modules
+        .iter()
+        .flat_map(|ast| ast.items.iter())
+        .filter_map(|item| match item {
+            Item::Struct(sd) => {
+                let names: HashSet<String> = sd
+                    .fields
+                    .iter()
+                    .filter(|f| type_has_proj(&f.ty))
+                    .map(|f| f.name.name.clone())
+                    .collect();
+                (!names.is_empty()).then(|| (sd.name.name.clone(), names))
+            }
+            _ => None,
+        })
+        .collect();
+    let expr_ty = checked.expr_ty.clone();
 
     // Initial state: written lists as declared (validating their shape),
     // unwritten lists optimistic (everything kept with declared quals).
@@ -178,6 +198,10 @@ pub(crate) fn infer(
                 &effect_calls,
                 &no_state,
                 &checked.refinements,
+
+                &proj_fields,
+
+                &expr_ty,
             );
             exhaustive_for_mutated(
                 f.decl,
@@ -213,6 +237,10 @@ pub(crate) fn infer(
             &effect_calls,
             &no_state,
             &checked.refinements,
+
+            &proj_fields,
+
+            &expr_ty,
         );
         let written = &states[&f.key];
         validate_written(f.key.file, f.decl, list, written, &inferred, &mut errors);
@@ -254,6 +282,10 @@ pub(crate) fn infer(
                     &effect_calls,
                     &state_names,
                     &checked.refinements,
+
+                    &proj_fields,
+
+                    &expr_ty,
                 );
                 validate_written(file_idx, m, list, &written, &inferred, &mut errors);
             }
@@ -459,6 +491,8 @@ fn infer_body<'a, 'p>(
     effect_calls: &'a HashMap<Key, Ty>,
     state_names: &'a HashSet<String>,
     refinements: &'a crate::refine::Refinements,
+    proj_fields: &'a HashMap<String, HashSet<String>>,
+    expr_ty: &'a HashMap<Key, Ty>,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
         file: f.key.file,
@@ -473,6 +507,8 @@ fn infer_body<'a, 'p>(
         state_names,
         refinements,
         cond_depth: 0,
+        proj_fields,
+        expr_ty,
     };
     walk.block(body);
     walk.params
@@ -557,6 +593,12 @@ struct Walk<'a, 'p> {
     /// the signature then promises. Removals are unaffected — applying one
     /// unconditionally is the conservative direction.
     cond_depth: usize,
+    /// [proj-pass-field] Struct name → its `Proj` field names. Storing into
+    /// such a field *lends* the value rather than moving it.
+    proj_fields: &'a HashMap<String, HashSet<String>>,
+    /// Checker expression types by span, for a bare `{…}` literal whose
+    /// struct is not written.
+    expr_ty: &'a HashMap<Key, Ty>,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value
@@ -816,9 +858,29 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             // Struct/array/tuple construction stores the value.
-            Expr::StructLit { fields, .. } => {
+            Expr::StructLit { ty, fields, span } => {
+                // [proj-pass-field] A `Proj` field lends: the value is read,
+                // not stored, so its parameter stays kept.
+                let struct_name: Option<String> = match ty {
+                    Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
+                    _ => self
+                        .expr_ty
+                        .get(&(self.file, *span))
+                        .and_then(|t| match t.strip_quals() {
+                            Ty::Named { name, .. } => Some(name.clone()),
+                            _ => None,
+                        }),
+                };
+                let lent = struct_name
+                    .as_deref()
+                    .and_then(|n| self.proj_fields.get(n));
                 for f in fields {
                     match &f.kind {
+                        StructLitFieldKind::Named { name, value }
+                            if lent.is_some_and(|set| set.contains(&name.name)) =>
+                        {
+                            self.expr(value)
+                        }
                         StructLitFieldKind::Named { value, .. } => self.moving_expr(value),
                         StructLitFieldKind::Spread(v) => self.moving_expr(v),
                     }
@@ -847,7 +909,7 @@ impl<'p> Walk<'_, 'p> {
             }
             Expr::Unary { operand, .. }
             | Expr::NonNull { operand, .. }
-            | Expr::PostIncrement { operand, .. }
+            | Expr::IncDec { operand, .. }
             | Expr::Spread { operand, .. } => self.expr(operand),
             Expr::Binary { lhs, rhs, .. } => {
                 self.expr(lhs);
@@ -1082,5 +1144,22 @@ impl<'p> Walk<'_, 'p> {
         let list = member.deductions.as_ref()?;
         let facts = from_written(member, list, &HashSet::new(), |_, _| {});
         Some((member, facts))
+    }
+}
+
+/// [proj-pass-field] Whether a written type carries a `Proj` qualifier
+/// anywhere.
+fn type_has_proj(ty: &Type) -> bool {
+    fn in_ref(r: &salvo_syntax::ast::TypeRef) -> bool {
+        r.name.name == "Proj" || r.args.iter().any(type_has_proj)
+    }
+    match ty {
+        Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
+        Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers.iter().any(in_ref) || type_has_proj(base),
+        Type::Nullable { inner, .. } | Type::Array { elem: inner, .. } => type_has_proj(inner),
+        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => arms.iter().any(type_has_proj),
+        _ => false,
     }
 }

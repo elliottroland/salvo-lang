@@ -117,7 +117,11 @@ fn caller<T>(list: A B List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string()]);
@@ -137,7 +141,11 @@ fn caller<T>(list: A B C List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string()]);
@@ -164,7 +172,11 @@ fn caller<T>(list: A B C List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     let (kept, quals) = facts(&program, &checked, "caller", "list");
     assert!(kept);
     assert_eq!(quals, vec!["B".to_string(), "C".to_string()]);
@@ -260,7 +272,11 @@ fn identity<T>(list: List<T>) -> List<T> {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(facts(&program, &checked, "caller", "list").0, false);
     assert_eq!(facts(&program, &checked, "identity", "list").0, false);
 }
@@ -281,7 +297,11 @@ fn mid<T>(list: A B List<T>) -> None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(
         facts(&program, &checked, "top", "list"),
         (true, vec!["B".to_string()])
@@ -309,7 +329,11 @@ fn forward(list: List<Int>) [Sink] -> None {{
 "#
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     let (kept, _) = facts(&program, &checked, "forward", "list");
     assert!(
         !kept,
@@ -327,15 +351,21 @@ effect Logger {{
     fn log<T>(list: List<T>) -> [list] None
 }}
 
+fn peek<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
+
 fn caller<T>(list: A B List<T>) [Logger] -> Int {{
-    let s = "${{list}}"
+    let _s = peek(list)
     log(list)
     return 1
 }}
 "#
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(
         facts(&program, &checked, "caller", "list"),
         (true, vec!["A".to_string(), "B".to_string()])
@@ -483,7 +513,11 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(
         facts(&program, &checked, "stricter", "list"),
         (true, vec!["B".to_string()])
@@ -502,7 +536,11 @@ fn strip_all<T>(list: A B List<T>) [] -> [list:] None {{}}
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(
         facts(&program, &checked, "keep_all", "list"),
         (true, vec!["A".to_string(), "B".to_string()])
@@ -542,7 +580,11 @@ fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     assert_eq!(
         facts(&program, &checked, "links", "list"),
         (true, vec!["A".to_string()])
@@ -584,7 +626,11 @@ fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     // The move-mode binding claims the parameter: not kept.
     assert_eq!(facts(&program, &checked, "claims", "list").0, false);
     assert_eq!(facts(&program, &checked, "chain_claims", "list").0, false);
@@ -621,7 +667,11 @@ fn store_size<T>(store: Store<T>) [] -> [store] Int {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
-    assert!(checked.errors.is_empty(), "errors: {:?}", checked.errors);
+    assert!(
+        checked.errors.iter().all(|e| !e.is_error()),
+        "errors: {:?}",
+        checked.errors
+    );
     // The mutating capture claims the parameter.
     assert_eq!(facts(&program, &checked, "mutates", "store").0, false);
     // A read-only capture keeps it.
@@ -732,7 +782,14 @@ fn disjoint_errors(body: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    checked.errors.iter().map(|e| e.message.clone()).collect()
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity and these tests are about legality.
+    checked
+        .errors
+        .iter()
+        .filter(|e| e.is_error())
+        .map(|e| e.message.clone())
+        .collect()
 }
 
 /// [fate-field-disjoint] Reading `p.name` and mutating `p.tags` are disjoint,

@@ -1,5 +1,6 @@
 use crate::core_array::*;
 use crate::core_iterator::*;
+use crate::core_string::*;
 use crate::unions::*;
 
 pub fn iter__2<T: Clone + 'static>(list: Vec<T>) -> ListYield<T> {

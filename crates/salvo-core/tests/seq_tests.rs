@@ -147,7 +147,11 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
-    checked(src).1.errors
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity, and these tests are about legality.
+    let mut diags = checked(src).1.errors;
+    diags.retain(|d| d.is_error());
+    diags
 }
 
 fn messages(src: &str) -> Vec<String> {
@@ -162,7 +166,11 @@ fn probe(body: &str) -> String {
 /// fast path, `false` for the generic body.
 fn picked_fast_path(src: &str, callee: &str) -> bool {
     let (program, out) = checked(src);
-    assert!(out.errors.is_empty(), "unexpected errors: {:?}", out.errors);
+    assert!(
+        out.errors.iter().all(|d| !d.is_error()),
+        "unexpected errors: {:?}",
+        out.errors
+    );
     let mut found: Option<bool> = None;
     for (_, key) in out.call_fn.iter() {
         let FnKey { file, item, .. } = *key;
@@ -219,7 +227,7 @@ fn chains_compose_through_iter() {
 fn a_user_type_becomes_iterable_by_declaring_iter() {
     let src = format!(
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
-         fn iter(bag: Bag) -> [] Mut ListYield<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
+         fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
             "    let b = Bag {items: list(1, 2)}\n    \
              let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"

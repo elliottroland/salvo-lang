@@ -204,6 +204,15 @@ Conventions:
   `else null` filler — unlike a value-position `if` chain without an
   `else` ([if-else-none]). `is`-binding declarations and `^` shadowing
   locals go at the top of their arm exactly as in an `if` branch.
+* [kt-inc-dec] Kotlin has `++`/`--` in both fixities with the same value
+  semantics as Salvo's [inc-dec], so they render directly (`i++`, `++i`,
+  `i--`, `--i`) in both statement and value position.
+* [kt-interp-to-str] A non-native interpolated value [interp-to-str] is
+  wrapped in the `to_str` the checker resolved (std's `List` renderer lowers
+  to `joinToString(", ", "[", "]")`). A derived struct [interp-struct]
+  renders as a string template over its fields — *not* the data class's
+  `toString`, which prints `Person(name=ann)` and so would disagree with
+  Rust.
 * [kt-suppress-cast] A union payload read through a **star-projected** arm
   (`is U2_1<*, *>` leaves `value` at `Any?`) casts back to the arm's type;
   when that target is a *generic parameter* (erased at run time) or a

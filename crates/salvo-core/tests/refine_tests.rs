@@ -105,7 +105,7 @@ fn a_refinement_establishes_a_qualifier_at_a_call_site() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\nfn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let n = needs_nonempty(s)\n}}\n"
+         let _n = needs_nonempty(s)\n}}\n"
     );
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }
@@ -119,7 +119,7 @@ fn without_the_refinement_the_qualifier_is_gone() {
     let src = format!(
         "{PRELUDE}{bare}\nfn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let n = needs_nonempty(s)\n}}\n"
+         let _n = needs_nonempty(s)\n}}\n"
     );
     assert!(
         errors(&src)
@@ -169,7 +169,7 @@ fn conflicting_refinements_all_stand_down_with_a_warning() {
          refn push(s: Mut Store<T>, value: T) -> [s: +Sorted]\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let n = needs_nonempty(s)\n}}\n"
+         let _n = needs_nonempty(s)\n}}\n"
     );
     let diags = errors(&src);
     assert!(
@@ -200,8 +200,8 @@ fn compatible_refinements_both_apply() {
          fn needs_sorted<T>(s: Sorted Store<T>) -> [s] Int {{\n    return 2\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let a = needs_nonempty(s)\n    \
-         let b = needs_sorted(s)\n}}\n"
+         let _a = needs_nonempty(s)\n    \
+         let _b = needs_sorted(s)\n}}\n"
     );
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }
@@ -219,7 +219,7 @@ fn a_top_level_refinement_reconciles_a_conflict() {
          refn push<T>(s: Mut Store<T>, value: T) -> [s: +NonEmpty]\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let n = needs_nonempty(s)\n}}\n"
+         let _n = needs_nonempty(s)\n}}\n"
     );
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }
@@ -241,7 +241,7 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
                        import quals.push\nimport quals.needs_nonempty\n\
                        fn g(s: Mut Store<Int>) -> None {\n    \
                        push(s, 1)\n    \
-                       let n = needs_nonempty(s)\n}\n";
+                       let _n = needs_nonempty(s)\n}\n";
     assert!(
         diagnostics(&[("quals.sv", &quals), ("user.sv", with_import)]).is_empty(),
         "{:?}",
@@ -277,7 +277,7 @@ fn a_top_level_refinement_does_not_leave_its_module() {
     // The same module, second file: module scope, so it applies.
     let same_module = "fn g(s: Mut Store<Int>) -> None {\n    \
                        push(s, 1)\n    \
-                       let n = needs_nonempty(s)\n}\n";
+                       let _n = needs_nonempty(s)\n}\n";
     assert!(
         diagnostics(&[("lib.sv", &lib), ("lib2.sv", same_module)])
             .iter()
@@ -291,7 +291,7 @@ fn a_top_level_refinement_does_not_leave_its_module() {
                  import lib.push\nimport lib.needs_nonempty\n\
                  fn g(s: Mut Store<Int>) -> None {\n    \
                  push(s, 1)\n    \
-                 let n = needs_nonempty(s)\n}\n";
+                 let _n = needs_nonempty(s)\n}\n";
     let diags = diagnostics(&[("lib.sv", &lib), ("other/user.sv", other)]);
     assert!(
         diags
@@ -466,7 +466,7 @@ fn a_refinement_reaches_an_inferred_deduction() {
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
          refill(s, 2)\n    \
-         let n = needs_nonempty(s)\n}}\n"
+         let _n = needs_nonempty(s)\n}}\n"
     );
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }

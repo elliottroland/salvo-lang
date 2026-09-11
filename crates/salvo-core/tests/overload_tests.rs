@@ -110,11 +110,11 @@ fn probe(body: &str) -> String {
 fn a_concrete_parameter_beats_a_type_variable() {
     let decls = "fn describe<T>(value: T) [] -> [] Bool { return true }\n\
                  fn describe(value: Int) [] -> [] Str { return \"concrete\" }\n";
-    let src = format!("{decls}{}", probe("    let picked: Str = describe(3)"));
+    let src = format!("{decls}{}", probe("    let _picked: Str = describe(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     let flipped = "fn describe(value: Int) [] -> [] Str { return \"concrete\" }\n\
                    fn describe<T>(value: T) [] -> [] Bool { return true }\n";
-    let src = format!("{flipped}{}", probe("    let picked: Str = describe(3)"));
+    let src = format!("{flipped}{}", probe("    let _picked: Str = describe(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
@@ -127,13 +127,13 @@ fn a_narrower_union_beats_a_broader_one() {
                  fn take(v: Int | Str) [] -> [] Char { return 'p' }\n\
                  fn take(v: Int) [] -> [] Str { return \"int\" }\n";
     // A plain `Int` reaches the arm.
-    let src = format!("{decls}{}", probe("    let picked: Str = take(3)"));
+    let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // A value the caller only knows as `Int | Str` cannot: specificity never
     // exceeds what the caller knows.
     let src = format!(
         "{decls}{}",
-        probe("    let v: Int | Str = 3\n    let picked: Char = take(v)")
+        probe("    let v: Int | Str = 3\n    let _picked: Char = take(v)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // ... and once narrowed, it does.
@@ -141,7 +141,7 @@ fn a_narrower_union_beats_a_broader_one() {
         "{decls}{}",
         probe(
             "    let v: Int | Str = 3\n    if v is Int {\n        \
-             let picked: Str = take(v)\n    }"
+             let _picked: Str = take(v)\n    }"
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -153,7 +153,7 @@ fn a_narrower_union_beats_a_broader_one() {
 fn a_plain_type_beats_an_optional() {
     let decls = "fn take(v: Int?) [] -> [] Bool { return true }\n\
                  fn take(v: Int) [] -> [] Str { return \"int\" }\n";
-    let src = format!("{decls}{}", probe("    let picked: Str = take(3)"));
+    let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
@@ -162,14 +162,14 @@ fn a_plain_type_beats_an_optional() {
 fn any_is_the_least_specific_parameter() {
     let decls = "fn take(v: Any) [] -> [] Bool { return true }\n\
                  fn take(v: Int) [] -> [] Str { return \"int\" }\n";
-    let src = format!("{decls}{}", probe("    let picked: Str = take(3)"));
+    let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // And it really does accept everything (it is the top type, not a
     // nominal type that happens to be called `Any`).
     let src = format!(
         "{}{}",
         "fn take(v: Any) [] -> [] Bool { return true }\n",
-        probe("    let picked: Bool = take(\"text\")")
+        probe("    let _picked: Bool = take(\"text\")")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
@@ -192,7 +192,7 @@ fn qualifier_sets_rank_by_inclusion() {
         "{decls}{}",
         probe(
             "    let n = 4\n    if n is Even && n is Small {\n        \
-             let picked: Str = label(n)\n    }"
+             let _picked: Str = label(n)\n    }"
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -205,7 +205,7 @@ fn qualifier_sets_rank_by_inclusion() {
         "{decls}{}",
         probe(
             "    let n = 4\n    if n is Even && n is Small {\n        \
-             let picked = label(n)\n    }"
+             let _picked = label(n)\n    }"
         )
     );
     let msgs = messages(&src);
@@ -225,10 +225,10 @@ fn qualifier_sets_rank_by_inclusion() {
 fn a_fixed_parameter_list_beats_a_variadic_one() {
     let decls = "fn make() [] -> [] Str { return \"empty\" }\n\
                  fn make(...rest: Int[]) [] -> [] Bool { return true }\n";
-    let src = format!("{decls}{}", probe("    let picked: Str = make()"));
+    let src = format!("{decls}{}", probe("    let _picked: Str = make()"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // With arguments, only the variadic one fits.
-    let src = format!("{decls}{}", probe("    let picked: Bool = make(1, 2)"));
+    let src = format!("{decls}{}", probe("    let _picked: Bool = make(1, 2)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
 
@@ -273,7 +273,7 @@ fn this_module_beats_core() {
     let src = format!(
         "{}{}",
         "fn size<T>(list: List<T>) [] -> [list] Str { return \"mine\" }\n",
-        probe("    let xs = of_list(1, 2)\n    let picked: Str = size(xs)")
+        probe("    let xs = of_list(1, 2)\n    let _picked: Str = size(xs)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     assert!(warnings(&src).is_empty(), "no warning: same signature shape");
@@ -287,7 +287,7 @@ fn the_ladder_runs_core_import_module() {
     // core has none of these, so the import wins on its own.
     let src = format!(
         "{main_import}{}",
-        probe("    let picked: Bool = describe(1)")
+        probe("    let _picked: Bool = describe(1)")
     );
     assert!(
         messages_files(&[("main.sv", &src), ("lib.sv", lib)]).is_empty(),
@@ -297,7 +297,7 @@ fn the_ladder_runs_core_import_module() {
     // With an own-module declaration of the same shape, this module wins.
     let src = format!(
         "{main_import}fn describe(v: Int) [] -> [] Str {{ return \"mine\" }}\n{}",
-        probe("    let picked: Str = describe(1)")
+        probe("    let _picked: Str = describe(1)")
     );
     let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
     assert!(msgs.is_empty(), "{msgs:?}");
@@ -310,7 +310,7 @@ fn scope_beats_signature_with_a_warning() {
     let src = format!(
         "{}{}",
         "fn size(v: Any) [] -> [] Str { return \"mine\" }\n",
-        probe("    let s = \"abc\"\n    let picked: Str = size(s)")
+        probe("    let s = \"abc\"\n    let _picked: Str = size(s)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     let warns = warnings(&src);
@@ -334,8 +334,8 @@ fn at_module_picks_that_modules_overload() {
         "{}{}",
         "fn size(v: Any) [] -> [] Str { return \"mine\" }\n",
         probe(
-            "    let s = \"abc\"\n    let core: Int = size@core.string(s)\n    \
-             let mine: Str = size@main(s)"
+            "    let s = \"abc\"\n    let _core: Int = size@core.string(s)\n    \
+             let _mine: Str = size@main(s)"
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -366,7 +366,7 @@ fn at_module_reaches_past_a_local_of_the_same_name() {
         "fn describe(v: Int) [] -> [] Str { return \"fn\" }\n",
         probe(
             "    let describe = \"a string\"\n    \
-             let picked: Str = describe@main(1)"
+             let _picked: Str = describe@main(1)"
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));

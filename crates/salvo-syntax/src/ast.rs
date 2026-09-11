@@ -325,7 +325,7 @@ pub struct FnDecl {
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,
-    /// `-> ReadOnly[from: param] T`: the returned value is derived from
+    /// `-> Proj[from: param] T`: the returned value is derived from
     /// (borrows) the named kept parameter [readonly-return].
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
@@ -470,6 +470,11 @@ impl Type {
 pub struct TypeRef {
     pub name: Ident,
     pub args: Vec<Type>,
+    /// [proj-anywhere] `Proj[from: param]`: for the `Proj` qualifier, the
+    /// kept parameter the value borrows from. Only `Proj` carries one, and
+    /// it may appear wherever a type does — a return, a union arm
+    /// (`(Proj[from: xs] T)?`), a type argument (`List<Proj[from: xs] T>`).
+    pub from: Option<Ident>,
     pub span: Span,
 }
 
@@ -478,6 +483,9 @@ pub struct TypeRef {
 impl fmt::Display for TypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name.name)?;
+        if let Some(from) = &self.from {
+            write!(f, "[from: {}]", from.name)?;
+        }
         if !self.args.is_empty() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             write!(f, "<{}>", args.join(", "))?;
@@ -723,7 +731,19 @@ pub enum Expr {
     /// `expr!` — non-null assertion.
     NonNull { operand: Box<Expr>, span: Span },
     /// `i++` — postfix increment.
-    PostIncrement { operand: Box<Expr>, span: Span },
+    /// [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
+    /// either fixity. One node rather than four variants — every consumer
+    /// but the emitters treats them identically (a mutation of the operand),
+    /// so the distinction belongs in fields.
+    IncDec {
+        operand: Box<Expr>,
+        /// Which way the step goes.
+        down: bool,
+        /// Prefix (`++i`) rather than postfix (`i++`): the difference is the
+        /// *value* the expression has, not what it does to the operand.
+        prefix: bool,
+        span: Span,
+    },
     /// `if cond { } elif cond { } else { }`
     If {
         branches: Vec<(Expr, Block)>,
@@ -883,7 +903,7 @@ impl Expr {
             | Expr::Is { span, .. }
             | Expr::Widen { span, .. }
             | Expr::NonNull { span, .. }
-            | Expr::PostIncrement { span, .. }
+            | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }
             | Expr::WhenCond { span, .. }

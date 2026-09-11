@@ -55,6 +55,7 @@ fn errors(src: &str) -> Vec<String> {
         .errors
         .iter()
         .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect()
 }

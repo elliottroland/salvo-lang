@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
+assertion_line: 519
 expression: combined
 ---
 // ===== core/array.rs =====
@@ -93,17 +94,6 @@ pub fn next__2<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
     return Union2::U1(emitted(elem.unwrap()));
 }
 
-// ===== core/result.rs =====
-use crate::core_iterator::*;
-
-pub fn ok<T: Clone>(value: T) -> T {
-    return value;
-}
-
-pub fn err<T: Clone>(value: T) -> T {
-    return value;
-}
-
 // ===== core/string.rs =====
 use crate::core_iterator::*;
 use crate::core_list::*;
@@ -140,59 +130,60 @@ pub mod core_console;
 pub mod core_iterator;
 #[path = "core/list.rs"]
 pub mod core_list;
-#[path = "core/result.rs"]
-pub mod core_result;
 #[path = "core/string.rs"]
 pub mod core_string;
 
+use crate::core_array::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
-use crate::core_result::*;
+use crate::core_list::*;
 use crate::core_string::*;
-use crate::unions::*;
 
-pub fn parse_age(input: i32) -> Union2<i32, String> {
-    if input >= 0 {
-        return Union2::<i32, String>::U1(ok(input));
-    }
-    return Union2::<i32, String>::U2(err("negative age".to_string()));
+pub trait Random<T> {
+    fn next_random(&mut self) -> T;
 }
 
-pub fn describe(result: &Union2<i32, String>) -> String {
-    let mut msg = match result {
-        Union2::U1(_) => {
-            format!("age {}", *result.u1())
+pub struct CyclicRandom<T: Clone + 'static> {
+    values: Vec<T>,
+    i: i32,
+}
+
+impl<T: Clone + 'static> CyclicRandom<T> {
+    pub fn new(values: Vec<T>) -> Self {
+        Self {
+            values,
+            i: 0,
         }
-        Union2::U2(_) => {
-            format!("error: {}", result.u2().clone())
-        }
-    };
-    return msg;
+    }
+}
+
+impl<T: Clone + 'static> Random<T> for CyclicRandom<T> {
+
+    fn next_random(&mut self) -> T {
+        let mut value = self.values.get((self.i % (self.values.len() as i32)) as usize).unwrap();
+        self.i = self.i + 1;
+        return value.clone();
+    }
+}
+
+pub fn draw(random_i32: &mut dyn Random<i32>, random_string: &mut dyn Random<String>, console: &mut dyn Console) {
+    let mut n: i32 = random_i32.next_random();
+    let mut s: String = random_string.next_random();
+    println(console, &(format!("{}: {}", s, n)));
+}
+
+pub fn lucky_number(random_i32: &mut dyn Random<i32>) -> i32 {
+    return random_i32.next_random();
 }
 
 pub fn main() {
     let mut console = StdOutConsole::new();
-    let mut good = parse_age(36);
-    println(&mut console, &(describe(&good)));
-    let mut bad = parse_age(-1);
-    println(&mut console, &(describe(&bad)));
-    let mut precise: Union3<String, String, bool> = Union3::<String, String, bool>::U1(ok("yes".to_string()));
-    if matches!(precise, Union3::U2(_)) {
-        println(&mut console, &(format!("err str: {}", precise.u2().clone())));
-    } else if matches!(precise, Union3::U1(_)) {
-        println(&mut console, &(format!("ok: {}", precise.u1().clone())));
-    } else {
-        println(&mut console, &(format!("err bool: {}", *precise.u3())));
-    }
-    let mut value = match good {
-        Union2::U1(_) => {
-            *good.u1()
-        }
-        Union2::U2(_) => {
-            return;
-        }
-    };
-    println(&mut console, &(format!("value plus one is {}", value + 1)));
+    let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30]);
+    let mut random_string = CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()]);
+    draw(&mut random_i32, &mut random_string, &mut console);
+    draw(&mut random_i32, &mut random_string, &mut console);
+    println(&mut console, &(format!("lucky: {}", random_i32.next_random())));
+    println(&mut console, &(format!("again: {}", lucky_number(&mut random_i32))));
 }
 
 // ===== unions.rs =====
@@ -240,67 +231,6 @@ where
         match self {
             Union2::U1(v) => write!(f, "{}", v),
             Union2::U2(v) => write!(f, "{}", v),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Union3<T1, T2, T3> {
-    U1(T1),
-    U2(T2),
-    U3(T3),
-}
-
-impl<T1, T2, T3> Union3<T1, T2, T3> {
-    pub fn u1(&self) -> &T1 {
-        match self {
-            Union3::U1(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u1_mut(&mut self) -> &mut T1 {
-        match self {
-            Union3::U1(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u2(&self) -> &T2 {
-        match self {
-            Union3::U2(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u2_mut(&mut self) -> &mut T2 {
-        match self {
-            Union3::U2(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u3(&self) -> &T3 {
-        match self {
-            Union3::U3(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-    pub fn u3_mut(&mut self) -> &mut T3 {
-        match self {
-            Union3::U3(v) => v,
-            _ => panic!("unreachable union arm"),
-        }
-    }
-}
-
-impl<T1, T2, T3> std::fmt::Display for Union3<T1, T2, T3>
-where
-    T1: std::fmt::Display,
-    T2: std::fmt::Display,
-    T3: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Union3::U1(v) => write!(f, "{}", v),
-            Union3::U2(v) => write!(f, "{}", v),
-            Union3::U3(v) => write!(f, "{}", v),
         }
     }
 }

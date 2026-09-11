@@ -50,7 +50,13 @@ fn finished() [] -> [] Finished {
 // declaring type is written `self` [group-self].
 //
 // The state is taken as `Mut`: advancing a pass is a mutation of its
-// position. A group emits nothing on any backend [implicit-group].
+// position. A pass that *walks* data emits borrows of it — it declares
+// `: Yield<self, Proj T>` and its `next` returns `Emitted (Proj[from: p] T)`
+// [yield-proj] — so reading through it copies nothing and whoever *stores* an
+// element says `copy` [copy-opt-in]; a pass that *computes* its elements
+// declares `: Yield<self, T>` and owns them. A reading combinator's
+// `?Yield<It, T>` accepts either. A group emits nothing on any backend
+// [implicit-group].
 params Yield<It, T> {
     fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
 }

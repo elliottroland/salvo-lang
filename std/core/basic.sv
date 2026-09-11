@@ -36,3 +36,12 @@ params Linear<It> {
 // it. **Not** an escape hatch from linearity: a linear value's discharge is
 // its own `close`, and `discard` on one is refused, naming it.
 intrinsic fn discard<T canbe Linear>(value: T) [] -> [] None
+
+// [interp-to-str] The obligation "this type has a text form". Declaring
+// `: ToStr<self>` on a type is a *convenience*: it does not enable
+// interpolation — a `to_str` in scope does that, resolved at the
+// interpolation site — but it validates at the declaration that one exists,
+// which is where the mistake is easier to see (user decision 2026-09-11).
+params ToStr<T> {
+    fn to_str(value: T) -> Str
+}

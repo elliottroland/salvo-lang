@@ -462,7 +462,9 @@ fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
     let r = get(z.right, z.at)
     if l is Str && r is Int {
         z.at = z.at + 1
-        return emitted((l, r))
+        // `get` hands back borrows [copy-opt-in]: building a tuple *stores*
+        // the element, so the copy is written where it happens.
+        return emitted((copy(l), r))
     }
     return finished()
 }
@@ -576,7 +578,9 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
         if line == "boom" {
             return emitted(err("bad line at ${r.at}"))
         }
-        return emitted(ok(line))
+        // The element is a borrow [copy-opt-in]; wrapping it in a result
+        // stores it, so the copy is explicit.
+        return emitted(ok(copy(line)))
     }
     return finished()
 }
@@ -887,7 +891,7 @@ fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1087,7 +1091,7 @@ fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1420,7 +1424,7 @@ handler CyclicRandom<T>(values: List<T>) of Random<T> {
     fn next_random() -> T {
         let value = get(values, i % values.size())!
         i = i + 1
-        return value
+        return copy(value)
     }
 }
 
@@ -2602,7 +2606,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person? {
+fn find_adult(persons: List<Person>) -> [persons] Proj[from: persons] Person? {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -2611,7 +2615,7 @@ fn find_adult(persons: List<Person>) -> [persons] ReadOnly[from: persons] Person
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] ReadOnly[from: persons] Person? {
+fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] Proj[from: persons] Person? {
     return first(persons)
 }
 
@@ -3642,7 +3646,7 @@ handler CyclicRandom<T>(values: List<T>) of Random<T> {
     fn next_random() -> T {
         let value = get(values, i % values.size())!
         i = i + 1
-        return value
+        return copy(value)
     }
 }
 
@@ -5553,7 +5557,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -5831,7 +5835,7 @@ fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted T | Finished {
+fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -6128,7 +6132,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -6271,4 +6275,47 @@ fn kotlinc_compiles_and_runs_a_partial_move() {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     run_kotlin_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
+}
+
+/// [inc-dec] All four step forms, in both statement and value position: the
+/// fixity decides the *value* (postfix the old, prefix the new) and the
+/// operator the direction. Rust has neither operator, so a value-position
+/// step becomes a block; the stdout is what pins the two backends together.
+///
+/// Shared with the other backend, byte for byte.
+const INC_DEC_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let i = 5
+    i++
+    i--
+    ++i
+    --i
+    println("statements: ${i}")
+
+    let a = 10
+    let post = a++
+    println("post: ${post} ${a}")
+    let b = 10
+    let pre = ++b
+    println("pre: ${pre} ${b}")
+    let c = 10
+    let cd = c--
+    println("post-dec: ${cd} ${c}")
+    let d = 10
+    let dd = --d
+    println("pre-dec: ${dd} ${d}")
+}
+"#;
+
+const INC_DEC_OUTPUT: &str =
+    "statements: 5\npost: 10 11\npre: 11 11\npost-dec: 10 9\npre-dec: 9 9\n";
+
+#[test]
+fn kotlinc_compiles_and_runs_inc_dec() {
+    let program = build_program(&[("main.sv", INC_DEC_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    run_kotlin_files(&files, "inc-dec", INC_DEC_OUTPUT);
 }

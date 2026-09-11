@@ -55,7 +55,11 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
-    checked(src).1.errors
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity, and these tests are about legality.
+    let mut diags = checked(src).1.errors;
+    diags.retain(|d| d.is_error());
+    diags
 }
 
 fn messages(src: &str) -> Vec<String> {
@@ -66,7 +70,7 @@ fn messages(src: &str) -> Vec<String> {
 /// were dropped *from*.
 fn drops(src: &str) -> Vec<String> {
     let (_, out) = checked(src);
-    assert!(out.errors.is_empty(), "unexpected errors: {:?}", out.errors);
+    assert!(out.errors.iter().all(|d| !d.is_error()), "unexpected errors: {:?}", out.errors);
     let mut found: Vec<String> = out
         .coerce
         .values()
@@ -83,7 +87,7 @@ fn drops(src: &str) -> Vec<String> {
 /// coercion slot, and both changes have to happen.
 fn drop_continuations(src: &str) -> Vec<String> {
     let (_, out) = checked(src);
-    assert!(out.errors.is_empty(), "unexpected errors: {:?}", out.errors);
+    assert!(out.errors.iter().all(|d| !d.is_error()), "unexpected errors: {:?}", out.errors);
     out.coerce
         .values()
         .filter_map(|c| match c {
@@ -231,4 +235,55 @@ fn a_generic_position_keeps_mut() {
 #[test]
 fn a_plain_str_records_nothing() {
     assert!(drops(&body("    let n = takes(\"plain\")")).is_empty());
+}
+
+// ===== interpolation renderability [interp-to-str] [interp-struct] =====
+
+/// [interp-to-str] [backend-never-wrong] A value with no text form used to
+/// pass the checker and become rustc's "doesn't implement Display". It is a
+/// Salvo error now, naming the `to_str` that would fix it.
+#[test]
+fn interpolating_a_type_with_no_text_form_is_an_error() {
+    let src = "struct Opaque { inner: Opaque? }\n\
+               fn probe(o: Opaque) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("has no text form")),
+        "got {msgs:?}"
+    );
+}
+
+/// [interp-to-str] A `to_str` in scope is resolved *at the interpolation
+/// site* (user decision 2026-09-11), so declaring one is all it takes.
+#[test]
+fn a_to_str_in_scope_makes_a_type_interpolable() {
+    let src = "struct Opaque { inner: Opaque? }\n\
+               fn to_str(o: Opaque) [] -> [o] Str { return \"op\" }\n\
+               fn probe(o: Opaque) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+    let msgs = messages(src);
+    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
+}
+
+/// [interp-struct] A struct whose every field renders natively interpolates
+/// with no declaration at all (user decision 2026-09-11).
+#[test]
+fn a_struct_of_native_fields_interpolates_by_default() {
+    let src = "struct Person { name: Str, age: Int }\n\
+               fn probe(p: Person) -> [p] None {\n    let _s = \"${p}\"\n}\n";
+    let msgs = messages(src);
+    assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
+}
+
+/// [interp-struct] The derivation is for the simple cases only: a field that
+/// itself needs a `to_str` is not followed, and the diagnostic asks for one.
+#[test]
+fn a_struct_with_a_non_native_field_needs_its_own_to_str() {
+    let src = "struct Inner { a: Int }\n\
+               struct Outer { inner: Inner }\n\
+               fn probe(o: Outer) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+    let msgs = messages(src);
+    assert!(
+        msgs.iter().any(|m| m.contains("has no text form")),
+        "got {msgs:?}"
+    );
 }

@@ -57,7 +57,11 @@ fn checked(src: &str) -> (Program, salvo_core::Checked) {
 }
 
 fn errors(src: &str) -> Vec<FileDiagnostic> {
-    checked(src).1.errors
+    // Errors only: an unused-variable *warning* [unused-var] is a different
+    // severity, and these tests are about legality.
+    let mut diags = checked(src).1.errors;
+    diags.retain(|d| d.is_error());
+    diags
 }
 
 fn messages(src: &str) -> Vec<String> {
@@ -159,7 +163,7 @@ fn an_unknown_argument_stays_lenient() {
 #[test]
 fn resolved_type_arguments_are_recorded_per_call() {
     let (_, out) = checked(&src("    let xs: Mut List<Str> = empty_list()"));
-    assert!(out.errors.is_empty(), "{:?}", out.errors);
+    assert!(out.errors.iter().all(|d| !d.is_error()), "{:?}", out.errors);
     let recorded: Vec<&Vec<Ty>> = out.call_type_args.values().collect();
     assert!(
         recorded

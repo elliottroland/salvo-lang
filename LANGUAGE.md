@@ -50,6 +50,31 @@ println(text)              // Hello, world
 
 Everything else in `core.string` takes a plain `Str`, and a `Mut Str` reaches all of it by *dropping* its `Mut` like any other qualifier — `size(text)`, `trim(text)`, `text == other` all work. The difference from every other qualifier is invisible in Salvo and matters to the backends: `Mut` is the one qualifier a target may render as a different type (a `StringBuilder` on the JVM), so dropping it there is a real conversion rather than a widening. The compiler records the drop and each backend renders what it needs, which is what keeps `text == other` a comparison of *characters* on both targets.
 
+**Interpolation needs a text form.** `"${value}"` works directly for the scalars, `Str`, and a union whose every arm is one of those. Anything else needs a `to_str` — a function taking the value and returning `Str` — which the compiler looks for *at the interpolation site*, exactly as it fills an implicit parameter:
+
+```
+struct Point { x: Int, y: Int }
+
+fn to_str(p: Point) -> [p] Str {
+    return "(${p.x}, ${p.y})"
+}
+
+println("at ${point}")     // uses the `to_str` above
+```
+
+Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${list(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
+
+**A struct interpolates by default when every field does.** With no `to_str` of its own, a struct whose fields are all scalars or strings renders in the shape its literal has:
+
+```
+struct Person { name: Str, age: Int }
+println("${Person {name: "ann", age: 3}}")    // Person { name: ann, age: 3 }
+```
+
+An explicit `to_str` always wins, and a struct with a field that itself needs one is not derived — write the `to_str` instead. The format is the language's own on purpose: leaving it to each target would print different text on the JVM than in Rust.
+
+**Declaring the obligation is optional.** A type may say `: ToStr<self>`, which does not change how interpolation works — it checks at the declaration that a matching `to_str` exists, so the mistake surfaces where the type is defined rather than where it is printed.
+
 The behavior of Strings are governed by the module `core.string`.
 
 ### Tuples and Unions
@@ -522,7 +547,7 @@ Note that a subject-less `when` gets no arm-exhaustiveness: writing `is` heads t
 ```
 let numbers: Int[] = get_numbers()
 let i = 0
-let last = while i++ < numbers.size() { // post-fix increment is supported
+let last = while i++ < numbers.size() { // ++ and -- work in both fixities
     numbers[i] // the last number evaluated will be the value of the while loop
 } else {
     -1 // defaults to -1 if never looped
@@ -578,7 +603,7 @@ The rules:
 - **Boolean-valued, like `is`**, and usable in the same places: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head. A `^` branch consumes the arms it matched, so exhaustiveness works unchanged.
 - **The qualifiers must be there.** Nothing to remove is an error, not a false test — `^` removes a known claim, it does not test for one (that is `is`).
 - **Several at once** is allowed: `v ^ Mut NonEmpty`.
-- **Some qualifiers can never be dropped**: `Once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `ReadOnly` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
+- **Some qualifiers can never be dropped**: `Once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `Proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
 - **No binding form.** The subject itself reads widened, so `is Type name`'s counterpart would be redundant.
 
 ## Functions
@@ -855,7 +880,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [] Mut ListYield<Int> {
+fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
     return iter(bag.items)
 }
 
@@ -1564,7 +1589,7 @@ One more ordering rule: **arguments are evaluated left to right**, and within a 
 
 Some consequences worth knowing:
 
-- **Values from calls are independent — unless declared derived.** `copy(x)` and most function results carry no links. A function that wants to return a projection of a *kept* parameter without copying declares a **derived return**: `fn first<T>(list: List<T>) -> [list] ReadOnly[from: list] T?` — the returned value borrows `list`, so the caller's result shares fate with the argument (mutating the collection poisons it; moving it out needs `copy`). On the Rust backend this compiles to a real borrow (`Option<&T>`, with a generated lifetime when the function keeps several parameters) — the standard library's `first` is zero-copy this way. Without the annotation, `copy` internally as before.
+- **Values from calls are independent — unless declared derived.** `copy(x)` and most function results carry no links. A function that wants to return a projection of a *kept* parameter without copying declares a **derived return**: `fn first<T>(list: List<T>) -> [list] Proj[from: list] T?` — the returned value borrows `list`, so the caller's result shares fate with the argument (mutating the collection poisons it; moving it out needs `copy`). On the Rust backend this compiles to a real borrow (`Option<&T>`, with a generated lifetime when the function keeps several parameters) — the standard library's `first` is zero-copy this way. Without the annotation, `copy` internally as before.
 - **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives. A `for`-loop binding is fresh each iteration: consuming it inside the body is fine.
 - **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation with no observable difference: Kotlin shares references throughout; Rust emits real moves for move-mode bindings and clones for borrow-mode ones (real borrows are a later stage).
 - **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
@@ -1822,7 +1847,7 @@ Three further rules follow from provenance being about the handle rather than th
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
 
-`Mut`, `Linear`, `Once` and `ReadOnly` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `Once` never drop).
+`Mut`, `Linear`, `Once` and `Proj` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `Once` never drop).
 
 ### Refinements
 
@@ -1946,6 +1971,23 @@ Casing is part of the language, not a convention:
 
 This is what lets the compiler tell a type from a value at the start of a dotted name, which the next section relies on.
 
+**Every name must be declared.** A reference to something nothing declares is an error, not a passthrough to the target language — the same rule as calls, field reads and subscripts. Scopes are not hoisted either, so reading a variable above its `let` is that same error. A name that *is* declared but is not a value says which it is:
+
+```
+let s = Person       // error: `Person` is a struct type, not a value:
+                     //        construct one (`Name { … }`)
+```
+
+**A variable that is never read is a warning.** Assignment does not count as a read — a variable only ever written to has no reader, which is the mistake worth reporting. Prefix the name with `_` to say the omission is deliberate:
+
+```
+let spare = compute()    // warning: `spare` is never used;
+                         //          prefix it with `_` (`_spare`) if that is deliberate
+let _ignored = compute() // no warning
+```
+
+Parameters are exempt: a signature often dictates them, and a handler member implementing an effect cannot drop one.
+
 ### Namespaced names
 
 Structs and qualifiers can be declared with a *dot-name* `Ns.Name`, where `Ns` is a struct in the same file. This gives you the wrapper-type pattern — distinct types for the strings and ids hanging off a struct, so that an incomplete refactor is a type error instead of a silently mis-wired value — without nesting declarations:
@@ -2029,6 +2071,8 @@ fn describe(person: Person) -> Str {
 ```
 
 The language server shows these on hover — for a declaration, for a *use* of it, and for anything nested inside one: hovering a field, wherever it is written, shows that field's own documentation and says which struct declares it. It also shows a variable's type as it is *known at the position you hover* — narrowed by any `is` test or `when` arm you are inside, qualifiers included, with the declared type named below when the two differ.
+
+Three things it adds beyond the declaration text. A **`params` group** hovers with its members, since those are the point of it. A **predicate qualifier** shows the condition it holds under when its `qualifies` is a single `return` — just the expression, so `Positive` reads as "Holds when `int > 0`." A longer body is hidden, and its doc comment explains it instead. And a variable that **shares fate** with another says so, naming what it was derived from and where, down to the field (`p.name`, not all of `p`) — with the reminder that reads are free, that moving or mutating it is rejected, and that `copy` makes an independent value. Names reached through an `import` hover like local ones, on the import line itself as well as at each use — as do the group name in a struct's obligation clause (`: Show<self>`) and the qualifier in an `is` check (`i is Positive`). A function's hover also says **where it came from** — the module of the overload that actually won, named the way an `@module` selector would spell it, since with scope-based overloading the signature alone does not tell you which `size` you are looking at.
 
 ## Backends
 

@@ -357,8 +357,14 @@ impl Server<'_> {
                     );
                     docs::refinement_section(groups, &scope)
                 });
+                // [lsp-fn-origin] Which module the *resolved* overload came
+                // from. With overloading by scope ladder [fn-overload-scope]
+                // this is load-bearing rather than decoration: `size` may be
+                // std's, an import's, or this module's, and the signature
+                // alone does not say which won.
+                let origin = self.origin_section(&analysis, key.file, file_idx);
                 return Some(markdown_hover(
-                    docs::hover_markdown(&signature, &[docs, refinements]),
+                    docs::hover_markdown(&signature, &[docs, refinements, origin]),
                     span_to_range(content, span),
                 ));
             }
@@ -384,7 +390,7 @@ impl Server<'_> {
         }
         let (span, ty) = best?;
         // A fate-linked (derived) variable presents its compiler
-        // qualifier: the type line carries a bare `ReadOnly`, and the
+        // qualifier: the type line carries a bare `Proj`, and the
         // qualifier's parameters (roots, binding sites) follow as
         // on-request detail [fate-link] (progressive disclosure — user
         // decision 2026-09-02).
@@ -393,22 +399,29 @@ impl Server<'_> {
                 .iter()
                 .map(|r| {
                     let pos = span_to_range(content, r.bind_span).start;
+                    // [fate-field-disjoint] Name the storage actually
+                    // shared: a link to `p.name` is not a link to all of
+                    // `p`, and the hover must not overstate it.
+                    let place = match &r.path {
+                        Some(path) => format!("{}{}", r.root, path),
+                        None => r.root.clone(),
+                    };
                     format!(
                         "`{}` (bound at {}:{})",
-                        r.root,
+                        place,
                         pos.line + 1,
                         pos.character + 1
                     )
                 })
                 .collect();
             let detail = format!(
-                "Compiler qualifier `ReadOnly` — shares fate with {}. Reads are \
+                "Compiler qualifier `Proj` — shares fate with {}. Reads are \
                  free; moving or mutating it is rejected; `copy(...)` makes an \
                  independent value.",
                 roots.join(", ")
             );
             return Some(markdown_hover(
-                docs::hover_markdown(&format!("ReadOnly {ty}"), &[Some(detail)]),
+                docs::hover_markdown(&format!("Proj {ty}"), &[Some(detail)]),
                 span_to_range(content, span),
             ));
         }
@@ -429,6 +442,38 @@ impl Server<'_> {
             docs::hover_markdown(&ty.to_string(), &[declared]),
             span_to_range(content, span),
         ))
+    }
+
+
+    /// [lsp-fn-origin] Where a declaration came from, as a hover section: the
+    /// module, and what kind of place that is — the standard library, another
+    /// file of the program, or the file being edited. The module path is what
+    /// an `@module` selector would name [fn-overload-at], so a reader can act
+    /// on it directly.
+    fn origin_section(
+        &self,
+        analysis: &Analysis,
+        decl_file: usize,
+        here: usize,
+    ) -> Option<String> {
+        let file = analysis.program.files.get(decl_file)?;
+        let module = file.module.to_string();
+        if file.is_std {
+            return Some(format!("From `{module}` — the standard library."));
+        }
+        if decl_file == here {
+            return Some("Declared in this file.".to_string());
+        }
+        let same_module = analysis
+            .program
+            .files
+            .get(here)
+            .is_some_and(|h| h.module == file.module);
+        Some(if same_module {
+            format!("From `{module}` — this module, in `{}`.", file.name)
+        } else {
+            format!("From `{module}`.")
+        })
     }
 
     /// A markdown link target for a definition site, or `None` for the
@@ -484,14 +529,24 @@ impl Server<'_> {
             None => {
                 let items = &analysis.program.modules.get(file_idx)?.items;
                 let hit = |s: Span| s.start <= offset && offset < s.end;
-                let name_span = decl_name_span_at(items, &hit)?;
-                (
-                    name_span,
-                    DefSite {
-                        file: file_idx,
-                        span: name_span,
-                    },
-                )
+                // [doc-comment] The cursor may be on an `import`'s item name
+                // (`import shapes.Point`), which is where a reader looks to
+                // learn what was imported. The name is not a *reference* the
+                // checker recorded, so it is resolved here by finding the
+                // declaration it names (user request 2026-09-11).
+                match import_target(items, &hit, analysis) {
+                    Some(found) => found,
+                    None => {
+                        let name_span = decl_name_span_at(items, &hit)?;
+                        (
+                            name_span,
+                            DefSite {
+                                file: file_idx,
+                                span: name_span,
+                            },
+                        )
+                    }
+                }
             }
         };
 
@@ -529,7 +584,12 @@ impl Server<'_> {
                 (
                     qualifier_signature(q),
                     docs::render(&q.docs, &scope),
-                    None,
+                    // [doc-qualifies-body] A *predicate* qualifier is defined
+                    // by its `qualifies`, so a one-line one is shown as the
+                    // condition itself. Anything longer is an implementation
+                    // rather than a rule, and the qualifier's doc comment is
+                    // the better place for it (user decision 2026-09-11).
+                    qualifies_section(q, source),
                 )
             }
             DeclAt::Effect(e) => {
@@ -540,6 +600,17 @@ impl Server<'_> {
                         .collect(),
                 );
                 (effect_signature(e), docs::render(&e.docs, &scope), None)
+            }
+            DeclAt::Params(g) => {
+                // The group's own members are in scope for `[symbol]`
+                // references in its docs [doc-symbol-ref].
+                let scope = scope(
+                    g.fns
+                        .iter()
+                        .map(|f| (f.name.name.clone(), f.name.span))
+                        .collect(),
+                );
+                (params_signature(g), docs::render(&g.docs, &scope), None)
             }
             DeclAt::Handler(h) => {
                 let scope = scope(
@@ -606,8 +677,14 @@ impl Server<'_> {
                 )
             }
         };
+        // [lsp-fn-origin] Where it came from, for a declaration that is not
+        // in this file — hovering a *local* declaration to be told it is
+        // local would be noise, so that case is left out.
+        let origin = (target.file != file_idx)
+            .then(|| self.origin_section(analysis, target.file, file_idx))
+            .flatten();
         Some(markdown_hover(
-            docs::hover_markdown(&signature, &[body, fields]),
+            docs::hover_markdown(&signature, &[body, fields, origin]),
             span_to_range(content, span),
         ))
     }
@@ -773,6 +850,8 @@ enum DeclAt<'a> {
     Effect(&'a salvo_syntax::ast::EffectDecl),
     Handler(&'a salvo_syntax::ast::HandlerDecl),
     Type(&'a salvo_syntax::ast::TypeDecl),
+    /// [doc-comment] A `params` group — the obligation/spread bundle.
+    Params(&'a salvo_syntax::ast::ParamsDecl),
     /// A struct field, handler state field, or qualifier field override.
     Field {
         owner: String,
@@ -903,6 +982,20 @@ fn decl_at<'a>(items: &'a [Item], hit: &dyn Fn(Span) -> bool) -> Option<DeclAt<'
                     return Some(DeclAt::Type(t));
                 }
             }
+            Item::Params(g) => {
+                if hit(g.name.span) {
+                    return Some(DeclAt::Params(g));
+                }
+                for f in &g.fns {
+                    if hit(f.name.span) {
+                        return Some(DeclAt::Member {
+                            owner: g.name.name.clone(),
+                            siblings: own_names(item),
+                            decl: f,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -918,6 +1011,7 @@ fn decl_name_span_at(items: &[Item], hit: &dyn Fn(Span) -> bool) -> Option<Span>
         DeclAt::Effect(e) => e.name.span,
         DeclAt::Handler(h) => h.name.span,
         DeclAt::Type(t) => t.name.span,
+        DeclAt::Params(g) => g.name.span,
         DeclAt::Field { decl, .. } => decl.name.span,
         DeclAt::Member { decl, .. } => decl.name.span,
     })
@@ -932,6 +1026,87 @@ fn markdown_hover(value: String, range: Range) -> Hover {
         }),
         range: Some(range),
     }
+}
+
+
+
+/// [doc-comment] The declaration an `import`'s item name refers to, when the
+/// cursor sits on it. `import a.b.Point` names `Point`; the last path
+/// segment is the item, and the segments before it are the module — so only
+/// a declaration in *that* module counts, which is what keeps two structs of
+/// the same name apart.
+fn import_target(
+    items: &[Item],
+    hit: &dyn Fn(Span) -> bool,
+    analysis: &Analysis,
+) -> Option<(Span, DefSite)> {
+    for item in items {
+        let Item::Import(decl) = item else { continue };
+        let (name, module) = decl.path.split_last()?;
+        if !hit(name.span) {
+            continue;
+        }
+        let module_path: Vec<&str> = module.iter().map(|m| m.name.as_str()).collect();
+        for (file_idx, (file, ast)) in analysis
+            .program
+            .files
+            .iter()
+            .zip(&analysis.program.modules)
+            .enumerate()
+        {
+            if file.module.0 != module_path {
+                continue;
+            }
+            if let Some(span) = decl_name_span_at(&ast.items, &|s: Span| {
+                span_text(&file.content, s) == name.name
+            }) {
+                return Some((
+                    name.span,
+                    DefSite {
+                        file: file_idx,
+                        span,
+                    },
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The source text a span covers, for matching a declaration by name.
+fn span_text(source: &str, span: Span) -> &str {
+    source
+        .get(span.start as usize..span.end as usize)
+        .unwrap_or("")
+}
+
+/// [doc-qualifies-body] The *condition* a predicate qualifier holds under,
+/// when its `qualifies` is a single `return <expression>` — then the
+/// expression alone is shown, inline. Anything longer is hidden and the
+/// qualifier's own doc comment is left to explain it (user decision
+/// 2026-09-11): a one-line predicate is the rule itself, while a body with
+/// branches or locals is an implementation the reader did not ask for.
+///
+/// `None` for a qualifier with no `qualifies` (a constructive or provenance
+/// one — there is no predicate), a body that is not exactly one `return`, or
+/// an expression that does not fit on one line.
+fn qualifies_section(
+    decl: &salvo_syntax::ast::QualifierDecl,
+    source: &str,
+) -> Option<String> {
+    let f = decl.fns.iter().find(|f| f.name.name == "qualifies")?;
+    let body = f.body.as_ref()?;
+    let [salvo_syntax::ast::Stmt::Return { value: Some(expr), .. }] = &body.stmts[..] else {
+        return None;
+    };
+    let span = expr.span();
+    let text = source
+        .get(span.start as usize..span.end as usize)?
+        .trim();
+    if text.is_empty() || text.contains('\n') {
+        return None;
+    }
+    Some(format!("Holds when `{text}`."))
 }
 
 /// A struct's declaration line, without its body: `struct Person canbe Mut`.
@@ -992,6 +1167,34 @@ fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
                 None => String::new(),
             };
             sig.push_str(&format!("\n    fn {}({}){}", f.name.name, params.join(", "), ret));
+        }
+        sig.push_str("\n}");
+    }
+    sig
+}
+
+/// [doc-comment] `params Yield<It, T> { fn next(it: Mut It) -> … }` — the
+/// members are the point of a group, so they are always shown.
+fn params_signature(decl: &salvo_syntax::ast::ParamsDecl) -> String {
+    let mut sig = format!("params {}{}", decl.name.name, generic_list(&decl.generics));
+    if !decl.fns.is_empty() {
+        sig.push_str(" {");
+        for f in &decl.fns {
+            let params: Vec<String> = f
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name.name, p.ty))
+                .collect();
+            let ret = match &f.return_type {
+                Some(t) => format!(" -> {t}"),
+                None => String::new(),
+            };
+            sig.push_str(&format!(
+                "\n    fn {}({}){}",
+                f.name.name,
+                params.join(", "),
+                ret
+            ));
         }
         sig.push_str("\n}");
     }

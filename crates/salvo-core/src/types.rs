@@ -420,7 +420,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
         // ([qual-widen]'s single exclusion list: `Once`, `Linear`,
-        // `ReadOnly`).
+        // `Proj`).
         (Ty::Qualified { quals, base }, _) => {
             quals.iter().all(|q| q.drop_block().is_none()) && is_subtype(base, b)
         }
@@ -598,8 +598,8 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
             "linearity is declared on the type, not applied at a use site, and              it carries a use obligation that cannot be dropped",
         ),
         // [readonly-return] The value is borrowed from somewhere else.
-        "ReadOnly" => Some(
-            "`ReadOnly` marks a value derived from another: dropping it would              claim ownership the value does not have",
+        "Proj" => Some(
+            "`Proj` marks a value derived from another: dropping it would              claim ownership the value does not have",
         ),
         _ => None,
     }
