@@ -52,10 +52,12 @@ pub fn type_has_proj(ty: &Type) -> bool {
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
-        Type::QualifiedGroup { qualifiers, base, .. } => {
-            qualifiers.iter().any(in_ref) || type_has_proj(base)
+        Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers.iter().any(in_ref) || type_has_proj(base),
+        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+            arms.iter().any(type_has_proj)
         }
-        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => arms.iter().any(type_has_proj),
         Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => type_has_proj(elem),
         Type::Fn { .. } => false,
     }
@@ -69,10 +71,12 @@ pub fn type_arg_has_proj(ty: &Type) -> bool {
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
-        Type::QualifiedGroup { qualifiers, base, .. } => {
-            qualifiers.iter().any(in_ref) || type_arg_has_proj(base)
+        Type::QualifiedGroup {
+            qualifiers, base, ..
+        } => qualifiers.iter().any(in_ref) || type_arg_has_proj(base),
+        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+            arms.iter().any(type_arg_has_proj)
         }
-        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => arms.iter().any(type_arg_has_proj),
         Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => type_arg_has_proj(elem),
         Type::Fn { .. } => false,
     }
@@ -170,7 +174,10 @@ pub fn declared_lends(decl: &FnDecl) -> Option<Vec<usize>> {
         .iter()
         .filter(|d| {
             d.proj_sources().is_some()
-                && matches!(d.target, DeductionTarget::Opaque | DeductionTarget::Result { .. })
+                && matches!(
+                    d.target,
+                    DeductionTarget::Opaque | DeductionTarget::Result { .. }
+                )
         })
         .collect();
     if result_entries.is_empty() {
@@ -195,6 +202,16 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
     if let Some(v) = env.memo.get(&key) {
         return v.clone();
     }
+    // [proj-infer] A written projection entry decides outright — *before*
+    // the written-return gate below, because instantiation can make a
+    // result hold borrows the written type does not show (`-> Mut List<T>`
+    // with `T = Proj Str`): the author's `=> Proj[from: it]` names the
+    // lends exactly, and must win over the every-kept-argument fallback
+    // the caller would otherwise apply.
+    if let Some(declared) = declared_lends(decl) {
+        env.memo.insert(key, declared.clone());
+        return declared;
+    }
     let Some(ret) = &decl.return_type else {
         env.memo.insert(key, Vec::new());
         return Vec::new();
@@ -202,10 +219,6 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
     if !holds_proj(ret, env.structs) {
         env.memo.insert(key, Vec::new());
         return Vec::new();
-    }
-    if let Some(declared) = declared_lends(decl) {
-        env.memo.insert(key, declared.clone());
-        return declared;
     }
     let conservative = kept_params(decl);
     // Cycle guard: a recursive fn sees itself as conservative.
@@ -273,7 +286,9 @@ impl<'p> Walk<'_, '_, 'p> {
                 if let Some(t) = ty {
                     struct_names(t, &mut names);
                 }
-                let Some(sdecl) = names.first().and_then(|n| self.env.structs.get(n.as_str()).copied())
+                let Some(sdecl) = names
+                    .first()
+                    .and_then(|n| self.env.structs.get(n.as_str()).copied())
                 else {
                     // A bare `{...}` literal: only an expected type would
                     // name the struct. Conservative.
@@ -331,8 +346,14 @@ impl<'p> Walk<'_, '_, 'p> {
             // A field of a view holds what the view holds, at most.
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => self.roots_of_expr(base),
             Expr::Index { base, .. } => self.roots_of_expr(base),
-            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => self.lends_of_expr(operand),
-            Expr::If { branches, else_block, .. } => {
+            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => {
+                self.lends_of_expr(operand)
+            }
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
                 let mut out = HashSet::new();
                 for (_, b) in branches {
                     out.extend(self.lends_of_block(b)?);
@@ -342,7 +363,11 @@ impl<'p> Walk<'_, '_, 'p> {
                 }
                 Some(out)
             }
-            Expr::WhenCond { branches, else_block, .. } => {
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
                 let mut out = HashSet::new();
                 for (_, b) in branches {
                     out.extend(self.lends_of_block(b)?);
@@ -389,7 +414,9 @@ impl<'p> Walk<'_, '_, 'p> {
     /// of fn type (a lambda, a fn-typed parameter): no body to read, and
     /// its type's `[p: Proj]` entries are the caller's business.
     fn resolve_call<'e>(&self, e: &'e Expr) -> Option<(Vec<&'e Expr>, Vec<&'p FnDecl>)> {
-        let Expr::Call { callee, args, .. } = e else { return None };
+        let Expr::Call { callee, args, .. } = e else {
+            return None;
+        };
         let (name, all_args): (String, Vec<&Expr>) = match callee.as_ref() {
             Expr::Ident(id) => (id.name.clone(), args.iter().collect()),
             Expr::Field { base, field, .. } => {
@@ -435,7 +462,9 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
                 self.roots_of_expr(base)
             }
-            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => self.roots_of_expr(operand),
+            Expr::NonNull { operand, .. } | Expr::Spread { operand, .. } => {
+                self.roots_of_expr(operand)
+            }
             Expr::Call { .. } => {
                 let (all_args, decls) = self.resolve_call(e)?;
                 let mut out = HashSet::new();
@@ -500,7 +529,11 @@ impl<'p> Walk<'_, '_, 'p> {
 fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) {
     fn expr<'e>(e: &'e Expr, out: &mut HashMap<String, Vec<&'e Expr>>) {
         match e {
-            Expr::If { branches, else_block, .. } => {
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
                 for (c, b) in branches {
                     expr(c, out);
                     collect_defs(b, out);
@@ -509,27 +542,43 @@ fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) 
                     collect_defs(b, out);
                 }
             }
-            Expr::WhenCond { branches, else_block, .. } => {
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
                 for (c, b) in branches {
                     expr(c, out);
                     collect_defs(b, out);
                 }
                 collect_defs(else_block, out);
             }
-            Expr::When { subject, branches, .. } => {
+            Expr::When {
+                subject, branches, ..
+            } => {
                 expr(subject, out);
                 for b in branches {
                     collect_defs(&b.body, out);
                 }
             }
-            Expr::While { cond, body, else_block, .. } => {
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
                 expr(cond, out);
                 collect_defs(body, out);
                 if let Some(b) = else_block {
                     collect_defs(b, out);
                 }
             }
-            Expr::For { iterable, body, else_block, .. } => {
+            Expr::For {
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
                 expr(iterable, out);
                 collect_defs(body, out);
                 if let Some(b) = else_block {
@@ -554,7 +603,9 @@ fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) 
                 }
                 expr(value, out);
             }
-            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => expr(v, out),
+            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
+                expr(v, out)
+            }
             Stmt::Expr(e) => expr(e, out),
             _ => {}
         }
@@ -567,7 +618,11 @@ fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) 
 fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
     fn expr<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
         match e {
-            Expr::If { branches, else_block, .. } => {
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
                 for (c, b) in branches {
                     expr(c, out);
                     collect_returns(b, out, false);
@@ -576,27 +631,43 @@ fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
                     collect_returns(b, out, false);
                 }
             }
-            Expr::WhenCond { branches, else_block, .. } => {
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
                 for (c, b) in branches {
                     expr(c, out);
                     collect_returns(b, out, false);
                 }
                 collect_returns(else_block, out, false);
             }
-            Expr::When { subject, branches, .. } => {
+            Expr::When {
+                subject, branches, ..
+            } => {
                 expr(subject, out);
                 for b in branches {
                     collect_returns(&b.body, out, false);
                 }
             }
-            Expr::While { cond, body, else_block, .. } => {
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
                 expr(cond, out);
                 collect_returns(body, out, false);
                 if let Some(b) = else_block {
                     collect_returns(b, out, false);
                 }
             }
-            Expr::For { iterable, body, else_block, .. } => {
+            Expr::For {
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
                 expr(iterable, out);
                 collect_returns(body, out, false);
                 if let Some(b) = else_block {
@@ -642,7 +713,11 @@ fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
 /// The trailing values of a branching expression used as a block tail.
 fn collect_tail_branches<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
     match e {
-        Expr::If { branches, else_block, .. } => {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
             for (c, b) in branches {
                 let _ = c;
                 collect_returns(b, out, true);
@@ -651,7 +726,11 @@ fn collect_tail_branches<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
                 collect_returns(b, out, true);
             }
         }
-        Expr::WhenCond { branches, else_block, .. } => {
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
             for (_, b) in branches {
                 collect_returns(b, out, true);
             }

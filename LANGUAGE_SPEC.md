@@ -2090,12 +2090,14 @@ Conventions:
   captures is classified from its body, and the contract binds at
   *creation* (a closure may run zero or more times, unlike a named fn
   whose deductions fire per call).
-  * A capture that is only *read*: free for transitively-immutable
-    values (clone-vs-alias is unobservable — backend-parity principle);
-    for transitively-mutable values the lambda *value* fate-links to
-    the variable [fate-link] — the variable stays readable, mutating
-    it poisons the closure, and binding/moving the closure follows the
-    ordinary derived-value rules [fate-move-mode].
+  * A capture that is only *read* makes the lambda a **view** of it
+    [lambda-view]: the closure holds a borrow of every non-Copy read
+    capture (a Copy scalar is the value itself [copy-scalar-free]) — the
+    variable stays readable, mutating or moving it poisons the closure,
+    and binding/moving the closure follows the ordinary view rules.
+    (Until 2026-09-12 only *transitively-mutable* read captures linked,
+    alias-style — which let a named lambda smuggle a capture-rooted
+    projection past the discipline; see [lambda-view].)
   * A capture the body *mutates* is consumed at creation — the closure
     takes ownership (each call mutates it; an original observing those
     mutations on one backend but not the other would break parity). A
@@ -2105,7 +2107,8 @@ Conventions:
   * A lambda that *consumes* a capture (a call that moves it, a store,
     spread, `return`/`break`) is `Once`-typed [once-fn]: the
     capture is consumed at creation and the closure is callable at most
-    once. Consuming a *linear* capture remains an error
+    once — the closure *owns* that value, so it is **not** a view of it
+    [lambda-view]. Consuming a *linear* capture remains an error
     [linear-lambda].
   * Effects do not yet cross the lambda boundary as a contract: fn
     types parse an effect list (`(S) [E] -> T`) but the checker drops
@@ -2364,6 +2367,12 @@ Conventions:
     body performs; it may name more (a generic body — `filter`'s
     `add(out, x)` with `x` an element of an opaque pass — lends through
     opacity the analysis cannot see, and the entry is how it says so).
+    A written entry takes **precedence over the instantiation fallback**
+    (2026-09-12): where a substituted return holds `Proj` the written
+    type does not show (`-> Mut List<T>` with `T = Proj Str`), a call
+    links the result to *every* kept argument unless the author's
+    `=> Proj[from: it]` names the lends — then only those link, still
+    flowing through a temporary in the named position to its roots.
   * The caller links the result to the lent arguments, *held*
     [proj-readonly]; returning a view rooted in a local is an error ("a
     local that dies with this call"), and a returned view may be rooted
@@ -2375,6 +2384,26 @@ Conventions:
     (`struct Pair<T, U, a, b> { first: Proj[from: a] T, … }`) as the
     per-field explicit form, should the conservative fallback ever bite;
     `[name-casing]` already makes it parse (ROADMAP).
+* [lambda-view] **A capturing lambda is a view** (user decision
+  2026-09-12): the closure holds a borrow of every non-Copy capture its
+  body only reads, exactly as a struct holds its `Proj` fields
+  [proj-field] — because a body can return projections rooted in a
+  capture (`i -> get(words, i)!` hands out elements of `words`), which no
+  fn type can name (`Proj[from: …]` sources are parameters; captures are
+  unnameable). So the *value* carries the link: binding the lambda links
+  it to the captured roots (held, borrowed); a call result linked to a
+  lambda argument reaches those roots transitively (which is what makes
+  `map(indices, i -> get(all, i)!)` both legal and correctly poisoned by
+  a later move of `all`); a capture-free lambda holds nothing, so
+  `map(p, w -> w)` binds with no ceremony (a lambda expression is never
+  itself a "temporary" a view could dangle from). A capture the closure
+  *consumes* is owned, not borrowed — the `Once` rule [fate-lambda] —
+  and a Copy scalar capture links nothing [copy-scalar-free]. Before
+  this rule, naming the lambda (`let f = i -> get(words, i)!`) evaded
+  the discipline entirely: `eat(words)` was accepted with the view live.
+  * Rust: a capture-rooted projection in a lambda tail stays the borrow
+    (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a
+    `Vec<&String>`) — no clone [copy-opt-in].
 * [yield-proj] A pass that walks data declares `: Yield<self, Proj T>` and
   its `next` returns `Emitted (Proj[from: p] T) | Finished` — the element is
   a projection of the pass, which projects the source; a generator declares

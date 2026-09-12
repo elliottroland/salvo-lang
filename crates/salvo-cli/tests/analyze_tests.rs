@@ -58,7 +58,13 @@ fn json_output_lists_structured_diagnostics() {
         "fn broken() -> Int {\n    let x: Int = \"hello\"\n    return x\n}\n",
     )
     .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    let out = salvo(&[
+        "analyze",
+        "--src",
+        dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!out.status.success());
     assert!(stdout.trim().starts_with('['), "stdout: {stdout}");
@@ -66,7 +72,10 @@ fn json_output_lists_structured_diagnostics() {
     assert!(stdout.contains("\"file\": \"bad.sv\""), "stdout: {stdout}");
     assert!(stdout.contains("\"line\": 2"), "stdout: {stdout}");
     assert!(stdout.contains("\"col\": 18"), "stdout: {stdout}");
-    assert!(stdout.contains("\"severity\": \"error\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"severity\": \"error\""),
+        "stdout: {stdout}"
+    );
     // Message quotes (`Int`) survive; embedded double quotes are escaped.
     assert!(
         stdout.contains("\"message\": \"expected `Int`, found `Str`\""),
@@ -78,7 +87,13 @@ fn json_output_lists_structured_diagnostics() {
 fn json_output_is_empty_array_for_clean_program() {
     let dir = src_dir("json_clean");
     fs::write(dir.join("main.sv"), CLEAN).unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    let out = salvo(&[
+        "analyze",
+        "--src",
+        dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
     assert!(out.status.success());
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
 }
@@ -161,7 +176,13 @@ fn unresolved_names_suggest_imports() {
         "stderr: {stderr}"
     );
 
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    let out = salvo(&[
+        "analyze",
+        "--src",
+        dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("\"imports\": [\"random.DefaultRandom\"]"),
@@ -197,7 +218,10 @@ fn import_suggestions_cover_user_modules_and_bad_imports() {
         "stderr: {stderr}"
     );
     // ...and the effect list's unknown `Audit` gets the same suggestion.
-    assert!(stderr.contains("unknown effect `Audit`"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("unknown effect `Audit`"),
+        "stderr: {stderr}"
+    );
 }
 
 // [fn-must-return] A fn with a non-`None` return type must return on all
@@ -257,9 +281,7 @@ fn use_after_consume_is_an_error() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains(
-            "`a` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr.contains("`a` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
 
@@ -319,9 +341,8 @@ fn inferred_moves_consume_arguments() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains(
-            "`strings` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr
+            .contains("`strings` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
 
@@ -414,7 +435,10 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
     );
     // ...and the loop's second pass flags the use-before-consume on the
     // back edge.
-    assert!(stderr.contains("`s` cannot be used here"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`s` cannot be used here"),
+        "stderr: {stderr}"
+    );
 
     // Consume-then-revive inside the body is clean across iterations.
     fs::write(
@@ -501,7 +525,10 @@ fn if_branch_merge_matrix() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(stderr.contains("`a` cannot be used here"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`a` cannot be used here"),
+        "stderr: {stderr}"
+    );
 
     // One branch consumes, the other exits: the only fall-through path
     // consumed it -> consumed after.
@@ -517,7 +544,10 @@ fn if_branch_merge_matrix() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(stderr.contains("`b` cannot be used here"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`b` cannot be used here"),
+        "stderr: {stderr}"
+    );
 
     // The consuming branch always exits -> clean after.
     fs::write(
@@ -576,7 +606,10 @@ fn for_loop_back_edge() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(stderr.contains("`s` cannot be used here"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`s` cannot be used here"),
+        "stderr: {stderr}"
+    );
 }
 
 // [type-union] A union-arm value passes where the union is expected, in
@@ -640,16 +673,19 @@ fn undeclared_qualifier_reports_the_name() {
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
-    assert!(stderr.contains("unknown qualifier `Yes`"), "stderr: {stderr}");
-    assert!(stderr.contains("unknown qualifier `No`"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("unknown qualifier `Yes`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("unknown qualifier `No`"),
+        "stderr: {stderr}"
+    );
     assert!(
         stderr.contains("unknown type or qualifier `Yes`"),
         "stderr: {stderr}"
     );
-    assert!(
-        !stderr.contains("can never succeed"),
-        "stderr: {stderr}"
-    );
+    assert!(!stderr.contains("can never succeed"), "stderr: {stderr}");
 }
 
 // ===== Shared fate [fate-link] [fate-poison] [fate-derived-readonly] =====
@@ -676,9 +712,7 @@ fn fate_derived_variables_are_read_only() {
     // *root* is consumed at the binding; its later use names the binding.
     assert_eq!(
         stderr
-            .matches(
-                "`xs` cannot be used here: `ys` was bound from it and later moves the value"
-            )
+            .matches("`xs` cannot be used here: `ys` was bound from it and later moves the value")
             .count(),
         2,
         "stderr: {stderr}"
@@ -723,7 +757,10 @@ fn fate_root_events_poison_derived_variables() {
         ),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("`xs` was moved after the binding"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`xs` was moved after the binding"),
+        "stderr: {stderr}"
+    );
     assert!(
         stderr.contains("`xs` was reassigned after the binding"),
         "stderr: {stderr}"
@@ -756,7 +793,10 @@ fn fate_links_flow_through_projections_loops_and_bindings() {
         stderr.contains("cannot return `longest`: it was bound from `person`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("cannot return `s`: it was bound from `v`"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("cannot return `s`: it was bound from `v`"),
+        "stderr: {stderr}"
+    );
     // `revived` is clean: reassignment severed the link.
     assert!(stderr.contains("2 errors"), "stderr: {stderr}");
 }
@@ -934,15 +974,12 @@ fn l2_move_sites_consume_roots() {
     // roots is legal — the binding takes ownership, so the *root* is
     // consumed at the binding and its later use names the binding.
     assert!(
-        stderr.contains(
-            "`xs` cannot be used here: `ys` was bound from it and later moves the value"
-        ),
+        stderr
+            .contains("`xs` cannot be used here: `ys` was bound from it and later moves the value"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "`b` cannot be used here: `d` was bound from it and later moves the value"
-        ),
+        stderr.contains("`b` cannot be used here: `d` was bound from it and later moves the value"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("8 errors"), "stderr: {stderr}");
@@ -1054,9 +1091,8 @@ fn s2_move_mode_ancestors_are_consumed() {
     // Chain: `xs` was consumed at `a`'s binding (the whole chain is
     // move-mode); the use-site error names the binding.
     assert!(
-        stderr.contains(
-            "`xs` cannot be used here: `a` was bound from it and later moves the value"
-        ),
+        stderr
+            .contains("`xs` cannot be used here: `a` was bound from it and later moves the value"),
         "stderr: {stderr}"
     );
     // The parity probe is rejected: `wrap(h.tags)` moved mutable data
@@ -1075,9 +1111,7 @@ fn s2_move_mode_ancestors_are_consumed() {
     // A kept parameter's mutable data cannot be moved out; `copy` is the
     // remedy (kept_remedy is clean).
     assert!(
-        stderr.contains(
-            "cannot move mutable data out of `h`: it is a kept parameter"
-        ),
+        stderr.contains("cannot move mutable data out of `h`: it is a kept parameter"),
         "stderr: {stderr}"
     );
     // A written-kept parameter binding keeps the S1 error at the move
@@ -1194,16 +1228,12 @@ fn l4_lambda_captures() {
     );
     // A written-kept parameter cannot be captured-and-mutated.
     assert!(
-        stderr.contains(
-            "this lambda captures and mutates `xs`, which is a kept parameter"
-        ),
+        stderr.contains("this lambda captures and mutates `xs`, which is a kept parameter"),
         "stderr: {stderr}"
     );
     // The capture claim propagates: the caller's argument is consumed.
     assert!(
-        stderr.contains(
-            "`xs` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr.contains("`xs` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
     // The positive matrix (immutable captures, pre-mutation use, `copy`
@@ -1274,15 +1304,11 @@ fn close(x: Conn) -> None => !x {}
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "`h` owns a linear value that is consumed on some paths but not others"
-        ),
+        stderr.contains("`h` owns a linear value that is consumed on some paths but not others"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "this expression produces a linear value that is dropped immediately"
-        ),
+        stderr.contains("this expression produces a linear value that is dropped immediately"),
         "stderr: {stderr}"
     );
     assert!(
@@ -1298,9 +1324,7 @@ fn close(x: Conn) -> None => !x {}
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "this lambda captures and mutates `conn`, which holds a linear value"
-        ),
+        stderr.contains("this lambda captures and mutates `conn`, which holds a linear value"),
         "stderr: {stderr}"
     );
     // [linear-composite] R4 part 2: `Box2` holds a `FileHandle`, which is
@@ -1309,9 +1333,7 @@ fn close(x: Conn) -> None => !x {}
     // `composite_refused` body itself is silent: the container was never
     // legally built, so there is no follow-on leak.
     assert!(
-        stderr.contains(
-            "`FileHandle` is linear, so it cannot be the type of field `Box2.item`"
-        ),
+        stderr.contains("`FileHandle` is linear, so it cannot be the type of field `Box2.item`"),
         "stderr: {stderr}"
     );
     // Exactly the eight violations: the positive matrix is clean.
@@ -1471,17 +1493,14 @@ fn l7b_once_fns() {
     );
     // Passing a `Once` value on consumes it (escape rule).
     assert!(
-        stderr.contains(
-            "`f` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr.contains("`f` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
     // `Once` applies to fn types; a type of one's own opts in with
     // `canbe Once` [canbe-optin]. Widening it to *any* type is roadmap D6, to
     // be designed with D7.
     assert!(
-        stderr.contains("`Once` applies to function types")
-            && stderr.contains("`canbe Once`"),
+        stderr.contains("`Once` applies to function types") && stderr.contains("`canbe Once`"),
         "stderr: {stderr}"
     );
     // run_maybe, once_where_once_ok, plain_where_once_ok are clean.
@@ -1598,9 +1617,7 @@ fn l7d_fn_type_contracts() {
     assert!(!out.status.success());
     // Double use through a consuming contract.
     assert!(
-        stderr.contains(
-            "`data` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr.contains("`data` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
     // A consuming named fn cannot fit a keeping contract.
@@ -1610,16 +1627,12 @@ fn l7d_fn_type_contracts() {
     );
     // A kept lambda parameter cannot be consumed.
     assert!(
-        stderr.contains(
-            "cannot consume `v`: this lambda's contract keeps it"
-        ),
+        stderr.contains("cannot consume `v`: this lambda's contract keeps it"),
         "stderr: {stderr}"
     );
     // The consuming contract propagates: the caller's argument dies.
     assert!(
-        stderr.contains(
-            "`xs` cannot be used here: it was consumed (moved) by an earlier call"
-        ),
+        stderr.contains("`xs` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
     // caller_keeps is clean: exactly the four violations.
@@ -1728,7 +1741,8 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("is mutated by this function, so the deduction cannot keep every qualifier"),
+        stderr
+            .contains("is mutated by this function, so the deduction cannot keep every qualifier"),
         "stderr: {stderr}"
     );
 }
@@ -1928,7 +1942,10 @@ fn main() [use] {
     fs::write(
         dir.join("main.sv"),
         source
-            .replace("    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty\n", "")
+            .replace(
+                "    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty\n",
+                "",
+            )
             .replace("    // Adding an element makes the list non-empty.\n", ""),
     )
     .unwrap();
@@ -1976,10 +1993,19 @@ fn main() [use] {
     assert!(stderr.contains("0 errors, 1 warning"), "stderr: {stderr}");
 
     // …and the warning is a warning in the JSON too [diag-structured].
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap(), "--format", "json"]);
+    let out = salvo(&[
+        "analyze",
+        "--src",
+        dir.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    assert!(stdout.contains("\"severity\": \"warning\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"severity\": \"warning\""),
+        "stdout: {stdout}"
+    );
 }
 
 // [proj-type] A union arm that borrows (`Emitted (Proj Str) | Finished`)
@@ -2078,4 +2104,96 @@ fn a_combinator_result_is_a_view_of_its_container() {
     // The generator instantiation is unlinked (`free` draws no error), so
     // exactly the three violations above are reported.
     assert!(stderr.contains("3 errors"), "stderr: {stderr}");
+}
+
+// [lambda-view] A capturing lambda is a *view*: it holds borrows of its
+// non-Copy read captures, so binding it links it to the captured roots,
+// a call result linked to the lambda reaches them transitively, and
+// consuming a capture while the closure lives poisons it. A capture-free
+// lambda holds nothing — `map(p, w -> w)` needs no ceremony. (User
+// decision 2026-09-12; closed the hole where naming the lambda evaded
+// the discipline.)
+#[test]
+fn a_capturing_lambda_is_a_view_of_its_captures() {
+    let dir = src_dir("lambda_view");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         // 1. capture-free: the one-liner binds with no links\n    \
+         let words = list(\"ann\", \"bo\")\n    \
+         let p = iter(words)\n    \
+         let kept = map(p, w -> w)\n    \
+         println(\"${size(kept)}\")\n    \
+         // 2. a capture-rooted projection: legal, linked to the capture\n    \
+         let all = list(\"a\", \"b\", \"c\", \"d\")\n    \
+         let indices = list(1, 3)\n    \
+         let picked = map(iter(indices), i -> get(all, i)!)\n    \
+         println(\"${size(picked)}\")\n    \
+         // 3. the named-lambda form is linked the same way: consuming\n    \
+         // the capture poisons the result derived through the closure\n    \
+         let all2 = list(\"a\", \"b\")\n    \
+         let f = i -> get(all2, i)!\n    \
+         let picked2 = map(iter(indices), f)\n    \
+         eat(all2)\n    \
+         println(\"${size(picked2)}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "`picked2` cannot be used here: it was bound from `all2` and shares \
+             its fate, and `all2` was moved after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    // Scenarios 1 and 2 are clean: exactly the one violation.
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
+}
+
+// [proj-infer] A written opaque projection entry (`=> Proj[from: it]`)
+// names the lends exactly and takes precedence over the instantiation
+// fallback that links a `Proj`-holding result to every kept argument —
+// even where the *written* return type shows no projection (`Mut List<T>`
+// with `T = Proj Str`). The link still flows through the named source.
+// (Closed 2026-09-12; before, the entry was consulted only behind a
+// written-return-type gate the instantiation case never passed.)
+#[test]
+fn a_written_proj_entry_narrows_the_instantiation_link() {
+    let dir = src_dir("proj_written_entry");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
+         fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
+         -> Mut List<T> => it: Mut, Proj[from: it], labels {\n    \
+         let out = mutable_list<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let words = list(\"ann\", \"bo\")\n    \
+         let tags = list(\"x\")\n    \
+         let kept = keep_all(iter(words), tags)\n    \
+         eat(tags)\n    \
+         println(\"${size(kept)}\")\n    \
+         let words2 = list(\"ann\", \"bo\")\n    \
+         let tags2 = list(\"x\")\n    \
+         let kept2 = keep_all(iter(words2), tags2)\n    \
+         eat(words2)\n    \
+         println(\"${size(kept2)}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // Consuming the co-argument the entry does *not* name is free…
+    assert!(!stderr.contains("`kept` cannot"), "stderr: {stderr}");
+    // …while the named source still links through the temporary pass.
+    assert!(
+        stderr.contains(
+            "`kept2` cannot be used here: it was bound from `words2` and shares \
+             its fate, and `words2` was moved after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }

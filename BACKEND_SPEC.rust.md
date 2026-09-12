@@ -399,6 +399,19 @@ the blanket rule:
   passes `h.unwrap()`; `let v = get(xs, i)!` binds as a plain `Ref`.
   Found live 2026-09-11: the generic path emitted `.as_ref().unwrap()
   .clone()`, a clone of the *reference* (`&&T → &T`).
+  * [proj-type] [lambda-view] An unwrap whose own checker type is a
+    projection stays the reference — no clone, no deref: a lambda tail
+    `get(all, i)!` typed `Proj Str` yields `&String` into the closure's
+    return (`Vec<&String>` at the call), and an interpolated
+    `first(names)!` displays through the reference. Any position that
+    truly needs ownership was checker-refused without `copy` before
+    emission (2026-09-12; before, every non-Copy unwrap in a value
+    position cloned — a copy the program never opted into).
+  * A Copy scalar read out of a reference binding (a lambda parameter
+    under the `FnMut(&T)` convention [rs-fn-param-convention]) renders
+    as a *value* in intrinsic argument positions (`*i`): lowerings use
+    scalars in casts (`(i) as usize`), which a `&i32` place fails
+    (E0606; found live 2026-09-12).
 * [rs-proj-struct] A struct with a `Proj` field — or an owned field whose
   type has one, transitively — is a **borrowing struct**: `struct
   ListYield<'s, T> { items: &'s Vec<T>, at: i32 }`, with `<'s>` on owned

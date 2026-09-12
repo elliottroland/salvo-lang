@@ -1719,6 +1719,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_generic_subject_iter_fn,
     kotlinc_compiles_and_runs_the_deduction_clause_projections,
     kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter,
+    kotlinc_compiles_and_runs_a_capture_rooted_projection,
 ];
 
 /// The package prefix isolating one case inside the shared compilation.
@@ -6505,4 +6506,37 @@ fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> Kot
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT)
+}
+
+// ===== [lambda-view] a capture-rooted projection =====
+
+/// The Kotlin half of the capture-rooted projection case: a callback
+/// picking elements out of a captured list. On the JVM a capture is an
+/// alias and the projection erases; what this pins is byte-identical
+/// stdout with the Rust backend, which holds real borrows.
+const PICK_LIST_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let all = list("a", "b", "c", "d")
+    let indices = list(1, 3)
+    let picked = map(indices, i -> get(all, i)!)
+    for w in picked {
+        println(w)
+    }
+    let p = iter(indices)
+    let doubled = map(p, i -> i + i)
+    for n in doubled {
+        println("${n}")
+    }
+}
+"#;
+
+const PICK_LIST_OUTPUT: &str = "b\nd\n2\n6\n";
+
+fn kotlinc_compiles_and_runs_a_capture_rooted_projection() -> KotlinCase {
+    let program = build_program(&[("main.sv", PICK_LIST_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "pick-list", PICK_LIST_OUTPUT)
 }

@@ -198,7 +198,7 @@ pub fn main() {
     let mut anon = Person { surname: None, ..person.clone() };
     greet(&mut console, &anon);
     let mut names = vec!["a".to_string(), "b".to_string()];
-    println(&mut console, &(format!("first: {}", names.first().unwrap().clone())));
+    println(&mut console, &(format!("first: {}", names.first().unwrap())));
     let mut mut_names = vec!["x".to_string()];
     mut_names.push("y".to_string());
     println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));

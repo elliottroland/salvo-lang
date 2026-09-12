@@ -766,9 +766,7 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
                 Item::Fn(f) if f.intrinsic => ("fn", &f.name.name, f.name.span),
                 Item::Type(t) if t.intrinsic => ("type", &t.name.name, t.name.span),
                 Item::Handler(h) if h.intrinsic => ("handler", &h.name.name, h.name.span),
-                Item::Qualifier(q) if q.intrinsic => {
-                    ("qualifier", &q.name.name, q.name.span)
-                }
+                Item::Qualifier(q) if q.intrinsic => ("qualifier", &q.name.name, q.name.span),
                 _ => continue,
             };
             out.errors.push(crate::diag::FileDiagnostic::error(
@@ -830,10 +828,7 @@ fn check_effect_member_names(program: &Program, out: &mut Checked) {
                         ));
                     }
                     None => {
-                        seen.insert(
-                            &f.name.name,
-                            (&e.name.name, file_idx, f.name.span),
-                        );
+                        seen.insert(&f.name.name, (&e.name.name, file_idx, f.name.span));
                     }
                 }
             }
@@ -1298,9 +1293,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [diag-import-suggest].
     fn error_unresolved(&mut self, span: Span, msg: impl Into<String>, name: &str) {
         let imports = self.resolution.import_candidates(name);
-        self.out.errors.push(
-            FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports),
-        );
+        self.out
+            .errors
+            .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports));
     }
 
     // ================= module / function traversal =================
@@ -1344,15 +1339,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let pt = self.lower_type(&f.params[0].ty);
                         if let Ty::Named { name, .. } = pt.strip_quals() {
                             if self.has_auto_linear(name) {
-                                self.own_close_param =
-                                    Some(f.params[0].name.name.clone());
+                                self.own_close_param = Some(f.params[0].name.name.clone());
                             }
                         }
                     }
                     self.own_written = f
                         .deductions
                         .as_ref()
-                        .map(|l| l.iter().filter_map(|d| d.param_name().map(|n| n.name.clone())).collect())
+                        .map(|l| {
+                            l.iter()
+                                .filter_map(|d| d.param_name().map(|n| n.name.clone()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     self.own_contract = self.effective_contract(Some(key), f);
                     self.check_fn(f, &[], &[]);
@@ -1593,13 +1591,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let scope = self.scope;
         for (i, ob) in s.obligations.iter().enumerate() {
             // The same group twice is a mistake, not an emphasis.
-            if s.obligations[..i].iter().any(|p| p.name.name == ob.name.name) {
+            if s.obligations[..i]
+                .iter()
+                .any(|p| p.name.name == ob.name.name)
+            {
                 self.error(
                     ob.span,
-                    format!(
-                        "obligation `{}` is declared more than once",
-                        ob.name.name
-                    ),
+                    format!("obligation `{}` is declared more than once", ob.name.name),
                 );
                 continue;
             }
@@ -1639,11 +1637,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // group also spreads as `?Group<...>` implicits [implicit-group].
             let self_ty = Ty::Named {
                 name: s.name.name.clone(),
-                args: s
-                    .generics
-                    .iter()
-                    .map(|g| Ty::Var(g.name.clone()))
-                    .collect(),
+                args: s.generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
             };
             for a in &ob.args {
                 if !is_self_ref(a) {
@@ -1679,8 +1673,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .map(|p| p.name.clone())
                 .zip(args)
                 .collect();
-            let bound: HashSet<String> =
-                group.generics.iter().map(|p| p.name.clone()).collect();
+            let bound: HashSet<String> = group.generics.iter().map(|p| p.name.clone()).collect();
             for member in &group.fns {
                 let outer = self.enter_generics(&group.generics);
                 let member_ty = self.member_fn_ty(member);
@@ -1739,8 +1732,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let Ty::Fn { params, ret, .. } = &expected else {
                         continue;
                     };
-                    let shown: Vec<String> =
-                        params.iter().map(|p| p.to_string()).collect();
+                    let shown: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                     self.error(
                         ob.span,
                         format!(
@@ -1923,8 +1915,20 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `None` when the printed types already differ, which is when they are
     /// explanation enough.
     fn fn_fit_reason(&self, want: &Ty, got: &Ty, got_name: &str) -> Option<String> {
-        let (Ty::Fn { params: wp, contract: wc, effects: we, .. }, Ty::Fn { params: gp, contract: gc, effects: ge, .. }) =
-            (want.strip_quals(), got.strip_quals())
+        let (
+            Ty::Fn {
+                params: wp,
+                contract: wc,
+                effects: we,
+                ..
+            },
+            Ty::Fn {
+                params: gp,
+                contract: gc,
+                effects: ge,
+                ..
+            },
+        ) = (want.strip_quals(), got.strip_quals())
         else {
             return None;
         };
@@ -2129,10 +2133,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if first_proj_span(arg).is_none() {
                         continue;
                     }
-                    let Some(generic) = group.generics.get(gi) else { continue };
+                    let Some(generic) = group.generics.get(gi) else {
+                        continue;
+                    };
                     if let Some(ast::Type::Union { arms, .. }) = member.return_type.as_ref() {
                         for (i, arm) in arms.iter().enumerate() {
-                            if type_mentions_generic(arm, &generic.name) && !borrowed_arms.contains(&i) {
+                            if type_mentions_generic(arm, &generic.name)
+                                && !borrowed_arms.contains(&i)
+                            {
                                 borrowed_arms.push(i);
                             }
                         }
@@ -2219,7 +2227,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The fn type of a `params` group member (or any bodiless signature),
     /// as a value of that type would have.
     fn member_fn_ty(&mut self, member: &'p FnDecl) -> Ty {
-        let params: Vec<Ty> = member.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let params: Vec<Ty> = member
+            .params
+            .iter()
+            .map(|p| self.lower_type(&p.ty))
+            .collect();
         let ret = member
             .return_type
             .as_ref()
@@ -2284,7 +2296,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let Some(key) = key else { return };
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        let implicits = self
+            .out
+            .implicit_params
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
         self.fill_implicits(
             &implicits,
             &decl.name.name,
@@ -2312,7 +2329,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             for arg in named {
                 self.error(
                     arg.span,
-                    format!("`{callee}` has no implicit parameter named `{}`", arg.name.name),
+                    format!(
+                        "`{callee}` has no implicit parameter named `{}`",
+                        arg.name.name
+                    ),
                 );
             }
             return;
@@ -2406,7 +2426,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !implicits.iter().any(|p| p.name == arg.name.name) {
                 self.error(
                     arg.span,
-                    format!("`{callee}` has no implicit parameter named `{}`", arg.name.name),
+                    format!(
+                        "`{callee}` has no implicit parameter named `{}`",
+                        arg.name.name
+                    ),
                 );
             }
         }
@@ -2485,9 +2508,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let shown = self.fn_value_ty(entry.key, decl);
                 note(
                     1,
-                    format!(
-                        "the `{name}` in scope is `{shown}`, and the position needs `{want}`"
-                    ),
+                    format!("the `{name}` in scope is `{shown}`, and the position needs `{want}`"),
                     &mut near,
                 );
                 continue;
@@ -2658,7 +2679,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // keeps-everything.
         let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
             Some(_) => self.effective_contract(Some(entry.key), decl),
-            None => self.inferred.and_then(|table| table.get(&entry.key).cloned()),
+            None => self
+                .inferred
+                .and_then(|table| table.get(&entry.key).cloned()),
         };
         let contract = facts.map(|facts| {
             decl.params
@@ -2892,8 +2915,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|&i| viable[i].module == wanted)
                 .collect();
             if named_module.is_empty() {
-                let mut modules: Vec<String> =
-                    viable.iter().map(|v| v.module.clone()).collect();
+                let mut modules: Vec<String> = viable.iter().map(|v| v.module.clone()).collect();
                 modules.sort();
                 modules.dedup();
                 self.error(
@@ -2952,9 +2974,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The scope-override warning: a *more specific signature* was
         // discarded because it sits on a less specific rung.
         if at.is_none() {
-            let overridden = shadowed.into_iter().find(|&i| {
-                crate::types::spec_dominates(&viable[i].rank, &viable[winner].rank)
-            });
+            let overridden = shadowed
+                .into_iter()
+                .find(|&i| crate::types::spec_dominates(&viable[i].rank, &viable[winner].rank));
             if let Some(other) = overridden {
                 let chosen_sig = Self::render_signature(name, &viable[winner]);
                 let other_sig = Self::render_signature(name, &viable[other]);
@@ -3130,10 +3152,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             else {
                 continue;
             };
-                // [fn-rename] A renamed overload no longer answers to this name,
+            // [fn-rename] A renamed overload no longer answers to this name,
             // so it cannot fill an implicit parameter of it either.
-            let entries: Vec<crate::resolve::FnEntry<'p>> =
-                self.overloads_of(&imp.name);
+            let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(&imp.name);
             if entries.is_empty() {
                 continue;
             }
@@ -3161,8 +3182,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // teaches nothing and must not match everything.
                 let mut binding: HashMap<String, Ty> = HashMap::new();
                 let matched = have_params.iter().zip(&want_params).all(|(have, want)| {
-                    ty_mentions_vars(want, callee_generics)
-                        || unify(have, want, &mut binding)
+                    ty_mentions_vars(want, callee_generics) || unify(have, want, &mut binding)
                 });
                 if !matched {
                     continue;
@@ -3261,8 +3281,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     fns: &lookup,
                     memo: &mut self.lends_memo,
                 };
-                let inferred: Option<Vec<usize>> =
-                    crate::lends::infer_from_body(f, body, &mut env).map(|set| {
+                let inferred: Option<Vec<usize>> = crate::lends::infer_from_body(f, body, &mut env)
+                    .map(|set| {
                         let mut v: Vec<usize> = set.into_iter().collect();
                         v.sort_unstable();
                         v
@@ -3279,12 +3299,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 .iter()
                                 .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
                                 .collect();
-                            if names.is_empty() { "nothing".to_string() } else { format!("`{}`", names.join("`, `")) }
+                            if names.is_empty() {
+                                "nothing".to_string()
+                            } else {
+                                format!("`{}`", names.join("`, `"))
+                            }
                         };
                         let span = f
                             .deductions
                             .as_ref()
-                            .and_then(|l| l.iter().find(|d| d.proj_sources().is_some()).map(|d| d.span))
+                            .and_then(|l| {
+                                l.iter()
+                                    .find(|d| d.proj_sources().is_some())
+                                    .map(|d| d.span)
+                            })
                             .unwrap_or(f.name.span);
                         self.error(
                             span,
@@ -3381,12 +3409,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // per-occurrence loop above; only the kept rule is left here.
             if is_param && self.inferred.is_some() {
                 let kept = match &f.deductions {
-                    Some(list) => {
-                        crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {})
-                            .iter()
-                            .find(|d| d.param == id.name)
-                            .is_some_and(|d| d.kept)
-                    }
+                    Some(list) => crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {})
+                        .iter()
+                        .find(|d| d.param == id.name)
+                        .is_some_and(|d| d.kept),
                     None => self
                         .own_contract
                         .as_ref()
@@ -3513,9 +3539,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     lambda_kept: false,
                     is_handler_state: false,
                     widened: None,
-            place_narrows: Vec::new(),
-            moved_places: Vec::new(),
-            used: false,
+                    place_narrows: Vec::new(),
+                    moved_places: Vec::new(),
+                    used: false,
                 },
             );
         }
@@ -3544,8 +3570,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     is_handler_state: false,
                     widened: None,
                     place_narrows: Vec::new(),
-            moved_places: Vec::new(),
-            used: false,
+                    moved_places: Vec::new(),
+                    used: false,
                 },
             );
         }
@@ -3572,9 +3598,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     lambda_kept: false,
                     is_handler_state: true,
                     widened: None,
-            place_narrows: Vec::new(),
-            moved_places: Vec::new(),
-            used: false,
+                    place_narrows: Vec::new(),
+                    moved_places: Vec::new(),
+                    used: false,
                 },
             );
         }
@@ -3748,8 +3774,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             .filter(|(i, p)| !deps.iter().any(|(d, _)| d == i) && !p.implicit)
             .map(|(_, p)| p)
             .collect();
-        let param_tys: Vec<Ty> =
-            value_params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let param_tys: Vec<Ty> = value_params
+            .iter()
+            .map(|p| self.lower_type(&p.ty))
+            .collect();
         let of_ty = self.lower_type(&decl.of);
         self.generics = saved;
         // [lsp-definition] the handler name points at its declaration.
@@ -3828,8 +3856,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        let generic_set: HashSet<String> =
-            decl.generics.iter().map(|g| g.name.clone()).collect();
+        let generic_set: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
         // The handler's own type arguments, in declaration order, for the
         // emitters: a generic handler has to be *constructed* at a type
         // (`Plain<Int>()`, `Plain::<i32>::new()`), which neither target can
@@ -3915,11 +3942,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         if !resolved_deps.is_empty() {
-            self.out
-                .use_deps
-                .insert(self.key(span), resolved_deps);
+            self.out.use_deps.insert(self.key(span), resolved_deps);
         }
-        self.out.use_effects.insert(self.key(span), concrete.clone());
+        self.out
+            .use_effects
+            .insert(self.key(span), concrete.clone());
         self.effect_env.push(concrete);
     }
 
@@ -4008,7 +4035,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
-                format!("`{}` is already declared (shadowing is not allowed)", name.name),
+                format!(
+                    "`{}` is already declared (shadowing is not allowed)",
+                    name.name
+                ),
             );
         }
         // [fate-move-mode] A move-mode binding takes ownership: its
@@ -4051,9 +4081,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 lambda_kept: false,
                 is_handler_state: false,
                 widened: None,
-            place_narrows: Vec::new(),
-            moved_places: Vec::new(),
-            used: false,
+                place_narrows: Vec::new(),
+                moved_places: Vec::new(),
+                used: false,
             },
         );
     }
@@ -4068,9 +4098,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn provenance<'e>(expr: &'e Expr, out: &mut Vec<&'e Ident>) {
         match expr {
             Expr::Ident(id) => out.push(id),
-            Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
-                Self::provenance(base, out)
-            }
+            Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => Self::provenance(base, out),
             Expr::Index { base, .. } => Self::provenance(base, out),
             Expr::NonNull { operand, .. } => Self::provenance(operand, out),
             _ => {}
@@ -4149,7 +4177,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [readonly-return] The result of a derived-return call borrows
         // the annotated argument: it carries that argument's links
         // (dot-notation receivers are argument 0).
-        if let Expr::Call { callee, args, span, .. } = value {
+        if let Expr::Call {
+            callee, args, span, ..
+        } = value
+        {
             // [proj-infer] The result of a lending call holds borrows of the
             // lent arguments: an owned value (a pass) tied to them.
             if let Some(lent) = self.out.lending_calls.get(&(self.file_idx, *span)).cloned() {
@@ -4201,8 +4232,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return links;
             }
         }
-        // A lambda value is derived from its transitively-mutable read
-        // captures [fate-lambda]: binding it carries those links (the
+        // [lambda-view] A lambda value is a *view* of its non-Copy read
+        // captures [fate-lambda]: binding it carries those held links (the
         // direct ones restamped to this bind event).
         if let Expr::Lambda { span, .. } = value {
             return self
@@ -4236,7 +4267,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         for src in sources {
-            let Some(var) = self.lookup(&src.name) else { continue };
+            let Some(var) = self.lookup(&src.name) else {
+                continue;
+            };
             // A source that is itself physically borrowed propagates the
             // flag to its direct link [readonly-return].
             let src_borrowed = var.links.iter().any(|l| l.borrowed);
@@ -4264,7 +4297,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     _ => None,
                 };
-                push(FateLink { path: composed, ..l }, &mut links);
+                push(
+                    FateLink {
+                        path: composed,
+                        ..l
+                    },
+                    &mut links,
+                );
             }
         }
         links
@@ -4392,9 +4431,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // "structs should interpolate by default when all their fields do").
         // An explicit `to_str` wins, which is why this is tried second.
         if let Some(name) = self.struct_interp_name(ty) {
-            self.out
-                .interp_struct
-                .insert(self.key(expr.span()), name);
+            self.out.interp_struct.insert(self.key(expr.span()), name);
             return;
         }
         self.error(
@@ -4435,8 +4472,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     && base.args.is_empty()
                     && matches!(
                         base.name.name.as_str(),
-                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char"
-                            | "Byte" | "Str"
+                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Str"
                     )
             }
             _ => false,
@@ -4585,9 +4621,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if self.own_written.contains(&l.root_name) {
                 continue;
             }
-            let is_param = self
-                .var_by_id(l.root_id)
-                .is_some_and(|var| var.is_param);
+            let is_param = self.var_by_id(l.root_id).is_some_and(|var| var.is_param);
             if is_param {
                 self.param_claims
                     .entry(key)
@@ -4660,7 +4694,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Every live ancestor must be owned; a dead root has nothing
         // left to consume and does not block the move.
         for l in &links {
-            let Some(var) = self.var_by_id(l.root_id) else { continue };
+            let Some(var) = self.var_by_id(l.root_id) else {
+                continue;
+            };
             if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
                 return links;
             }
@@ -4669,7 +4705,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // binding inside a lambda whose ancestors live outside it stays
         // borrow-mode, and the move site reports the violation.
         for l in &links {
-            let Some(frame) = self.frame_of_id(l.root_id) else { continue };
+            let Some(frame) = self.frame_of_id(l.root_id) else {
+                continue;
+            };
             if self.lambda_ctx.iter().any(|ctx| frame < ctx.boundary) {
                 return links;
             }
@@ -4754,9 +4792,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fate-lambda]. `mutable` = the value is transitively mutable.
     fn record_capture(&mut self, frame: usize, name: &str, var_id: u32, mutable: bool) {
         for ctx in &mut self.lambda_ctx {
-            if frame < ctx.boundary
-                && !ctx.captures.iter().any(|c| c.var_id == var_id)
-            {
+            if frame < ctx.boundary && !ctx.captures.iter().any(|c| c.var_id == var_id) {
                 ctx.captures.push(CaptureInfo {
                     name: name.to_string(),
                     var_id,
@@ -4789,16 +4825,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// that reports an error and returns `true` so the consumption is
     /// skipped.
     fn capture_move_violation(&mut self, frame: usize, name: &str, span: Span) -> bool {
-        let captured = self
-            .lambda_ctx
-            .iter()
-            .any(|ctx| frame < ctx.boundary);
+        let captured = self.lambda_ctx.iter().any(|ctx| frame < ctx.boundary);
         if !captured {
             return false;
         }
-        let is_linear = self.lookup(name).is_some_and(|v| {
-            self.ty_own_linear(&v.declared)
-        });
+        let is_linear = self
+            .lookup(name)
+            .is_some_and(|v| self.ty_own_linear(&v.declared));
         if is_linear {
             if self.inferred.is_some() {
                 self.error(
@@ -4819,9 +4852,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(var_id) = var_id {
             for ctx in &mut self.lambda_ctx {
                 if frame < ctx.boundary {
-                    if let Some(c) =
-                        ctx.captures.iter_mut().find(|c| c.var_id == var_id)
-                    {
+                    if let Some(c) = ctx.captures.iter_mut().find(|c| c.var_id == var_id) {
                         c.moved = true;
                     }
                 }
@@ -4833,7 +4864,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [proj-anywhere] The qualifier a constructor call builds (`emitted(x)`
     /// → `Emitted`), when `value` is a call to a `-> T as Q` fn.
     fn constructed_qualifier(&self, value: &Expr) -> Option<String> {
-        let Expr::Call { span, .. } = value else { return None };
+        let Expr::Call { span, .. } = value else {
+            return None;
+        };
         self.constructed_qualifier_at(*span)
     }
 
@@ -4909,7 +4942,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mentioned: Vec<String> = f
             .deductions
             .as_ref()
-            .map(|l| l.iter().filter_map(|d| d.param_name().map(|n| n.name.clone())).collect())
+            .map(|l| {
+                l.iter()
+                    .filter_map(|d| d.param_name().map(|n| n.name.clone()))
+                    .collect()
+            })
             .unwrap_or_default();
         for p in f.params.iter().filter(|p| !p.implicit && !p.variadic) {
             if mentioned.contains(&p.name.name) {
@@ -4995,7 +5032,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // Only *ultimate* roots are reported: a derived intermediate
             // (`let a = get(ts, i)`) is in the list alongside what it
             // derives from, and naming both would say one thing twice.
-            if self.var_by_id(l.root_id).is_some_and(|v| !v.links.is_empty()) {
+            if self
+                .var_by_id(l.root_id)
+                .is_some_and(|v| !v.links.is_empty())
+            {
                 continue;
             }
             let is_param_root = self.var_by_id(l.root_id).is_some_and(|v| v.is_param)
@@ -5018,7 +5058,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let lent = self.own_lends.iter().any(|n| n == &root)
                 || self.var_by_id(l.root_id).is_some_and(|v| {
-                    v.links.iter().any(|x| self.own_lends.iter().any(|n| n == &x.root_name))
+                    v.links
+                        .iter()
+                        .any(|x| self.own_lends.iter().any(|n| n == &x.root_name))
                 });
             // A written `[p: Proj]` list is checked against the body as a
             // whole (in `check_fn`); the per-return report would repeat it.
@@ -5038,6 +5080,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [proj-anywhere] Whether an argument is a *temporary* — not a variable
     /// or a projection of one, and not a call that forwards a view of one.
     fn is_temporary(&self, arg: &Expr) -> bool {
+        // [lambda-view] A lambda expression is never a dangling source: a
+        // capturing one is a view whose links pass *through* to the
+        // captured variables, and a capture-free one holds nothing a
+        // result could borrow.
+        if matches!(arg, Expr::Lambda { .. }) {
+            return false;
+        }
         let mut sources = Vec::new();
         Self::provenance(arg, &mut sources);
         if !sources.is_empty() {
@@ -5061,7 +5110,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::NonNull { operand, .. } => operand.as_ref(),
             other => other,
         };
-        let Expr::Call { span, callee, .. } = inner else { return };
+        let Expr::Call { span, callee, .. } = inner else {
+            return;
+        };
         if !self.out.temp_views.contains(&self.key(*span)) {
             return;
         }
@@ -5094,7 +5145,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             self.own_derived_sources.clone()
         };
-        let source_ids: Vec<u32> = sources.iter().filter_map(|n| self.lookup(n).map(|v| v.id)).collect();
+        let source_ids: Vec<u32> = sources
+            .iter()
+            .filter_map(|n| self.lookup(n).map(|v| v.id))
+            .collect();
         if source_ids.is_empty() {
             return;
         }
@@ -5230,10 +5284,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.inferred.is_none() {
                     continue;
                 }
-                let state = self
-                    .lookup(&id.name)
-                    .map(|var| (var.id, var.links.clone()));
-                let Some((var_id, links)) = state else { continue };
+                let state = self.lookup(&id.name).map(|var| (var.id, var.links.clone()));
+                let Some((var_id, links)) = state else {
+                    continue;
+                };
                 if !links.is_empty() {
                     let name = id.name.clone();
                     self.error_derived(id.span, "move", &name, &links);
@@ -5270,13 +5324,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // therefore cannot have preserved through a mutation).
             let have: Vec<String> = self
                 .lookup(&id.name)
-                .map(|v| {
-                    v.narrowed
-                        .quals()
-                        .iter()
-                        .map(|q| q.name.clone())
-                        .collect()
-                })
+                .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                 .unwrap_or_default();
             let removed = effect.removal_set(&have, |q| self.is_provenance_qual(q));
             if !removed.is_empty() {
@@ -5342,14 +5390,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // A lambda cannot consume data out of a capture [fate-lambda].
         for l in &links {
-            let Some(frame) = self.frame_of_id(l.root_id) else { continue };
+            let Some(frame) = self.frame_of_id(l.root_id) else {
+                continue;
+            };
             let name = l.root_name.clone();
             if self.capture_move_violation(frame, &name, span) {
                 return Vec::new();
             }
         }
         for l in &links {
-            let Some(var) = self.var_by_id(l.root_id) else { continue };
+            let Some(var) = self.var_by_id(l.root_id) else {
+                continue;
+            };
             if (var.is_param && !self.param_owned(&l.root_name)) || var.lambda_kept {
                 let root = l.root_name.clone();
                 self.error(
@@ -5437,12 +5489,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !visited.insert(name.clone()) {
                     return false; // recursive struct: already being checked
                 }
-                decl.fields.iter().any(|f| self.ast_type_mut(&f.ty, visited))
+                decl.fields
+                    .iter()
+                    .any(|f| self.ast_type_mut(&f.ty, visited))
             }
             Ty::Array(elem) => self.ty_transitively_mut(elem, visited),
-            Ty::Tuple(elems) => {
-                elems.iter().any(|e| self.ty_transitively_mut(e, visited))
-            }
+            Ty::Tuple(elems) => elems.iter().any(|e| self.ty_transitively_mut(e, visited)),
             Ty::Union(arms) => arms.iter().any(|a| self.ty_transitively_mut(a, visited)),
             _ => false,
         }
@@ -5485,9 +5537,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [linear-generics]. Attaching an obligation on the strength of a
     /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
-        self.scope.structs.get(name).is_some_and(|s| {
-            s.obligations.iter().any(|o| o.name.name == "Linear")
-        })
+        self.scope
+            .structs
+            .get(name)
+            .is_some_and(|s| s.obligations.iter().any(|o| o.name.name == "Linear"))
     }
 
     /// `ty_own_linear` over written (AST) types, without lowering: used by
@@ -5513,9 +5566,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::QualifiedGroup { base, .. } => self.ast_type_own_linear(base),
             // A union value is one value, so an arm's obligation is the
             // union's — which is why writing one is a store.
-            ast::Type::Union { arms, .. } => {
-                arms.iter().find_map(|a| self.ast_type_own_linear(a))
-            }
+            ast::Type::Union { arms, .. } => arms.iter().find_map(|a| self.ast_type_own_linear(a)),
             ast::Type::Nullable { inner, .. } => self.ast_type_own_linear(inner),
             _ => None,
         }
@@ -5634,7 +5685,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// reported variables are marked consumed so enclosing checks do not
     /// re-report them.
     fn check_linear_frame_drop(&mut self) {
-        let Some(frame) = self.locals.last() else { return };
+        let Some(frame) = self.locals.last() else {
+            return;
+        };
         let owed: Vec<(String, Span)> = frame
             .iter()
             .filter(|(name, var)| self.owes_linear(name, var))
@@ -5684,8 +5737,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
     }
-
-
 
     /// `error`, unless an identical diagnostic was already reported: one
     /// exit can be reached by two walks (a `throw` inside a loop, say), so
@@ -5770,8 +5821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn claimed_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         let mut out: Vec<Ty> = Vec::new();
         match ty {
-            ast::Type::Named { qualifiers, .. }
-            | ast::Type::QualifiedGroup { qualifiers, .. } => {
+            ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => {
                 for q in qualifiers {
                     if self.scope.qualifiers.contains_key(q.name.name.as_str()) {
                         continue;
@@ -6172,10 +6222,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 branches,
                 else_block,
                 ..
-            } => {
-                self.block_exits(else_block)
-                    && branches.iter().all(|(_, b)| self.block_exits(b))
-            }
+            } => self.block_exits(else_block) && branches.iter().all(|(_, b)| self.block_exits(b)),
             // Nothing else exits its enclosing block by itself. Loops are
             // deliberately excluded (they may run zero times), a lambda
             // owns its own control flow, and a `try` body's exits are
@@ -6308,18 +6355,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !visited.insert(base.name.name.clone()) {
                     return false;
                 }
-                decl.fields.iter().any(|f| self.ast_type_mut(&f.ty, visited))
+                decl.fields
+                    .iter()
+                    .any(|f| self.ast_type_mut(&f.ty, visited))
             }
-            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
-                qualifiers.iter().any(|q| q.name.name == "Mut")
-                    || self.ast_type_mut(base, visited)
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                qualifiers.iter().any(|q| q.name.name == "Mut") || self.ast_type_mut(base, visited)
             }
-            ast::Type::Union { arms, .. } => {
-                arms.iter().any(|a| self.ast_type_mut(a, visited))
-            }
-            ast::Type::Tuple { elems, .. } => {
-                elems.iter().any(|e| self.ast_type_mut(e, visited))
-            }
+            ast::Type::Union { arms, .. } => arms.iter().any(|a| self.ast_type_mut(a, visited)),
+            ast::Type::Tuple { elems, .. } => elems.iter().any(|e| self.ast_type_mut(e, visited)),
             ast::Type::Array { elem, .. } => self.ast_type_mut(elem, visited),
             ast::Type::Nullable { inner, .. } => self.ast_type_mut(inner, visited),
             ast::Type::Fn { .. } => false,
@@ -6657,8 +6703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         bindings: Vec<Binding>,
     ) -> (Ty, Option<TailInfo>) {
         let entry = self.snapshot_narrows();
-        let result =
-            self.with_narrows(narrows, |c| c.check_branch_block(body, bindings.clone()));
+        let result = self.with_narrows(narrows, |c| c.check_branch_block(body, bindings.clone()));
         if self.snapshot_narrows() != entry {
             let seen: HashSet<(usize, Span, String)> = self
                 .out
@@ -6724,9 +6769,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 self.inferred.is_some()
                                     && var.links.is_empty()
                                     && (!var.is_param || self.param_owned(name))
-                                    && {
-                                        self.ty_own_linear(&var.declared)
-                                    }
+                                    && { self.ty_own_linear(&var.declared) }
                             });
                         if owes {
                             linear_conflicts.push(name.clone());
@@ -6806,8 +6849,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name))
-                {
+                if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name)) {
                     var.narrowed = joined;
                     var.links = links;
                     var.poison = poison;
@@ -6853,7 +6895,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let quals = self.lower_quals(qualifiers, subst, depth);
                 lowered.qualify(quals)
             }
-            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
                 let lowered = self.lower_type_subst(base, subst, depth);
                 let quals = self.lower_quals(qualifiers, subst, depth);
                 lowered.qualify(quals)
@@ -6879,7 +6923,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Array(Box::new(self.lower_type_subst(elem, subst, depth)))
             }
             ast::Type::Fn {
-                params, ret, effects, ..
+                params,
+                ret,
+                effects,
+                ..
             } => Ty::Fn {
                 contract: self.lower_fn_contract(ty),
                 // [fn-effects] The effects a call of the value performs.
@@ -6932,7 +6979,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 let (kept, effect) = match (name, deductions) {
                     (Some(id), Some(list)) => {
-                        match list.iter().find(|d| d.param_name().is_some_and(|n| n.name == id.name)) {
+                        match list
+                            .iter()
+                            .find(|d| d.param_name().is_some_and(|n| n.name == id.name))
+                        {
                             Some(d) => match &d.kind {
                                 ast::DeductionKind::KeepAll | ast::DeductionKind::Proj(_) => {
                                     (true, QualEffect::KeepAll)
@@ -7040,12 +7090,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Lowers the base of a named type: substitutions, generic parameters,
     /// alias expansion, plain nominals.
-    fn lower_base_ref(
-        &mut self,
-        base: &TypeRef,
-        subst: &HashMap<String, Ty>,
-        depth: usize,
-    ) -> Ty {
+    fn lower_base_ref(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
         let name = base.name.name.as_str();
         if base.args.is_empty() {
             if let Some(bound) = subst.get(name) {
@@ -7215,8 +7260,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let ast::Type::Named { qualifiers, base } = ty else {
             return None;
         };
-        if !qualifiers.is_empty() || !self.scope.effects.contains_key(base.name.name.as_str())
-        {
+        if !qualifiers.is_empty() || !self.scope.effects.contains_key(base.name.name.as_str()) {
             return None;
         }
         self.lower_effect_ref(base)
@@ -7292,7 +7336,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `<T canbe Linear>` claims. A bare `T` (or a qualified one, `T as
     /// Ok`) is a value passed along, not stored, and stays legal.
     fn var_in_composite(&self, ty: &ast::Type, var: &str) -> bool {
-        let inside = |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
+        let inside =
+            |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
         match ty {
             ast::Type::Named { base, .. } => base.args.iter().any(|a| inside(a)),
             ast::Type::QualifiedGroup { base, .. } => self.var_in_composite(base, var),
@@ -7320,17 +7365,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn type_mentions_var(ty: &ast::Type, var: &str) -> bool {
         match ty {
             ast::Type::Named { base, .. } => {
-                base.name.name == var
-                    || base.args.iter().any(|a| Self::type_mentions_var(a, var))
+                base.name.name == var || base.args.iter().any(|a| Self::type_mentions_var(a, var))
             }
             ast::Type::QualifiedGroup { base, .. } => Self::type_mentions_var(base, var),
             ast::Type::Array { elem, .. } => Self::type_mentions_var(elem, var),
-            ast::Type::Tuple { elems, .. } => {
-                elems.iter().any(|e| Self::type_mentions_var(e, var))
-            }
-            ast::Type::Union { arms, .. } => {
-                arms.iter().any(|a| Self::type_mentions_var(a, var))
-            }
+            ast::Type::Tuple { elems, .. } => elems.iter().any(|e| Self::type_mentions_var(e, var)),
+            ast::Type::Union { arms, .. } => arms.iter().any(|a| Self::type_mentions_var(a, var)),
             ast::Type::Nullable { inner, .. } => Self::type_mentions_var(inner, var),
             ast::Type::Fn { params, ret, .. } => {
                 params.iter().any(|p| Self::type_mentions_var(p, var))
@@ -7647,8 +7687,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let compatible = have.iter().all(|h| {
-                match (self.scope.qualifiers.get(h.as_str()), self.scope.qualifiers.get(q.as_str()))
-                {
+                match (
+                    self.scope.qualifiers.get(h.as_str()),
+                    self.scope.qualifiers.get(q.as_str()),
+                ) {
                     (Some(a), Some(b)) => crate::refine::quals_compatible(a, b),
                     // `Mut` and the other intrinsics compose with
                     // everything; an invisible qualifier cannot be judged.
@@ -7759,11 +7801,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !matches!(&ret, Ty::Named { name, args } if name == "Bool" && args.is_empty()) {
             self.error(qualifies.name.span, "`qualifies` must return `Bool`");
         }
-        if qualifies
-            .deductions
-            .as_ref()
-            .is_some_and(|d| !d.is_empty())
-        {
+        if qualifies.deductions.as_ref().is_some_and(|d| !d.is_empty()) {
             self.error(
                 qualifies.name.span,
                 "`qualifies` does not support deductions (it never moves the value)",
@@ -7827,7 +7865,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         let Some(rt) = &f.return_type else {
-            self.error(cref.span, "a qualifier constructor must declare a return type");
+            self.error(
+                cref.span,
+                "a qualifier constructor must declare a return type",
+            );
             return;
         };
         let base = self.lower_type(rt);
@@ -7889,9 +7930,9 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
                 }
             }
             Stmt::Expr(e) | Stmt::Let { value: e, .. } => collect_assigned_expr(e, out),
-            Stmt::Return { value: Some(e), .. }
-            | Stmt::Break { value: Some(e), .. }
-            => collect_assigned_expr(e, out),
+            Stmt::Return { value: Some(e), .. } | Stmt::Break { value: Some(e), .. } => {
+                collect_assigned_expr(e, out)
+            }
             _ => {}
         }
     }
@@ -7911,7 +7952,11 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
             collect_assigned_expr(operand, out);
         }
-        Expr::If { branches, else_block, .. } => {
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
             for (c, b) in branches {
                 collect_assigned_expr(c, out);
                 collect_assigned(b, out);
@@ -7920,28 +7965,44 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned(b, out);
             }
         }
-        Expr::While { cond, body, else_block, .. } => {
+        Expr::While {
+            cond,
+            body,
+            else_block,
+            ..
+        } => {
             collect_assigned_expr(cond, out);
             collect_assigned(body, out);
             if let Some(b) = else_block {
                 collect_assigned(b, out);
             }
         }
-        Expr::For { iterable, body, else_block, .. } => {
+        Expr::For {
+            iterable,
+            body,
+            else_block,
+            ..
+        } => {
             collect_assigned_expr(iterable, out);
             collect_assigned(body, out);
             if let Some(b) = else_block {
                 collect_assigned(b, out);
             }
         }
-        Expr::When { subject, branches, .. } => {
+        Expr::When {
+            subject, branches, ..
+        } => {
             collect_assigned_expr(subject, out);
             for b in branches {
                 collect_assigned(&b.body, out);
             }
         }
         // [when-condition]
-        Expr::WhenCond { branches, else_block, .. } => {
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
             for (c, b) in branches {
                 collect_assigned_expr(c, out);
                 collect_assigned(b, out);
@@ -7983,9 +8044,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::StructLit { fields, .. } => {
             for f in fields {
                 match &f.kind {
-                    StructLitFieldKind::Named { value, .. } => {
-                        collect_assigned_expr(value, out)
-                    }
+                    StructLitFieldKind::Named { value, .. } => collect_assigned_expr(value, out),
                     StructLitFieldKind::Spread(e) => collect_assigned_expr(e, out),
                 }
             }
@@ -8029,10 +8088,7 @@ fn strip_quals_named(ty: &Ty, names: &[String]) -> Option<Ty> {
     let Ty::Qualified { quals, base } = ty else {
         return None;
     };
-    if !names
-        .iter()
-        .all(|n| quals.iter().any(|q| q.name == *n))
-    {
+    if !names.iter().all(|n| quals.iter().any(|q| q.name == *n)) {
         return None;
     }
     let kept: Vec<Qual> = quals
@@ -8055,9 +8111,9 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
         Stmt::Assign { target, value, .. } => {
             expr_mentions(target, name) || expr_mentions(value, name)
         }
-        Stmt::Return { value: Some(e), .. }
-        | Stmt::Break { value: Some(e), .. }
-        => expr_mentions(e, name),
+        Stmt::Return { value: Some(e), .. } | Stmt::Break { value: Some(e), .. } => {
+            expr_mentions(e, name)
+        }
         Stmt::Use { handler, .. } => expr_mentions(handler, name),
         Stmt::Expr(e) => expr_mentions(e, name),
         _ => false,
@@ -8080,15 +8136,11 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             StrExprPart::Interp(e) => expr_mentions(e, name),
             _ => false,
         }),
-        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => {
-            expr_mentions(base, name)
-        }
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => expr_mentions(base, name),
         Expr::Call { callee, args, .. } => {
             expr_mentions(callee, name) || args.iter().any(|a| expr_mentions(a, name))
         }
-        Expr::Index { base, index, .. } => {
-            expr_mentions(base, name) || expr_mentions(index, name)
-        }
+        Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
         Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
             elems.iter().any(|e| expr_mentions(e, name))
         }
@@ -8103,35 +8155,48 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         | Expr::NonNull { operand, .. }
         | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => expr_mentions(operand, name),
-        Expr::Binary { lhs, rhs, .. } => {
-            expr_mentions(lhs, name) || expr_mentions(rhs, name)
-        }
-        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
-            expr_mentions(subject, name)
-        }
-        Expr::If { branches, else_block, .. } => {
+        Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
+        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => expr_mentions(subject, name),
+        Expr::If {
+            branches,
+            else_block,
+            ..
+        } => {
             branches
                 .iter()
                 .any(|(c, b)| expr_mentions(c, name) || block_mentions(b))
                 || else_block.as_ref().is_some_and(|b| block_mentions(b))
         }
-        Expr::When { subject, branches, .. } => {
-            expr_mentions(subject, name)
-                || branches.iter().any(|b| block_mentions(&b.body))
-        }
+        Expr::When {
+            subject, branches, ..
+        } => expr_mentions(subject, name) || branches.iter().any(|b| block_mentions(&b.body)),
         // [when-condition]
-        Expr::WhenCond { branches, else_block, .. } => {
+        Expr::WhenCond {
+            branches,
+            else_block,
+            ..
+        } => {
             branches
                 .iter()
                 .any(|(c, b)| expr_mentions(c, name) || block_mentions(b))
                 || block_mentions(else_block)
         }
-        Expr::While { cond, body, else_block, .. } => {
+        Expr::While {
+            cond,
+            body,
+            else_block,
+            ..
+        } => {
             expr_mentions(cond, name)
                 || block_mentions(body)
                 || else_block.as_ref().is_some_and(|b| block_mentions(b))
         }
-        Expr::For { iterable, body, else_block, .. } => {
+        Expr::For {
+            iterable,
+            body,
+            else_block,
+            ..
+        } => {
             expr_mentions(iterable, name)
                 || block_mentions(body)
                 || else_block.as_ref().is_some_and(|b| block_mentions(b))
@@ -8145,9 +8210,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Try { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
         // dot-notation receiver can mention anything.
-        Expr::Scoped { base, .. } => {
-            base.as_ref().is_some_and(|b| expr_mentions(b, name))
-        }
+        Expr::Scoped { base, .. } => base.as_ref().is_some_and(|b| expr_mentions(b, name)),
         // Leaves: no sub-expression, so nothing to mention.
         Expr::Int { .. }
         | Expr::Float { .. }
@@ -8224,8 +8287,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Same places `is` narrows [flow-place]: a variable or a field chain
         // out of a tracked local (user decision 2026-09-05: consistent with
         // `is`).
-        let subject_place = Place::of_expr(subject)
-            .filter(|p| p.narrowable() && self.lookup(&p.root).is_some());
+        let subject_place =
+            Place::of_expr(subject).filter(|p| p.narrowable() && self.lookup(&p.root).is_some());
         let unchanged = IsInfo {
             subject_place: None,
             subject_repr: repr.clone(),
@@ -8361,14 +8424,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.is_std {
             return;
         }
-        let Some(frame) = self.locals.last() else { return };
+        let Some(frame) = self.locals.last() else {
+            return;
+        };
         let mut unused: Vec<(String, Span)> = frame
             .iter()
             .filter(|(name, var)| {
-                !var.used
-                    && !var.is_param
-                    && !var.is_handler_state
-                    && !name.starts_with('_')
+                !var.used && !var.is_param && !var.is_handler_state && !name.starts_with('_')
             })
             .map(|(name, var)| (name.clone(), var.decl_span))
             .collect();
@@ -8431,7 +8493,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.declare_rename(decl);
                 Ty::none()
             }
-            Stmt::Let { pattern, ty, value, span } => {
+            Stmt::Let {
+                pattern,
+                ty,
+                value,
+                span,
+            } => {
                 if let Some(t) = ty {
                     self.validate_type(t);
                 }
@@ -8462,7 +8529,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.declare_pattern(pattern, declared, links);
                 Ty::none()
             }
-            Stmt::Assign { target, value, span } => {
+            Stmt::Assign {
+                target,
+                value,
+                span,
+            } => {
                 let target_ty = match target {
                     Expr::Ident(id) => match self.lookup(&id.name) {
                         Some(var) => var.declared.clone(),
@@ -8492,8 +8563,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 Ty::Named { name, .. }
                                     if self.scope.structs.contains_key(name.as_str())
                             );
-                            let has_mut =
-                                base_ty.quals().iter().any(|q| q.name == "Mut");
+                            let has_mut = base_ty.quals().iter().any(|q| q.name == "Mut");
                             if is_struct && !has_mut {
                                 self.error(
                                     field.span,
@@ -8576,12 +8646,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .lookup(&id.name)
                         .is_some_and(|var| var.is_handler_state);
                     if is_state {
-                        self.fate_move(
-                            value,
-                            "store",
-                            "a handler state assignment",
-                            value.span(),
-                        );
+                        self.fate_move(value, "store", "a handler state assignment", value.span());
                     }
                     // Reassignment: the variable's old value is gone, so
                     // variables derived from it are poisoned
@@ -8595,9 +8660,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.links_for_value(value, *span)
                     };
                     let links = self.apply_binding_mode(&id.name, links);
-                    let root = self
-                        .lookup(&id.name)
-                        .map(|var| (var.id, id.name.clone()));
+                    let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
                     if let Some((root_id, root_name)) = root {
                         self.poison_derived(
                             root_id,
@@ -8913,7 +8976,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.projection_move(inner, span);
             return;
         };
-        let Some(var) = self.lookup(&id.name) else { return };
+        let Some(var) = self.lookup(&id.name) else {
+            return;
+        };
         let (var_id, links) = (var.id, var.links.clone());
         let name = id.name.clone();
         if !links.is_empty() {
@@ -8983,9 +9048,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
         match expr {
             Expr::Int { long, .. } => Ty::named(if *long { "Long" } else { "Int" }),
-            Expr::Float { single, .. } => {
-                Ty::named(if *single { "Float" } else { "Double" })
-            }
+            Expr::Float { single, .. } => Ty::named(if *single { "Float" } else { "Double" }),
             Expr::Bool { .. } => Ty::named("Bool"),
             Expr::Char { .. } => Ty::named("Char"),
             Expr::Str { parts, .. } => {
@@ -9047,10 +9110,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // the widened type: the wrapper the arm test peeled is
                     // materialized by the emitters, so reads (and any
                     // further narrowing) unwrap relative to *it*.
-                    let declared = var
-                        .widened
-                        .clone()
-                        .unwrap_or_else(|| var.declared.clone());
+                    let declared = var.widened.clone().unwrap_or_else(|| var.declared.clone());
                     let poison = var.poison.clone();
                     let consumed_by = var.consumed_by;
                     let links = var.links.clone();
@@ -9118,8 +9178,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !self.lambda_ctx.is_empty() {
                         if let Some(frame) = self.frame_of_id(var_id) {
                             let mut visited = HashSet::new();
-                            let mutable =
-                                self.ty_transitively_mut(&declared, &mut visited);
+                            let mutable = self.ty_transitively_mut(&declared, &mut visited);
                             let name = id.name.clone();
                             self.record_capture(frame, &name, var_id, mutable);
                         }
@@ -9135,9 +9194,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|l| FateRead {
                                 root: l.root_name.clone(),
                                 bind_span: l.bind_span,
-                                path: l.path.as_ref().map(|p| {
-                                    p.iter().map(|s| s.to_string()).collect()
-                                }),
+                                path: l
+                                    .path
+                                    .as_ref()
+                                    .map(|p| p.iter().map(|s| s.to_string()).collect()),
                             })
                             .collect();
                         self.out.fate_reads.insert(self.key(id.span), reads);
@@ -9187,10 +9247,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     None
                 };
                 match kind {
-                    Some(what) => self.error(
-                        id.span,
-                        format!("`{}` is {what}", id.name),
-                    ),
+                    Some(what) => self.error(id.span, format!("`{}` is {what}", id.name)),
                     None => self.error_unresolved(
                         id.span,
                         format!("no variable or function named `{}` is in scope", id.name),
@@ -9268,8 +9325,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // exactly as a narrowed identifier read is.
                 if let Some(place) = Place::of_expr(expr) {
                     if let Some(entry) = self.place_narrow_entry(&place) {
-                        let (narrowed, declared) =
-                            (entry.narrowed.clone(), entry.declared.clone());
+                        let (narrowed, declared) = (entry.narrowed.clone(), entry.declared.clone());
                         if narrowed != declared {
                             self.out.repr_ty.insert(self.key(*span), declared);
                         }
@@ -9292,8 +9348,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // narrowed type, exactly as a field does.
                 if let Some(place) = Place::of_expr(expr) {
                     if let Some(entry) = self.place_narrow_entry(&place) {
-                        let (narrowed, declared) =
-                            (entry.narrowed.clone(), entry.declared.clone());
+                        let (narrowed, declared) = (entry.narrowed.clone(), entry.declared.clone());
                         if narrowed != declared {
                             self.out.repr_ty.insert(self.key(*span), declared);
                         }
@@ -9507,7 +9562,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [qual-widen] Boolean-valued like `is`; the flow facts are
             // produced by `analyze_cond` in condition position.
-            Expr::Widen { subject, quals, span } => {
+            Expr::Widen {
+                subject,
+                quals,
+                span,
+            } => {
                 self.widen_info(subject, quals, *span);
                 Ty::named("Bool")
             }
@@ -9519,7 +9578,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // step of one on an `Int` place — so the checker ignores the
             // direction and the fixity; they only decide the expression's
             // *value*, which is the emitters' business.
-            Expr::IncDec { operand, down: _, prefix: _, span } => {
+            Expr::IncDec {
+                operand,
+                down: _,
+                prefix: _,
+                span,
+            } => {
                 let ty = self.check_expr(operand, None);
                 // `i++` rebinds a whole variable (revival: severs its own
                 // links, poisons variables derived from it [fate-poison]);
@@ -9527,18 +9591,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [fate-derived-readonly].
                 match operand.as_ref() {
                     Expr::Ident(id) => {
-                        let root = self
-                            .lookup(&id.name)
-                            .map(|var| (var.id, id.name.clone()));
+                        let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
                         if let Some((root_id, root_name)) = root {
                             self.poison_derived(
                                 root_id,
                                 &root_name,
                                 FateEvent::Reassigned,
                                 *span,
-                            // A whole variable: every derived value falls
-                            // [fate-field-disjoint].
-                            Some(&[]),
+                                // A whole variable: every derived value falls
+                                // [fate-field-disjoint].
+                                Some(&[]),
                             );
                         }
                         if let Some(var) = self.lookup_mut(&id.name) {
@@ -9590,11 +9652,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
                 });
-                let (body_ty, body_tail) = self.check_loop_body(
-                    body,
-                    &info.then_narrows.clone(),
-                    info.bindings.clone(),
-                );
+                let (body_ty, body_tail) =
+                    self.check_loop_body(body, &info.then_narrows.clone(), info.bindings.clone());
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // The code after the loop is reached from the fall-through
                 // exit *and* from every `break`: merge the break-path
@@ -9680,7 +9739,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .flatten()
                         .find(|e| e.key == *key)
                         .is_some_and(|e| {
-                            e.decl.return_type.as_ref().is_some_and(|t| !proj_arm_indices(t).is_empty())
+                            e.decl
+                                .return_type
+                                .as_ref()
+                                .is_some_and(|t| !proj_arm_indices(t).is_empty())
                         }),
                     PassMember::Implicit(_) => false,
                 });
@@ -9732,9 +9794,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (`for s in list("x", "y")`) or a pass moved into the loop
                 // dies with it, so its elements are the loop's to give away.
                 // Nothing to share fate with means nothing to borrow from.
-                let elem = if links.is_empty() { elem.strip_top_proj() } else { elem };
-                let bindings =
-                    self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
+                let elem = if links.is_empty() {
+                    elem.strip_top_proj()
+                } else {
+                    elem
+                };
+                let bindings = self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
                 self.loop_stack.push(LoopCtx {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
@@ -9779,9 +9844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
-            Expr::Lambda { params, body, span } => {
-                self.check_lambda(params, body, *span, expected)
-            }
+            Expr::Lambda { params, body, span } => self.check_lambda(params, body, *span, expected),
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
             Expr::Error { .. } => Ty::Unknown,
         }
@@ -9949,10 +10012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let field = decl.fields.iter().find(|f| f.name.name == field_name)?;
         let mut subst = HashMap::new();
         for (i, g) in decl.generics.iter().enumerate() {
-            subst.insert(
-                g.name.clone(),
-                args.get(i).cloned().unwrap_or(Ty::Unknown),
-            );
+            subst.insert(g.name.clone(), args.get(i).cloned().unwrap_or(Ty::Unknown));
         }
         Some(self.lower_type_subst(&field.ty, &subst, 0))
     }
@@ -9994,7 +10054,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(state) = subst.get(&state_var).cloned() else {
                 continue;
             };
-            let Some(elem) = self.pass_or_origin_elem_ty(&state) else { continue };
+            let Some(elem) = self.pass_or_origin_elem_ty(&state) else {
+                continue;
+            };
             if elem.is_unknown() {
                 continue;
             }
@@ -10057,8 +10119,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is an ordinary function, and it is the type's `: Linear<self>` clause
     /// that makes releasing it an obligation.
     fn pass_close_fn(&mut self, stripped: &Ty) -> Option<FnKey> {
-        let entries: Vec<crate::resolve::FnEntry<'p>> =
-            self.scope.fns.get("close")?.clone();
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("close")?.clone();
         for entry in entries {
             let decl = entry.decl;
             if decl.params.len() != 1 {
@@ -10124,7 +10185,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// fits, the obligation check has already reported it at the struct —
     /// the declared element type is returned so the one mistake does not
     /// cascade [type-unknown-lenient].
-    fn pass_elem_ty(&mut self, stripped: &Ty, iterable: Option<&'p Expr>, span: Span) -> Option<Ty> {
+    fn pass_elem_ty(
+        &mut self,
+        stripped: &Ty,
+        iterable: Option<&'p Expr>,
+        span: Span,
+    ) -> Option<Ty> {
         self.pass_elem_ty_minted(stripped, iterable, span, None)
     }
 
@@ -10504,12 +10570,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.push(HashMap::new());
         let mut param_tys = Vec::new();
         for (i, p) in params.iter().enumerate() {
-            let ty = p
-                .ty
-                .as_ref()
-                .map(|t| self.lower_type(t))
-                .or_else(|| exp_params.as_ref().and_then(|ps| ps.get(i).cloned()))
-                .unwrap_or(Ty::Unknown);
+            let ty =
+                p.ty.as_ref()
+                    .map(|t| self.lower_type(t))
+                    .or_else(|| exp_params.as_ref().and_then(|ps| ps.get(i).cloned()))
+                    .unwrap_or(Ty::Unknown);
             self.declare(&p.name, ty.clone());
             // [fn-contract] A parameter the expected contract *keeps*
             // belongs to the closure's caller: never consumable inside
@@ -10530,19 +10595,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(c) = &exp_contract {
             self.out.lambda_contracts.insert(self.key(span), c.clone());
         }
-        let saved_ret = std::mem::replace(
-            &mut self.ret_ty,
-            exp_ret.clone().unwrap_or(Ty::Unknown),
-        );
+        let saved_ret = std::mem::replace(&mut self.ret_ty, exp_ret.clone().unwrap_or(Ty::Unknown));
         // [fn-effects] The body performs the effects the fn *type* declares
         // — the call site supplies them, so nothing is captured. With no
         // expected type the set is *inferred* from the body, which is what
         // `effect_uses` collects; the enclosing environment stands in for
         // the duration so the calls resolve.
         let saved_effects = match &exp_effects {
-            Some(effects) => {
-                Some(std::mem::replace(&mut self.effect_env, effects.clone()))
-            }
+            Some(effects) => Some(std::mem::replace(&mut self.effect_env, effects.clone())),
             None => None,
         };
         self.effect_uses.push(Vec::new());
@@ -10629,9 +10689,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             if cap.mutated {
                 // [linear-lambda] A mutated capture would move the
                 // obligation into the closure: forbidden.
-                let is_linear = self.var_by_id(cap.var_id).is_some_and(|v| {
-                    self.ty_own_linear(&v.declared)
-                });
+                let is_linear = self
+                    .var_by_id(cap.var_id)
+                    .is_some_and(|v| self.ty_own_linear(&v.declared));
                 if is_linear {
                     if self.inferred.is_some() {
                         self.error(
@@ -10647,9 +10707,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 }
-                let is_kept_param = self
-                    .var_by_id(cap.var_id)
-                    .is_some_and(|v| v.is_param)
+                let is_kept_param = self.var_by_id(cap.var_id).is_some_and(|v| v.is_param)
                     && !self.param_owned(&cap.name);
                 if is_kept_param && self.own_written.contains(&cap.name) {
                     if self.inferred.is_some() {
@@ -10665,10 +10723,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 }
-                if self
-                    .var_by_id(cap.var_id)
-                    .is_some_and(|v| v.is_param)
-                {
+                if self.var_by_id(cap.var_id).is_some_and(|v| v.is_param) {
                     if let Some(key) = self.own_fn {
                         if !self.own_written.contains(&cap.name) {
                             self.param_claims
@@ -10690,28 +10745,51 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 continue;
             }
-            if cap.mutable {
-                // The closure shares fate with its mutable read-captures:
-                // link it (transitively through the capture's own links).
-                if !links.iter().any(|l| l.root_id == cap.var_id) {
-                    links.push(FateLink {
-                        held: false,
-                        root_id: cap.var_id,
-                        root_name: cap.name.clone(),
-                        bind_span: span,
-                        // [fate-lambda] A capture is read through whatever
-                        // the body does with it; the capture analysis
-                        // records the variable, not a projection, so the
-                        // link stays whole-variable.
-                        path: Some(Vec::new()),
-                        borrowed: false,
-                    });
-                }
-                if let Some(var) = self.var_by_id(cap.var_id) {
-                    for l in var.links.clone() {
-                        if !links.iter().any(|e| e.root_id == l.root_id) {
-                            links.push(l);
-                        }
+            // [lambda-view] A read capture of non-Copy data makes the
+            // closure a **view**: it holds a borrow of the captured
+            // variable, exactly as a struct holds its `Proj` fields
+            // [proj-field] — the body can return projections rooted in a
+            // capture (`i -> get(words, i)!`), which no fn type can name,
+            // so the value itself carries the link. Binding the lambda
+            // links it (held, borrowed); a call result linked to the
+            // lambda reaches the captured roots transitively; moving or
+            // mutating the capture poisons the closure. Two exclusions: a
+            // *consumed* capture is owned — the closure swallowed the
+            // value at creation (which is what made it `Once`
+            // [once-fn]), so there is no source left to borrow from — and
+            // a Copy scalar capture is the value itself on both backends
+            // [copy-scalar-free].
+            if cap.moved {
+                continue;
+            }
+            let copy_scalar = self
+                .var_by_id(cap.var_id)
+                .is_some_and(|v| crate::types::is_copy_scalar(&v.declared));
+            if copy_scalar {
+                continue;
+            }
+            if !links.iter().any(|l| l.root_id == cap.var_id) {
+                links.push(FateLink {
+                    held: true,
+                    root_id: cap.var_id,
+                    root_name: cap.name.clone(),
+                    bind_span: span,
+                    // [fate-lambda] A capture is read through whatever
+                    // the body does with it; the capture analysis
+                    // records the variable, not a projection, so the
+                    // link stays whole-variable.
+                    path: Some(Vec::new()),
+                    borrowed: true,
+                });
+            }
+            if let Some(var) = self.var_by_id(cap.var_id) {
+                for l in var.links.clone() {
+                    if !links.iter().any(|e| e.root_id == l.root_id) {
+                        links.push(FateLink {
+                            held: true,
+                            borrowed: true,
+                            ..l
+                        });
                     }
                 }
             }
@@ -10731,9 +10809,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        let annotated = ty
-            .map(|t| self.lower_type(t))
-            .or_else(|| expected.cloned());
+        let annotated = ty.map(|t| self.lower_type(t)).or_else(|| expected.cloned());
         let Some(struct_ty) = annotated else {
             for f in fields {
                 match &f.kind {
@@ -10748,21 +10824,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let (decl, subst) = match struct_ty.strip_quals() {
-            Ty::Named { name, args } => {
-                match self.scope.structs.get(name.as_str()).copied() {
-                    Some(decl) => {
-                        let mut subst = HashMap::new();
-                        for (i, g) in decl.generics.iter().enumerate() {
-                            subst.insert(
-                                g.name.clone(),
-                                args.get(i).cloned().unwrap_or(Ty::Unknown),
-                            );
-                        }
-                        (Some(decl), subst)
+            Ty::Named { name, args } => match self.scope.structs.get(name.as_str()).copied() {
+                Some(decl) => {
+                    let mut subst = HashMap::new();
+                    for (i, g) in decl.generics.iter().enumerate() {
+                        subst.insert(g.name.clone(), args.get(i).cloned().unwrap_or(Ty::Unknown));
                     }
-                    None => (None, HashMap::new()),
+                    (Some(decl), subst)
                 }
-            }
+                None => (None, HashMap::new()),
+            },
             _ => (None, HashMap::new()),
         };
         let Some(decl) = decl else {
@@ -10798,19 +10869,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 self.refuse_linear_composite(
                                     value.span(),
                                     &linear,
-                                    format!(
-                                        "stored in field `{}.{}`",
-                                        decl.name.name, name.name
-                                    ),
+                                    format!("stored in field `{}.{}`", decl.name.name, name.name),
                                 );
                             }
                             if !is_subtype(&vty, &fty) {
                                 self.error(
                                     value.span(),
-                                    format!(
-                                        "field `{}` expects `{fty}`, found `{vty}`",
-                                        name.name
-                                    ),
+                                    format!("field `{}` expects `{fty}`, found `{vty}`", name.name),
                                 );
                             }
                             provided.insert(&name.name);
@@ -10819,10 +10884,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.check_expr(value, None);
                             self.error(
                                 name.span,
-                                format!(
-                                    "struct `{}` has no field `{}`",
-                                    decl.name.name, name.name
-                                ),
+                                format!("struct `{}` has no field `{}`", decl.name.name, name.name),
                             );
                         }
                     }
@@ -10857,11 +10919,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
             // [qual-widen] The dual of `is`: same test, generalized type.
-            Expr::Widen { subject, quals, span } => {
+            Expr::Widen {
+                subject,
+                quals,
+                span,
+            } => {
                 let info = self.widen_info(subject, quals, *span);
-                self.out
-                    .expr_ty
-                    .insert(self.key(*span), Ty::named("Bool"));
+                self.out.expr_ty.insert(self.key(*span), Ty::named("Bool"));
                 let mut out = CondInfo::default();
                 if let Some(place) = &info.subject_place {
                     out.then_narrows.push(Narrow {
@@ -11199,11 +11263,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Both namespaces are admissible here, so neither wording
                 // fits on its own.
                 let name = name.to_string();
-                self.error_unresolved(
-                    r.span,
-                    format!("unknown type or qualifier `{name}`"),
-                    &name,
-                );
+                self.error_unresolved(r.span, format!("unknown type or qualifier `{name}`"), &name);
                 unresolved = true;
             }
         }
@@ -11298,8 +11358,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         match else_block {
             Some(block) => {
                 let entry = self.snapshot_narrows();
-                let (ty, tail) =
-                    self.with_narrows(&acc_else.clone(), |c| c.check_branch_block(block, Vec::new()));
+                let (ty, tail) = self.with_narrows(&acc_else.clone(), |c| {
+                    c.check_branch_block(block, Vec::new())
+                });
                 if !self.block_exits(block) {
                     fallthrough.push(self.snapshot_narrows());
                 }
@@ -11351,12 +11412,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [when-union-subject], sequential arm consumption and exhaustiveness
     /// [when-exhaustive], branch values unioning into the result
     /// [when-value].
-    fn check_when(
-        &mut self,
-        subject: &'p Expr,
-        branches: &'p [WhenBranch],
-        span: Span,
-    ) -> Ty {
+    fn check_when(&mut self, subject: &'p Expr, branches: &'p [WhenBranch], span: Span) -> Ty {
         let subj_ty = self.check_expr(subject, None);
         let Expr::Ident(subject_id) = subject else {
             self.error(span, "`when` requires a plain variable as its subject");
@@ -11475,9 +11531,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "a `when` binding requires a check matching a single type",
                     );
                 }
-                self.out
-                    .expr_ty
-                    .insert(self.key(b.span), narrow_ty.clone());
+                self.out.expr_ty.insert(self.key(b.span), narrow_ty.clone());
                 // The `when` binding aliases the subject [fate-link].
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
@@ -11485,8 +11539,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [qual-widen] A `^` branch sees the subject at the widened
             // type, so nested narrowing composes on that rather than on the
             // storage the arm test peeled it out of.
-            let declared = if branch.widen
-                && self.out.is_tests.contains_key(&self.key(branch.span))
+            let declared = if branch.widen && self.out.is_tests.contains_key(&self.key(branch.span))
             {
                 self.out
                     .widen_targets
@@ -11504,9 +11557,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // fall-through branches reach the code after the `when`
             // [deduce-consume].
             let entry = self.snapshot_narrows();
-            let (ty, tail) = self.with_narrows(&narrows, |c| {
-                c.check_branch_block(&branch.body, bindings)
-            });
+            let (ty, tail) =
+                self.with_narrows(&narrows, |c| c.check_branch_block(&branch.body, bindings));
             if !self.block_exits(&branch.body) {
                 fallthrough.push(self.snapshot_narrows());
             }
@@ -11562,11 +11614,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             arms.push(Ty::none());
         }
         let join = self.mk_union(arms);
-        for tail in body_tail
-            .into_iter()
-            .chain(ctx.breaks)
-            .chain(else_tail)
-        {
+        for tail in body_tail.into_iter().chain(ctx.breaks).chain(else_tail) {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
         }
         join
@@ -11630,12 +11678,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let then = match self.out.coerce.remove(&key) {
             // Already recorded: keep it, but do not nest a drop in a drop.
             Some(Coercion::DropMut { from, then }) => {
-                self.out.coerce.insert(key, Coercion::DropMut { from, then });
+                self.out
+                    .coerce
+                    .insert(key, Coercion::DropMut { from, then });
                 return;
             }
             other => other.map(Box::new),
         };
-        self.out.coerce.insert(key, Coercion::DropMut { from, then });
+        self.out
+            .coerce
+            .insert(key, Coercion::DropMut { from, then });
     }
 
     /// [str-drop-mut] The `Mut`-dropping conversion an *operand* needs: an
@@ -11712,7 +11764,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 {
                     return;
                 }
-                self.out.union_sizes.insert(effective.value_arms().len().max(2));
+                self.out
+                    .union_sizes
+                    .insert(effective.value_arms().len().max(2));
                 self.out.union_sizes.insert(expected.value_arms().len());
                 self.out.coerce.insert(
                     self.key(span),
@@ -11950,9 +12004,11 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // qualified argument (`Ok Str`) could never match a union's
         // qualified arm (`Ok Str | Err Str`) [type-union].
         (Ty::Union(parms), _) => match arg {
-            Ty::Union(aarms) => aarms
-                .iter()
-                .all(|a| parms.iter().any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))),
+            Ty::Union(aarms) => aarms.iter().all(|a| {
+                parms
+                    .iter()
+                    .any(|p| unify(p, a, &mut subst.clone()) && unify(p, a, subst))
+            }),
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
         // `Qual T` can be passed where `T` is expected — except `Once`,
@@ -11965,9 +12021,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             !quals.iter().any(|q| q.name == "Once" || q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
-            pn == an
-                && pa.len() == aa.len()
-                && pa.iter().zip(aa).all(|(p, a)| unify(p, a, subst))
+            pn == an && pa.len() == aa.len() && pa.iter().zip(aa).all(|(p, a)| unify(p, a, subst))
         }
         (Ty::Array(p), Ty::Array(a)) => unify(p, a, subst),
         (Ty::Tuple(ps), Ty::Tuple(as_)) => {
@@ -12053,11 +12107,7 @@ fn ty_mentions_unknown(ty: &Ty) -> bool {
 /// `Unknown` — which is what lets a partially known pattern still bind
 /// something (`(List<Int>) -> Iter<T>` teaches `T`; `(?) -> ?` teaches
 /// nothing).
-fn substitute_known(
-    ty: &Ty,
-    subst: &HashMap<String, Ty>,
-    callee_generics: &HashSet<String>,
-) -> Ty {
+fn substitute_known(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
     match ty {
         Ty::Var(g) if callee_generics.contains(g) => {
             subst.get(g).cloned().unwrap_or_else(|| ty.clone())
@@ -12149,7 +12199,10 @@ fn tys_match_renamed(
     fwd: &mut HashMap<String, String>,
     rev: &mut HashMap<String, String>,
 ) -> bool {
-    let all = |xs: &[Ty], ys: &[Ty], fwd: &mut HashMap<String, String>, rev: &mut HashMap<String, String>| {
+    let all = |xs: &[Ty],
+               ys: &[Ty],
+               fwd: &mut HashMap<String, String>,
+               rev: &mut HashMap<String, String>| {
         xs.len() == ys.len()
             && xs
                 .iter()
@@ -12165,7 +12218,16 @@ fn tys_match_renamed(
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb && all(aa, ab, fwd, rev)
         }
-        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb }) => {
+        (
+            Ty::Qualified {
+                quals: qa,
+                base: ba,
+            },
+            Ty::Qualified {
+                quals: qb,
+                base: bb,
+            },
+        ) => {
             qa.len() == qb.len()
                 && qa.iter().zip(qb).all(|(x, y)| {
                     x.name == y.name && x.effect == y.effect && all(&x.args, &y.args, fwd, rev)
@@ -12176,8 +12238,16 @@ fn tys_match_renamed(
         (Ty::Tuple(aa), Ty::Tuple(ab)) => all(aa, ab, fwd, rev),
         (Ty::Array(ea), Ty::Array(eb)) => tys_match_renamed(ea, eb, fwd, rev),
         (
-            Ty::Fn { params: pa, ret: ra, .. },
-            Ty::Fn { params: pb, ret: rb, .. },
+            Ty::Fn {
+                params: pa,
+                ret: ra,
+                ..
+            },
+            Ty::Fn {
+                params: pb,
+                ret: rb,
+                ..
+            },
         ) => all(pa, pb, fwd, rev) && tys_match_renamed(ra, rb, fwd, rev),
         (Ty::Any, Ty::Any) | (Ty::Nothing, Ty::Nothing) | (Ty::Unknown, Ty::Unknown) => true,
         _ => false,
@@ -12186,9 +12256,7 @@ fn tys_match_renamed(
 
 fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
     match ty {
-        Ty::Var(g) if callee_generics.contains(g) => {
-            subst.get(g).cloned().unwrap_or(Ty::Unknown)
-        }
+        Ty::Var(g) if callee_generics.contains(g) => subst.get(g).cloned().unwrap_or(Ty::Unknown),
         Ty::Named { name, args } => Ty::Named {
             name: name.clone(),
             args: args
@@ -12264,15 +12332,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // interop pass-through [call-resolve].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
-            let known =
-                self.scope.effect_members.contains_key(name) || self.has_callable(name);
+            let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
                 all_args.push(base);
                 all_args.extend(args.iter());
                 return self.resolve_named_call(
-                    name, field.span, type_args, &all_args, named, expected, None,
-                    span,
+                    name, field.span, type_args, &all_args, named, expected, None, span,
                 );
             }
             self.check_expr(base, None);
@@ -12298,10 +12364,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // local of the same name does not shadow it, which is what makes `@`
         // the way out of a shadowed name.
         if let Expr::Scoped {
-            base,
-            name,
-            module,
-            ..
+            base, name, module, ..
         } = callee
         {
             let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
@@ -12346,7 +12409,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Ty::Unknown;
                 }
                 let once = vty.quals().iter().any(|q| q.name == "Once");
-                if let Ty::Fn { params, ret, contract, effects } = vty.strip_quals().clone() {
+                if let Ty::Fn {
+                    params,
+                    ret,
+                    contract,
+                    effects,
+                } = vty.strip_quals().clone()
+                {
                     // [fn-effects] The call supplies the value's effects.
                     self.check_fn_value_effects(&effects, span);
                     for (i, a) in args.iter().enumerate() {
@@ -12355,12 +12424,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [fn-contract] Apply the fn value's contract to the
                     // arguments (default: keeps everything).
                     let arg_refs: Vec<&'p Expr> = args.iter().collect();
-                    self.apply_fn_value_contract(
-                        &arg_refs,
-                        &params,
-                        contract.as_deref(),
-                        span,
-                    );
+                    self.apply_fn_value_contract(&arg_refs, &params, contract.as_deref(), span);
                     // [proj-infer] A fn value has no body to read: its result
                     // holds a borrow of the arguments its type declares
                     // (`[p: Proj]`), or conservatively of every kept one.
@@ -12368,7 +12432,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let declared: Vec<usize> = contract
                             .as_deref()
                             .map(|c| {
-                                c.iter().enumerate().filter(|(_, e)| e.lent).map(|(i, _)| i).collect()
+                                c.iter()
+                                    .enumerate()
+                                    .filter(|(_, e)| e.lent)
+                                    .map(|(i, _)| i)
+                                    .collect()
                             })
                             .unwrap_or_default();
                         let lent: Vec<usize> = if !declared.is_empty() {
@@ -12376,7 +12444,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         } else {
                             (0..params.len())
                                 .filter(|&i| {
-                                    contract.as_deref().and_then(|c| c.get(i)).is_none_or(|e| e.kept)
+                                    contract
+                                        .as_deref()
+                                        .and_then(|c| c.get(i))
+                                        .is_none_or(|e| e.kept)
                                 })
                                 .collect()
                         };
@@ -12389,9 +12460,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // multiplicity (second call, loop back edge, branch
                     // merges) for free.
                     if once {
-                        let state = self
-                            .lookup(&id.name)
-                            .map(|var| (var.id, var.links.clone()));
+                        let state = self.lookup(&id.name).map(|var| (var.id, var.links.clone()));
                         if let Some((var_id, links)) = state {
                             if !links.is_empty() {
                                 let name = id.name.clone();
@@ -12403,9 +12472,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     &name,
                                     FateEvent::Moved,
                                     span,
-                            // A whole variable: every derived value falls
-                            // [fate-field-disjoint].
-                            Some(&[]),
+                                    // A whole variable: every derived value falls
+                                    // [fate-field-disjoint].
+                                    Some(&[]),
                                 );
                                 if let Some(var) = self.lookup_mut(&id.name) {
                                     var.narrowed = Ty::Nothing;
@@ -12454,7 +12523,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Computed callee (a `Once`-typed temporary is called at most
         // once by construction [once-fn]).
         let cty = self.check_expr(callee, None);
-        if let Ty::Fn { params, ret, contract: _, effects } = cty.strip_quals().clone() {
+        if let Ty::Fn {
+            params,
+            ret,
+            contract: _,
+            effects,
+        } = cty.strip_quals().clone()
+        {
             // [fn-effects]
             self.check_fn_value_effects(&effects, span);
             for (i, a) in args.iter().enumerate() {
@@ -12467,7 +12542,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_expr(a, None);
         }
         if !cty.is_unknown() && !matches!(cty, Ty::Nothing) {
-            self.error(span, format!("this expression is not callable: its type is `{cty}`"));
+            self.error(
+                span,
+                format!("this expression is not callable: its type is `{cty}`"),
+            );
         }
         Ty::Unknown
     }
@@ -12493,8 +12571,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
-            return self
-                .check_effect_call(effect, member, type_args, args, named, expected, span);
+            return self.check_effect_call(effect, member, type_args, args, named, expected, span);
         }
 
         // 2. Function overloads [fn-overload] (fn declarations, else
@@ -12665,8 +12742,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             let (key, decl) = (entry.key, entry.decl);
             // [implicit-param] Implicits are never passed positionally, so
             // they take no part in arity or ranking.
-            let fixed: Vec<&Param> =
-                decl.params.iter().filter(|p| !p.variadic && !p.implicit).collect();
+            let fixed: Vec<&Param> = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .collect();
             let variadic = decl.params.iter().find(|p| p.variadic);
             let arity_ok = if variadic.is_some() {
                 args.len() >= fixed.len()
@@ -12724,7 +12804,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .as_ref()
                     .and_then(|c| {
                         let pname = fixed.get(i).map(|fp| fp.name.name.as_str());
-                        c.iter().find(|d| Some(d.param.as_str()) == pname).map(|d| d.kept)
+                        c.iter()
+                            .find(|d| Some(d.param.as_str()) == pname)
+                            .map(|d| d.kept)
                     })
                     .unwrap_or(true);
                 let fits = is_subtype(&arg_tys[i], &sp)
@@ -12874,9 +12956,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let stored = decl.params.get(i).is_some_and(|p| {
                     matches!(p.ty, ast::Type::Fn { .. })
-                        && facts.as_ref().is_some_and(|fs| {
-                            fs.iter().any(|d| d.param == p.name.name && !d.kept)
-                        })
+                        && facts
+                            .as_ref()
+                            .is_some_and(|fs| fs.iter().any(|d| d.param == p.name.name && !d.kept))
                 });
                 if !stored {
                     continue;
@@ -13098,8 +13180,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 let param = &decl.params[i];
-                let Some(d) = contract.iter().find(|d| d.param == param.name.name)
-                else {
+                let Some(d) = contract.iter().find(|d| d.param == param.name.name) else {
                     continue;
                 };
                 // [proj-anywhere] A constructor lending into a `Proj` arm
@@ -13156,10 +13237,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // moved [fate-derived-readonly]; moving a root
                     // poisons the variables derived from it
                     // [fate-poison].
-                    let state = self
-                        .lookup(&id.name)
-                        .map(|var| (var.id, var.links.clone()));
-                    let Some((var_id, links)) = state else { continue };
+                    let state = self.lookup(&id.name).map(|var| (var.id, var.links.clone()));
+                    let Some((var_id, links)) = state else {
+                        continue;
+                    };
                     if !links.is_empty() {
                         let name = id.name.clone();
                         self.error_derived(id.span, "move", &name, &links);
@@ -13203,13 +13284,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // this callee never declared.
                 let have: Vec<String> = self
                     .lookup(&id.name)
-                    .map(|v| {
-                        v.narrowed
-                            .quals()
-                            .iter()
-                            .map(|q| q.name.clone())
-                            .collect()
-                    })
+                    .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                     .unwrap_or_default();
                 let removed = d.effect.removal_set(&have, |q| self.is_provenance_qual(q));
                 let name = id.name.clone();
@@ -13246,7 +13321,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .map(|r| {
                             r.from
                                 .iter()
-                                .filter_map(|f| decl.params.iter().position(|p| p.name.name == f.name))
+                                .filter_map(|f| {
+                                    decl.params.iter().position(|p| p.name.name == f.name)
+                                })
                                 .collect()
                         })
                         .unwrap_or_default()
@@ -13281,7 +13358,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let target = decl.params.iter().position(|p| p.name.name == name.name)?;
                         let sources: Vec<usize> = srcs
                             .iter()
-                            .filter_map(|sname| decl.params.iter().position(|p| p.name.name == sname.name))
+                            .filter_map(|sname| {
+                                decl.params.iter().position(|p| p.name.name == sname.name)
+                            })
                             .collect();
                         Some((target, sources))
                     }
@@ -13289,10 +13368,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
             for (target, sources) in repoints {
-                let Some(Expr::Ident(target_id)) = args.get(target).copied() else { continue };
+                let Some(Expr::Ident(target_id)) = args.get(target).copied() else {
+                    continue;
+                };
                 let mut new_links: Vec<FateLink> = Vec::new();
                 for si in sources {
-                    let Some(src_arg) = args.get(si).copied() else { continue };
+                    let Some(src_arg) = args.get(si).copied() else {
+                        continue;
+                    };
                     for mut l in self.links_for_value(src_arg, span) {
                         l.borrowed = true;
                         l.held = true;
@@ -13323,15 +13406,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // conservative, exact for the one-source case, and nothing for a
             // generator (`T = Int`).
             if lent.is_empty() {
-                let ret_sub = decl
-                    .return_type
-                    .as_ref()
-                    .map(|rt| {
-                        let saved = self.enter_generics(&decl.generics);
-                        let lowered = self.lower_type(rt);
-                        self.generics = saved;
-                        substitute_vars(&lowered, &subst, &callee_generics)
-                    });
+                let ret_sub = decl.return_type.as_ref().map(|rt| {
+                    let saved = self.enter_generics(&decl.generics);
+                    let lowered = self.lower_type(rt);
+                    self.generics = saved;
+                    substitute_vars(&lowered, &subst, &callee_generics)
+                });
                 let generic_ret_holds_proj = ret_sub
                     .as_ref()
                     .is_some_and(|r| strip_all_proj(r) != *r && !r.is_proj());
@@ -13358,7 +13438,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .filter_map(|&pi| {
                         // Implicit params are not positional arguments.
                         let before = decl.params[..pi].iter().filter(|p| p.implicit).count();
-                        if decl.params[pi].implicit { None } else { Some(pi - before) }
+                        if decl.params[pi].implicit {
+                            None
+                        } else {
+                            Some(pi - before)
+                        }
                     })
                     .collect();
                 for &i in &positional {
@@ -13414,10 +13498,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut from_expected: HashMap<String, Ty> = HashMap::new();
             if unify(ret, exp, &mut from_expected) {
                 for (g, ty) in from_expected {
-                    if callee_generics.contains(&g)
-                        && !ty.is_unknown()
-                        && !subst.contains_key(&g)
-                    {
+                    if callee_generics.contains(&g) && !ty.is_unknown() && !subst.contains_key(&g) {
                         subst.insert(g, ty);
                     }
                 }
@@ -13828,8 +13909,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // *handler* body against the member's contract is the E1-adjacent
         // follow-up; the declaration is trusted here.)
         if let Some(list) = &member.deductions {
-            let facts =
-                crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});
+            let facts = crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});
             let contract: Vec<FnParamContract> = member
                 .params
                 .iter()
@@ -13852,9 +13932,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [proj-infer] An effect member has no body: its result holds a
         // borrow of what its list declares (`[p: Proj]`), else of every
         // kept parameter.
-        if member.derived_return.is_none() && member.return_type.as_ref().is_some_and(|t| {
-            crate::lends::holds_proj(t, &self.scope.structs)
-        }) {
+        if member.derived_return.is_none()
+            && member
+                .return_type
+                .as_ref()
+                .is_some_and(|t| crate::lends::holds_proj(t, &self.scope.structs))
+        {
             let lent = crate::lends::declared_lends(member)
                 .unwrap_or_else(|| crate::lends::kept_params(member));
             if !lent.is_empty() {
@@ -13909,7 +13992,6 @@ fn op_symbol(op: BinaryOp) -> &'static str {
     }
 }
 
-
 // ================= missing-return analysis [fn-must-return] =================
 
 /// Whether a block always exits the enclosing fn (every path hits a
@@ -13962,10 +14044,9 @@ fn first_proj_span(ty: &ast::Type) -> Option<Span> {
         r.args.iter().find_map(first_proj_span)
     }
     match ty {
-        ast::Type::Named { qualifiers, base } => qualifiers
-            .iter()
-            .find_map(in_ref)
-            .or_else(|| in_ref(base)),
+        ast::Type::Named { qualifiers, base } => {
+            qualifiers.iter().find_map(in_ref).or_else(|| in_ref(base))
+        }
         ast::Type::QualifiedGroup {
             qualifiers, base, ..
         } => qualifiers
@@ -14003,7 +14084,9 @@ fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
                 }
                 in_ref(base, inside_arg, out);
             }
-            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
                 for q in qualifiers {
                     in_ref(q, inside_arg, out);
                 }
@@ -14044,7 +14127,11 @@ fn strip_all_proj(ty: &Ty) -> Ty {
         Ty::Qualified { quals, base } => {
             let inner = strip_all_proj(base);
             let kept: Vec<Qual> = quals.iter().filter(|q| q.name != "Proj").cloned().collect();
-            if kept.is_empty() { inner } else { inner.qualify(kept) }
+            if kept.is_empty() {
+                inner
+            } else {
+                inner.qualify(kept)
+            }
         }
         Ty::Named { name, args } => Ty::Named {
             name: name.clone(),

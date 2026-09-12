@@ -183,7 +183,6 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| A combinator result linked to its *callback*: `map(p, w -> w)` refused as a view of a temporary | unscheduled | "Projections and copies — leftovers" |
 | **L8** — how an obligation travels through a container, and when a container is linear | phase 3 | "Linear types" |
 | **D7** — qualifier-conditional linearity (with D6) | phase 3 | "Deductions and qualifier reasoning" |
 | **D6** — `Once` on any type (with D7) | phase 3 | "Deductions and qualifier reasoning" |
@@ -205,9 +204,10 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**None open.** The last one — a qualifier applied to an already-qualified value
-flattens, so `emitted(ok("x"))` matched no arm — was closed 2026-09-10; its
-repro and root cause are in COMPLETED.md.
+**None open.** The last two — the retagged-lambda deref-in-cast miss (E0606)
+and the adapter's silent clone of a returned projection — were closed
+2026-09-12 with the lambda-view work; repros and root causes are in
+COMPLETED.md.
 
 ## Linear types
 
@@ -977,27 +977,25 @@ start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
 ## Projections and copies — leftovers (phase 2b complete 2026-09-11)
 
 Phase 2b — `Proj` everywhere, views, `?copy`, the std audit, the `iter fn`
-borrow, and the `=>` deduction respelling — is **built**, and so is the
-follow-on: **`Proj` as a type qualifier landed 2026-09-12** (option A; see
-COMPLETED.md's decision log — the two cuts it closed are regression tests
-on both backends now). The design, the options rejected and what it took
-are in COMPLETED.md's decision log (entries "Deductions respelled",
-"Phase 2b" and "`Proj` in the type"), the rules in LANGUAGE_SPEC.md
-([proj-type] [proj-anywhere] [proj-readonly] [proj-field] [proj-infer]
+borrow, and the `=>` deduction respelling — is **built**, and so are the
+follow-ons: **`Proj` as a type qualifier landed 2026-09-12** (option A),
+and **capturing lambdas are views + written lend entries take precedence
+over the instantiation fallback landed the same day** (user decision; both
+in COMPLETED.md's decision log with the soundness hole and the two emitter
+defects they closed). The rules live in LANGUAGE_SPEC.md ([proj-type]
+[lambda-view] [proj-anywhere] [proj-readonly] [proj-field] [proj-infer]
 [yield-proj] [copy-implicit] [copy-scalar-free] [deduce-syntax]) and
 BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
 
-- **DECISION — a combinator result linked to its callback.** Instantiation-
-  driven linking (a substituted return holding `Proj`, with no inferable
-  lend) links the result to *every* kept argument — including a fn-typed
-  one. So `let kept = map(p, w -> w)` is refused today ("cannot bind a view
-  of a temporary": the lambda is an argument that dies with the statement),
-  and the idiomatic spelling needs a named callback fn or an immediate use.
-  Defensible (the callback returns the elements, and could in principle
-  project from a capture) but heavy for the most common call. Options: keep
-  the conservative link; exempt fn-typed arguments whose type cannot source
-  a projection; or trace which argument's type taught the generic its
-  `Proj`. The user's call.
+- **Type-mention tracing for instantiation links (refinement, recorded
+  2026-09-12).** With no written entry, a `Proj`-holding instantiation
+  still links its result to *every* kept argument — including a container
+  the substituted type never mentions (`keep_all(iter(words), tags)` links
+  to `tags`). The remedy today is the written `=> Proj[from: it]` entry,
+  which now takes precedence; the refinement would link only kept
+  arguments whose substituted type contains the projection. Build it if
+  over-linking bites where the entry is unavailable (an unannotatable
+  callee).
 - **Contract stability (revisit).** With unmentioned parameters inferred
   [deduce-syntax], editing a body to consume or lend a parameter changes what
   callers may do with no signature change; the old exhaustive list made moves

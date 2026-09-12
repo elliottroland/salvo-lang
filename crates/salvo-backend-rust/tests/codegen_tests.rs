@@ -20,7 +20,11 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
+        assert!(
+            errors.is_empty(),
+            "parse errors in {}: {errors:?}",
+            file.name
+        );
         modules.push(module);
     }
     Program {
@@ -218,12 +222,30 @@ fn main() [use] -> None {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .unwrap();
     // Kept -> `&`; kept+Mut -> `&mut`; omitted -> owned (move).
-    assert!(main.content.contains("pub fn read(list: &Vec<i32>) -> i32"), " {}", main.content);
-    assert!(main.content.contains("pub fn fill(list: &mut Vec<i32>, n: i32)"), " {}", main.content);
-    assert!(main.content.contains("pub fn consume(list: Vec<i32>) -> i32"), " {}", main.content);
+    assert!(
+        main.content.contains("pub fn read(list: &Vec<i32>) -> i32"),
+        " {}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("pub fn fill(list: &mut Vec<i32>, n: i32)"),
+        " {}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("pub fn consume(list: Vec<i32>) -> i32"),
+        " {}",
+        main.content
+    );
     // Call sites render the matching argument shapes; the moved arg
     // passes by value.
-    assert!(main.content.contains("fill(&mut items, 3)"), "{}", main.content);
+    assert!(
+        main.content.contains("fill(&mut items, 3)"),
+        "{}",
+        main.content
+    );
     assert!(main.content.contains("read(&items)"), "{}", main.content);
     assert!(main.content.contains("consume(items)"), "{}", main.content);
 }
@@ -316,13 +338,17 @@ fn unions_emit_enums() {
         .expect("unions.rs should be generated");
     assert!(unions.content.contains("pub enum Union2<T1, T2>"));
     assert!(unions.content.contains("pub enum Union3<T1, T2, T3>"));
-    assert!(unions.content.contains("impl<T1, T2> std::fmt::Display for Union2<T1, T2>"));
+    assert!(unions
+        .content
+        .contains("impl<T1, T2> std::fmt::Display for Union2<T1, T2>"));
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .unwrap();
     // Wrap at return boundaries, positional arm identity.
-    assert!(main.content.contains("return Union2::<i32, String>::U1(ok(input));"));
+    assert!(main
+        .content
+        .contains("return Union2::<i32, String>::U1(ok(input));"));
     assert!(main
         .content
         .contains("return Union2::<i32, String>::U2(err(\"negative age\".to_string()));"));
@@ -441,14 +467,22 @@ fn qualifiers_lower_to_predicates_and_mangled_fns() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .unwrap();
     // Predicate qualifiers become top-level fns taking borrows.
-    assert!(main.content.contains("pub fn Surname_qualifies(person: &Person) -> bool"));
-    assert!(main.content.contains("pub fn Positive_qualifies(int: i32) -> bool"));
+    assert!(main
+        .content
+        .contains("pub fn Surname_qualifies(person: &Person) -> bool"));
+    assert!(main
+        .content
+        .contains("pub fn Positive_qualifies(int: i32) -> bool"));
     assert!(main.content.contains("if Surname_qualifies(person)"));
     assert!(main.content.contains("if Positive_qualifies(n)"));
     // The qualified overload is mangled.
-    assert!(main.content.contains("pub fn full_name__Surname(person: &Person) -> String"));
+    assert!(main
+        .content
+        .contains("pub fn full_name__Surname(person: &Person) -> String"));
     // Field overrides read out of the declared representation.
-    assert!(main.content.contains("person.surname.as_ref().unwrap().clone()"));
+    assert!(main
+        .content
+        .contains("person.surname.as_ref().unwrap().clone()"));
     // `while x is T` re-binds per iteration; `T?` narrows physically.
     assert!(main.content.contains("while current.is_some()"));
     assert!(main.content.contains("let mut c = current.unwrap();"));
@@ -530,21 +564,31 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
         .unwrap();
     assert!(main.content.contains("pub trait Random<T> {"));
     assert!(main.content.contains("fn next_random(&mut self) -> T;"));
-    assert!(main.content.contains("impl<T: Clone + 'static> Random<T> for CyclicRandom<T>"));
+    assert!(main
+        .content
+        .contains("impl<T: Clone + 'static> Random<T> for CyclicRandom<T>"));
     // Effect deps as leading `&mut dyn` parameters.
     assert!(main.content.contains(
         "pub fn draw(random_i32: &mut dyn Random<i32>, random_string: &mut dyn Random<String>, console: &mut dyn Console)"
     ));
     // `use` instantiates handlers into `let mut` locals.
-    assert!(main.content.contains("let mut console = StdOutConsole::new();"));
+    assert!(main
+        .content
+        .contains("let mut console = StdOutConsole::new();"));
     assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
     // turbofish is written even where rustc could have inferred it, since a
     // stateless generic handler gives it nothing to infer from.
     main.content.contains("let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone());"));
     // Threading and expected-type disambiguation.
-    assert!(main.content.contains("draw(&mut random_i32, &mut random_string, &mut console);"));
-    assert!(main.content.contains("let mut n: i32 = random_i32.next_random();"));
-    assert!(main.content.contains("let mut s: String = random_string.next_random();"));
+    assert!(main
+        .content
+        .contains("draw(&mut random_i32, &mut random_string, &mut console);"));
+    assert!(main
+        .content
+        .contains("let mut n: i32 = random_i32.next_random();"));
+    assert!(main
+        .content
+        .contains("let mut s: String = random_string.next_random();"));
 }
 
 #[test]
@@ -673,7 +717,9 @@ fn loops_lower_to_block_expressions() {
         .unwrap();
     // Value loops become block expressions with an Option result local,
     // unwrapped when the join type has no None arm.
-    assert!(main.content.contains("let mut __loop1: Option<i32> = None;"));
+    assert!(main
+        .content
+        .contains("let mut __loop1: Option<i32> = None;"));
     assert!(main.content.contains("__loop1 = Some(i * 10);"));
     assert!(main.content.contains("__loop1.unwrap()"));
     // `else` runs only when the loop never did.
@@ -748,8 +794,12 @@ fn crate_layout_mounts_only_used_modules() {
         .unwrap();
     // The main module is the crate root: attributes + mounted mods.
     assert!(main.content.starts_with("#![allow("), "{}", main.content);
-    assert!(main.content.contains("#[path = \"geometry.rs\"]\npub mod geometry;"));
-    assert!(main.content.contains("#[path = \"core/console.rs\"]\npub mod core_console;"));
+    assert!(main
+        .content
+        .contains("#[path = \"geometry.rs\"]\npub mod geometry;"));
+    assert!(main
+        .content
+        .contains("#[path = \"core/console.rs\"]\npub mod core_console;"));
     assert!(!main.content.contains("pub mod unused;"));
     // Generated imports.
     assert!(main.content.contains("use crate::geometry::*;"));
@@ -814,7 +864,11 @@ fn numeric_literal_suffixes_emit_rust_types() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs not emitted");
     assert!(main.content.contains("= 5i64"), "content: {}", main.content);
-    assert!(main.content.contains("= 2.5f32"), "content: {}", main.content);
+    assert!(
+        main.content.contains("= 2.5f32"),
+        "content: {}",
+        main.content
+    );
     assert!(main.content.contains("= 1.5"), "content: {}", main.content);
 }
 
@@ -913,13 +967,33 @@ fn copy_lowers_to_clone_and_linked_lets_clone() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     // `copy` clones the place, whatever the type.
-    assert!(main.content.contains("let mut t = s.clone();"), "generated:\n{}", main.content);
-    assert!(main.content.contains("let mut ys = xs.clone();"), "generated:\n{}", main.content);
-    assert!(main.content.contains("let mut q = p.clone();"), "generated:\n{}", main.content);
-    assert!(main.content.contains("let mut brr = arr.clone();"), "generated:\n{}", main.content);
+    assert!(
+        main.content.contains("let mut t = s.clone();"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut ys = xs.clone();"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut q = p.clone();"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut brr = arr.clone();"),
+        "generated:\n{}",
+        main.content
+    );
     // The fate-linked alias is a real borrow since S3
     // [rs-borrow-locals]: both `zs` and `xs` stay usable, no clone.
-    assert!(main.content.contains("let mut zs = &xs;"), "generated:\n{}", main.content);
+    assert!(
+        main.content.contains("let mut zs = &xs;"),
+        "generated:\n{}",
+        main.content
+    );
 }
 
 #[test]
@@ -986,7 +1060,8 @@ fn move_mode_bindings_emit_real_moves() {
         .expect("main.rs emitted");
     // The claimed parameter is owned (moved in).
     assert!(
-        main.content.contains("pub fn longest_name(persons: Vec<Person>) -> String"),
+        main.content
+            .contains("pub fn longest_name(persons: Vec<Person>) -> String"),
         "generated:\n{}",
         main.content
     );
@@ -1081,7 +1156,8 @@ fn borrow_mode_bindings_emit_borrows() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("pub fn count_long(persons: &Vec<Person>) -> i32"),
+        main.content
+            .contains("pub fn count_long(persons: &Vec<Person>) -> i32"),
         "generated:\n{}",
         main.content
     );
@@ -1174,9 +1250,21 @@ fn discard_lowers_to_drop() {
     // [linear-discard] A linear value's discharge is its own `close`; what
     // `discard` still lowers to is `drop`, for the non-linear values it is
     // now the escape hatch for.
-    assert!(main.content.contains("close(h)"), "generated:\n{}", main.content);
-    assert!(main.content.contains("close(temp)"), "generated:\n{}", main.content);
-    assert!(main.content.contains("drop(note)"), "generated:\n{}", main.content);
+    assert!(
+        main.content.contains("close(h)"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("close(temp)"),
+        "generated:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("drop(note)"),
+        "generated:\n{}",
+        main.content
+    );
 }
 
 #[test]
@@ -1267,8 +1355,9 @@ fn once_fn_params_emit_fnonce() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content
-            .contains("pub fn run_once(console: &mut dyn Console, f: impl FnOnce(&mut dyn Console))"),
+        main.content.contains(
+            "pub fn run_once(console: &mut dyn Console, f: impl FnOnce(&mut dyn Console))"
+        ),
         "generated:\n{}",
         main.content
     );
@@ -1560,7 +1649,8 @@ fn narrowed_field_reads_unwrap() {
         main.content
     );
     assert!(
-        main.content.contains("p.address.city.as_ref().unwrap().clone()"),
+        main.content
+            .contains("p.address.city.as_ref().unwrap().clone()"),
         "expected the narrowed field *chain* read to unwrap in:\n{}",
         main.content
     );
@@ -2348,7 +2438,11 @@ fn rustc_compiles_and_runs_nested_coercion() {
         return;
     }
     let files = generate(&[("main.sv", NESTED_COERCION_DEMO)]);
-    run_rust_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
+    run_rust_files(
+        &files,
+        "nested-coercion",
+        "ok 1\nerr a\nok 2\nok 3\nerr b\n",
+    );
 }
 
 // ===== effect member fns with their own generics =====
@@ -2481,7 +2575,11 @@ fn array_std_functions_lower() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
-    for needle in ["nums.len() as i32", "nums.get((2) as usize)", "nums.first()"] {
+    for needle in [
+        "nums.len() as i32",
+        "nums.get((2) as usize)",
+        "nums.first()",
+    ] {
         assert!(
             main.content.contains(needle),
             "expected `{needle}` in:\n{}",
@@ -2585,7 +2683,11 @@ fn dot_names_flatten() {
         "generated:\n{}",
         main.content
     );
-    run_rust_files(&files, "dot_names", "prod / Production\ntagged t1\nplain t2\n");
+    run_rust_files(
+        &files,
+        "dot_names",
+        "prod / Production\ntagged t1\nplain t2\n",
+    );
 }
 
 // [name-dot] [type-union] [is-narrowing] Dot-named types as union arms:
@@ -2712,11 +2814,7 @@ fn provenance_survives_mutation_where_state_does_not() {
     let files = salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_rust_files(
-        &files,
-        "qual_subjects",
-        "trusted 3\nplain 3\nchecked 2\n",
-    );
+    run_rust_files(&files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n");
 }
 
 // ===== E3 step 2: throw and `try` [throw] [try] [rs-throw-controlflow] =====
@@ -2848,13 +2946,15 @@ fn throw_lowers_to_controlflow() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     assert!(
-        main.content
-            .contains("pub fn parse(console: &mut dyn Console, line: String) -> ControlFlow<String, i32>"),
+        main.content.contains(
+            "pub fn parse(console: &mut dyn Console, line: String) -> ControlFlow<String, i32>"
+        ),
         "expected a ControlFlow return shape in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("return ControlFlow::Break(\"empty line\".to_string());"),
+        main.content
+            .contains("return ControlFlow::Break(\"empty line\".to_string());"),
         "expected `throw` to return Break in:\n{}",
         main.content
     );
@@ -2914,8 +3014,7 @@ fn try_lowers_to_a_labelled_block() {
     // Two message types meeting at one delimiter wrap into the message
     // union's arms [union-arm-identity]; a single type stays bare.
     assert!(
-        main.content
-            .contains("Union2::<String, i32>::U2(__m)"),
+        main.content.contains("Union2::<String, i32>::U2(__m)"),
         "expected the message wrapped into its arm in:\n{}",
         main.content
     );
@@ -3006,7 +3105,8 @@ fn fn_type_effects_thread_into_closures() {
     // The adapter for a named fn: takes the expected effect, forwards what
     // the declaration needs (`shout`), or ignores it (`plain`).
     assert!(
-        main.content.contains("__fx0: &mut dyn Logger") && main.content.contains("shout(&mut *__fx0"),
+        main.content.contains("__fx0: &mut dyn Logger")
+            && main.content.contains("shout(&mut *__fx0"),
         "expected the named-fn adapter to forward the effect:\n{}",
         main.content
     );
@@ -3110,7 +3210,8 @@ fn widening_materializes_the_peel() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("let mut nested = nested.u1().clone();"),
+        main.content
+            .contains("let mut nested = nested.u1().clone();"),
         "expected the widened value bound to a shadowing local:\n{}",
         main.content
     );
@@ -3522,10 +3623,7 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         // parameter is one reference deeper than the annotation.
         "|s: &&String|",
     ] {
-        assert!(
-            src.contains(expected),
-            "expected `{expected}` in:\n{src}"
-        );
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
 }
 
@@ -3579,8 +3677,7 @@ fn main() [use] -> None {
 }
 "#;
 
-pub const SEQ_SURFACE_OUTPUT: &str =
-    "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
+pub const SEQ_SURFACE_OUTPUT: &str = "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
 
 #[test]
 fn rustc_compiles_and_runs_the_combinator_surface() {
@@ -4138,7 +4235,8 @@ fn a_function_in_a_struct_field_is_an_rc_dyn_fn() {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("pub f: std::rc::Rc<dyn Fn(i32) -> i32>,"),
+        main.content
+            .contains("pub f: std::rc::Rc<dyn Fn(i32) -> i32>,"),
         "expected an Rc<dyn Fn> field, got:\n{}",
         main.content
     );
@@ -4315,7 +4413,8 @@ fn main() [use] {
 }
 "#;
 
-pub const FALLIBLE_PASS_OUTPUT: &str = "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
+pub const FALLIBLE_PASS_OUTPUT: &str =
+    "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
 
 #[test]
 fn a_fallible_pass_yields_a_result() {
@@ -4465,8 +4564,7 @@ fn main() [use] {
 }
 "#;
 
-const NARROW_MUT_OUTPUT: &str =
-    "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
+const NARROW_MUT_OUTPUT: &str = "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
 
 #[test]
 fn rustc_compiles_and_runs_mutation_through_narrowed_places() {
@@ -4498,10 +4596,7 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
         // The assignment base.
         "r.as_mut().unwrap().at = 2",
     ] {
-        assert!(
-            src.contains(needle),
-            "expected `{needle}` in:\n{src}"
-        );
+        assert!(src.contains(needle), "expected `{needle}` in:\n{src}");
     }
     assert!(
         !src.contains("&mut (p.as_ref"),
@@ -4761,8 +4856,8 @@ fn main() [use] {
 #[test]
 fn a_refinement_conflict_warns_without_stopping_emission() {
     let program = build_program(&[("main.sv", REFN_CONFLICT_DEMO)]);
-    let (files, warnings) =
-        salvo_backend_rust::emit_program_reporting(&program, None).unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
+    let (files, warnings) = salvo_backend_rust::emit_program_reporting(&program, None)
+        .unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
     assert!(!files.is_empty(), "the program should still emit");
     assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
     assert!(
@@ -4884,11 +4979,17 @@ fn mut_str_is_a_plain_string() {
     // [str-drop-mut] No conversion anywhere: the argument is borrowed as it
     // stands, and interpolation prints the `String` itself.
     assert!(main.contains("shout(&b)"), "unexpected:\n{main}");
-    assert!(main.contains(r#"format!("{} / {}", b, dup)"#), "unexpected:\n{main}");
+    assert!(
+        main.contains(r#"format!("{} / {}", b, dup)"#),
+        "unexpected:\n{main}"
+    );
     // The parts are borrowed, not moved: a variadic position is untracked by
     // the flow analysis, so an owned `vec![pa]` would move a variable the
     // checker still considers live.
-    assert!(main.contains(r#"let mut x = [&pa[..]].concat();"#), "unexpected:\n{main}");
+    assert!(
+        main.contains(r#"let mut x = [&pa[..]].concat();"#),
+        "unexpected:\n{main}"
+    );
     // Characters, not bytes — `find` answers in bytes, so the prefix is
     // re-counted.
     assert!(
@@ -4898,7 +4999,10 @@ fn mut_str_is_a_plain_string() {
     // [rs-mut-str] `set` goes through the generated trait: method syntax
     // auto-refs an owned local and a `&mut String` parameter alike.
     assert!(main.contains("b.salvo_set(0, 'H')"), "unexpected:\n{main}");
-    assert!(main.contains("use crate::strings::*;"), "unexpected:\n{main}");
+    assert!(
+        main.contains("use crate::strings::*;"),
+        "unexpected:\n{main}"
+    );
     let support = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "strings.rs")
@@ -4997,7 +5101,10 @@ fn rustc_compiles_and_runs_mut_str_places() {
         main.contains("pub fn grow(s: &mut String)") && main.contains("s.salvo_set(0, 'G')"),
         "unexpected:\n{main}"
     );
-    assert!(main.contains("buf.text.salvo_set(0, 'I')"), "unexpected:\n{main}");
+    assert!(
+        main.contains("buf.text.salvo_set(0, 'I')"),
+        "unexpected:\n{main}"
+    );
     run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
 }
 
@@ -5106,7 +5213,10 @@ fn sequence_functions_lower_to_helpers() {
     );
     // A named fn as the callback wraps in an adapter: a fn item's own
     // convention is by value, and the helper hands it `&T` [fn-contract].
-    assert!(main.contains("let mut named = salvo_map(&xs[..], |"), "unexpected:\n{main}");
+    assert!(
+        main.contains("let mut named = salvo_map(&xs[..], |"),
+        "unexpected:\n{main}"
+    );
     // [iter-fn] A pass subject reaches the generic overload through its `iter`,
     // and the `next` the checker resolved arrives as the implicit argument.
     assert!(
@@ -5122,7 +5232,9 @@ fn sequence_functions_lower_to_helpers() {
     );
     let plain = generate(&[("main.sv", "fn main() {\n}\n")]);
     assert!(
-        !plain.iter().any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
+        !plain
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
         "the sequence helpers must not be emitted for a program that never uses them"
     );
 }
@@ -5204,7 +5316,10 @@ fn scope_selectors_and_renames_are_erased() {
         .expect("main.rs emitted")
         .content;
     assert!(!main.contains('@'), "unexpected `@` in:\n{main}");
-    assert!(!main.contains("label_small"), "unexpected rename in:\n{main}");
+    assert!(
+        !main.contains("label_small"),
+        "unexpected rename in:\n{main}"
+    );
     // `@core.list` is std's `size`, mangled because this program declares its
     // own [rs-fn-mangling].
     assert!(
@@ -5524,8 +5639,7 @@ fn main() [use] {
 }
 "#;
 
-const CONTAINER_IMPLICIT_OUTPUT: &str =
-    "generated pass: 6\nwritten iter: 9\na list: 6\n";
+const CONTAINER_IMPLICIT_OUTPUT: &str = "generated pass: 6\nwritten iter: 9\na list: 6\n";
 
 #[test]
 fn rustc_compiles_and_runs_a_container_combinator() {
@@ -5862,4 +5976,48 @@ const PROJ_ARM_PARAM_OUTPUT: &str = "ann\nbo\ndone\nann\nann\n";
 fn rustc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() {
     let files = generate(&[("main.sv", PROJ_ARM_PARAM_DEMO)]);
     run_rust_files(&files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT);
+}
+
+// ===== [lambda-view] a capture-rooted projection, clone-free =====
+
+/// A callback picking elements out of a *captured* list — the projection
+/// is rooted in the capture, which no fn type can name, so the closure
+/// itself carries the link [lambda-view]. The emitted Rust must hold the
+/// borrow (`Vec<&String>`, no clone in the lambda) and deref the retagged
+/// index in the cast (`(*i) as usize` — E0606 without it; both were open
+/// defects, closed 2026-09-12).
+const PICK_LIST_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let all = list("a", "b", "c", "d")
+    let indices = list(1, 3)
+    let picked = map(indices, i -> get(all, i)!)
+    for w in picked {
+        println(w)
+    }
+    let p = iter(indices)
+    let doubled = map(p, i -> i + i)
+    for n in doubled {
+        println("${n}")
+    }
+}
+"#;
+
+const PICK_LIST_OUTPUT: &str = "b\nd\n2\n6\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_capture_rooted_projection() {
+    let files = generate(&[("main.sv", PICK_LIST_DEMO)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // The lambda returns the borrow itself: no clone, and the Copy index
+    // is deref'd for the cast.
+    assert!(
+        main.contains("|i| all.get((*i) as usize).unwrap()"),
+        "expected a clone-free, deref'd pick lambda:\n{main}"
+    );
+    run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
 }

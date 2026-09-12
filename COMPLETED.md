@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 780 tests, complete: the toolchain tests are
+cargo test                  # 783 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -120,6 +120,42 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Capturing lambdas are views; written lend entries win (user decision
+2026-09-12, evening).** Walking the projection leftovers surfaced two
+gaps, decided and closed together. (1) *Written-entry precedence*
+([proj-infer]): a bodied generic's `=> Proj[from: it]` was consulted only
+behind a written-return-type gate that an instantiation-borne projection
+(`-> Mut List<T>`, `T = Proj Str`) never passed, so the every-kept-argument
+fallback linked the result to arguments the author had excluded — the fix
+is one reorder in `lends.rs::lends_of` (declared entries before the
+`holds_proj` gate), and the entry now narrows the link while still flowing
+through a temporary pass to its roots. (2) *[lambda-view]*: the user's
+`pick_list` example — `indices.map(i -> list.get(i)!)` — disproved the
+claim that a callback's projections always derive from its arguments: a
+body can root a projection in a **capture**, which no fn type can name,
+and naming the lambda (`let f = i -> get(words, i)!`) evaded fate
+entirely — `eat(words)` was accepted with the view live (the Rust emitter
+masked it with a silent clone, and then failed on an unrelated cast bug).
+The decision: a lambda holds borrows of every non-Copy *read* capture,
+like a struct holds its `Proj` fields — binding links it (held, borrowed,
+transitively through the capture's own links), results link through it, a
+capture-free lambda holds nothing (`map(p, w -> w)` binds freely), a
+lambda expression is never a "temporary" a view could dangle from, a
+consumed capture stays owned (the `Once` case — the first cut of the
+implementation wrongly linked those and broke `run_once(g)`), and Copy
+scalars link nothing. Emitter halves, closing both open defects: an
+unwrap whose checker type is `Proj` stays the reference (no clone — the
+lambda tail returns `&String` into a `Vec<&String>`, and as a bonus an
+interpolated `first(names)!` stopped cloning in the demo golden), and a
+Ref-bound Copy scalar renders as a value (`*i`) in intrinsic arguments,
+fixing `(i) as usize` (E0606). Tests: `a_capturing_lambda_is_a_view_of_
+its_captures` and `a_written_proj_entry_narrows_the_instantiation_link`
+(analyze), `rustc_compiles_and_runs_a_capture_rooted_projection` (with
+the emitted-lambda shape pinned) and the `pick-list` Kotlin case —
+byte-identical output. The map-links-to-every-container over-linking
+remains, softened by the entry precedence; the type-mention-tracing
+refinement is recorded in ROADMAP.
 
 **`Proj` in the type (option A, user decision 2026-09-12).** Two phase-2b
 cuts had one cause: `Proj` lived only on fate links and was stripped from
@@ -8650,7 +8686,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 780)
+## Test inventory (all green: 783)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8987,7 +9023,7 @@ cache, with per-test timings.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
-- `salvo-cli`: 84 - 49 `analyze` integration tests running the built
+- `salvo-cli`: 86 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -9216,7 +9252,7 @@ cache, with per-test timings.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 85 - **the 68 compile-and-run programs are one
+- `salvo-backend-kotlin`: 85 - **the 69 compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -9394,7 +9430,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 127 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 128 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
