@@ -917,6 +917,10 @@ struct Emitter<'p> {
     /// the current fn's implicit parameters render: the enclosing fn keeps
     /// `c` under lifetime `'c`, which the position's `&'c C` shares.
     lent_position_params: Vec<String>,
+    /// [proj-type] The lifetime a `Proj` renders under while set (`'s` inside
+    /// a borrowing struct or a `next` over one, `'a` on a tied return):
+    /// `&'s T` instead of the elided `&T`.
+    proj_lifetime: Option<String>,
     /// [rs-proj-arm] Locals whose union storage has *borrowed* arms: bound
     /// from a call whose return type has a `Proj` arm (`let step =
     /// next(p)` is a `Union2<&T, Finished>`). Reading such an arm's payload
@@ -1113,6 +1117,7 @@ impl<'p> Emitter<'p> {
             derived_return_fn: false,
             emitting_producer_args: false,
             lent_position_params: Vec::new(),
+            proj_lifetime: None,
             borrowed_arm_locals: HashMap::new(),
             narrowed_read_is_ref: false,
             returns_borrowing_struct: false,
@@ -1560,9 +1565,11 @@ impl<'p> Emitter<'p> {
                 rc_fn_type(&rendered)
             } else if borrowing && type_has_proj(&field.ty) {
                 // [rs-proj-struct] The borrowed field: `&'s T` of the type
-                // under the `Proj`.
-                let inner = strip_proj(&field.ty);
-                format!("&'s {}", self.emit_type(&inner))
+                // under the `Proj` — the general rendering, under `'s`.
+                let saved = self.proj_lifetime.replace("'s".to_string());
+                let rendered = self.emit_type(&field.ty);
+                self.proj_lifetime = saved;
+                rendered
             } else if borrowing {
                 // [proj-field] An owned field holding a view shares the
                 // struct's lifetime: `'_` is not allowed in a declaration.
@@ -2309,6 +2316,13 @@ impl<'p> Emitter<'p> {
         } else {
             self.emit_type(ty)
         };
+        // [proj-type] A `Proj`-typed parameter is already the reference its
+        // type renders as; a kept mode adds no second `&`. A `Proj` over a
+        // bare generic renders owned (`T` — the instantiation carries the
+        // borrow, see `emit_type`), so its mode still applies.
+        if strip_top_proj_ast(ty).is_some() && !variadic && base.starts_with('&') {
+            return base;
+        }
         match mode {
             ParamMode::Owned => base,
             ParamMode::Ref => format!("&{base}"),
@@ -2776,33 +2790,26 @@ impl<'p> Emitter<'p> {
                         format!(" -> {}", ty.replacen("<'_", &format!("<{}", lt.trim()), 1))
                     }
                 }
-                Some(Type::Nullable { inner, .. }) => {
-                    let inner = strip_proj(inner);
-                    format!(" -> Option<&{lt}{}>", self.emit_type(&inner))
-                }
-                // [rs-proj-arm] A union whose `Proj` arm borrows: the arm
-                // renders as `&T` inside the shared enum
-                // (`Union2<&'a T, Finished>`) — an ordinary instantiation,
-                // so the enum itself needs no change.
-                Some(Type::Union { arms, .. }) if !arms.iter().any(is_none_type) => {
-                    let rendered: Vec<String> = arms
-                        .iter()
-                        .map(|arm| {
-                            let emitted = self.emit_type(&strip_proj(arm));
-                            if type_has_proj(arm) {
-                                format!("&{lt}{emitted}")
-                            } else {
-                                emitted
-                            }
-                        })
-                        .collect();
-                    self.union_sizes.insert(rendered.len());
-                    format!(" -> Union{}<{}>", rendered.len(), rendered.join(", "))
-                }
-                Some(Type::Named { .. }) | Some(Type::Array { .. })
+                // [proj-type] Every other projected shape — `Option<&T>`, a
+                // union with a `Proj` arm (`Union2<&'a T, Finished>`, an
+                // ordinary instantiation of the shared enum [rs-proj-arm]),
+                // `&T` itself, a tuple — is the general rendering of the
+                // written type, under the lifetime this fn names.
+                Some(Type::Nullable { .. })
+                | Some(Type::Union { .. })
+                | Some(Type::Named { .. })
+                | Some(Type::Array { .. })
                 | Some(Type::Tuple { .. }) => {
+                    let saved = self
+                        .proj_lifetime
+                        .replace(lt.trim().to_string())
+                        .filter(|_| !lt.trim().is_empty());
+                    if lt.trim().is_empty() {
+                        self.proj_lifetime = None;
+                    }
                     let ty = self.emit_return_type(f.return_type.as_ref());
-                    format!(" -> &{lt}{}", ty.trim_start_matches(" -> "))
+                    self.proj_lifetime = saved;
+                    ty
                 }
                 other => {
                     self.error(format!(
@@ -3110,6 +3117,36 @@ impl<'p> Emitter<'p> {
     // ================= types =================
 
     fn emit_type(&mut self, ty: &Type) -> String {
+        // [proj-type] `Proj X` *is* a reference: `&X`, at whatever depth it
+        // sits — a union arm (`Union2<&String, Finished>`), a type argument
+        // (`Vec<&String>`), a field, a parameter. (A Copy scalar's `Proj` is
+        // erased by the checker and never reaches here written.)
+        //
+        // Except over a bare *generic parameter* with no lifetime context:
+        // `Proj T` at the definition site renders `T`. A generic body treats
+        // its `T` uniformly, and whether a use is borrowed is the
+        // instantiation's fact — the caller substitutes `T = Proj Str`
+        // (rendering `&String`) and the turbofish retag spells it
+        // [rs-proj-arm]. Rendering `&T` here would borrow for *every*
+        // instantiation, owned ones included. When `proj_lifetime` *is* set
+        // (a borrowing struct's field, a `next` over one), the projection is
+        // of the fn's own named borrow and renders `&'s T` even over a
+        // generic.
+        if let Some(inner) = strip_top_proj_ast(ty) {
+            if self.proj_lifetime.is_none() {
+                if let Type::Named { qualifiers, base } = &inner {
+                    if qualifiers.is_empty()
+                        && base.args.is_empty()
+                        && self.generics.contains(&base.name.name)
+                    {
+                        return self.emit_type(&inner);
+                    }
+                }
+            }
+            let rendered = self.emit_type(&inner);
+            let lt = self.proj_lifetime.clone().map(|l| format!("{l} ")).unwrap_or_default();
+            return format!("&{lt}{rendered}");
+        }
         match ty {
             Type::Named { qualifiers, base } => self.emit_named_type(qualifiers, base),
             Type::Nullable { inner, .. } => format!("Option<{}>", self.emit_type(inner)),
@@ -3375,10 +3412,30 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // [type-canbe-mut] Every qualifier erases here, `Mut`
+                // [proj-type] `Proj X` is `&X` (a Copy scalar's `Proj` never
+                // reaches the type — the checker erases it). Except over a
+                // bare in-scope generic with no lifetime context: `Proj T`
+                // at the definition site is `T` — the instantiation carries
+                // the borrow (see `emit_type`).
+                if quals.iter().any(|q| q.name == "Proj") && !Self::is_copy_ty(base) {
+                    let bare_generic = self.proj_lifetime.is_none()
+                        && matches!(
+                            &**base,
+                            Ty::Named { name, args } if args.is_empty() && self.generics.contains(name)
+                        );
+                    if !bare_generic {
+                        let inner = self.rust_ty(base);
+                        let lt = self
+                            .proj_lifetime
+                            .clone()
+                            .map(|l| format!("{l} "))
+                            .unwrap_or_default();
+                        return format!("&{lt}{inner}");
+                    }
+                }
+                // [type-canbe-mut] Every other qualifier erases here, `Mut`
                 // included: Rust carries mutability in the binding, not the
                 // type [rs-borrows].
-                let _ = quals;
                 self.rust_ty(base)
             }
             Ty::Union(_) => {
@@ -3482,7 +3539,9 @@ impl<'p> Emitter<'p> {
             .map(|(i, a)| {
                 let a = (*a).clone();
                 let r = self.rust_ty(&a);
-                if borrowed.contains(&i) {
+                // [proj-type] An arm already typed `Proj` renders `&T` on
+                // its own.
+                if borrowed.contains(&i) && !a.is_proj() {
                     format!("&{r}")
                 } else {
                     r
@@ -8537,6 +8596,12 @@ impl<'p> Emitter<'p> {
                 let mut rendered: Vec<String> = args.iter().map(|t| self.rust_ty(t)).collect();
                 for g in &borrowed_elem_generics {
                     if let Some(i) = f.generics.iter().position(|x| x.name == *g) {
+                        // [proj-type] Already a projection in the checker's
+                        // type (`T = Proj Str` renders `&String`): nothing to
+                        // retag.
+                        if args.get(i).is_some_and(|t| t.is_proj()) {
+                            continue;
+                        }
                         if let Some(r) = rendered.get_mut(i) {
                             *r = format!("&{r}");
                         }
@@ -8946,6 +9011,44 @@ fn proj_refs_with_from(ty: &Type) -> Vec<Vec<String>> {
     let mut out = Vec::new();
     walk(ty, &mut out);
     out
+}
+
+/// [proj-type] The type under a *top-level* `Proj` (on a named type or a
+/// qualified group), or `None` when the type is not a projection at its
+/// top. A Copy scalar under `Proj` is the scalar itself [copy-scalar-free].
+fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
+    let is_scalar = |t: &Type| {
+        matches!(
+            t,
+            Type::Named { qualifiers, base }
+                if qualifiers.is_empty()
+                    && base.args.is_empty()
+                    && matches!(
+                        base.name.name.as_str(),
+                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                    )
+        )
+    };
+    match ty {
+        Type::Named { qualifiers, base } if qualifiers.iter().any(|q| q.name.name == "Proj") => {
+            let rest: Vec<salvo_syntax::ast::TypeRef> =
+                qualifiers.iter().filter(|q| q.name.name != "Proj").cloned().collect();
+            let inner = Type::Named { qualifiers: rest, base: base.clone() };
+            if is_scalar(&inner) { None } else { Some(inner) }
+        }
+        Type::QualifiedGroup { qualifiers, base, span }
+            if qualifiers.iter().any(|q| q.name.name == "Proj") =>
+        {
+            let rest: Vec<salvo_syntax::ast::TypeRef> =
+                qualifiers.iter().filter(|q| q.name.name != "Proj").cloned().collect();
+            if rest.is_empty() {
+                Some((**base).clone())
+            } else {
+                Some(Type::QualifiedGroup { qualifiers: rest, base: base.clone(), span: *span })
+            }
+        }
+        _ => None,
+    }
 }
 
 /// A written type's base name, for diagnostics.

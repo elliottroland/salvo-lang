@@ -2242,6 +2242,37 @@ Conventions:
     (rustc's capture inference already makes consuming closures
     `FnOnce`); Kotlin emits the ordinary function type — the
     multiplicity is protocol-only on the JVM.
+* [proj-type] **`Proj` is part of the type** (option A, user decision
+  2026-09-12; until then it was erased in lowering and carried only on
+  fate links). `Proj Str`, `Mut List<Proj Str>`, `Emitted (Proj Str) |
+  Finished` are the checker's types: they print in diagnostics and hover,
+  and a generic binds through them (`Emitted T` against
+  `Emitted (Proj Str)` gives `T = Proj Str`).
+  * Subtyping: `X <: Proj X` — an owned value satisfies a projected
+    position (it can do strictly more). The reverse never holds, and
+    `Proj` is **never dropped implicitly**: it is a *never-drop* qualifier
+    (like `Linear`; unlike `Ok`), so passing a projection where an owned
+    value is expected is an error naming the type and the remedies
+    ("write the parameter's type with the `Proj`, or pass `copy(...)`") —
+    the same on both backends because Rust makes them different
+    representations. The checker distinguishes why a projection blocked a
+    call (it would be mutated, consumed, or sits nested inside the type)
+    and says so.
+  * `Proj` on a Copy scalar erases: `Proj Int` *is* `Int` — the number is
+    the value itself on both backends [copy-scalar-free].
+  * Unification treats `Proj` in a *pattern* as optional (like `Once`): a
+    parameter written `Proj T` accepts an owned argument (binding `T` to
+    it whole) and a projected one (binding `T` to the base minus the
+    matched qualifiers — `Proj T` against `Mut Str` gives `T = Mut Str`).
+  * Overloading: a `Proj` position **accepts more, so it says less** — an
+    owned position beats a projected one (`X <: Proj X`, so the inversion
+    mirrors the union rung of [fn-overload-rank]); it is its own ranking
+    dimension, so `Proj Mut Str` vs `Str` is an ambiguity, not a guess.
+    (This replaces the earlier "`Proj` never affects overloading".)
+  * At a *definition* over a bare generic, `Proj T` constrains the value
+    (a projection may arrive) but the body treats `T` uniformly; which
+    instantiations actually borrow is the call sites' fact
+    [rs-proj-arm].
 * [readonly-return] `-> Proj[from: p] T` marks a **projected return** (L7c,
   2026-09-02; `Proj[from: p]` as a qualifier on the type, user decision
   2026-09-11): the fn returns a *borrow* of the kept parameter `p` instead
@@ -2258,8 +2289,8 @@ Conventions:
     argument poisons the result [fate-poison]; the links carry a
     *borrowed* flag, so move-mode can never take ownership through them
     [fate-move-mode] — moving the result or its narrowed binding is an
-    error with the `copy` remedy). The result's *type* is the plain written
-    type: `Proj` never affects overloading.
+    error with the `copy` remedy). The result's *type* carries the
+    projection ([proj-type]), which is also what overloading sees.
   * Backends: Kotlin unchanged (the result is the alias). Rust returns
     `&T` / `Option<&T>` / `Union2<&T, …>`: lifetime elision covers a single
     reference parameter; with more, a `'a` is generated onto every source
@@ -2293,15 +2324,15 @@ Conventions:
   (user decision 2026-09-11): `Proj Mut X` is a legal type — the value came
   out of a mutable slot — but it never satisfies a `Mut` position (`Mut X <:
   Proj Mut X`, not the reverse); passing it where `Mut` is required, or
-  mutating it, reports "it is a projection (`Proj`) of `xs` … use
-  `copy(s)`". `copy` is the way out and yields an owned `Mut X`. Moving a
-  wholesale projection is refused the same way — except a Copy scalar
-  [copy-scalar-free].
-  * Implementation: `Proj` is never in the lowered `Ty`; the checker carries
-    the fact on the fate link — `FateLink.borrowed && !held` is a wholesale
-    projection, `held` a borrow an owned object carries [proj-infer]. A
-    variable whose every link is held may be mutated (its own fields are its
-    own); one with a wholesale or alias link may not.
+  mutating it, reports the projection and the `copy` remedy. `copy` is the
+  way out and yields an owned `Mut X`. Moving a wholesale projection is
+  refused the same way — except a Copy scalar [copy-scalar-free].
+  * Implementation: the projection lives in the lowered type
+    ([proj-type], 2026-09-12; before that it was erased and carried only
+    on links) *and* on the fate link — `FateLink.borrowed && !held` is a
+    wholesale projection, `held` a borrow an owned object carries
+    [proj-infer]. A variable whose every link is held may be mutated (its
+    own fields are its own); one with a wholesale or alias link may not.
 * [proj-field] **Any struct may hold `Proj` fields**, written without a
   source (`items: Proj List<T>`): the struct declares *that* it projects,
   each literal decides *what* (user decision 2026-09-11; replaces the
@@ -2388,9 +2419,14 @@ Conventions:
     FnMut(&T) -> T>` field, members call `(self.copy)(&v)`, the `use` site
     passes a `move` adapter; `copy` at a retagged element position is the
     identity [rs-proj-arm].
-* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: T) -> T => value` —
-  duplicates a value: the argument is kept untouched with all its
-  qualifiers, and the result is a fresh value with no fate links. It is the one-word remedy in every fate diagnostic.
+* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: Proj T) -> T =>
+  value` — duplicates a value: the argument is kept untouched, and the
+  result is a fresh owned value with no fate links. The parameter says
+  `Proj T` because a projection is exactly what `copy` is *for* — and
+  `X <: Proj X` [proj-type] means an owned value is accepted too. The
+  binding un-projects one level and keeps the rest: `copy` of a
+  `Proj Mut Str` is a `Mut Str`. It is the one-word remedy in every fate
+  diagnostic.
   * Lowered type-directedly by each backend [intrinsic-fn]; identity
     where no Salvo operation can mutate the value, a real copy where
     one can, and a codegen error where no correct copy exists yet

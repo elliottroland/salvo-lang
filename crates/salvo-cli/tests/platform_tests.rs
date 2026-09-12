@@ -28,7 +28,7 @@ fn salvo_in(dir: &Path, args: &[&str]) -> Output {
 /// Whether a toolchain should be exercised. Probed once per tool per test
 /// binary by `salvo-testkit`, which also owns the `SALVO_SKIP_E2E` gate.
 fn have(tool: &str) -> bool {
-    salvo_testkit::tool(tool).available
+    salvo_testkit::tool(env!("CARGO_TARGET_TMPDIR"), tool).available
 }
 
 /// A stamp for one toolchain test, so a re-run that cannot have a different
@@ -49,7 +49,7 @@ fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
     ];
     for tool in tools {
         parts.push(
-            salvo_testkit::tool(tool).version.into_bytes(),
+            salvo_testkit::tool(env!("CARGO_TARGET_TMPDIR"), tool).version.into_bytes(),
         );
     }
     let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();

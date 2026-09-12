@@ -15,7 +15,7 @@ type Number = Int | Long | Double | Float
 // independent value with no fate links to the source. Implemented by
 // each backend directly (Kotlin: identity for transitively immutable
 // types, a real copy for Mut-capable ones; Rust: `.clone()`).
-intrinsic fn copy<T>(value: T) [] -> T => value
+intrinsic fn copy<T>(value: Proj T) [] -> T => value
 
 // [linear-group] [group-obligation] What **linear** means: a type declares
 // `: Linear<self>` and supplies the `close` that discharges the obligation.

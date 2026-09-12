@@ -5,4 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "Shared scaffolding for Salvo's toolchain-dependent tests: toolchain probing and content-hash caching"
 
+# There are no doctests, but rustdoc re-runs on every `cargo test` to look
+# for them (uncached, ~7s per crate). Delete this if a doc example is ever
+# meant to run as a test.
+[lib]
+doctest = false
+
 [dependencies]

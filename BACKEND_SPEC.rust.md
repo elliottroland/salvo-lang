@@ -363,10 +363,27 @@ derives them mechanically:
 
 ### Projections [rs-proj]
 
-The `Proj` rules of LANGUAGE_SPEC.md ([readonly-return] [proj-anywhere]
-[proj-readonly] [proj-field] [proj-infer] [yield-proj]) are the one place
-Salvo's source states a borrow, and this backend renders each as the Rust
-borrow it is. Nothing here clones.
+The `Proj` rules of LANGUAGE_SPEC.md ([proj-type] [readonly-return]
+[proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [yield-proj])
+are the one place Salvo's source states a borrow, and this backend has
+**one rendering rule**: `Proj X` *is* `&X` (2026-09-12, following
+[proj-type]) — at whatever depth the projection sits: a union arm
+(`Union2<&String, Finished>`), a type argument (`Vec<&String>`), a struct
+field, a parameter, a return. Under a named lifetime context it is
+`&'s X` / `&'a X`. Everything below is the machinery that names the
+lifetimes and adapts call sites; nothing here clones. Two exceptions to
+the blanket rule:
+
+* A Copy scalar's `Proj` never reaches the emitter — the checker erases
+  it ([proj-type], [copy-scalar-free]).
+* `Proj T` over a **bare generic parameter at its definition site**, with
+  no lifetime context, renders owned `T`: a generic body treats `T`
+  uniformly, and whether a use borrows is the instantiation's fact — the
+  caller substitutes `T = Proj Str` (rendering `&String`) and the
+  turbofish retag spells it [rs-proj-arm]. Rendering `&T` at the
+  definition would borrow for every instantiation, owned ones included.
+  (Inside a borrowing struct or its `next`, where `'s` is in scope, a
+  generic projection *does* render `&'s T` — the struct's own borrow.)
 
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
@@ -402,7 +419,9 @@ borrow it is. Nothing here clones.
 * [rs-proj-arm] A union with a `Proj` arm is an ordinary instantiation of
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
   call filling `?Yield<It, T>` from a borrowing `next`, the element generic
-  is **retagged** to `&T` in the turbofish; user callbacks at a retagged
+  is **retagged** to `&T` in the turbofish — unless the checker's
+  substituted type already carries the projection (`T = Proj Str` renders
+  `&String` on its own [proj-type]), in which case the retag defers; user callbacks at a retagged
   position arrive one reference deeper and peel it (`let n = *n;` at the
   top of a lambda, `let __a0 = *__a0;` in a by-name adapter; an annotated
   lambda parameter renders `&&T`); resolved implicit adapters clone a

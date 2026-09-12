@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 description = "Kotlin backend for the Salvo compiler"
 
+# There are no doctests, but rustdoc re-runs on every `cargo test` to look
+# for them (uncached, ~7s per crate). Delete this if a doc example is ever
+# meant to run as a test.
+[lib]
+doctest = false
+
 [dependencies]
 salvo-syntax = { workspace = true }
 salvo-core = { workspace = true }

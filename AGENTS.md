@@ -107,25 +107,44 @@ This is a plain Cargo workspace (not a Brazil package). See COMPLETED.md
 
 ```bash
 cargo build                 # must stay warning-free
-cargo test                  # the suite; toolchain tests are content-cached, so a
+cargo test --no-fail-fast   # the suite; toolchain tests are content-cached, so a
                             # re-run costs seconds. See "Test inventory" in COMPLETED.md
-SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache
+SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
+                            # FULL: every test, nothing taken from the cache —
+                            # nextest schedules across binaries (faster fresh)
+                            # and shows per-test timings. Without nextest
+                            # installed: SALVO_E2E_FRESH=1 cargo test --no-fail-fast
 SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
-cargo nextest run           # same tests, with per-test timings (diagnosis; slower)
 ```
 
-Three speeds, and it matters which one you use:
+Three speeds, and it matters which one you use (user decision 2026-09-12:
+`cargo test` stays the default for warm runs — one process per binary
+amortizes ~700 spawns, twice as fast warm — and nextest is the *full/fresh*
+runner, where cross-binary scheduling wins and the timings matter):
 
 | command | what it does | wall time |
 |---|---|---|
 | `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~4s |
-| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~8s warm, ~80s cold |
-| `SALVO_E2E_FRESH=1 cargo test` | runs everything, ignoring the cache | ~70s |
+| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~5s warm, ~1min cold |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~50s |
 
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
-  `SALVO_E2E_FRESH=1 cargo test` before anything that gets committed or
-  handed over.
+  the fresh nextest run before anything that gets committed or handed over.
+- **On failures, fix before re-running** (user decision 2026-09-12). When a
+  run leaves a *small* number of failures, fix all of them and only then run
+  the suite again — do not pay a suite run (or a per-test re-run loop) per
+  fix. When *many* tests fail, work in batches: group the failures by root
+  cause, fix a batch, re-run, repeat. `--no-fail-fast` is what makes the
+  full failure list available up front; use it whenever failures are the
+  point.
+- **Watch the clock and flag drift** (user decision 2026-09-12). Test runs
+  are `time`d; the table above is the budget. When a run overshoots it
+  noticeably — warm runs past ~15s, fresh runs past ~1½ minutes — or a
+  command looks hung, say so to the user rather than silently waiting or
+  retrying: slow runs so far have meant something diagnosable (doctest
+  passes, JVM probes, stale-object pileup, AMFI kills — see COMPLETED.md's
+  gotchas), and the wall time is often the only tell.
 - **`cargo test` is complete, not partial.** A toolchain test that has
   already compiled and run *this exact generated code*, with *this exact
   toolchain*, is not repeated: `salvo-testkit` writes a stamp keyed by the
@@ -145,13 +164,22 @@ Three speeds, and it matters which one you use:
 - Some tests invoke `kotlinc` (or `rustc` for the Rust backend) to compile
   and run emitted code with exact stdout assertions; they skip gracefully if
   the toolchain is not on PATH. If you have it, treat those tests as required.
-  - The availability probe is **cached per test binary** by
-    `salvo_testkit::kotlinc()` / `rustc()` / `tool()`: `kotlinc -version`
-    starts a JVM and costs about as much as a small compile, so a per-test
-    probe made the *check* one of the most expensive things in the suite.
-  - The gate and the cache both sit inside the runner helpers
-    (`run_kotlin_files`, `run_kotlin_entry`, `run_rust_files`), so a new test
-    that forgets its own guard still skips instead of failing.
+  - The availability probe is cached per test binary by
+    `salvo_testkit::kotlinc()` / `rustc()` / `tool()` — and for `kotlinc`
+    **on disk**, keyed by the resolved executable: `kotlinc -version`
+    starts a JVM and costs about as much as a small compile, so anything
+    less made the *check* one of the most expensive things in the suite
+    (under nextest, every test is its own process).
+  - The Kotlin compile-and-run tests are **one driver test**
+    (`kotlinc_compiles_and_runs_every_case` over the `KOTLIN_CASES`
+    registry in `codegen_tests.rs`): each case is a fn returning a
+    `KotlinCase`, and the driver batch-compiles every stamp-missing case
+    in a few parallel kotlinc invocations, runs the programs in parallel,
+    and stamps each case separately. A new compile-and-run case is a new
+    case fn plus a registry entry — not a new `#[test]`.
+  - The Rust runner (`run_rust_files`) keeps the per-test shape: a rustc
+    invocation is cheap, and the runner still gates and stamps internally,
+    so a new test that forgets its own guard skips instead of failing.
   - The CLI tests cache per *test*, keyed on the `salvo` binary and the test
     binary rather than on generated text, since there the thing under test is
     a subprocess. Those stamps therefore miss on every compiler rebuild —

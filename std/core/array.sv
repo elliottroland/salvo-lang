@@ -28,7 +28,7 @@ fn iter<T>(array: T[]) [] -> Mut ArrayYield<T> => array {
 // an array [iter-for-native]; this shape is what combinators see.
 struct ArrayYield<T> : Yield<self, Proj T> canbe Mut {
     // The array being walked — borrowed [proj-field].
-    items: Proj T[],
+    items: Proj (T[]),
     // The index of the next element to emit.
     at: Int
 }

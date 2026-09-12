@@ -3,16 +3,9 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::Mutex;
 
 use salvo_core::{Program, SourceSet};
-
-/// Whether the compile-and-run tests should exercise the Kotlin toolchain.
-/// Probed once per test binary by `salvo-testkit`, which also owns the
-/// `SALVO_SKIP_E2E` gate and the version string that goes into every cache
-/// key.
-fn kotlin_toolchain() -> bool {
-    salvo_testkit::kotlinc().available
-}
 
 /// The demo program exercising M2 features: structs, defaults, spread/copy,
 /// nullability + `is` with binding, string interpolation, effects (Console),
@@ -87,7 +80,11 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
+        assert!(
+            errors.is_empty(),
+            "parse errors in {}: {errors:?}",
+            file.name
+        );
         modules.push(module);
     }
     Program {
@@ -125,7 +122,9 @@ fn missing_effect_handler_is_an_error() {
     let result = salvo_backend_kotlin::emit_program(&program);
     let errors = result.err().expect("expected codegen errors");
     assert!(
-        errors.iter().any(|e| e.contains("no handler for effect `Console`")),
+        errors
+            .iter()
+            .any(|e| e.contains("no handler for effect `Console`")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -216,9 +215,13 @@ fn unions_emit_sealed_wrappers() {
     // Wrap at return boundaries, positional arm identity (the constructor
     // call is wrapped into the union arm).
     assert!(main.content.contains("return U2_1<Int, String>(ok(input))"));
-    assert!(main.content.contains("return U2_2<Int, String>(err(\"negative age\"))"));
+    assert!(main
+        .content
+        .contains("return U2_2<Int, String>(err(\"negative age\"))"));
     // Qualifier-tagged wrap picks the right arm of the 3-union.
-    assert!(main.content.contains("U3_1<String, String, Boolean>(ok(\"yes\"))"));
+    assert!(main
+        .content
+        .contains("U3_1<String, String, Boolean>(ok(\"yes\"))"));
     // Precise `is Err Str` tests a single arm; `is Ok` another.
     assert!(main.content.contains("precise is U3_2<*, *, *>"));
     assert!(main.content.contains("precise is U3_1<*, *, *>"));
@@ -295,14 +298,10 @@ fn f() -> Ok Int | Err Str {
 
 /// Full verification of the unions demo under kotlinc (skipped when kotlinc
 /// is not installed).
-#[test]
-fn kotlinc_compiles_and_runs_unions() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_unions() -> KotlinCase {
     let files = generate_unions_demo();
     let expected = "age 36\nerror: negative age\nok: yes\nvalue plus one is 37\n";
-    run_kotlin_files(&files, "unions", expected);
+    kotlin_case(files, "unions", expected)
 }
 
 /// The M4 demo: predicate qualifiers (`qualifies` calls at runtime),
@@ -404,15 +403,23 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     // Predicate qualifiers become top-level `qualifies` functions.
-    assert!(main.content.contains("fun Surname_qualifies(person: Person): Boolean"));
-    assert!(main.content.contains("fun Positive_qualifies(int: Int): Boolean"));
+    assert!(main
+        .content
+        .contains("fun Surname_qualifies(person: Person): Boolean"));
+    assert!(main
+        .content
+        .contains("fun Positive_qualifies(int: Int): Boolean"));
     // `is` predicate checks call them.
     assert!(main.content.contains("if (Surname_qualifies(person))"));
     assert!(main.content.contains("if (Positive_qualifies(n))"));
     // The qualified overload is mangled; the checker routes the narrowed
     // call to it and the unqualified call to the base name.
-    assert!(main.content.contains("fun full_name__Surname(person: Person): String"));
-    assert!(main.content.contains("println(console, full_name__Surname(person))"));
+    assert!(main
+        .content
+        .contains("fun full_name__Surname(person: Person): String"));
+    assert!(main
+        .content
+        .contains("println(console, full_name__Surname(person))"));
     assert!(main.content.contains("println(console, full_name(person))"));
     // Field overrides cast + assert at the access site.
     assert!(main.content.contains("(person.surname as String)"));
@@ -427,15 +434,11 @@ fn qualifiers_lower_to_predicates_and_mangled_overloads() {
 
 /// Full verification of the qualifiers demo under kotlinc (skipped when
 /// kotlinc is not installed).
-#[test]
-fn kotlinc_compiles_and_runs_qualifiers() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_qualifiers() -> KotlinCase {
     let files = generate_qualifiers_demo();
     let expected = "Roland Elliott\nAnon\n5 is positive\n-2 is not positive\n\
                     tick 3\ntick 2\ntick 1\ninner ok: yes\n";
-    run_kotlin_files(&files, "qualifiers", expected);
+    kotlin_case(files, "qualifiers", expected)
 }
 
 /// Runs the checker on a source and returns the errors (panics if none).
@@ -620,18 +623,15 @@ fn main() [use] {
 }
 "#;
 
-const FALLIBLE_PASS_OUTPUT: &str = "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
+const FALLIBLE_PASS_OUTPUT: &str =
+    "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
 
-#[test]
-fn a_fallible_pass_yields_a_result() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn a_fallible_pass_yields_a_result() -> KotlinCase {
     let program = build_program(&[("main.sv", FALLIBLE_PASS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "fallible-pass", FALLIBLE_PASS_OUTPUT);
+    kotlin_case(files, "fallible-pass", FALLIBLE_PASS_OUTPUT)
 }
 
 /// [qual-group] The nested wrap, read off the generated source rather than
@@ -650,8 +650,7 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         .find(|f| f.rel_path == std::path::Path::new("main.kt"))
         .expect("main.kt");
     for (arm, what) in [("U2_2", "err"), ("U2_1", "ok")] {
-        let needle =
-            format!("U2_1<Union2<String, String>, Finished>({arm}<String, String>(");
+        let needle = format!("U2_1<Union2<String, String>, Finished>({arm}<String, String>(");
         assert!(
             main.content.contains(&needle),
             "expected the inner {what} arm to be wrapped before the outer one in:\n{}",
@@ -767,43 +766,30 @@ fn main() [use] {
 }
 "#;
 
-const NARROW_MUT_OUTPUT: &str =
-    "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
+const NARROW_MUT_OUTPUT: &str = "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() -> KotlinCase {
     let program = build_program(&[("main.sv", NARROW_MUT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "narrow-mut", NARROW_MUT_OUTPUT);
+    kotlin_case(files, "narrow-mut", NARROW_MUT_OUTPUT)
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_group_over_plain_arms() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_group_over_plain_arms() -> KotlinCase {
     let program = build_program(&[("main.sv", PLAIN_GROUP_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "plain-group", PLAIN_GROUP_OUTPUT);
+    kotlin_case(files, "plain-group", PLAIN_GROUP_OUTPUT)
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_hand_written_pass() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_hand_written_pass() -> KotlinCase {
     let program = build_program(&[("main.sv", PASS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "hand-written-pass", PASS_OUTPUT);
+    kotlin_case(files, "hand-written-pass", PASS_OUTPUT)
 }
 
 /// A **composed pass, hand-written**: it stores its source *and* its callback.
@@ -1073,16 +1059,12 @@ fn a_raw_pass_with_a_close_is_released_in_a_finally() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_released_raw_pass() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_released_raw_pass() -> KotlinCase {
     let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "raw-close", RAW_CLOSE_OUTPUT);
+    kotlin_case(files, "raw-close", RAW_CLOSE_OUTPUT)
 }
 
 const YIELD_SPREAD_DEMO: &str = r#"
@@ -1160,36 +1142,26 @@ fn a_union_returning_implicit_renders_the_wrapper_type() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread() -> KotlinCase {
     let program = build_program(&[("main.sv", YIELD_SPREAD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "yield-spread", YIELD_SPREAD_OUTPUT);
+    kotlin_case(files, "yield-spread", YIELD_SPREAD_OUTPUT)
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback() -> KotlinCase {
     let program = build_program(&[("main.sv", FN_FIELD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "fn-field-pass", FN_FIELD_OUTPUT);
+    kotlin_case(files, "fn-field-pass", FN_FIELD_OUTPUT)
 }
 
 // [qual-no-dup]
 #[test]
 fn duplicate_qualifier_is_rejected() {
-    let errors = expect_errors(
-        "qualifier Ok<T> of T\n\nfn f(x: Ok Ok Int) -> None {\n}\n",
-    );
+    let errors = expect_errors("qualifier Ok<T> of T\n\nfn f(x: Ok Ok Int) -> None {\n}\n");
     assert!(
         errors.iter().any(|e| e.contains("applied more than once")),
         "unexpected errors: {errors:?}"
@@ -1251,7 +1223,9 @@ fn constructor_must_live_with_its_qualifier() {
         .err()
         .expect("expected type errors");
     assert!(
-        errors.iter().any(|e| e.contains("must be declared in the same file")),
+        errors
+            .iter()
+            .any(|e| e.contains("must be declared in the same file")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1296,7 +1270,11 @@ fn main() [use] -> None {
         .expect("main.kt not emitted");
     // The constructor is a plain fn after erasure; the call site resolves
     // to the Positive overload (mangled name).
-    assert!(main.content.contains("fun make(): Int"), "content: {}", main.content);
+    assert!(
+        main.content.contains("fun make(): Int"),
+        "content: {}",
+        main.content
+    );
     assert!(
         main.content.contains("describe__Positive(make())"),
         "content: {}",
@@ -1310,7 +1288,9 @@ fn constructor_return_type_must_be_simple() {
     let src = "qualifier Fancy of Int\n\nfn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
     let errors = expect_errors(src);
     assert!(
-        errors.iter().any(|e| e.contains("must return a simple type")),
+        errors
+            .iter()
+            .any(|e| e.contains("must return a simple type")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1338,7 +1318,9 @@ qualifier Weird of Int {
 "#;
     let errors = expect_errors(src);
     assert!(
-        errors.iter().any(|e| e.contains("`qualifies` must return `Bool`")),
+        errors
+            .iter()
+            .any(|e| e.contains("`qualifies` must return `Bool`")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1351,7 +1333,9 @@ fn constructive_values_only_come_from_constructors() {
     let src = "qualifier Fancy of Int\n\nfn f() -> None {\n    let x: Fancy Int = 1\n}\n";
     let errors = expect_errors(src);
     assert!(
-        errors.iter().any(|e| e.contains("expected `Fancy Int`, found `Int`")),
+        errors
+            .iter()
+            .any(|e| e.contains("expected `Fancy Int`, found `Int`")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1381,11 +1365,14 @@ fn main() [use] -> None {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .unwrap();
     assert!(
-        main.content.contains("fun fill(target: MutableList<Int>, n: Int)"),
+        main.content
+            .contains("fun fill(target: MutableList<Int>, n: Int)"),
         "unexpected: {}",
         main.content
     );
-    assert!(main.content.contains("val items: MutableList<Int> = mutableListOf<Int>(1)"));
+    assert!(main
+        .content
+        .contains("val items: MutableList<Int> = mutableListOf<Int>(1)"));
 }
 
 // [type-canbe-mut] `Mut` only applies to declarations that say `canbe Mut`.
@@ -1394,23 +1381,21 @@ fn main() [use] -> None {
 fn mut_requires_a_with_mut_declaration() {
     let errors = expect_errors("fn f(x: Mut Int) -> None {\n}\n");
     assert!(
-        errors.iter().any(|e| e.contains("`Mut` does not apply to `Int`")),
+        errors
+            .iter()
+            .any(|e| e.contains("`Mut` does not apply to `Int`")),
         "unexpected errors: {errors:?}"
     );
 }
 
 /// Full verification: compile the generated Kotlin with kotlinc and run it,
 /// checking the program output. Skipped when kotlinc is not installed.
-#[test]
-fn kotlinc_compiles_and_runs_demo() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_demo() -> KotlinCase {
     let files = generate_demo();
     let expected = "Hello, Roland Elliott!\n  1: 37\n  2: 38\n  3: 39\n\
                     Hello, Roland!\n  1: 37\n  2: 38\n  3: 39\n\
                     first: a\nsize: 2\n";
-    run_kotlin_files(&files, "demo", expected);
+    kotlin_case(files, "demo", expected)
 }
 
 /// The M5 demo: generic effects with multiple instances in scope,
@@ -1492,23 +1477,25 @@ fn effects_resolve_through_checker_tables() {
         .content
         .contains("val random_string: Random<String> = CyclicRandom<String>(listOf<String>(\"a\", \"b\"), { __i0 -> __i0 })"));
     // Callee effect dependencies are threaded in declaration order.
-    assert!(main.content.contains("draw(random_int, random_string, console)"));
+    assert!(main
+        .content
+        .contains("draw(random_int, random_string, console)"));
     assert!(main.content.contains("lucky_number(random_int)"));
     // Expected-type disambiguation picks the right handler per call.
-    assert!(main.content.contains("val n: Int = random_int.next_random()"));
-    assert!(main.content.contains("val s: String = random_string.next_random()"));
+    assert!(main
+        .content
+        .contains("val n: Int = random_int.next_random()"));
+    assert!(main
+        .content
+        .contains("val s: String = random_string.next_random()"));
 }
 
 /// Full verification of the effects demo under kotlinc (skipped when
 /// kotlinc is not installed).
-#[test]
-fn kotlinc_compiles_and_runs_effects() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_effects() -> KotlinCase {
     let files = generate_effects_demo();
     let expected = "a: 10\nb: 20\nlucky: 30\nagain: 10\n";
-    run_kotlin_files(&files, "effects", expected);
+    kotlin_case(files, "effects", expected)
 }
 
 // [use-requires-use]
@@ -1516,7 +1503,9 @@ fn kotlinc_compiles_and_runs_effects() {
 fn use_requires_the_use_effect() {
     let errors = expect_errors("fn setup() -> None {\n    use StdOutConsole\n}\n");
     assert!(
-        errors.iter().any(|e| e.contains("requires the `use` effect")),
+        errors
+            .iter()
+            .any(|e| e.contains("requires the `use` effect")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1526,7 +1515,9 @@ fn use_requires_the_use_effect() {
 fn duplicate_effect_in_list_is_rejected() {
     let errors = expect_errors("fn f() [Console, Console] -> None {\n}\n");
     assert!(
-        errors.iter().any(|e| e.contains("duplicate effect `Console`")),
+        errors
+            .iter()
+            .any(|e| e.contains("duplicate effect `Console`")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1611,61 +1602,307 @@ handler LoudPing of Ping {
 
 /// Compiles the given files with kotlinc, runs `salvo.MainKt`, and asserts
 /// the exact stdout.
-fn run_kotlin_files(files: &[salvo_backend_kotlin::EmittedFile], tag: &str, expected: &str) {
-    // The gate lives here as well as in the callers, so a
-    // test that forgets it still skips rather than failing without a
-    // toolchain — three did.
-    let kotlinc = salvo_testkit::kotlinc();
+/// One compile-and-run verification: a generated program, the JVM entry
+/// class to launch, and the exact stdout it must print.
+///
+/// Cases are built by plain functions listed in [`KOTLIN_CASES`], and one
+/// driver test — [`kotlinc_compiles_and_runs_every_case`] — does all the
+/// toolchain work: it compiles every outstanding case in a handful of
+/// *batched* `kotlinc` invocations (each invocation costs ~2.5s of JVM and
+/// compiler startup regardless of input size, so one invocation per test
+/// made the fresh suite minutes long) and then runs the programs in
+/// parallel. To share one compilation, each case's generated code is
+/// rewritten into its own package namespace (`k_<tag>.salvo…`), since every
+/// program declares the same `salvo.main.MainKt`.
+struct KotlinCase {
+    tag: &'static str,
+    /// The JVM class to launch, before package prefixing.
+    entry: &'static str,
+    files: Vec<salvo_backend_kotlin::EmittedFile>,
+    expected: String,
+}
+
+/// A case launching the ordinary entry point, `salvo.main.MainKt`.
+fn kotlin_case(
+    files: Vec<salvo_backend_kotlin::EmittedFile>,
+    tag: &'static str,
+    expected: &str,
+) -> KotlinCase {
+    kotlin_case_with_entry(files, tag, "salvo.main.MainKt", expected)
+}
+
+/// A case launching a named entry class — the host's, when a platform
+/// effect has moved `main` out of the generated code.
+fn kotlin_case_with_entry(
+    files: Vec<salvo_backend_kotlin::EmittedFile>,
+    tag: &'static str,
+    entry: &'static str,
+    expected: &str,
+) -> KotlinCase {
+    KotlinCase {
+        tag,
+        entry,
+        files,
+        expected: expected.to_string(),
+    }
+}
+
+/// Every compile-and-run case. A new case is a function returning
+/// [`KotlinCase`] plus an entry here; the driver test below asserts nothing
+/// is forgotten by being the only place kotlinc runs.
+const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_unions,
+    kotlinc_compiles_and_runs_qualifiers,
+    a_fallible_pass_yields_a_result,
+    kotlinc_compiles_and_runs_mutation_through_narrowed_places,
+    kotlinc_compiles_and_runs_a_group_over_plain_arms,
+    kotlinc_compiles_and_runs_a_hand_written_pass,
+    kotlinc_compiles_and_runs_a_released_raw_pass,
+    kotlinc_compiles_and_runs_a_combinator_over_a_yield_spread,
+    kotlinc_compiles_and_runs_a_composed_pass_with_a_stored_callback,
+    kotlinc_compiles_and_runs_demo,
+    kotlinc_compiles_and_runs_effects,
+    kotlinc_compiles_and_runs_loops,
+    kotlinc_compiles_and_runs_mangled_alias,
+    kotlinc_compiles_and_runs_multi_module,
+    kotlinc_compiles_and_runs_copy,
+    kotlinc_compiles_and_runs_move_modes,
+    kotlinc_compiles_and_runs_borrows,
+    kotlinc_compiles_and_runs_linear,
+    kotlinc_compiles_and_runs_linear_generics,
+    kotlinc_compiles_and_runs_once_fns,
+    kotlinc_compiles_and_runs_derived_returns,
+    kotlinc_compiles_and_runs_fn_contracts,
+    kotlinc_compiles_and_runs_precedence,
+    kotlinc_compiles_and_runs_field_is,
+    kotlinc_compiles_and_runs_place_narrowing,
+    kotlinc_compiles_and_runs_place_operand,
+    kotlinc_compiles_and_runs_tuple_index,
+    kotlinc_compiles_and_runs_list_element_types,
+    kotlinc_compiles_and_runs_handler_dependencies,
+    kotlinc_compiles_and_runs_handler_deps_in_anger,
+    kotlinc_compiles_and_runs_handler_deps_chain,
+    kotlinc_compiles_and_runs_handler_deps_mixed,
+    kotlinc_compiles_and_runs_nested_coercion,
+    kotlinc_compiles_and_runs_member_generics,
+    kotlinc_compiles_and_runs_aliased_effects,
+    kotlinc_compiles_and_runs_array_std,
+    dot_names_emit_nested_classes,
+    dot_names_in_unions_and_narrowing,
+    provenance_survives_mutation_where_state_does_not,
+    kotlin_compiles_and_runs_throw,
+    kotlinc_compiles_and_runs_fn_type_effects,
+    kotlinc_compiles_and_runs_widening,
+    kotlinc_compiles_and_runs_when_cond,
+    kotlinc_compiles_and_runs_try_mutation,
+    kotlinc_compiles_and_runs_a_platform_effect,
+    kotlinc_compiles_and_runs_overload_delegation,
+    kotlinc_compiles_and_runs_the_combinator_surface,
+    kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer,
+    kotlinc_compiles_and_runs_implicit_parameters,
+    kotlinc_compiles_and_runs_effect_member_implicits,
+    kotlinc_compiles_and_runs_a_generic_handler,
+    kotlinc_compiles_and_runs_a_refined_program,
+    kotlinc_runs_the_most_specific_overload,
+    kotlinc_compiles_and_runs_strings,
+    a_spread_into_a_variadic_intrinsic_spreads,
+    kotlinc_compiles_and_runs_mut_str_places,
+    kotlinc_compiles_and_runs_sequences,
+    kotlinc_compiles_and_runs_overload_overrides,
+    kotlinc_compiles_and_runs_a_generic_drive,
+    kotlinc_compiles_and_runs_a_generic_close,
+    kotlinc_compiles_and_runs_the_iter_fn_form,
+    kotlinc_compiles_and_runs_a_container_combinator,
+    kotlinc_compiles_and_runs_field_disjoint_access,
+    kotlinc_compiles_and_runs_a_partial_move,
+    kotlinc_compiles_and_runs_inc_dec,
+    kotlinc_compiles_and_runs_a_generic_subject_iter_fn,
+    kotlinc_compiles_and_runs_the_deduction_clause_projections,
+    kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter,
+];
+
+/// The package prefix isolating one case inside the shared compilation.
+fn pkg_prefix(tag: &str) -> String {
+    format!("k_{}", tag.replace('-', "_"))
+}
+
+/// Rewrites one generated file into the case's own package namespace.
+/// Blind textual rewrite: `package salvo…` declarations and every `salvo.`
+/// reference (imports and qualified names alike). A string literal
+/// containing `salvo.` would be corrupted — which is why the driver
+/// refuses expected output mentioning it, so corruption cannot pass.
+fn prefix_content(content: &str, pfx: &str) -> String {
+    content
+        .split('\n')
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("package salvo") {
+                format!("package {pfx}.salvo{rest}")
+            } else {
+                line.replace("salvo.", &format!("{pfx}.salvo."))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The one test that exercises kotlinc. Batching per fresh run:
+/// stamp-missing cases are split over a few parallel `kotlinc` processes,
+/// then every compiled program runs in parallel with its stdout asserted.
+/// A stamp is written per case, only after its assertions pass — the cache
+/// behaves exactly as it did when every case was its own test.
+#[test]
+fn kotlinc_compiles_and_runs_every_case() {
+    // Build every case first: the content assertions inside case builders
+    // run even when kotlinc is missing, as they did when each was a #[test].
+    let cases: Vec<KotlinCase> = KOTLIN_CASES.iter().map(|make| make()).collect();
+    let mut seen = std::collections::HashSet::new();
+    for case in &cases {
+        // Tags name packages, scratch paths and stamps.
+        assert!(seen.insert(case.tag), "duplicate case tag {}", case.tag);
+        assert!(
+            !case.expected.contains("salvo."),
+            "case {}: expected output mentions `salvo.`, which the package \
+             prefix rewrite would corrupt — pick different program output",
+            case.tag
+        );
+    }
+    let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));
     if !kotlinc.available {
         return;
     }
-    // Compiling and running generated code is a pure function of the code,
-    // the expected output and the compiler doing it — so a pass is worth
-    // remembering. `SALVO_E2E_FRESH=1` ignores the stamps.
-    let Some(stamp) = cache_stamp(&kotlinc.version, "kotlin-files", tag, files, expected) else {
+    // Keep only the cases whose stamps miss; identical keys to the old
+    // per-test stamps, so existing caches stay valid.
+    let mut pending: Vec<(KotlinCase, salvo_testkit::Stamp)> = Vec::new();
+    for case in cases {
+        let (kind, label) = if case.entry == "salvo.main.MainKt" {
+            ("kotlin-files", case.tag)
+        } else {
+            ("kotlin-entry", case.entry)
+        };
+        if let Some(stamp) = cache_stamp(&kotlinc.version, kind, label, &case.files, &case.expected)
+        {
+            pending.push((case, stamp));
+        }
+    }
+    if pending.is_empty() {
         return;
-    };
-    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-{tag}"));
-    let src_dir = dir.join("src");
-    let out_dir = dir.join("out");
-    let mut kt_paths = Vec::new();
-    for f in files {
-        let path = src_dir.join(&f.rel_path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &f.content).unwrap();
-        kt_paths.push(path);
     }
 
-    let compile = Command::new("kotlinc")
-        .args(kt_paths.iter().map(|p| p.as_os_str()))
-        .arg("-d")
-        .arg(&out_dir)
-        .output()
-        .expect("failed to run kotlinc");
-    assert!(
-        compile.status.success(),
-        "kotlinc failed:\n{}",
-        String::from_utf8_lossy(&compile.stderr)
-    );
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    // Chunk the pending cases over a few kotlinc processes: each process
+    // pays the same ~2.5s startup, and each is internally multi-threaded,
+    // so more processes than half the cores just contend.
+    let chunk_count = pending.len().min((workers / 2).max(1));
+    let per_chunk = pending.len().div_ceil(chunk_count);
+    let chunks: Vec<&[(KotlinCase, salvo_testkit::Stamp)]> = pending.chunks(per_chunk).collect();
 
-    let run = Command::new("kotlin")
-        .arg("-cp")
-        .arg(&out_dir)
-        .arg("salvo.main.MainKt")
-        .output()
-        .expect("failed to run kotlin");
-    assert!(
-        run.status.success(),
-        "generated program crashed:\n{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    assert_eq!(stdout, expected, "unexpected program output");
+    // Write each case's sources, prefixed, under its chunk's directory.
+    let mut chunk_dirs = Vec::new();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-batch-{i}"));
+        let mut kt_paths = Vec::new();
+        for (case, _) in chunk.iter() {
+            let pfx = pkg_prefix(case.tag);
+            for f in &case.files {
+                let path = dir.join("src").join(case.tag).join(&f.rel_path);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, prefix_content(&f.content, &pfx)).unwrap();
+                kt_paths.push(path);
+            }
+        }
+        chunk_dirs.push((dir, kt_paths));
+    }
 
-    stamp.verified();
-    let _ = std::fs::remove_dir_all(&dir);
+    // Compile the chunks in parallel, one kotlinc each.
+    let compile_errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for (dir, kt_paths) in &chunk_dirs {
+            scope.spawn(|| {
+                let out = Command::new("kotlinc")
+                    .args(kt_paths.iter().map(|p| p.as_os_str()))
+                    .arg("-d")
+                    .arg(dir.join("out"))
+                    .output()
+                    .expect("failed to run kotlinc");
+                if !out.status.success() {
+                    // The stderr names the offending files, whose paths
+                    // carry the case tags.
+                    compile_errors.lock().unwrap().push(format!(
+                        "kotlinc failed for {}:\n{}",
+                        dir.display(),
+                        String::from_utf8_lossy(&out.stderr)
+                    ));
+                }
+            });
+        }
+    });
+    let compile_errors = compile_errors.into_inner().unwrap();
+    assert!(compile_errors.is_empty(), "{}", compile_errors.join("\n\n"));
+
+    // Run every pending program in parallel, asserting exact stdout.
+    let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let passed: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    let jobs: Vec<(usize, &KotlinCase, &std::path::Path)> = chunks
+        .iter()
+        .zip(&chunk_dirs)
+        .flat_map(|(chunk, (dir, _))| chunk.iter().map(move |(case, _)| (case, dir.as_path())))
+        .enumerate()
+        .map(|(i, (case, dir))| (i, case, dir))
+        .collect();
+    let next_job = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(jobs.len()) {
+            scope.spawn(|| loop {
+                let i = next_job.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some((index, case, dir)) = jobs.get(i).copied() else {
+                    return;
+                };
+                let entry = format!("{}.{}", pkg_prefix(case.tag), case.entry);
+                let run = Command::new("kotlin")
+                    .arg("-cp")
+                    .arg(dir.join("out"))
+                    .arg(&entry)
+                    .output()
+                    .expect("failed to run kotlin");
+                if !run.status.success() {
+                    failures.lock().unwrap().push(format!(
+                        "case {}: generated program crashed:\n{}",
+                        case.tag,
+                        String::from_utf8_lossy(&run.stderr)
+                    ));
+                    return;
+                }
+                let stdout = String::from_utf8_lossy(&run.stdout);
+                if stdout != case.expected {
+                    failures.lock().unwrap().push(format!(
+                        "case {}: unexpected program output:\n--- expected:\n{}\n--- got:\n{}",
+                        case.tag, case.expected, stdout
+                    ));
+                } else {
+                    passed.lock().unwrap().push(index);
+                }
+            });
+        }
+    });
+
+    // Stamps only for the cases whose assertions passed; scratch is kept
+    // on failure for inspection.
+    let passed = passed.into_inner().unwrap();
+    let failures = failures.into_inner().unwrap();
+    let mut stamps: Vec<Option<salvo_testkit::Stamp>> =
+        pending.into_iter().map(|(_, stamp)| Some(stamp)).collect();
+    for index in passed {
+        if let Some(stamp) = stamps[index].take() {
+            stamp.verified();
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    for (dir, _) in chunk_dirs {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
-
 /// The cache key for one compile-and-run: the toolchain that would do it,
 /// every generated file (path *and* content), and the output asserted.
 /// Nothing else can change the outcome, and a change to any of them must
@@ -1843,7 +2080,9 @@ fn loops_lower_to_run_blocks() {
     assert!(main.content.contains("var __loop4_ran = false"));
     assert!(main.content.contains("if (!__loop4_ran) {"));
     // A union-typed loop value re-wraps to the declared arm order.
-    assert!(main.content.contains("var __loop7: Union2<String, Int>? = null"));
+    assert!(main
+        .content
+        .contains("var __loop7: Union2<String, Int>? = null"));
     assert!(main.content.contains("}.let { when (it) {"));
 }
 
@@ -1852,21 +2091,19 @@ fn loops_lower_to_run_blocks() {
 fn break_outside_a_loop_is_an_error() {
     let errors = expect_errors("fn f() -> None {\n    break\n}\n");
     assert!(
-        errors.iter().any(|e| e.contains("`break` outside of a loop")),
+        errors
+            .iter()
+            .any(|e| e.contains("`break` outside of a loop")),
         "unexpected errors: {errors:?}"
     );
 }
 
 /// Full verification of the loops demo under kotlinc (skipped when
 /// kotlinc is not installed).
-#[test]
-fn kotlinc_compiles_and_runs_loops() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_loops() -> KotlinCase {
     let files = generate_loops_demo();
     let expected = "last: 40\nnever: -1\nfound: 4\nempty range\ncapped: 2\nok: 2\n";
-    run_kotlin_files(&files, "loops", expected);
+    kotlin_case(files, "loops", expected)
 }
 
 // ===== M7: reachability, packages/imports, companions =====
@@ -1929,8 +2166,14 @@ fn only_used_modules_are_transpiled() {
     assert!(paths.contains(&"geometry.kt".to_string()), "{paths:?}");
     assert!(!paths.contains(&"unused.kt".to_string()), "{paths:?}");
     // The reachable module's companion is copied; the unreachable one not.
-    assert!(paths.contains(&"geometry_helpers.kt".to_string()), "{paths:?}");
-    assert!(!paths.contains(&"unused_helpers.kt".to_string()), "{paths:?}");
+    assert!(
+        paths.contains(&"geometry_helpers.kt".to_string()),
+        "{paths:?}"
+    );
+    assert!(
+        !paths.contains(&"unused_helpers.kt".to_string()),
+        "{paths:?}"
+    );
 }
 
 // [kt-package] [kt-imports]
@@ -2039,11 +2282,7 @@ fn aliased_import_of_mangled_overload_keeps_suffix() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_mangled_alias() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_mangled_alias() -> KotlinCase {
     let program = build_program(&[
         ("main.sv", MANGLED_ALIAS_MAIN),
         ("lib.sv", MANGLED_ALIAS_LIB),
@@ -2051,7 +2290,7 @@ fn kotlinc_compiles_and_runs_mangled_alias() {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "mangled-alias", "hi\nhey!\n");
+    kotlin_case(files, "mangled-alias", "hi\nhey!\n")
 }
 
 // [kt-effect-params] Effect parameters avoid user parameter names.
@@ -2077,11 +2316,14 @@ fn main() [use] -> None {
         .unwrap();
     // The generated effect parameter picks a fresh name.
     assert!(
-        main.content.contains("fun shadowed(console2: Console, console: String)"),
+        main.content
+            .contains("fun shadowed(console2: Console, console: String)"),
         "unexpected: {}",
         main.content
     );
-    assert!(main.content.contains("println(console2, \"param: $console\")"));
+    assert!(main
+        .content
+        .contains("println(console2, \"param: $console\")"));
 }
 
 // [let-destructure] Two struct destructures in one block get unique temps.
@@ -2115,14 +2357,10 @@ fn main() [use] -> None {
 /// Full verification of the multi-module program under kotlinc: packages,
 /// generated imports, companion file, and reachability all have to hold
 /// together for this to compile and run.
-#[test]
-fn kotlinc_compiles_and_runs_multi_module() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_multi_module() -> KotlinCase {
     let program = build_multi_module();
     let files = salvo_backend_kotlin::emit_program(&program).unwrap();
-    run_kotlin_files(&files, "multimod", "area: 12\n");
+    kotlin_case(files, "multimod", "area: 12\n")
 }
 
 // [backend-companion] A companion must not collide with a generated file.
@@ -2251,12 +2489,14 @@ fn main() [use] -> None {
         .expect("main.kt not emitted");
     // Positional arm identity: Ok -> first arm, Err -> second arm.
     assert!(
-        main.content.contains("describe(U2_1<String, String>(ok(\"x\")))"),
+        main.content
+            .contains("describe(U2_1<String, String>(ok(\"x\")))"),
         "content: {}",
         main.content
     );
     assert!(
-        main.content.contains("describe(U2_2<String, String>(err(\"y\")))"),
+        main.content
+            .contains("describe(U2_2<String, String>(err(\"y\")))"),
         "content: {}",
         main.content
     );
@@ -2309,7 +2549,11 @@ fn copy_lowers_type_directedly() {
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
         .expect("main.kt emitted");
     // Identity for a transitively immutable type (Str).
-    assert!(main.content.contains("val t = s\n"), "generated:\n{}", main.content);
+    assert!(
+        main.content.contains("val t = s\n"),
+        "generated:\n{}",
+        main.content
+    );
     // A real copy for `Mut List<Int>`.
     assert!(
         main.content.contains("val ys = xs.toMutableList()"),
@@ -2317,7 +2561,11 @@ fn copy_lowers_type_directedly() {
         main.content
     );
     // The data-class shallow copy for a `Mut` struct with immutable fields.
-    assert!(main.content.contains("val q = p.copy()"), "generated:\n{}", main.content);
+    assert!(
+        main.content.contains("val q = p.copy()"),
+        "generated:\n{}",
+        main.content
+    );
     // Arrays are index-assignable without `Mut`, so they copy for real.
     assert!(
         main.content.contains("val brr = arr.copyOf()"),
@@ -2346,17 +2594,13 @@ fn copy_of_nested_mutable_type_is_an_error() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_copy() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_copy() -> KotlinCase {
     let program = build_program(&[("main.sv", COPY_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "hi\n3 4\na b\n1 9\n3\n";
-    run_kotlin_files(&files, "copy", expected);
+    kotlin_case(files, "copy", expected)
 }
 
 // ===== S2: move-mode bindings [fate-move-mode] =====
@@ -2400,17 +2644,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_move_modes() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_move_modes() -> KotlinCase {
     let program = build_program(&[("main.sv", S2_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "Grace\n3\n";
-    run_kotlin_files(&files, "s2-moves", expected);
+    kotlin_case(files, "s2-moves", expected)
 }
 
 // ===== S3: borrow emission parity mirror [fate-link] =====
@@ -2451,17 +2691,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_borrows() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_borrows() -> KotlinCase {
     let program = build_program(&[("main.sv", S3_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "1\n5\n";
-    run_kotlin_files(&files, "s3-borrows", expected);
+    kotlin_case(files, "s3-borrows", expected)
 }
 
 // ===== L6: linear types [linear-obligation] =====
@@ -2502,17 +2738,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_linear() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_linear() -> KotlinCase {
     let program = build_program(&[("main.sv", LINEAR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
-    run_kotlin_files(&files, "l6-linear", expected);
+    kotlin_case(files, "l6-linear", expected)
 }
 
 // ===== L7a: generic linear opt-in [linear-generics] =====
@@ -2546,17 +2778,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_linear_generics() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_linear_generics() -> KotlinCase {
     let program = build_program(&[("main.sv", LINEAR_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "open 9\nheld fd=9\ndone\n";
-    run_kotlin_files(&files, "l7a-linear-generics", expected);
+    kotlin_case(files, "l7a-linear-generics", expected)
 }
 
 // ===== L7b: Once fn types [once-fn] =====
@@ -2585,17 +2813,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_once_fns() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_once_fns() -> KotlinCase {
     let program = build_program(&[("main.sv", ONCE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "consumed 3 items\nplain 7\ndone\n";
-    run_kotlin_files(&files, "l7b-once", expected);
+    kotlin_case(files, "l7b-once", expected)
 }
 
 // ===== L7c: derived returns [readonly-return] =====
@@ -2638,17 +2862,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_derived_returns() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_derived_returns() -> KotlinCase {
     let program = build_program(&[("main.sv", DERIVED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "adult: Grace\nhead: Kid\ndone\n";
-    run_kotlin_files(&files, "l7c-derived", expected);
+    kotlin_case(files, "l7c-derived", expected)
 }
 
 // ===== L7d: fn-type contracts [fn-contract] =====
@@ -2690,17 +2910,13 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_fn_contracts() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_fn_contracts() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTRACTS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
-    run_kotlin_files(&files, "l7d-contracts", expected);
+    kotlin_case(files, "l7d-contracts", expected)
 }
 
 // ===== precedence-aware binary rendering =====
@@ -2732,7 +2948,12 @@ fn binary_rendering_preserves_grouping() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .expect("main.kt emitted");
-    for needle in ["(a - b) * c", "a - (b - c)", "-(a + b)", "(a < b || b > c) && a > c"] {
+    for needle in [
+        "(a - b) * c",
+        "a - (b - c)",
+        "-(a + b)",
+        "(a < b || b > c) && a > c",
+    ] {
         assert!(
             main.content.contains(needle),
             "expected `{needle}` in:\n{}",
@@ -2741,16 +2962,12 @@ fn binary_rendering_preserves_grouping() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_precedence() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_precedence() -> KotlinCase {
     let program = build_program(&[("main.sv", PRECEDENCE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "precedence", "14 9 -13 true\n");
+    kotlin_case(files, "precedence", "14 9 -13 true\n")
 }
 
 // ===== bare `return` in value-position blocks of iterator bodies =====
@@ -2799,16 +3016,12 @@ fn field_subject_is_lowers_to_union_test() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_field_is() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_field_is() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_IS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
+    kotlin_case(files, "field-is", "ok 1\nplain 1\nerr bad\n")
 }
 
 // [when-union-subject] `when` still requires a plain variable subject.
@@ -2921,16 +3134,12 @@ fn narrowed_field_reads_unwrap() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_place_narrowing() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_place_narrowing() -> KotlinCase {
     let program = build_program(&[("main.sv", PLACE_NARROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n");
+    kotlin_case(files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n")
 }
 
 // [flow-place] [op-no-none] A narrowed field is usable as an *operand*,
@@ -2983,16 +3192,12 @@ fn narrowed_val_field_relies_on_the_smart_cast() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_place_operand() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_place_operand() -> KotlinCase {
     let program = build_program(&[("main.sv", PLACE_OPERAND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "place-operand", "temp: 22\nnone: no value\n");
+    kotlin_case(files, "place-operand", "temp: 22\nnone: no value\n")
 }
 
 // ===== tuple element access [expr-tuple-index] =====
@@ -3045,20 +3250,12 @@ fn tuple_elements_emit_pair_components() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_tuple_index() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_tuple_index() -> KotlinCase {
     let program = build_program(&[("main.sv", TUPLE_INDEX_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
-        "tuple-index",
-        "1 two true\nin 9\nsome here 6\n",
-    );
+    kotlin_case(files, "tuple-index", "1 two true\nin 9\nsome here 6\n")
 }
 
 // ===== list constructors carry their element type =====
@@ -3089,18 +3286,13 @@ fn main() [use] -> None {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     assert!(
-        main.content.contains("mutableListOf<Int>()")
-            && main.content.contains("listOf<String>()"),
+        main.content.contains("mutableListOf<Int>()") && main.content.contains("listOf<String>()"),
         "expected explicit element types:\n{}",
         main.content
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_list_element_types() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_list_element_types() -> KotlinCase {
     let src = r#"
 fn main() [use] -> None {
     use StdOutConsole
@@ -3116,7 +3308,7 @@ fn main() [use] -> None {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "list-element-types", "2 1\n");
+    kotlin_case(files, "list-element-types", "2 1\n")
 }
 
 // ===== effect dependencies on handlers [effect-handler-deps] =====
@@ -3184,16 +3376,12 @@ fn handler_dependencies_inject_at_construction() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_handler_dependencies() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_handler_dependencies() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "handler-deps", "LOG: from work\nLOG: from main\n");
+    kotlin_case(files, "handler-deps", "LOG: from work\nLOG: from main\n")
 }
 
 // [effect-handler-deps] The same programs the Rust backend runs through its
@@ -3282,21 +3470,17 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_handler_deps_in_anger() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_handler_deps_in_anger() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_FUSION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
+    kotlin_case(
+        files,
         "handler-deps-anger",
         "LOG 1: banner\n!! done\n[1] inner\nLOG 2: banner\n!! done\n\
          LOG 3: outer again\ndrew 20 at 1\ndrew 30 at 1\n",
-    );
+    )
 }
 
 const HANDLER_DEPS_CHAIN_DEMO: &str = r#"
@@ -3363,21 +3547,17 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_handler_deps_chain() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_handler_deps_chain() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_CHAIN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
+    kotlin_case(
+        files,
         "handler-deps-chain",
         "LOG: note 1: first\nLOG: loop 1 tally 1\nLOG: loop 2 tally 2\n\
          labelling 7\nLOG: n=7\nchecking hello\nLOG: note 2: loud\n",
-    );
+    )
 }
 
 const HANDLER_DEPS_MIXED_DEMO: &str = r#"
@@ -3452,21 +3632,17 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn kotlinc_compiles_and_runs_handler_deps_mixed() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_DEPS_MIXED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
+    kotlin_case(
+        files,
         "handler-deps-mixed",
         "L[3] in lambda a\n  tallied 1\nL[3] done a\n  tallied 1\nL[3] one #1\n\
          \x20 tallied 1\nL[3] loop 1 #2\n  tallied 1\nL[3] loop 1 #3\n  tallied 1\n",
-    );
+    )
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
@@ -3534,16 +3710,12 @@ fn union_coercion_in_array_tuple_lambda() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_nested_coercion() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_nested_coercion() -> KotlinCase {
     let program = build_program(&[("main.sv", NESTED_COERCION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n");
+    kotlin_case(files, "nested-coercion", "ok 1\nerr a\nok 2\nok 3\nerr b\n")
 }
 
 // ===== effect member fns with their own generics =====
@@ -3587,16 +3759,12 @@ fn effect_member_generics_render_on_the_interface() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_member_generics() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_member_generics() -> KotlinCase {
     let program = build_program(&[("main.sv", MEMBER_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "member-generics", "7 l\n");
+    kotlin_case(files, "member-generics", "7 l\n")
 }
 
 // [effect-member-generics] The member's own generics bind per call: the
@@ -3678,8 +3846,9 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
     // parameter and its call site must agree with it.
     assert!(
-        main.content
-            .contains("val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(7, 8), { __i0 -> __i0 })"),
+        main.content.contains(
+            "val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(7, 8), { __i0 -> __i0 })"
+        ),
         "unexpected use lowering in:\n{}",
         main.content
     );
@@ -3690,16 +3859,12 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_aliased_effects() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_aliased_effects() -> KotlinCase {
     let program = build_program(&[("main.sv", ALIASED_EFFECT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "aliased-effects", "7 8\n");
+    kotlin_case(files, "aliased-effects", "7 8\n")
 }
 
 // ===== std array functions =====
@@ -3759,20 +3924,16 @@ fn array_std_functions_lower() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_array_std() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_array_std() -> KotlinCase {
     let program = build_program(&[("main.sv", ARRAY_STD_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
+    kotlin_case(
+        files,
         "array-std",
         "size 3 get 5 first 3\niter 3\niter 4\niter 5\nrandom 2 3\n",
-    );
+    )
 }
 
 // ===== N1: dot-names [name-dot] [kt-nested-dot-name] =====
@@ -3823,8 +3984,7 @@ fn main() [use] -> None {
 // classes (never `inner`) and are referenced with the dotted name;
 // a dot-named qualifier canonicalizes to its flat spelling in a mangled
 // overload name [kt-qual-mangling].
-#[test]
-fn dot_names_emit_nested_classes() {
+fn dot_names_emit_nested_classes() -> KotlinCase {
     let program = build_program(&[("main.sv", DOT_NAMES)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -3841,12 +4001,17 @@ fn dot_names_emit_nested_classes() {
         main.content
     );
     assert!(
-        main.content.contains("    data class Id(") && main.content.contains("    data class Name("),
+        main.content.contains("    data class Id(")
+            && main.content.contains("    data class Name("),
         "generated:\n{}",
         main.content
     );
     // Never `inner`: that would need an outer instance to construct.
-    assert!(!main.content.contains("inner class"), "generated:\n{}", main.content);
+    assert!(
+        !main.content.contains("inner class"),
+        "generated:\n{}",
+        main.content
+    );
     // References keep the dotted spelling — valid Kotlin nested access.
     assert!(
         main.content.contains("val id: Environment.Id"),
@@ -3864,7 +4029,11 @@ fn dot_names_emit_nested_classes() {
         "generated:\n{}",
         main.content
     );
-    run_kotlin_files(&files, "dot_names", "prod / Production\ntagged t1\nplain t2\n");
+    kotlin_case(
+        files,
+        "dot_names",
+        "prod / Production\ntagged t1\nplain t2\n",
+    )
 }
 
 // [name-dot] [type-union] [is-narrowing] Dot-named types as union arms:
@@ -3926,17 +4095,16 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn dot_names_in_unions_and_narrowing() {
+fn dot_names_in_unions_and_narrowing() -> KotlinCase {
     let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
+    kotlin_case(
+        files,
         "dot_name_unions",
         "id: id\nname: name\nafter\ntagged x\nnone\n",
-    );
+    )
 }
 
 // ===== D5: qualifier subjects [qual-subject] =====
@@ -3985,17 +4153,12 @@ fn main() [use] -> None {
 // [qual-subject] [deduce-syntax] [qual-erasure] Provenance survives a
 // mutating call where state does not — and both subjects erase, so the
 // difference shows up only in which overload the checker picked.
-#[test]
-fn provenance_survives_mutation_where_state_does_not() {
+fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
     let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(
-        &files,
-        "qual_subjects",
-        "trusted 3\nplain 3\nchecked 2\n",
-    );
+    kotlin_case(files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n")
 }
 
 // ===== E3 step 2: throw and `try` [throw] [try] [kt-throw-signal] =====
@@ -4136,8 +4299,12 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
         .find(|f| f.rel_path == std::path::Path::new("throw.kt"))
         .expect("expected a generated throw.kt");
     assert!(
-        signal.content.contains("class ThrowSignal(val payload: Any?, val tag: String)")
-            && signal.content.contains("RuntimeException(null, null, false, false)"),
+        signal
+            .content
+            .contains("class ThrowSignal(val payload: Any?, val tag: String)")
+            && signal
+                .content
+                .contains("RuntimeException(null, null, false, false)"),
         "expected a stack-trace-less signal in:\n{}",
         signal.content
     );
@@ -4155,7 +4322,8 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
     // `throw` throws; the message is *not* wrapped at the throw (the
     // throwing frame cannot know which `try` will catch it).
     assert!(
-        main.content.contains("throw ThrowSignal(\"empty line\", \"Str\")"),
+        main.content
+            .contains("throw ThrowSignal(\"empty line\", \"Str\")"),
         "expected a tagged throw in:\n{}",
         main.content
     );
@@ -4180,16 +4348,12 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
     );
 }
 
-#[test]
-fn kotlin_compiles_and_runs_throw() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlin_compiles_and_runs_throw() -> KotlinCase {
     let program = build_program(&[("main.sv", THROW_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "throw", THROW_OUTPUT);
+    kotlin_case(files, "throw", THROW_OUTPUT)
 }
 
 // ===== E3 step 3: effects threaded into fn values [fn-effects] =====
@@ -4260,7 +4424,8 @@ fn fn_type_effects_thread_into_lambdas() {
         .unwrap();
     // The inherited effect is a real parameter of `run_it`.
     assert!(
-        main.content.contains("fun run_it(logger: Logger, f: (Logger, String) -> String"),
+        main.content
+            .contains("fun run_it(logger: Logger, f: (Logger, String) -> String"),
         "expected the inherited effect in the signature:\n{}",
         main.content
     );
@@ -4284,16 +4449,12 @@ fn fn_type_effects_thread_into_lambdas() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_fn_type_effects() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_fn_type_effects() -> KotlinCase {
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "fn-effects", FN_EFFECTS_STDOUT);
+    kotlin_case(files, "fn-effects", FN_EFFECTS_STDOUT)
 }
 
 // ===== the widening check `^` [qual-widen] =====
@@ -4386,16 +4547,12 @@ fn widening_materializes_the_peel_kotlin() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_widening() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_widening() -> KotlinCase {
     let program = build_program(&[("main.sv", WIDEN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "widen", WIDEN_STDOUT);
+    kotlin_case(files, "widen", WIDEN_STDOUT)
 }
 
 // ===== the subject-less `when` [when-condition] [kt-when-cond] =====
@@ -4509,16 +4666,12 @@ fn a_subjectless_when_emits_a_subjectless_kotlin_when() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_when_cond() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_when_cond() -> KotlinCase {
     let program = build_program(&[("main.sv", WHEN_COND_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "when-cond", WHEN_COND_STDOUT);
+    kotlin_case(files, "when-cond", WHEN_COND_STDOUT)
 }
 
 // ===== a `try` body is ordinary code to the mutability census =====
@@ -4564,16 +4717,12 @@ fn a_variable_mutated_only_inside_a_try_body_is_declared_var() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_try_mutation() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_try_mutation() -> KotlinCase {
     let program = build_program(&[("main.sv", TRY_MUTATION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "try-mutation", "counter 1\n");
+    kotlin_case(files, "try-mutation", "counter 1\n")
 }
 
 // ===== platform effects [platform-effect] =====
@@ -4723,11 +4872,7 @@ fn a_missing_host_file_names_the_command() {
 /// and correct everywhere else — package, imports, interface member
 /// signature, entry-point call. The asserted stdout is byte-identical to the
 /// Rust backend's run of the same program, which is what parity means here.
-#[test]
-fn kotlinc_compiles_and_runs_a_platform_effect() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_platform_effect() -> KotlinCase {
     let skeleton = platform_skeleton();
     let host = skeleton.content.replace(
         "TODO(\"implement Telemetry.record\")",
@@ -4736,65 +4881,7 @@ fn kotlinc_compiles_and_runs_a_platform_effect() {
     assert_ne!(host, skeleton.content, "the stub should have been replaced");
     let files = generate_platform_demo_with(&host);
     let expected = "[telemetry] work=41\nresult=42\n";
-    run_kotlin_entry(&files, "platform", "salvo.platform.main.MainKt", expected);
-}
-
-/// Like [`run_kotlin_files`], but launches a named entry class — the host's,
-/// when a platform effect has moved `main` out of the generated code.
-fn run_kotlin_entry(
-    files: &[salvo_backend_kotlin::EmittedFile],
-    tag: &str,
-    entry: &str,
-    expected: &str,
-) {
-    // As in `run_kotlin_files`: the gate and the cache are at the point of
-    // use, so a test that forgets them still behaves.
-    let kotlinc = salvo_testkit::kotlinc();
-    if !kotlinc.available {
-        return;
-    }
-    let Some(stamp) = cache_stamp(&kotlinc.version, "kotlin-entry", entry, files, expected) else {
-        return;
-    };
-    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-{tag}"));
-    let src_dir = dir.join("src");
-    let out_dir = dir.join("out");
-    let mut kt_paths = Vec::new();
-    for f in files {
-        let path = src_dir.join(&f.rel_path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &f.content).unwrap();
-        kt_paths.push(path);
-    }
-    let compile = Command::new("kotlinc")
-        .args(kt_paths.iter().map(|p| p.as_os_str()))
-        .arg("-d")
-        .arg(&out_dir)
-        .output()
-        .expect("failed to run kotlinc");
-    assert!(
-        compile.status.success(),
-        "kotlinc failed:\n{}",
-        String::from_utf8_lossy(&compile.stderr)
-    );
-    let run = Command::new("kotlin")
-        .arg("-cp")
-        .arg(&out_dir)
-        .arg(entry)
-        .output()
-        .expect("failed to run kotlin");
-    assert!(
-        run.status.success(),
-        "generated program crashed:\n{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        expected,
-        "unexpected program output"
-    );
-    stamp.verified();
-    let _ = std::fs::remove_dir_all(&dir);
+    kotlin_case_with_entry(files, "platform", "salvo.platform.main.MainKt", expected)
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====
@@ -4858,16 +4945,12 @@ fn every_emitted_overload_gets_its_own_kotlin_name() {
 /// The same program under kotlinc: before the rule it ran until the stack
 /// ran out, so the assertion that matters is that it terminates with the
 /// right output.
-#[test]
-fn kotlinc_compiles_and_runs_overload_delegation() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_overload_delegation() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_DELEGATION)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "overload-delegation", "v=2\nv=4\nv=6\n");
+    kotlin_case(files, "overload-delegation", "v=2\nv=4\nv=6\n")
 }
 
 // ===== [iter-protocol] laziness, now a property of the pass =====
@@ -4905,8 +4988,7 @@ fn main() [use] -> None {
 
 const SEQ_SURFACE_OUTPUT: &str = "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_the_combinator_surface() {
+fn kotlinc_compiles_and_runs_the_combinator_surface() -> KotlinCase {
     let program = build_program(&[("main.sv", SEQ_SURFACE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -4923,19 +5005,18 @@ fn kotlinc_compiles_and_runs_the_combinator_surface() {
         seq.contains("next: (It) -> Union2<T, Finished>"),
         "expected the resolved `next` as a plain parameter in:\n{seq}"
     );
-    run_kotlin_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
+    kotlin_case(files, "seq-surface", SEQ_SURFACE_OUTPUT)
 }
 
 /// An **unbounded** producer that terminates only because the consumer stops,
 /// with the Rust twin's source and stdout. A lazy-chain test until 2026-09-10;
 /// the property that mattered is what a plain `for` with a `break` states.
-#[test]
-fn kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer() {
+fn kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer() -> KotlinCase {
     let program = build_program(&[("main.sv", UNBOUNDED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "unbounded-break", UNBOUNDED_OUTPUT);
+    kotlin_case(files, "unbounded-break", UNBOUNDED_OUTPUT)
 }
 
 const UNBOUNDED_DEMO: &str = r#"
@@ -5057,16 +5138,12 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
 }
 
 /// Under kotlinc, with the stdout the Rust backend asserts byte for byte.
-#[test]
-fn kotlinc_compiles_and_runs_implicit_parameters() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_implicit_parameters() -> KotlinCase {
     let program = build_program(&[("main.sv", IMPLICIT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "implicits", IMPLICIT_OUTPUT);
+    kotlin_case(files, "implicits", IMPLICIT_OUTPUT)
 }
 
 /// [implicit-param] The same source and stdout as the Rust backend's
@@ -5123,16 +5200,12 @@ fn an_effect_member_carries_its_implicits_into_the_interface() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_effect_member_implicits() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_effect_member_implicits() -> KotlinCase {
     let program = build_program(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
+    kotlin_case(files, "member-implicits", MEMBER_IMPLICIT_OUTPUT)
 }
 
 // ===== [effect-handler-generics] a `use` gives its handler type arguments =====
@@ -5197,16 +5270,12 @@ fn a_generic_handler_is_constructed_at_its_type() {
     }
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_generic_handler() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_a_generic_handler() -> KotlinCase {
     let program = build_program(&[("main.sv", HANDLER_GENERICS_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "handler-generics", HANDLER_GENERICS_OUTPUT);
+    kotlin_case(files, "handler-generics", HANDLER_GENERICS_OUTPUT)
 }
 
 // ===== qualifier refinements [qual-refn] =====
@@ -5249,8 +5318,7 @@ const REFN_EXPECTED: &str = "after add: 1\nafter refill: 2\n";
 
 /// [qual-refn] [qual-erasure] The refined program compiles and runs, and the
 /// emitted Kotlin carries no trace of the refinement.
-#[test]
-fn kotlinc_compiles_and_runs_a_refined_program() {
+fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
     let program = build_program(&[("main.sv", REFN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
@@ -5270,7 +5338,7 @@ fn kotlinc_compiles_and_runs_a_refined_program() {
         !body.contains("NonEmpty_qualifies"),
         "a refinement must not emit a runtime check:\n{body}"
     );
-    run_kotlin_files(&files, "refn", REFN_EXPECTED);
+    kotlin_case(files, "refn", REFN_EXPECTED)
 }
 
 /// [qual-refn-conflict] [diag-structured] A suppressed refinement conflict is
@@ -5302,8 +5370,8 @@ fn main() [use] {
 #[test]
 fn a_refinement_conflict_warns_without_stopping_emission() {
     let program = build_program(&[("main.sv", REFN_CONFLICT_DEMO)]);
-    let (files, warnings) =
-        salvo_backend_kotlin::emit_program_reporting(&program).unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
+    let (files, warnings) = salvo_backend_kotlin::emit_program_reporting(&program)
+        .unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
     assert!(!files.is_empty(), "the program should still emit");
     assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
     assert!(
@@ -5336,16 +5404,12 @@ fn main() [use] {
 }
 "#;
 
-#[test]
-fn kotlinc_runs_the_most_specific_overload() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_runs_the_most_specific_overload() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_SPECIFICITY)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "overload-specificity", "concrete\ngeneric\n");
+    kotlin_case(files, "overload-specificity", "concrete\ngeneric\n")
 }
 
 // ===== [str-drop-mut] [kt-mut-str] `Mut Str` is a `StringBuilder` =====
@@ -5442,14 +5506,20 @@ fn mut_str_lowers_to_a_string_builder() {
     // [str-drop-mut] The conversion at a call argument, in interpolation,
     // and at an operator — a bare name takes the suffix without parens.
     assert!(main.contains("shout(b.toString())"), "unexpected:\n{main}");
-    assert!(main.contains("\"size: ${b.toString().length}\""), "unexpected:\n{main}");
+    assert!(
+        main.contains("\"size: ${b.toString().length}\""),
+        "unexpected:\n{main}"
+    );
     assert!(
         main.contains("\"equal: ${x.toString() == y.toString()}\""),
         "unexpected:\n{main}"
     );
     // [kt-copy] A builder's copy is a new builder: identity would alias the
     // buffer.
-    assert!(main.contains("val dup = StringBuilder(b)"), "unexpected:\n{main}");
+    assert!(
+        main.contains("val dup = StringBuilder(b)"),
+        "unexpected:\n{main}"
+    );
     // `setCharAt` throws out of range, so `set` guards — and binds its
     // arguments, so a call argument is evaluated once.
     assert!(
@@ -5458,16 +5528,12 @@ fn mut_str_lowers_to_a_string_builder() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_strings() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_strings() -> KotlinCase {
     let program = build_program(&[("main.sv", STRING_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "strings", STRING_DEMO_OUTPUT);
+    kotlin_case(files, "strings", STRING_DEMO_OUTPUT)
 }
 
 /// [fn-variadic] A `...spread` into a variadic intrinsic uses Kotlin's own
@@ -5475,8 +5541,7 @@ fn kotlinc_compiles_and_runs_strings() {
 /// of one array — which kotlinc catches for `listOf`, but *not* for
 /// `StringBuilder(...)`, where `append(Any?)` accepts it and prints
 /// `[Ljava.lang.String;@…` [backend-never-wrong].
-#[test]
-fn a_spread_into_a_variadic_intrinsic_spreads() {
+fn a_spread_into_a_variadic_intrinsic_spreads() -> KotlinCase {
     let src = r#"
 fn main() [use] {
     use StdOutConsole()
@@ -5500,10 +5565,7 @@ fn main() [use] {
             && main.contains("listOf<String>(*parts)"),
         "unexpected:\n{main}"
     );
-    if !kotlin_toolchain() {
-        return;
-    }
-    run_kotlin_files(&files, "strings-spread", "ab 2\n");
+    kotlin_case(files, "strings-spread", "ab 2\n")
 }
 
 /// A `Mut Str` reached through a *parameter* and through a **field**, which
@@ -5538,16 +5600,12 @@ fn main() [use] {
 
 const MUT_STR_PLACES_OUTPUT: &str = "grown 5\nIn-struct!\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_mut_str_places() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_mut_str_places() -> KotlinCase {
     let program = build_program(&[("main.sv", MUT_STR_PLACES)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "mut-str-places", MUT_STR_PLACES_OUTPUT);
+    kotlin_case(files, "mut-str-places", MUT_STR_PLACES_OUTPUT)
 }
 
 // ===== [implicit-group] [rs-seq]-equivalent: the sequence functions =====
@@ -5670,16 +5728,12 @@ fn sequence_functions_lower_to_collection_operations() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_sequences() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_sequences() -> KotlinCase {
     let program = build_program(&[("main.sv", SEQ_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "sequences", SEQ_DEMO_OUTPUT);
+    kotlin_case(files, "sequences", SEQ_DEMO_OUTPUT)
 }
 
 // ===== [fn-overload-at] [fn-rename] the caller's two overrides =====
@@ -5756,7 +5810,10 @@ fn scope_selectors_and_renames_are_erased() {
         .content;
     // No `@` and no renamed name reaches Kotlin.
     assert!(!main.contains('@'), "unexpected `@` in:\n{main}");
-    assert!(!main.contains("label_small"), "unexpected rename in:\n{main}");
+    assert!(
+        !main.contains("label_small"),
+        "unexpected rename in:\n{main}"
+    );
     // `size@core.list(xs)` is std's `size` — the mangled one, since this
     // program declares its own.
     assert!(
@@ -5772,19 +5829,18 @@ fn scope_selectors_and_renames_are_erased() {
     );
     // A call reaching past a local of the same name needs nothing special
     // here: Kotlin keeps functions and properties in separate namespaces.
-    assert!(main.contains("println(console, describe(7))"), "unexpected:\n{main}");
+    assert!(
+        main.contains("println(console, describe(7))"),
+        "unexpected:\n{main}"
+    );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_overload_overrides() {
-    if !kotlin_toolchain() {
-        return;
-    }
+fn kotlinc_compiles_and_runs_overload_overrides() -> KotlinCase {
     let program = build_program(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
+    kotlin_case(files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT)
 }
 
 // ===== [iter-generic-drive] driving a generic pass =====
@@ -5817,13 +5873,12 @@ fn a_kept_pass_is_driven_in_place() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_generic_drive() {
+fn kotlinc_compiles_and_runs_a_generic_drive() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_DRIVE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
+    kotlin_case(files, "generic-drive", GENERIC_DRIVE_OUTPUT)
 }
 
 /// [kt-suppress-cast] A generic drive reads the union payload through an
@@ -5923,13 +5978,12 @@ fn an_owned_generic_pass_is_closed_by_the_loop() {
     );
 }
 
-#[test]
-fn kotlinc_compiles_and_runs_a_generic_close() {
+fn kotlinc_compiles_and_runs_a_generic_close() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "generic-close", GENERIC_CLOSE_OUTPUT);
+    kotlin_case(files, "generic-close", GENERIC_CLOSE_OUTPUT)
 }
 
 // ===== [iter-fn] the generated-pass form =====
@@ -6057,13 +6111,12 @@ const ITER_FN_OUTPUT: &str = "n 3\nn 2\nn 1\nagain 3\nagain 2\nagain 1\nfirst 3\
                               rest 2\nrest 1\nfib total 20\n  turn 0\nv 1\n  turn 1\n\
                               v 2\n  done\ns hey!\ns hey!\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_the_iter_fn_form() {
+fn kotlinc_compiles_and_runs_the_iter_fn_form() -> KotlinCase {
     let program = build_program(&[("main.sv", ITER_FN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "iter-fn", ITER_FN_OUTPUT);
+    kotlin_case(files, "iter-fn", ITER_FN_OUTPUT)
 }
 
 /// [iter-fn] The generated declarations are ordinary Kotlin: a data class for
@@ -6164,16 +6217,14 @@ fn main() [use] {
 }
 "#;
 
-const CONTAINER_IMPLICIT_OUTPUT: &str =
-    "generated pass: 6\nwritten iter: 9\na list: 6\n";
+const CONTAINER_IMPLICIT_OUTPUT: &str = "generated pass: 6\nwritten iter: 9\na list: 6\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_a_container_combinator() {
+fn kotlinc_compiles_and_runs_a_container_combinator() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTAINER_IMPLICIT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT);
+    kotlin_case(files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT)
 }
 
 /// [fate-field-disjoint] The Kotlin half of L5: the same source and stdout as
@@ -6227,13 +6278,12 @@ fn main() [use] {
 
 const FIELD_DISJOINT_OUTPUT: &str = "A ann 2\nC 1 2\nD dee 2\nE eve 2\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_field_disjoint_access() {
+fn kotlinc_compiles_and_runs_field_disjoint_access() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_DISJOINT_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
+    kotlin_case(files, "field-disjoint", FIELD_DISJOINT_OUTPUT)
 }
 
 /// [fate-partial-move] L5's move half end to end: a field handed to a
@@ -6277,13 +6327,12 @@ fn main() [use] {
 
 const PARTIAL_MOVE_OUTPUT: &str = "1 ann\n2 bob 2\n3 eve 2\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_a_partial_move() {
+fn kotlinc_compiles_and_runs_a_partial_move() -> KotlinCase {
     let program = build_program(&[("main.sv", PARTIAL_MOVE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
+    kotlin_case(files, "partial-move", PARTIAL_MOVE_OUTPUT)
 }
 
 /// [inc-dec] All four step forms, in both statement and value position: the
@@ -6320,13 +6369,12 @@ fn main() [use] {
 const INC_DEC_OUTPUT: &str =
     "statements: 5\npost: 10 11\npre: 11 11\npost-dec: 10 9\npre-dec: 9 9\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_inc_dec() {
+fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
     let program = build_program(&[("main.sv", INC_DEC_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "inc-dec", INC_DEC_OUTPUT);
+    kotlin_case(files, "inc-dec", INC_DEC_OUTPUT)
 }
 
 /// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
@@ -6365,13 +6413,12 @@ fn main() [use] {
 
 const GENERIC_ITER_FN_OUTPUT: &str = "a\nb\n6\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() {
+fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_ITER_FN_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT);
+    kotlin_case(files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT)
 }
 
 /// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
@@ -6413,11 +6460,49 @@ fn main() [use] {
 
 const DEDUCTION_CLAUSE_OUTPUT: &str = "2 3\n3 at 0\n";
 
-#[test]
-fn kotlinc_compiles_and_runs_the_deduction_clause_projections() {
+fn kotlinc_compiles_and_runs_the_deduction_clause_projections() -> KotlinCase {
     let program = build_program(&[("main.sv", DEDUCTION_CLAUSE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    run_kotlin_files(&files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT);
+    kotlin_case(files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT)
+}
+
+// ===== [proj-type] a borrowed union arm into a `Proj`-typed parameter =====
+
+/// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
+/// `Emitted (Proj Str) | Finished` — a union whose payload arm *borrows* —
+/// and a fn takes that union whole by writing the projection in its
+/// parameter type. On the JVM the projection erases; the point here is
+/// byte-identical stdout with the Rust backend.
+const PROJ_ARM_PARAM_DEMO: &str = r#"
+fn show(step: Emitted (Proj Str) | Finished) [Console] -> None {
+    when step {
+        is Emitted { println(step) }
+        is Finished { println("done") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let words = list("ann", "bo")
+    let p = iter(words)
+    show(next(p))
+    show(next(p))
+    show(next(p))
+    let e = get(words, 0)!
+    println(e)
+    let owned: Str = copy(e)
+    println(owned)
+}
+"#;
+
+const PROJ_ARM_PARAM_OUTPUT: &str = "ann\nbo\ndone\nann\nann\n";
+
+fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> KotlinCase {
+    let program = build_program(&[("main.sv", PROJ_ARM_PARAM_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT)
 }

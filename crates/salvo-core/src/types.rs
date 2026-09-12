@@ -219,6 +219,20 @@ impl Ty {
         }
     }
 
+    /// [proj-type] The type with a *top-level* `Proj` removed (nested ones —
+    /// inside a union arm or a type argument — stay): what a kept, non-`Mut`
+    /// position reads through a projection.
+    pub fn strip_top_proj(&self) -> Ty {
+        let mut names = HashSet::new();
+        names.insert("Proj".to_string());
+        self.clone().remove_quals(&names)
+    }
+
+    /// [proj-type] Whether the type is a projection at its top level.
+    pub fn is_proj(&self) -> bool {
+        self.quals().iter().any(|q| q.name == "Proj")
+    }
+
     pub fn quals(&self) -> &[Qual] {
         match self {
             Ty::Qualified { quals, .. } => quals,
@@ -255,8 +269,18 @@ impl Ty {
             other => (Vec::new(), other),
         };
         quals.append(&mut new_quals);
+        // [copy-scalar-free] `Proj Int` is `Int`: a borrowed Copy scalar is
+        // the value itself on both backends, so the qualifier is erased
+        // rather than carried (and `Proj Proj X` dedups to `Proj X` below
+        // [proj-type]).
+        if is_copy_scalar(&base) {
+            quals.retain(|q| q.name != "Proj");
+        }
         quals.sort_by(|a, b| a.name.cmp(&b.name));
         quals.dedup();
+        if quals.is_empty() {
+            return base;
+        }
         Ty::Qualified {
             quals,
             base: Box::new(base),
@@ -362,16 +386,52 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // arm, or may drop its group qualifiers (checked before the any-arm
         // rule below, which would compare the whole group against arms)
         // [qual-group].
-        (Ty::Qualified { base, .. }, _) if matches!(**base, Ty::Union(_)) => {
+        (Ty::Qualified { quals, base }, _) if matches!(**base, Ty::Union(_)) => {
             if let Ty::Union(arms) = b {
                 if arms.iter().any(|arm| a == arm) {
                     return true;
                 }
             }
-            is_subtype(base, b)
+            // [proj-type] The group may drop its qualifiers only if none is a
+            // never-drop one: `Proj (A | B)` is a borrow of the union, not
+            // the union.
+            if quals.iter().any(|q| q.drop_block().is_some()) {
+                // …unless the target is the same group minus droppable
+                // extras, handled by the qualified/qualified arm below.
+                if let Ty::Qualified { .. } = b {
+                    // fall through to the general arm
+                } else {
+                    return false;
+                }
+            } else {
+                return is_subtype(base, b);
+            }
+            match b {
+                Ty::Qualified { quals: qb, base: bb } => {
+                    is_subtype(base, bb)
+                        && qb.iter().all(|q| quals.contains(q))
+                        && quals
+                            .iter()
+                            .filter(|q| q.drop_block().is_some())
+                            .all(|q| qb.contains(q))
+                }
+                _ => false,
+            }
         }
         // A non-union is a subtype of a union when it fits some arm.
         (_, Ty::Union(arms)) => arms.iter().any(|arm| is_subtype(a, arm)),
+        // [proj-type] `X <: Proj X`: an owned value fits a projected position
+        // (the borrow of an owned value is a borrow), never the reverse. The
+        // value's own top-level `Proj`, if any, is matched by the
+        // qualified/qualified arm; here `a` has none.
+        (_, Ty::Qualified { quals, .. })
+            if quals.iter().any(|q| q.name == "Proj")
+                && !a.quals().iter().any(|q| q.name == "Proj") =>
+        {
+            let mut names = HashSet::new();
+            names.insert("Proj".to_string());
+            is_subtype(a, &b.clone().remove_quals(&names))
+        }
         (
             Ty::Qualified { quals: qa, base: ba },
             Ty::Qualified { quals: qb, base: bb },
@@ -387,6 +447,15 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 && qb
                     .iter()
                     .all(|q| q.name == "Once" || q.effect || qa.contains(q))
+                // [proj-type] A never-drop qualifier the value carries
+                // (`Proj`, `Linear`) must be expected too: `Emitted (Proj
+                // Str)` is not an `Emitted Str` — the borrow is inside.
+                // `Proj` on a Copy scalar is free [copy-scalar-free].
+                && qa
+                    .iter()
+                    .filter(|q| !q.effect && q.drop_block().is_some() && q.name != "Once")
+                    .filter(|q| !(q.name == "Proj" && is_copy_scalar(ba)))
+                    .all(|q| qb.contains(q))
                 // [fn-effects] An effect claim runs the *other* way, like
                 // [fn-effects] on a fn type: every effect the supplied
                 // producer performs must be one the position expects, and a
@@ -423,9 +492,14 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
         // ([qual-widen]'s single exclusion list: `Once`, `Linear`,
-        // `Proj`).
+        // `Proj`). [copy-scalar-free] `Proj` on a Copy scalar is the one
+        // exception: a borrowed `Int` is the number itself on both
+        // backends, so `Proj Int <: Int`.
         (Ty::Qualified { quals, base }, _) => {
-            quals.iter().all(|q| q.drop_block().is_none()) && is_subtype(base, b)
+            quals
+                .iter()
+                .all(|q| q.drop_block().is_none() || (q.name == "Proj" && is_copy_scalar(base)))
+                && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb
@@ -609,6 +683,20 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
 }
 
 /// Invariant compatibility (used for generic arguments).
+/// [copy-scalar-free] A bare native scalar, whose copy is free and whose
+/// projection is therefore the value itself.
+pub fn is_copy_scalar(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Named { name, args }
+            if args.is_empty()
+                && matches!(
+                    name.as_str(),
+                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                )
+    )
+}
+
 pub fn compatible(a: &Ty, b: &Ty) -> bool {
     is_subtype(a, b) && is_subtype(b, a)
 }
@@ -654,11 +742,24 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
         (_, Ty::Any) => Some(Greater),
         // 3. Qualifier sets by inclusion, together with the bases. The
         // *larger* qualifier set says more, so the sets go in swapped:
-        // `set_cmp` ranks the smaller set higher.
+        // `set_cmp` ranks the smaller set higher. Except `Proj`, which
+        // inverts [proj-type]: `X <: Proj X`, so a `Proj` position accepts
+        // owned values *too* — it accepts more, so it says less, the way a
+        // union says less than one of its arms. It is compared as its own
+        // dimension, so `Proj Mut Str` vs `Str` (more qualifiers, less
+        // ownership) is unrankable rather than a guess.
         (Ty::Qualified { .. }, _) | (_, Ty::Qualified { .. }) => {
-            let (qa, qb) = (qual_names(a), qual_names(b));
+            let (mut qa, mut qb) = (qual_names(a), qual_names(b));
+            let pa = qa.iter().position(|q| *q == "Proj").map(|i| qa.remove(i)).is_some();
+            let pb = qb.iter().position(|q| *q == "Proj").map(|i| qb.remove(i)).is_some();
+            let proj_dim = match (pa, pb) {
+                (false, true) => Greater,
+                (true, false) => Less,
+                _ => Equal,
+            };
             combine(
                 [
+                    Some(proj_dim),
                     set_cmp(&qb, &qa),
                     spec_cmp(a.strip_quals(), b.strip_quals()),
                 ]
@@ -819,7 +920,12 @@ impl fmt::Display for Ty {
                 fmt_args(f, args)
             }
             Ty::Qualified { quals, base } => {
-                for q in quals {
+                // [proj-type] `Proj` reads first: it says what the value *is*
+                // (a borrow); the rest say what is known about it.
+                for q in quals.iter().filter(|q| q.name == "Proj") {
+                    write!(f, "{q} ")?;
+                }
+                for q in quals.iter().filter(|q| q.name != "Proj") {
                     write!(f, "{q} ")?;
                 }
                 if matches!(**base, Ty::Union(_)) {
@@ -1030,6 +1136,37 @@ mod tests {
         assert_eq!(spec_cmp(&ne_generic, &list(int.clone())), None);
         // Agreeing criteria compose, though.
         assert_eq!(spec_cmp(&ne_list, &list(var.clone())), Some(Greater));
+        // 5. [proj-type] `Proj` inverts: `X <: Proj X`, so a `Proj`
+        // position accepts owned values too — an owned position says more.
+        let proj = |ty: Ty| {
+            ty.qualify(vec![Qual {
+                effect: false,
+                name: "Proj".into(),
+                args: vec![],
+            }])
+        };
+        assert_eq!(spec_cmp(&str_, &proj(str_.clone())), Some(Greater));
+        assert_eq!(spec_cmp(&proj(str_.clone()), &str_), Some(Less));
+        // Structurally too: `List<Str>` beats `List<Proj Str>`.
+        assert_eq!(
+            spec_cmp(&list(str_.clone()), &list(proj(str_.clone()))),
+            Some(Greater)
+        );
+        // Its own dimension: more qualifiers but less ownership is
+        // unrankable, not a guess.
+        let proj_mut_str = proj(str_.clone()).qualify(vec![Qual {
+            effect: false,
+            name: "Mut".into(),
+            args: vec![],
+        }]);
+        assert_eq!(spec_cmp(&proj_mut_str, &str_), None);
+        // Agreeing dimensions compose: `Mut Str` beats `Proj Mut Str`.
+        let mut_str = str_.clone().qualify(vec![Qual {
+            effect: false,
+            name: "Mut".into(),
+            args: vec![],
+        }]);
+        assert_eq!(spec_cmp(&mut_str, &proj_mut_str), Some(Greater));
     }
 
     fn ranked(patterns: Vec<Ty>) -> RankedCandidate {

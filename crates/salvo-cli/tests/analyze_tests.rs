@@ -1553,9 +1553,9 @@ fn l7c_derived_returns() {
         "stderr: {stderr}"
     );
     // The borrowed result can never be moved; `copy` is the remedy
-    // (ok_copy_escape is clean). [proj-readonly] names the projection.
+    // (ok_copy_escape is clean). [proj-type] names the projection's type.
     assert!(
-        stderr.contains("cannot move `h`: it is a projection (`Proj`) of `head`"),
+        stderr.contains("`h` is a projection (`Proj Person`), and `take` consumes `p`"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
@@ -1980,4 +1980,102 @@ fn main() [use] {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
     assert!(stdout.contains("\"severity\": \"warning\""), "stdout: {stdout}");
+}
+
+// [proj-type] A union arm that borrows (`Emitted (Proj Str) | Finished`)
+// passes whole into a parameter only when the parameter's type *writes*
+// the projection; an owned parameter refuses it, naming the type and the
+// two remedies. The phase-2b cut's negative half, closed 2026-09-12.
+#[test]
+fn an_owned_parameter_refuses_a_borrowed_union_arm() {
+    let dir = src_dir("proj_arm_param");
+    fs::write(
+        dir.join("main.sv"),
+        "fn show(step: Emitted Str | Finished) [Console] -> None {\n    \
+         when step {\n        is Emitted { println(step) }\n        is Finished { println(\"done\") }\n    }\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let words = list(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        stderr.contains(
+            "this argument holds a borrowed value (`Proj Emitted Str | Finished`) \
+             where `show` expects an owned one for `step`"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Write the parameter's type with the `Proj`"),
+        "stderr: {stderr}"
+    );
+}
+
+// [proj-type] What a pass combinator's result *is*: `map`/`keep_all` over a
+// container's pass yield a `Mut List<Proj Str>` — a view, fate-linked to
+// the container — so consuming either the view or the container is
+// refused; an instantiation over a *generator* pass has no container and
+// stays free. And `copy` un-projects exactly one level: `copy(e)` on a
+// `Proj Mut Str` is a `Mut Str` (observed via the mismatch against `Int`).
+// The phase-2b regression set, closed 2026-09-12.
+#[test]
+fn a_combinator_result_is_a_view_of_its_container() {
+    let dir = src_dir("proj_combinator_view");
+    fs::write(
+        dir.join("main.sv"),
+        "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
+         fn keep(w: Proj Str) -> Proj[from: w] Str => w {\n    return w\n}\n\n\
+         struct Chars {\n    n: Int\n}\n\n\
+         iter fn next(c: Chars) -> Emitted Str | Finished {\n    \
+         state {\n        at: Int = 0\n    }\n    \
+         if at >= c.n {\n        return finished()\n    }\n    \
+         at = at + 1\n    return emitted(\"x\")\n}\n\n\
+         fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
+         let out = mutable_list<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
+         fn main() [use] {\n    use StdOutConsole()\n    \
+         let words = list(\"ann\", \"bo\")\n    \
+         let p = iter(words)\n    \
+         let kept = map(p, keep)\n    \
+         eat(kept)\n    \
+         let more = keep_all(iter(words))\n    \
+         eat(words)\n    \
+         println(\"${size(more)}\")\n    \
+         let free = keep_all(iter(Chars {n: 2}))\n    \
+         println(\"${size(free)}\")\n    \
+         let parts = mutable_list(mutable_str(\"a\"))\n    \
+         let e = get(parts, 0)!\n    \
+         let n: Int = copy(e)\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    // The combinator's type, named whole by the refusal to consume it.
+    assert!(
+        stderr.contains(
+            "`kept` holds a borrowed value (`Mut List<Proj Str>`) where `eat` \
+             expects an owned one for `xs`"
+        ),
+        "stderr: {stderr}"
+    );
+    // The view is fate-linked *through* the temporary pass to the container:
+    // consuming the container poisons it.
+    assert!(
+        stderr.contains(
+            "`more` cannot be used here: it was bound from `words` and shares \
+             its fate, and `words` was moved after the binding"
+        ),
+        "stderr: {stderr}"
+    );
+    // `copy(e)` on a `Proj Mut Str` is a `Mut Str`: one level un-projected,
+    // the `Mut` kept.
+    assert!(
+        stderr.contains("expected `Int`, found `Mut Str`"),
+        "stderr: {stderr}"
+    );
+    // The generator instantiation is unlinked (`free` draws no error), so
+    // exactly the three violations above are reported.
+    assert!(stderr.contains("3 errors"), "stderr: {stderr}");
 }

@@ -1519,6 +1519,8 @@ Binding a parameter with `let` is *not* on the move list: it creates a *shared f
 
 Salvo has no references in the source, but it has one qualifier that means "this value is borrowed from somewhere": **`Proj`**. It is how the standard library reads an element out of a list, walks a list, or filters one without copying anything — and how you write such a thing yourself. The principle behind it (user decision 2026-09-11) is that **a copy never happens without the program opting in**: `copy(x)` where you want one, a `_to` function that fills a destination you provide, and nothing else.
 
+**`Proj` is part of the type.** A projected value's type says so — `Proj Str`, `Mut List<Proj Str>`, `Emitted (Proj Str) | Finished` — in diagnostics, on hover, and through generics: matching `Emitted T` against an `Emitted (Proj Str)` binds `T = Proj Str`. An owned value satisfies a projected position (it can do strictly more), never the reverse — and the projection is never dropped silently: a function that takes a projected value writes the `Proj` in its parameter type, and passing a projection where an owned value is expected is an error naming the remedies (write the `Proj`, or pass `copy(...)`). The one exception is Copy scalars: `Proj Int` *is* `Int` — the number is the value itself on both backends. In overloading, an owned position beats a projected one, the way one arm beats its union: `Proj` accepts more, so it says less.
+
 **A projected value.** `Proj[from: p] T` on a result says the value *is* a borrow of the parameter `p` — an element of it, a field, the whole of it. It may appear wherever a type does: the whole result (`-> Proj[from: xs] Person`), a nullable (`-> (Proj[from: list] T)?`), a union arm (`-> Emitted (Proj[from: p] T) | Finished`), a tuple element. Several sources are written together, and a projection joined across branches is of all of them:
 
 ```
@@ -1574,10 +1576,10 @@ Salvo has no references, but variables can still overlap: `let m = n` and `let n
 - Move-mode needs every ancestor to be *owned* by the function. Locals always are. A parameter is owned when the function's deductions move it — and when its entry is inferred, a move-mode binding reaching a parameter *claims* it: the parameter becomes moved, and callers hand over ownership. A **written** entry that keeps the parameter pins it as borrowed instead: moving or mutating anything derived from it stays a compile-time error — you cannot move out of a borrow — and the remedy is `copy`.
 - The same ownership rule applies to a **projection in a moved position** — passing `h.tags` to a call that consumes it, or storing it in a literal. If the projected data is mutable, the move consumes the owner (`h` is unusable afterwards) or, for a kept parameter, is an error with the `copy` remedy. Projections of immutable data are free: whether a backend copies or shares immutable data is unobservable.
 
-The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links.
+The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links. Its parameter says `Proj T` because a projection is exactly what `copy` is *for* — and an owned value satisfies a projected position too, so `copy` of anything works. The result is un-projected one level with the rest kept: `copy` of a `Proj Mut Str` is a `Mut Str` of your own.
 
 ```
-fn copy<T>(value: T) -> T => value   // intrinsic: each backend implements it
+fn copy<T>(value: Proj T) -> T => value   // intrinsic: each backend implements it
 ```
 
 Here is the discipline at work, together with the deduction contract. With a *written* entry that keeps `persons`, moving a derived value out is an error:
@@ -2162,7 +2164,7 @@ When building the compiler, _all_ `intrinsic` declarations must be handled by _e
 Functions can be intrinsic too. An `intrinsic fn` carries the signature and deductions the checker uses and has no body; each backend lowers calls to it directly, seeing the resolved argument type at every call site. That is what makes type-directed lowering possible where one generic template could not express it — the standard library's `copy` is the canonical example:
 
 ```
-intrinsic fn copy<T>(value: T) -> T => value
+intrinsic fn copy<T>(value: Proj T) -> T => value
 ```
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.

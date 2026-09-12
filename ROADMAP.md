@@ -183,6 +183,7 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
+| A combinator result linked to its *callback*: `map(p, w -> w)` refused as a view of a temporary | unscheduled | "Projections and copies — leftovers" |
 | **L8** — how an obligation travels through a container, and when a container is linear | phase 3 | "Linear types" |
 | **D7** — qualifier-conditional linearity (with D6) | phase 3 | "Deductions and qualifier reasoning" |
 | **D6** — `Once` on any type (with D7) | phase 3 | "Deductions and qualifier reasoning" |
@@ -976,13 +977,27 @@ start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
 ## Projections and copies — leftovers (phase 2b complete 2026-09-11)
 
 Phase 2b — `Proj` everywhere, views, `?copy`, the std audit, the `iter fn`
-borrow, and the `=>` deduction respelling — is **built**; the design, the
-options rejected and what it took are in COMPLETED.md's decision log (entries
-"Deductions respelled" and "Phase 2b"), the rules in LANGUAGE_SPEC.md
-([proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [yield-proj]
-[copy-implicit] [copy-scalar-free] [deduce-syntax]) and BACKEND_SPEC.rust.md
-([rs-proj]). What stays open:
+borrow, and the `=>` deduction respelling — is **built**, and so is the
+follow-on: **`Proj` as a type qualifier landed 2026-09-12** (option A; see
+COMPLETED.md's decision log — the two cuts it closed are regression tests
+on both backends now). The design, the options rejected and what it took
+are in COMPLETED.md's decision log (entries "Deductions respelled",
+"Phase 2b" and "`Proj` in the type"), the rules in LANGUAGE_SPEC.md
+([proj-type] [proj-anywhere] [proj-readonly] [proj-field] [proj-infer]
+[yield-proj] [copy-implicit] [copy-scalar-free] [deduce-syntax]) and
+BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
 
+- **DECISION — a combinator result linked to its callback.** Instantiation-
+  driven linking (a substituted return holding `Proj`, with no inferable
+  lend) links the result to *every* kept argument — including a fn-typed
+  one. So `let kept = map(p, w -> w)` is refused today ("cannot bind a view
+  of a temporary": the lambda is an argument that dies with the statement),
+  and the idiomatic spelling needs a named callback fn or an immediate use.
+  Defensible (the callback returns the elements, and could in principle
+  project from a capture) but heavy for the most common call. Options: keep
+  the conservative link; exempt fn-typed arguments whose type cannot source
+  a projection; or trace which argument's type taught the generic its
+  `Proj`. The user's call.
 - **Contract stability (revisit).** With unmentioned parameters inferred
   [deduce-syntax], editing a body to consume or lend a parameter changes what
   callers may do with no signature change; the old exhaustive list made moves
@@ -994,21 +1009,6 @@ options rejected and what it took are in COMPLETED.md's decision log (entries
   the lifetimes; the *body* is trusted to perform the re-pointing. The
   inference in `lends.rs` is return-centric — extending it to assignments
   into a parameter's `Proj` fields is the verification.
-- **Generic bodies do not see element borrows.** Inside `filter<It, T>(it: Mut
-  It, …)` the element `x` of the opaque pass carries no link, so a body that
-  stores it without saying so (`add(dest, x)` and no `=> Proj[from: it]`) is
-  caught by rustc (`Vec<&T>` where `Vec<T>` is wanted), not by the checker.
-  Sound by the Rust backend being loud; a checker rule would treat a
-  `?Yield<It, T>` element as possibly borrowed (`Proj T`), which then needs
-  `Proj` in the lowered `Ty` to tell "stored into a `Proj` slot" apart —
-  the same thread as the next item.
-- **A borrowed non-Copy union arm flowing into an owned position** (`show(step:
-  Emitted Str | Finished)` fed `next(p)`'s `Emitted (Proj Str)`) is a Rust
-  codegen error [rs-proj-arm]: the Salvo types agree (`Proj` is not a type),
-  the Rust ones do not, and the only adaptation is a hidden clone. Copy
-  payloads are adapted. Either `Proj` becomes visible to the type checker at
-  union arms (so the position must say `Emitted (Proj Str)`), or the position
-  is generic over the arm. Decide with the item above.
 - **Binding a view of a temporary (user, 2026-09-11 — refuse for now).** A
   derived-return or lending call whose borrowed argument is a temporary may be
   used within its statement — `map(iter(list(4, 5)), f)`, `for x in
@@ -1328,6 +1328,17 @@ Small recorded remainders, each also noted in its own milestone section or spec
 rule, collected here for findability. They are not a queue: nothing here is
 blocking, and several are "revisit only if a customer appears".
 
+- **Fresh-suite speed, remaining steps toward ~10–15s** (goal set by the
+  user 2026-09-12; the kotlinc batching landed the same day — see
+  COMPLETED.md decision log — bringing a fresh run to ~50s). What is left,
+  in impact order: the CLI suites (`run_tests`, `platform_tests`,
+  `analyze_tests`: ~16s max single test; each spawns `salvo run`/`compile`
+  which pays its own kotlinc), the rust codegen suite (~4.8s max under
+  contention; a shared-runtime batch or precompiled `libcore` would cut
+  it), and running the batched Kotlin programs in one JVM instead of one
+  `kotlin` launch each (~0.4s per program). Past those, the floor is the
+  matrix size itself — trimming compile-and-run cases whose behavior the
+  goldens already pin.
 
 - **`Once` inference**: a callee calling its fn param at most once does
   not auto-promote to `Once`; written only [once-fn]. Same

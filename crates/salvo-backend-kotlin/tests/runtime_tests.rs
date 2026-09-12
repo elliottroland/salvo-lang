@@ -28,7 +28,7 @@ fn runtime_source(file: &str) -> String {
 /// accepted it. Warnings are asserted away for the same reason as on Rust:
 /// this code lands in user output, where the user cannot fix it.
 fn compile_runtime_module(file: &str) {
-    let kotlinc = salvo_testkit::kotlinc();
+    let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));
     if !kotlinc.available {
         return;
     }

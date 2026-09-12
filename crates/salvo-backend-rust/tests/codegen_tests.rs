@@ -5826,3 +5826,40 @@ fn rustc_compiles_and_runs_the_deduction_clause_projections() {
     let files = generate(&[("main.sv", DEDUCTION_CLAUSE_DEMO)]);
     run_rust_files(&files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT);
 }
+
+// ===== [proj-type] a borrowed union arm into a `Proj`-typed parameter =====
+
+/// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
+/// `Emitted (Proj Str) | Finished` — a union whose payload arm *borrows* —
+/// and a fn takes that union whole by writing the projection in its
+/// parameter type. The same value is also read as a plain projection
+/// (`get(...)!`) and copied out of it ([copy-fn]).
+const PROJ_ARM_PARAM_DEMO: &str = r#"
+fn show(step: Emitted (Proj Str) | Finished) [Console] -> None {
+    when step {
+        is Emitted { println(step) }
+        is Finished { println("done") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let words = list("ann", "bo")
+    let p = iter(words)
+    show(next(p))
+    show(next(p))
+    show(next(p))
+    let e = get(words, 0)!
+    println(e)
+    let owned: Str = copy(e)
+    println(owned)
+}
+"#;
+
+const PROJ_ARM_PARAM_OUTPUT: &str = "ann\nbo\ndone\nann\nann\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() {
+    let files = generate(&[("main.sv", PROJ_ARM_PARAM_DEMO)]);
+    run_rust_files(&files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT);
+}

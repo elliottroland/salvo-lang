@@ -1,19 +1,29 @@
 # cargo-nextest configuration.
 #
-# nextest is kept for *diagnosis*, not as the default runner: it reports each
-# test's duration (stock libtest will not, on stable), which is how the slow
-# tests in this suite were found. Measured on this suite it is slightly
-# slower than `cargo test` — it runs every test in its own process, and 500+
-# mostly-microsecond tests pay that spawn cost — so the documented commands
-# stay `cargo test` and `SALVO_SKIP_E2E=1 cargo test`.
+# nextest is the *full/fresh* runner (user decision 2026-09-12):
+# `SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast` is the pre-commit /
+# handover check — cross-binary scheduling wins when every toolchain test
+# really runs, it reports per-test durations, and it never hides failures
+# behind a first failing binary. Warm inner-loop runs stay on `cargo test`,
+# which is ~2× faster there (one process per binary amortizes ~700 spawns).
 #
-#   cargo nextest run                 # all tests, with per-test timings
+#   SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast   # the full check
+#   cargo nextest run                 # warm, with per-test timings (diagnosis)
 #   cargo nextest run -p salvo-cli    # one crate
 #   cargo nextest list                # what would run
+#
+# If a listing dies with `aborted with signal 9 (SIGKILL)` on macOS, that is
+# AMFI rejecting a freshly linked binary, not a broken test — see
+# COMPLETED.md's gotchas.
 [profile.default]
-# The toolchain tests are minutes-long only when something is wrong; a test
-# that hangs should say so rather than stall the run.
+# The kotlin driver test (`kotlinc_compiles_and_runs_every_case`) legitimately
+# runs ~30s fresh — it does the whole batched compile — and the other
+# toolchain tests are minutes-long only when something is wrong; a test that
+# hangs should say so rather than stall the run.
 slow-timeout = { period = "30s", terminate-after = 8 }
 # Show a line per test as it finishes, so the timings are the point.
 status-level = "pass"
 final-status-level = "slow"
+
+[profile.fast]
+slow-timeout = "4s"

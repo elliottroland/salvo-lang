@@ -7010,13 +7010,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Vec<Qual> {
         qualifiers
             .iter()
-            // [proj-anywhere] `Proj` is provenance about the *handle* — a
-            // borrow — and never part of the lowered type: the result of a
-            // derived return "is the plain written type; `Proj` never affects
-            // overloading" [readonly-return]. The borrow itself is carried by
-            // fate links, not by `Ty`. So it is stripped here, wherever it
-            // appears; its *placement* is validated separately.
-            .filter(|q| q.name.name != "Proj")
+            // [proj-type] `Proj` is part of the lowered type (user decision
+            // 2026-09-12): `Proj Str` and `Str` are different types, ordered
+            // `Str <: Proj Str`, so a borrow inside a union arm or a container
+            // is visible wherever the value flows. Its `[from: p]` is not: the
+            // source is a fact about the value, carried by fate links.
             .map(|q| {
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
@@ -9729,6 +9727,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // each iteration binds a new element [deduce-consume].
                     self.links_for_value(iterable, iterable.span())
                 };
+                // [proj-type] Elements are projections of what the loop walks
+                // — unless the loop *owns* what it walks: a temporary
+                // (`for s in list("x", "y")`) or a pass moved into the loop
+                // dies with it, so its elements are the loop's to give away.
+                // Nothing to share fate with means nothing to borrow from.
+                let elem = if links.is_empty() { elem.strip_top_proj() } else { elem };
                 let bindings =
                     self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
                 self.loop_stack.push(LoopCtx {
@@ -9965,6 +9969,45 @@ impl<'p, 'r> Checker<'p, 'r> {
         let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
         let ob = decl.obligations.iter().find(|o| o.name.name == "Yield")?;
         Some((decl, ob))
+    }
+
+    /// [implicit-group] [iter-protocol] A `?Yield<It, T>` spread teaches `T`
+    /// from the *declaration* of whatever `It` turned out to be: a pass says
+    /// what it yields at its `: Yield<self, T>` clause, so a combinator's
+    /// element type never has to be written and a bare lambda can be typed
+    /// against it. Reaches through an origin mint [iter-fn].
+    ///
+    /// [proj-type] The pass also decides whether its elements are *borrowed*:
+    /// a binding an argument made (`(s: Str) -> …`) is widened to the pass's
+    /// `Proj Str` when it fits under it — a kept lambda parameter reads the
+    /// projection just fine, and the `next` that fills the spread returns it.
+    fn learn_yield_elems(
+        &mut self,
+        decl: &'p FnDecl,
+        callee_generics: &HashSet<String>,
+        subst: &mut HashMap<String, Ty>,
+    ) {
+        for (state_var, elem_var) in self.yield_spread_pairs(decl) {
+            if !callee_generics.contains(&elem_var) {
+                continue;
+            }
+            let Some(state) = subst.get(&state_var).cloned() else {
+                continue;
+            };
+            let Some(elem) = self.pass_or_origin_elem_ty(&state) else { continue };
+            if elem.is_unknown() {
+                continue;
+            }
+            match subst.get(&elem_var).cloned() {
+                None => {
+                    subst.insert(elem_var, elem);
+                }
+                Some(bound) if bound != elem && is_subtype(&bound, &elem) => {
+                    subst.insert(elem_var, elem);
+                }
+                Some(_) => {}
+            }
+        }
     }
 
     /// The `(state, element)` type-variable pairs a signature spreads as
@@ -11880,14 +11923,27 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             // position expecting more, so the claim need not be present on
             // the argument — while an effect the argument *does* claim must
             // be one the position expects, which `is_subtype` then checks.
-            pq.iter()
-                .all(|q| q.name == "Once" || q.effect || arg_quals.contains(&q.name.as_str()))
-                && arg
-                    .quals()
-                    .iter()
-                    .filter(|q| q.effect)
-                    .all(|q| pq.contains(q))
-                && unify(pb, arg.strip_quals(), subst)
+            // [proj-type] `Proj T` is satisfied by an owned value too
+            // (`X <: Proj X`), so it need not be on the argument either.
+            // The residual the base unifies against keeps the argument's
+            // never-drop qualifiers the pattern did not match (`Emitted T`
+            // against `Emitted (Proj Str)` binds `T = Proj Str`), and
+            // drops the droppable ones as before.
+            let residual = {
+                let names: HashSet<String> = pq.iter().map(|q| q.name.clone()).collect();
+                arg.clone().remove_quals(&names)
+            };
+            pq.iter().all(|q| {
+                q.name == "Once"
+                    || q.name == "Proj"
+                    || q.effect
+                    || arg_quals.contains(&q.name.as_str())
+            }) && arg
+                .quals()
+                .iter()
+                .filter(|q| q.effect)
+                .all(|q| pq.contains(q))
+                && unify(pb, &residual, subst)
         }
         // A union parameter tries each arm against the *intact* argument —
         // this must precede the qualifier-stripping arm below, or a
@@ -11900,7 +11956,11 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
         // `Qual T` can be passed where `T` is expected — except `Once`,
-        // which may never be dropped [once-fn].
+        // which may never be dropped [once-fn]. (A top-level `Proj` is
+        // dropped *here*, for the binding: `size(list: List<T>)` given a
+        // `Proj List<Str>` binds `T = Str`; whether the position may take
+        // the projection is the assignability check's business
+        // [proj-type].)
         (_, Ty::Qualified { quals, base }) => {
             !quals.iter().any(|q| q.name == "Once" || q.effect) && unify(param, base, subst)
         }
@@ -12599,6 +12659,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         let mut viable: Vec<Viable<'p>> = Vec::new();
+
+        let mut proj_blocked: Vec<(String, String, usize, ProjBlock)> = Vec::new();
         for entry in &candidates {
             let (key, decl) = (entry.key, entry.decl);
             // [implicit-param] Implicits are never passed positionally, so
@@ -12650,9 +12712,43 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let mut pairings = Vec::new();
             let mut assignable = true;
+            // [proj-type] A kept, non-`Mut` position reads its argument, so a
+            // *top-level* projection of the parameter type fits it (the
+            // borrow of an owned value is a borrow); a consumed or `Mut`
+            // position needs the owned value, and a projection *inside* the
+            // type (a union arm, a type argument) must match exactly.
+            let contract = self.effective_contract(Some(key), decl);
             for (i, p) in patterns.iter().enumerate() {
                 let sp = substitute_vars(p, &subst, &callee_generics);
-                if !is_subtype(&arg_tys[i], &sp) {
+                let kept = contract
+                    .as_ref()
+                    .and_then(|c| {
+                        let pname = fixed.get(i).map(|fp| fp.name.name.as_str());
+                        c.iter().find(|d| Some(d.param.as_str()) == pname).map(|d| d.kept)
+                    })
+                    .unwrap_or(true);
+                let fits = is_subtype(&arg_tys[i], &sp)
+                    || (kept
+                        && !Self::carries_mut(&sp)
+                        && arg_tys[i].is_proj()
+                        && is_subtype(&arg_tys[i].strip_top_proj(), &sp));
+                if !fits {
+                    // Remember when *only* the projection stood in the way,
+                    // for the diagnostic below.
+                    if is_subtype(&strip_all_proj(&arg_tys[i]), &strip_all_proj(&sp)) {
+                        let pname = fixed
+                            .get(i)
+                            .map(|fp| fp.name.name.clone())
+                            .unwrap_or_else(|| format!("argument {}", i + 1));
+                        let why = if arg_tys[i].is_proj() && Self::carries_mut(&sp) {
+                            ProjBlock::Mutates
+                        } else if arg_tys[i].is_proj() {
+                            ProjBlock::Consumes
+                        } else {
+                            ProjBlock::Nested
+                        };
+                        proj_blocked.push((decl.name.name.clone(), pname, i, why));
+                    }
                     assignable = false;
                     break;
                 }
@@ -12681,6 +12777,35 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         if viable.is_empty() {
             let shown: Vec<String> = arg_tys.iter().map(|t| t.to_string()).collect();
+            // [proj-type] When a projection is all that stands between the
+            // arguments and a candidate, say so — and say the remedy.
+            if let Some((callee, pname, i, why)) = proj_blocked.first().cloned() {
+                let arg_shown = arg_tys.get(i).map(|t| t.to_string()).unwrap_or_default();
+                let what = match args.get(i) {
+                    Some(Expr::Ident(id)) => format!("`{}`", id.name),
+                    _ => "this argument".to_string(),
+                };
+                let msg = match why {
+                    ProjBlock::Mutates => format!(
+                        "{what} is a projection (`{arg_shown}`), which can only be read — a \
+                         `Proj` value never satisfies a `Mut` position; `{callee}` mutates \
+                         `{pname}`. Use `copy(...)` for a value of your own"
+                    ),
+                    ProjBlock::Consumes => format!(
+                        "{what} is a projection (`{arg_shown}`), and `{callee}` consumes \
+                         `{pname}`: a borrowed value cannot be given away. Pass \
+                         `copy(...)`, or keep the parameter (`=> {pname}`)"
+                    ),
+                    ProjBlock::Nested => format!(
+                        "{what} holds a borrowed value (`{arg_shown}`) where `{callee}` \
+                         expects an owned one for `{pname}`: the two are the same on the \
+                         JVM and different in Rust. Write the parameter's type with the \
+                         `Proj` (as the argument has it), or pass `copy(...)`"
+                    ),
+                };
+                self.error(span, msg);
+                return Ty::Unknown;
+            }
             self.error(
                 span,
                 format!("no matching overload for `{name}({})`", shown.join(", ")),
@@ -12800,6 +12925,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // combinator could never infer its pass type.
         let mut subst = subst;
         self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst);
+        // [proj-type] The pass the spread is filled from decides whether the
+        // element is borrowed — before the `next` is looked for at that type.
+        self.learn_yield_elems(decl, &callee_generics, &mut subst);
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
         self.resolve_implicits(decl, best_key, &subst, &callee_generics, named, span);
@@ -13186,7 +13314,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         // result to them, held. A lent temporary is as dangling as a
         // projected one.
         if decl.derived_return.is_none() {
-            let lent = self.infer_lends(decl);
+            let mut lent = self.infer_lends(decl);
+            // [proj-type] Instantiation can make a result hold borrows the
+            // declaration could not see: `keep_all<It, T>(…) -> Mut List<T>`
+            // with `T = Proj Str` (a `?Yield` filled from a borrowing pass)
+            // returns a view. With nothing inferable from the body about
+            // *which* argument, the result is linked to every kept one —
+            // conservative, exact for the one-source case, and nothing for a
+            // generator (`T = Int`).
+            if lent.is_empty() {
+                let ret_sub = decl
+                    .return_type
+                    .as_ref()
+                    .map(|rt| {
+                        let saved = self.enter_generics(&decl.generics);
+                        let lowered = self.lower_type(rt);
+                        self.generics = saved;
+                        substitute_vars(&lowered, &subst, &callee_generics)
+                    });
+                let generic_ret_holds_proj = ret_sub
+                    .as_ref()
+                    .is_some_and(|r| strip_all_proj(r) != *r && !r.is_proj());
+                if generic_ret_holds_proj {
+                    let contract = self.effective_contract(best_key, decl);
+                    lent = decl
+                        .params
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, p)| !p.implicit)
+                        .filter(|(_, p)| {
+                            contract
+                                .as_ref()
+                                .and_then(|c| c.iter().find(|d| d.param == p.name.name))
+                                .is_none_or(|d| d.kept)
+                        })
+                        .map(|(i, _)| i)
+                        .collect();
+                }
+            }
             if !lent.is_empty() {
                 let positional: Vec<usize> = lent
                     .iter()
@@ -13264,19 +13429,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // element type never has to be written and a bare lambda can be typed
         // against it. Reaches through an origin mint, whose machine type stands
         // for the origin [iter-fn].
-        for (state_var, elem_var) in self.yield_spread_pairs(decl) {
-            if subst.contains_key(&elem_var) || !callee_generics.contains(&elem_var) {
-                continue;
-            }
-            let Some(state) = subst.get(&state_var).cloned() else {
-                continue;
-            };
-            if let Some(elem) = self.pass_or_origin_elem_ty(&state) {
-                if !elem.is_unknown() {
-                    subst.insert(elem_var, elem);
-                }
-            }
-        }
+        self.learn_yield_elems(decl, &callee_generics, &mut subst);
         // An `Unknown` argument means an earlier diagnostic already fired
         // (or a type the checker could not determine): stay lenient rather
         // than reporting the same mistake twice [type-unknown-lenient].
@@ -13870,6 +14023,38 @@ fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
     let mut out = Vec::new();
     walk(ty, false, &mut out);
     out
+}
+
+/// [proj-type] Why a projection alone kept an argument out of a candidate.
+#[derive(Clone, Copy, Debug)]
+enum ProjBlock {
+    /// A top-level projection into a `Mut` position.
+    Mutates,
+    /// A top-level projection into a consumed position.
+    Consumes,
+    /// A projection nested inside the type (a union arm, a type argument)
+    /// where the position's type has none there.
+    Nested,
+}
+
+/// [proj-type] The type with every `Proj` removed, at every depth — the
+/// "same type on the JVM" reading, for diagnostics.
+fn strip_all_proj(ty: &Ty) -> Ty {
+    match ty {
+        Ty::Qualified { quals, base } => {
+            let inner = strip_all_proj(base);
+            let kept: Vec<Qual> = quals.iter().filter(|q| q.name != "Proj").cloned().collect();
+            if kept.is_empty() { inner } else { inner.qualify(kept) }
+        }
+        Ty::Named { name, args } => Ty::Named {
+            name: name.clone(),
+            args: args.iter().map(strip_all_proj).collect(),
+        },
+        Ty::Union(arms) => Ty::union_of(arms.iter().map(strip_all_proj).collect()),
+        Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(strip_all_proj).collect()),
+        Ty::Array(elem) => Ty::Array(Box::new(strip_all_proj(elem))),
+        other => other.clone(),
+    }
 }
 
 fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {

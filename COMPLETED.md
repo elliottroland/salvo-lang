@@ -47,15 +47,17 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 784 tests, complete: the toolchain tests are
+cargo test                  # 780 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
-                            # recompiled — ~8s warm, ~80s cold
-SALVO_E2E_FRESH=1 cargo test # FULL: every test, nothing taken from the cache (~70s)
+                            # recompiled — ~5s warm, ~1min cold
+SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
+                            # FULL: every test, nothing taken from the cache
+                            # (~50s), with per-test timings; the pre-commit /
+                            # handover check (fall back to `cargo test` if
+                            # nextest is not installed)
 SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
                             # out to kotlinc/rustc. Those tests still report as
                             # *passing*, so this is never the pre-submit check.
-cargo nextest run           # the same tests with per-test timings (diagnosis only;
-                            # measured slower here — a process per test)
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
 
 # End-to-end:
@@ -118,6 +120,99 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`Proj` in the type (option A, user decision 2026-09-12).** Two phase-2b
+cuts had one cause: `Proj` lived only on fate links and was stripped from
+the lowered `Ty`, so two values of one Salvo type could have two Rust
+representations — a borrowed non-Copy union arm handed to a position
+written as the owned union (Rust codegen error, Kotlin ran it), and a
+generic body storing an element of an opaque pass (`Vec<&String>` under a
+`List<Str>` type; rustc loud, Kotlin silently permissive). Chosen over a
+call-site borrowness check and over a body-only rule: the projection is
+part of the type. **Rules** ([proj-type]): `X <: Proj X`, never the
+reverse; `Proj` is never-drop (passing a projection to an owned position
+is an error naming the type and both remedies — annotate or `copy`, with
+the blocker distinguished: `ProjBlock::{Mutates, Consumes, Nested}`);
+`Proj` on a Copy scalar erases; unification treats a pattern's `Proj` as
+optional and binds the base minus the matched qualifiers (`Proj T` vs
+`Mut Str` gives `T = Mut Str`); overload assignability is kept-aware, and
+an owned position **outranks** a projected one as its own inverted
+specificity dimension (replacing "`Proj` never affects overloading");
+generic bindings show it (`map` over a container pass is a
+`Mut List<Proj Str>`), with instantiation-driven linking: a substituted
+return holding `Proj` with no inferable lend links the result to every
+kept argument, held. std: `copy<T>(value: Proj T) -> T` (un-projects one
+level, keeps the rest — `copy` of a `Proj Mut Str` is a `Mut Str`);
+`ArrayYield.items: Proj (T[])`. **Rust emitter**: one rendering rule —
+`Proj X` is `&X` at any depth, under the named lifetime when one is in
+scope (`'s` in borrowing structs and their `next`, `'a` on tied returns)
+— with one carve-out found by the e2e suite: `Proj T` over a *bare
+generic at its definition site* renders owned `T` (the generic body is
+uniform; the instantiation carries the borrow via the turbofish retag,
+which now defers to types already carrying `Proj`). The old AST-based
+`&`-adding sites (`Option<&T>`, union arms, `&T` returns) now just render
+the written type under the lifetime. **What closed**: both cuts are
+regression tests on both backends (`proj-arm-param` e2e cases; the
+checker halves in `analyze_tests` — an owned parameter refusing a
+borrowed union arm, and the combinator-view set: `Mut List<Proj Str>`
+named in the consume refusal, fate poisoning through the temporary pass
+to the container, a generator instantiation staying free, and `copy`'s
+un-projection observed through a type mismatch), plus the `spec_cmp`
+ladder rung. Two diagnostics-expectation updates (widen_tests earlier,
+`l7c_derived_returns` now) moved to the new type-level messages. One
+question surfaced during the closing run and left as a **DECISION** in
+ROADMAP: instantiation linking holds *fn-typed* arguments too, so
+`let kept = map(p, w -> w)` is refused as a view of a temporary (the
+lambda), and the idiomatic spelling needs a named callback.
+
+**Test-running discipline (user decisions 2026-09-12).** Three calls, all
+encoded in AGENTS.md's "Build, test, verify": (1) *Runner split* — `cargo
+test` stays the default for warm runs (one process per test binary
+amortizes ~700 spawns: 4.6s vs nextest's 9.3s warm) and
+`SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast` is the full/fresh
+pre-commit check (cross-binary scheduling wins fresh: 48.6s vs 52s, plus
+per-test timings and no first-failing-binary blind spot). (2) *Fix before
+re-running* — a small number of failures is fixed completely and only then
+re-run, never one suite run per fix; a large number is grouped by root
+cause and fixed in batches. (3) *Watch the clock* — test runs are timed
+against the documented budget, and overshoots are flagged to the user
+rather than silently waited out; every slow-run incident so far had a
+diagnosable cause.
+
+**Test-suite speed: batched kotlinc, no doctest passes, disk-cached probe
+(2026-09-12).** The suite had drifted to ~54s warm / ~2min fresh, and the
+diagnosis found four independent causes. (1) *Doctest collection*: six
+library crates each paid ~7s of uncached rustdoc per `cargo test` to find
+zero doctests — `[lib] doctest = false` in every library crate (delete it if
+a doc example should ever run). (2) *The kotlinc probe*: `kotlinc -version`
+starts a JVM (~1.5s); the per-process `OnceLock` cache meant once per test
+binary under `cargo test` and once per *test* under nextest — now
+disk-cached next to the stamps, keyed on the resolved executable
+(canonical path + size + mtime) so upgrading kotlinc re-probes; `rustc`
+deliberately stays process-cached (50ms probe, and rustup's shim does not
+change on `rustup update`, so a disk key on it could serve a stale
+version into every stamp). (3) *One kotlinc per test*: 67 compile-and-run
+tests each paid the ~2.5s JVM+compiler startup — ~800 CPU-seconds fresh.
+They are now data: each is a fn returning a `KotlinCase`, listed in
+`KOTLIN_CASES`, and one driver test (`kotlinc_compiles_and_runs_every_case`)
+compiles every stamp-missing case in a few parallel batched kotlinc
+invocations — each case's generated code rewritten into its own package
+namespace (`k_<tag>.salvo…`), since every program declares
+`salvo.main.MainKt` — then runs the programs in parallel and stamps each
+case individually with the same keys as before. Content assertions inside
+case builders still run without kotlinc (cases are built before the
+toolchain gate). (4) *Stale debug objects*: macOS `split-debuginfo=unpacked`
+keeps every `.rcgu.o` next to the binary and cargo never collects the sets
+orphaned by rebuilds — 790k files / 48.7 GiB had accumulated, slowing
+everything that touched `deps/`; `salvo_testkit::prune_stale_debug_objects`
+deletes objects whose owning artifact is gone (current binaries stay
+debuggable), run as a hygiene test in `salvo-testkit` on every full suite
+run. Measured after: warm `cargo test` 54s → ~4.5s; fresh 777 tests ~50s
+(was ~127s under nextest). The remaining fresh cost is the CLI suites
+(~16s max single test, both-backend runs through the `salvo` binary) and
+rust codegen — batching those is open in ROADMAP. Also learned: recurring
+`SIGKILL (signal 9)` on freshly built test binaries is AMFI (macOS
+code-signing) rejecting a stale kernel signature cache — see gotchas.
 
 **Deductions respelled: the `=>` clause (user proposal and decisions
 2026-09-11, late).** The bracket list after `->` is gone; a signature ends in
@@ -8555,13 +8650,13 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 842)
+## Test inventory (all green: 780)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
 generated code, expected output or toolchain actually changed. Use
-`SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
-and `cargo nextest run` when you want to see which tests cost what.
+`SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
+cache, with per-test timings.
 
 - `salvo-core`: 409 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
@@ -8892,7 +8987,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
-- `salvo-cli`: 82 - 47 `analyze` integration tests running the built
+- `salvo-cli`: 84 - 49 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -9121,7 +9216,13 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 151 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 85 - **the 68 compile-and-run programs are one
+  test now**: each is a fn returning a `KotlinCase` listed in
+  `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
+  the stamp-missing ones in a few parallel kotlinc invocations (per-case
+  package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
+  case separately — so the count fell from 151 with no coverage change
+  (2026-09-12). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9293,7 +9394,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 126 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 127 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -9473,6 +9574,10 @@ and `cargo nextest run` when you want to see which tests cost what.
   lowering inside the implicit's adapter closure, and `seq.rs` present only
   when something needs it; plus the rustc run of the same seven-subject demo,
   asserting the stdout Kotlin asserts).
+- `salvo-testkit`: 1 - the hygiene test
+  (`stale_debug_objects_are_pruned`), which deletes orphaned `.rcgu.o`
+  debug objects from `target/debug/deps` on every full run (see gotchas:
+  macOS never collects them).
 
 When intentionally changing std, the parser AST, the checker's lowering, or
 the emitter output, rerun with `INSTA_UPDATE=always` and review the
@@ -9480,6 +9585,33 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`SIGKILL (signal 9)` on a freshly built test binary is macOS, not the
+  test.** AMFI (the kernel's code-signing enforcement) sometimes rejects a
+  just-linked binary — the log says `has no CMS blob? … Unrecoverable CT
+  signature issue` (`log show --last 10m --predicate 'eventMessage CONTAINS
+  "AMFI"'`) — and once an inode is flagged, retries on it keep dying until
+  the file is replaced. Under nextest it surfaces as `creating test list
+  failed … aborted with signal 9`. Re-touch the affected crate (or `cargo
+  clean`) to force a re-link; re-running alone may pick a different victim
+  (2026-09-12: three different binaries in one afternoon).
+- **`target/debug/deps` accumulates `.rcgu.o` files forever on macOS.**
+  `split-debuginfo=unpacked` (the platform default) keeps every codegen
+  object as the debug info of its binary, and cargo never garbage-collects
+  the sets orphaned by rebuilds: 790k files / 48.7 GiB after a few weeks,
+  slowing every directory scan and possibly implicated in the AMFI kills
+  above. `salvo-testkit`'s hygiene test now prunes orphans on every full
+  run; if `deps/` is somehow huge again, `cargo clean` resets it.
+- **An empty doctest pass is not free.** `cargo test` runs rustdoc over
+  every library crate to *collect* doctests even when there are none —
+  ~7s per crate here, uncached, every run; it was 38s of a 54s warm suite.
+  The library crates set `[lib] doctest = false`; remove that if a doc
+  example should ever run as a test.
+- **`kotlinc -version` costs a JVM start (~1.5s), and process-level caches
+  do not help nextest.** nextest runs every test in its own process, so a
+  per-process probe cache re-pays the JVM per *test* — the probe is
+  disk-cached (keyed on the resolved kotlinc binary). The same JVM cost is
+  why the compile-and-run tests batch: one `kotlinc` invocation per test
+  was ~800 CPU-seconds of mostly startup, fresh.
 - **`cargo test` stops at the first failing test binary.** A run that shows
   "one failure left" may be hiding failures in every crate after it; the
   binaries run in alphabetical order, so a red `salvo-backend-rust` hides

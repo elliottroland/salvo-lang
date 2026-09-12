@@ -421,8 +421,10 @@ fn a_proj_parameter_cannot_be_moved() {
          fn eat(p: Person) [] -> None => !p {{}}\n\
          fn hold(p: Proj Person) [] -> Int => p {{\n    eat(p)\n    return 1\n}}\n"
     ));
+    // [proj-type] Caught at the type level: a projection into a consuming
+    // position.
     assert!(
-        errs.iter().any(|e| e.contains("promises `p` back") && e.contains("moves it")),
+        errs.iter().any(|e| e.contains("`p` is a projection (`Proj Person`), and `eat` consumes `p`")),
         "got: {errs:?}"
     );
 }
@@ -468,8 +470,10 @@ fn a_held_view_may_be_advanced_but_a_projection_may_not() {
          fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
+    // [proj-type] Caught at the type level: `Proj Mut View<Int>` never
+    // satisfies a `Mut` position.
     assert!(
-        errs.iter().any(|e| e.contains("cannot mutate `v`: it is a projection (`Proj`) of `vs`")),
+        errs.iter().any(|e| e.contains("`v` is a projection (`Proj Mut View<Int>`), which can only be read")),
         "{errs:?}"
     );
 }
