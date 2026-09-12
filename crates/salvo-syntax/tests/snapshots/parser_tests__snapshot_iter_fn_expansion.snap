@@ -12,6 +12,7 @@ Module {
                     span: 7..16,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [
@@ -37,6 +38,7 @@ Module {
                         span: 23..32,
                     },
                 ],
+                linear: false,
                 span: 0..34,
             },
         ),
@@ -50,6 +52,7 @@ Module {
                     span: 41..42,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [
                     TypeRef {
                         name: Ident {
@@ -120,6 +123,7 @@ Module {
                         span: 111..127,
                     },
                 ],
+                linear: false,
                 span: 41..42,
             },
         ),

@@ -38,6 +38,7 @@ pub fn open_file(console: &mut dyn Console, name: String) -> FileHandle {
 
 pub fn close(console: &mut dyn Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
+    drop(handle);
 }
 
 pub fn read_size(console: &mut dyn Console, name: String, want: i32) -> i32 {

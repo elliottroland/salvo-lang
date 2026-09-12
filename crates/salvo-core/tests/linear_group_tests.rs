@@ -2,7 +2,7 @@
 //! decisions 2026-09-08): declaring `: Linear<self>` *is* declaring how the
 //! obligation is discharged, because the group's `close` must be supplied.
 //!
-//! Two things this settles that the `canbe Linear` spelling could not: a
+//! Two things this settles that the `canbe linear` spelling could not: a
 //! `close` is **required** of anything claiming to be linear, and `discard` no
 //! longer discharges — dropping a handle is the leak the obligation exists to
 //! prevent. The presence of a `close` never implies linearity either; only the
@@ -15,14 +15,14 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
      intrinsic type List<T> canbe Mut\n\
      intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     intrinsic fn discard<T canbe Linear>(value: T) [] -> None => !value\n\
-     intrinsic fn mutable_list<T canbe Linear>(...elems: T[]) [] -> Mut List<T>\n\
-     intrinsic fn add<T canbe Linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
-     intrinsic fn size<T canbe Linear>(list: List<T>) [] -> Int => list\n\
-     params Linear<It> {\n    fn close(it: It) -> None => !it\n}\n\
+     intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
+     intrinsic fn mutable_list<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
+     intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+     intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
+     \
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
-     fn emitted<T canbe Linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     fn emitted<T canbe linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
      fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
@@ -69,11 +69,11 @@ fn errors(src: &str) -> Vec<String> {
 }
 
 const LINES: &str = r#"
-struct Lines : Linear<self> {
+linear struct Lines {
     name: Str
 }
 
-fn close(l: Lines) -> None => !l {}
+fn close(l: Lines) -> None => !l { discard(l) }
 
 fn open_lines(n: Str) -> Lines => !n {
     return Lines { name: n }
@@ -93,14 +93,14 @@ fn declaring_the_obligation_with_its_close_is_clean() {
 /// [group-obligation] Declared without one, the error lands at the *struct*
 /// and names the signature it wants.
 #[test]
-fn declaring_it_without_a_close_errors_at_the_struct() {
+fn a_linear_struct_without_a_discharger_errors_at_the_struct() {
     let errs = errors(
-        "struct Leaky : Linear<self> {\n    fd: Int\n}\n",
+        "linear struct Leaky {\n    fd: Int\n}\n",
     );
     assert_eq!(errs.len(), 1, "got {errs:?}");
     assert!(
-        errs[0].contains("`Leaky` declares `: Linear`")
-            && errs[0].contains("fn close(Leaky) -> None"),
+        errs[0].contains("linear struct `Leaky` has no discharger")
+            && errs[0].contains("no fn in this file consumes a `Leaky`"),
         "got {errs:?}"
     );
 }
@@ -114,7 +114,7 @@ fn discard_cannot_drop_a_linear_value() {
     ));
     assert!(
         errs.iter().any(|e| e.contains("`discard` cannot drop a linear value")
-            && e.contains("call its `close`")),
+            && e.contains("discharge it with `close`")),
         "got {errs:?}"
     );
 }
@@ -134,7 +134,7 @@ fn a_leak_names_close_as_the_discharge() {
     ));
     assert!(
         errs.iter()
-            .any(|e| e.contains("still owns a linear value") && e.contains("`close(l)`")),
+            .any(|e| e.contains("still owns a linear value") && e.contains("`close`")),
         "got {errs:?}"
     );
 }
@@ -147,7 +147,7 @@ fn a_leak_names_close_as_the_discharge() {
 fn a_close_alone_does_not_make_a_type_linear() {
     let errs = errors(
         "struct Plain {\n    fd: Int\n}\n\
-         fn close(p: Plain) -> None => !p {}\n\
+         fn close(p: Plain) -> None => !p { discard(p) }\n\
          fn make() -> Plain {\n    return Plain { fd: 1 }\n}\n\
          fn go() -> None {\n    let p = make()\n}\n",
     );
@@ -158,21 +158,21 @@ fn a_close_alone_does_not_make_a_type_linear() {
 /// a qualifier, `:` declares an obligation. The error names the new form.
 #[test]
 fn canbe_linear_on_a_declaration_names_the_obligation_form() {
-    let errs = errors("struct Old canbe Linear {\n    fd: Int\n}\n");
+    let errs = errors("struct Old canbe linear {\n    fd: Int\n}\n");
     assert!(
         errs.iter().any(|e| e.contains("linearity is declared as an obligation")
-            && e.contains("`: Linear<self>`")),
+            && e.contains("`linear struct`")),
         "got {errs:?}"
     );
 }
 
-/// [linear-generics] But `canbe Linear` on a **type parameter** keeps its
+/// [linear-generics] But `canbe linear` on a **type parameter** keeps its
 /// spelling: permission on a parameter is not obligation on a declaration.
 #[test]
 fn canbe_linear_on_a_type_parameter_still_works() {
     let errs = errors(&format!(
         "{LINES}\n\
-         fn hold<T canbe Linear>(value: T) -> T {{\n    return value\n}}\n\
+         fn hold<T canbe linear>(value: T) -> T {{\n    return value\n}}\n\
          fn go() -> None {{\n    let l = hold(open_lines(\"a\"))\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -190,7 +190,8 @@ fn canbe_linear_on_a_type_parameter_still_works() {
 // built.
 
 /// A struct field is the first thing anyone tries; the error lands at the
-/// field's type and names it.
+/// field's type and the remedy is the marker: a concrete linear field is
+/// legal exactly on a `linear struct` (user decision 2026-09-12).
 #[test]
 fn a_struct_field_cannot_hold_a_linear_value() {
     let errs = errors(&format!(
@@ -198,9 +199,8 @@ fn a_struct_field_cannot_hold_a_linear_value() {
     ));
     assert_eq!(errs.len(), 1, "got {errs:?}");
     assert!(
-        errs[0].contains("`Lines` is linear, so it cannot be the type of field \
-                          `Holder.handle`")
-            && errs[0].contains("keep it in a local, a parameter or a return value"),
+        errs[0].contains("makes the container a resource too")
+            && errs[0].contains("declare `linear struct Holder`"),
         "got {errs:?}"
     );
 }
@@ -244,8 +244,6 @@ fn written_composite_positions_are_refused() {
     for (ty, position) in [
         ("Lines[]", "an array's element type"),
         ("(Lines, Int)", "a tuple component"),
-        ("Lines | Int", "a union arm"),
-        ("Lines?", "a union arm (`T?` is `T | None`)"),
         ("List<Lines>", "a type argument of `List`"),
     ] {
         let errs = errors(&format!(
@@ -255,6 +253,21 @@ fn written_composite_positions_are_refused() {
             errs.iter().any(|e| e.contains("`Lines` is linear")
                 && e.contains(position)),
             "`{ty}` should be refused as {position}, got {errs:?}"
+        );
+    }
+    // [linear-union-arm] Union arms are *not* composites (O-C2, user
+    // decision 2026-09-12): a union value is one handle, so a written
+    // linear arm is legal and the obligation is the union's — the
+    // fallible-open shape. `T?` follows. The body owes: consuming `x`
+    // satisfies it, so `=> !x` with an empty body leaks and the *arm*
+    // legality is what these assert.
+    for ty in ["Lines | Int", "Lines?"] {
+        let errs = errors(&format!(
+            "{LINES}\nfn take(x: {ty}) -> None => !x {{}}\n"
+        ));
+        assert!(
+            !errs.iter().any(|e| e.contains("cannot be") && e.contains("union arm")),
+            "`{ty}` should be a legal written type now, got {errs:?}"
         );
     }
 }
@@ -308,7 +321,7 @@ fn a_generic_struct_cannot_be_instantiated_with_a_linear_type() {
 
 /// The generic *call* store: `add(list, elem)` takes a bare `T` and puts
 /// it in a `List<T>`, so the call is the store — and the callee's
-/// `<T canbe Linear>` does not help, since no container can carry the
+/// `<T canbe linear>` does not help, since no container can carry the
 /// obligation yet.
 #[test]
 fn storing_through_a_generic_call_is_refused() {
@@ -329,7 +342,7 @@ fn storing_through_a_generic_call_is_refused() {
 #[test]
 fn reading_a_composite_of_a_type_parameter_is_not_a_store() {
     let errs = errors(
-        "fn count<T canbe Linear>(list: List<T>) -> Int => list {\n    return size(list)\n}\n",
+        "fn count<T canbe linear>(list: List<T>) -> Int => list {\n    return size(list)\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -351,7 +364,7 @@ fn a_composite_of_plain_values_is_unaffected() {
 /// The protocol and a linear pass, for the drive tests below: a `Handle` that
 /// declares both obligations, plus the `close` that discharges its linearity.
 const HANDLE: &str = "\
-struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+linear struct Handle : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -368,19 +381,18 @@ fn next(h: Mut Handle) [] -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) [] -> None => !h {}
+fn close(h: Handle) [] -> None => !h { discard(h) }
 ";
 
-/// [linear-generics] A generic pass the fn **owns** — `<It canbe Linear>`, and
-/// no deduction hands it back — may be carrying a resource, so the loop is what
-/// has to release it. Without a `close` it can name, that is an error whose
-/// remedy is the implicit: driving and dropping it silently is exactly the leak
-/// the obligation exists to prevent.
+/// [linear-generics] [linear-group] A generic pass the fn **owns** —
+/// `<It canbe linear>`, `=> !it` — may be carrying a resource, and the loop
+/// is *not* a discharge site (user decision 2026-09-12): driving it leaves
+/// the obligation live, so a body that ends without terminating it leaks.
 #[test]
-fn owning_a_possibly_linear_pass_needs_a_close() {
+fn owning_a_possibly_linear_pass_still_owes_after_the_loop() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
+         fn drain<It canbe linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -390,22 +402,26 @@ fn owning_a_possibly_linear_pass_needs_a_close() {
     ));
     assert!(
         errs.iter()
-            .any(|e| e.contains("needs a `close` for it") && e.contains("?Linear<It>")),
-        "expected the release remedy, got {errs:?}"
+            .any(|e| e.contains("still owns a linear value")
+                || e.contains("cannot return while `it` still owns a linear value")),
+        "expected the obligation to survive the loop, got {errs:?}"
     );
 }
 
-/// With the spread declared, the `for` has a `close` to call and the body is
-/// accepted — the release happens on every exit, `break` and `return` included.
+/// The consuming-callback pattern replaces the `?Linear<It>` spread (user
+/// decision 2026-09-12): the fn takes `end: (x: It) -> None` with a
+/// consuming contract, drives the pass in place, and hands it to `end` —
+/// an explicit discharge on the one path out.
 #[test]
-fn the_linear_spread_supplies_the_release() {
+fn a_consuming_callback_supplies_the_release() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) [] -> Int => !it {{\n\
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
          \x20   }}\n\
+         \x20   end(it)\n\
          \x20   return sum\n\
          }}\n"
     ));
@@ -419,7 +435,7 @@ fn the_linear_spread_supplies_the_release() {
 fn keeping_the_pass_leaves_the_release_to_the_caller() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn peek<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {{\n\
+         fn peek<It canbe linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -446,4 +462,309 @@ fn a_plain_generic_pass_needs_no_release() {
          }}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+// =================== [linear-union-arm] — O-C2 ===================
+
+/// The fallible-open shape (user decision 2026-09-12): a written linear
+/// union arm is legal, the un-narrowed union owes, and narrowing decides —
+/// the `Ok` branch discharges with `close`, the `Err` branch owes nothing
+/// (an `Err Str` never held the handle).
+const FALLIBLE: &str = r#"
+qualifier Ok<T> of T
+qualifier Err<T> of T
+
+fn ok<T canbe linear>(value: T) -> T as Ok => !value {
+    return value
+}
+
+fn err<T canbe linear>(value: T) -> T as Err => !value {
+    return value
+}
+
+fn open(flag: Bool, n: Str) -> Ok Lines | Err Str {
+    if flag {
+        return ok(open_lines(n))
+    }
+    return err("empty")
+}
+"#;
+
+#[test]
+fn a_linear_union_arm_settles_by_narrowing() {
+    let errs = errors(&format!(
+        "{LINES}{FALLIBLE}\n\
+         fn happy(flag: Bool, n: Str) -> None {{\n    \
+         let r = open(flag, n)\n    \
+         when r {{\n        \
+         is Ok {{ close(r) }}\n        \
+         is Err {{ }}\n    \
+         }}\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+#[test]
+fn an_unclosed_linear_arm_still_leaks() {
+    let errs = errors(&format!(
+        "{LINES}{FALLIBLE}\n\
+         fn leak(flag: Bool, n: Str) -> None {{\n    \
+         let r = open(flag, n)\n    \
+         when r {{\n        \
+         is Ok {{ }}\n        \
+         is Err {{ }}\n    \
+         }}\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("linear")),
+        "expected a leak error, got {errs:?}"
+    );
+}
+
+/// `T?` falls out of the union rule: `None` owes nothing, so the untaken
+/// branch of `if h is Lines s { close(s) }` is settled by the else-narrow.
+#[test]
+fn an_optional_linear_handle_owes_nothing_on_none() {
+    let errs = errors(&format!(
+        "{LINES}\n\
+         fn find(flag: Bool, n: Str) -> Lines? {{\n    \
+         if flag {{\n        return open_lines(n)\n    }}\n    \
+         return None\n}}\n\
+         fn maybe(flag: Bool, n: Str) -> None {{\n    \
+         let h = find(flag, n)\n    \
+         if h is Lines s {{\n        close(s)\n    }}\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// The un-narrowed union still owes: binding it and doing nothing leaks.
+#[test]
+fn an_unnarrowed_linear_union_leaks() {
+    let errs = errors(&format!(
+        "{LINES}{FALLIBLE}\n\
+         fn leak(flag: Bool, n: Str) -> None {{\n    let r = open(flag, n)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("still owns a linear value")),
+        "expected a leak error, got {errs:?}"
+    );
+}
+
+// =================== the same-file discharge model ===================
+
+/// [linear-discard] `drop` (std's uniform consuming callback) deliberately
+/// lacks `canbe linear`: handing it a linear value is refused by the
+/// instantiation ban — `drop` never discharges an obligation.
+#[test]
+fn drop_refuses_a_linear_value() {
+    let errs = errors(&format!(
+        "{LINES}\nfn drop<T>(value: T) -> None => !value {{}}\n\
+         fn go() -> None {{\n    let l = open_lines(\"a\")\n    drop(l)\n}}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot instantiate generic parameter")
+                && e.contains("does not honor the use obligation")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-group] A discharger may *forward* instead of discarding: the
+/// obligation terminates by moving into another same-file consumer.
+#[test]
+fn a_discharger_may_forward_to_another() {
+    let errs = errors(&format!(
+        "{LINES}\nfn shutdown(l: Lines) -> None => !l {{\n    close(l)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [linear-group] A same-file consuming fn that neither discards nor
+/// forwards leaks — being a discharger is not an exemption (user decision
+/// 2026-09-12: the obligation must terminate on every path).
+#[test]
+fn a_discharger_that_terminates_nothing_leaks() {
+    let errs = errors(&format!(
+        "{LINES}\nfn vanish(l: Lines) -> None => !l {{\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| e.contains("still owns a linear value")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-group] Alternative dischargers: two same-file consuming fns are
+/// both legal terminals, and the leak diagnostic names them all.
+#[test]
+fn alternative_dischargers_are_all_named() {
+    let errs = errors(
+        "linear struct Thread {\n    id: Int\n}\n\
+         fn stop(t: Thread) -> None => !t { discard(t) }\n\
+         fn join(t: Thread) -> None => !t { discard(t) }\n\
+         fn spawn() -> Thread {\n    return Thread { id: 1 }\n}\n\
+         fn go() -> None {\n    let t = spawn()\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("still owns a linear value")
+                && e.contains("`join`")
+                && e.contains("`stop`")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-group] The cache shape: a discharge with a context parameter is
+/// an ordinary same-file consuming fn — nothing extra to declare.
+#[test]
+fn a_context_carrying_discharge_works() {
+    let errs = errors(
+        "struct Cache canbe Mut {\n    size: Int\n}\n\
+         linear struct Entry {\n    id: Int\n}\n\
+         fn remove(cache: Mut Cache, e: Entry) -> None => cache: Mut, !e { discard(e) }\n\
+         fn mint() -> Entry {\n    return Entry { id: 1 }\n}\n\
+         fn go(cache: Mut Cache) -> None => cache: Mut {\n    \
+         let e = mint()\n    remove(cache, e)\n}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+// =================== [linear-generics] conditional containers ===================
+
+/// The conditional-container matrix (user decision 2026-09-12):
+/// `struct Box<T canbe linear>` with `T` reaching a field is linear exactly
+/// when the instantiation is.
+const BOX: &str = r#"
+struct Box<T canbe linear> {
+    item: T
+}
+
+fn unbox<T canbe linear>(box: Box<T>) -> T => !box {
+    return box.item
+}
+"#;
+
+#[test]
+fn a_conditional_container_owes_when_instantiated_linear() {
+    let errs = errors(&format!(
+        "{LINES}{BOX}\n\
+         fn go(n: Str) -> None {{\n    \
+         let b = Box<Lines> {{ item: open_lines(n) }}\n}}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("still owns a linear value") && e.contains("`unbox`")),
+        "got {errs:?}"
+    );
+}
+
+#[test]
+fn a_conditional_container_forwards_through_its_discharger() {
+    let errs = errors(&format!(
+        "{LINES}{BOX}\n\
+         fn go(n: Str) -> None {{\n    \
+         let b = Box<Lines> {{ item: open_lines(n) }}\n    \
+         let l = unbox(b)\n    close(l)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+#[test]
+fn a_plain_instantiation_owes_nothing() {
+    let errs = errors(&format!(
+        "{LINES}{BOX}\n\
+         fn go() -> None {{\n    \
+         let b = Box<Int> {{ item: 42 }}\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [linear-group] Decomposition settles the container: `unbox` returns the
+/// linear field and owes nothing further — proven by `BOX` checking clean
+/// in the tests above. The negative: a conditional container with no
+/// same-file discharger errors at the struct.
+#[test]
+fn a_conditional_container_without_a_discharger_errors() {
+    let errs = errors(&format!(
+        "{LINES}\nstruct Bare<T canbe linear> {{\n    item: T\n}}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("conditionally linear") && e.contains("no discharger")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-composite] A concrete linear field requires the marker, and with
+/// it the container is an ordinary linear struct: stored, forwarded,
+/// discharged as a unit.
+#[test]
+fn a_concrete_linear_field_needs_the_marker() {
+    let errs = errors(&format!(
+        "{LINES}\nlinear struct Session {{\n    file: Lines\n}}\n\
+         fn end_session(s: Session) -> None => !s {{\n    close(s.file)\n}}\n\
+         fn go(n: Str) -> None {{\n    \
+         let s = Session {{ file: open_lines(n) }}\n    end_session(s)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+// [linear-generics] The instantiation ban reaches effect members' own
+// generics (the hole closed 2026-09-12): binding a member's `T` to a
+// linear type would hand the obligation to handlers that never promised
+// to honor it.
+#[test]
+fn an_effect_member_generic_cannot_smuggle_a_linear_value() {
+    let errs = errors(&format!(
+        "{LINES}\n\
+         effect Sink {{\n    fn swallow<T>(x: T) -> None => !x\n}}\n\
+         fn go(l: Lines) [Sink] -> None => !l {{\n    swallow(l)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| {
+            e.contains("cannot instantiate generic parameter `T` of effect member `swallow`")
+                && e.contains("does not declare `<T canbe linear>`")
+        }),
+        "got {errs:?}"
+    );
+}
+
+// [fn-value-select] [linear-generics] A generic fn passed *by name*
+// instantiates from the position's expected fn type (closed 2026-09-12):
+// std's `drop` fills a consuming-callback position for a plain pass — and
+// the instantiation ban still refuses it for a linear one.
+#[test]
+fn a_generic_fn_value_instantiates_from_the_position() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn drop<T>(value: T) -> None => !value {{}}\n\
+         struct Counter : Yield<self, Int> canbe Mut {{\n    at: Int\n}}\n\
+         fn next(c: Mut Counter) [] -> Emitted Int | Finished => c: Mut {{\n    \
+         if c.at <= 0 {{\n        return finished()\n    }}\n    \
+         let v = copy(c.at)\n    c.at = c.at - 1\n    return emitted(v)\n}}\n\
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
+         let sum = 0\n    for n in it {{\n        sum = sum + n\n    }}\n    \
+         end(it)\n    return sum\n}}\n\
+         fn go() -> Int {{\n    \
+         let c = Mut Counter {{ at: 3 }}\n    return drain(c, drop)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+#[test]
+fn a_generic_fn_value_still_refuses_a_linear_instantiation() {
+    let errs = errors(&format!(
+        "{HANDLE}\n\
+         fn drop<T>(value: T) -> None => !value {{}}\n\
+         fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {{\n    \
+         let sum = 0\n    for n in it {{\n        sum = sum + n\n    }}\n    \
+         end(it)\n    return sum\n}}\n\
+         fn go() -> Int {{\n    \
+         let h = open_handle(3)\n    return drain(h, drop)\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|e| {
+            e.contains("cannot instantiate generic parameter `T` of `drop` with linear type")
+        }),
+        "got {errs:?}"
+    );
 }

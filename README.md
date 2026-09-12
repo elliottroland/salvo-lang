@@ -155,8 +155,8 @@ fn main() [use] {
   describing what a function does to its parameters and what its result
   borrows of them; whatever it leaves unsaid is inferred from the body. The
   ownership contract for the Rust backend, and the one place Salvo states a
-  borrow: `Proj[from: list] T` returns an element without copying it, a
-  struct with `Proj` fields is a view, and a copy happens only where the
+  borrow: `proj[from: list] T` returns an element without copying it, a
+  struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
 - **Interop**: a `platform effect` declares what the program needs from its
   target language; the compiler generates the interface and

@@ -312,7 +312,7 @@ fn obligations_parse_without_canbe() {
 // [canbe-optin] [linear-generics] Per-type-parameter opt-in on fns.
 #[test]
 fn canbe_opts_a_type_parameter_in() {
-    let source = "fn hold<T canbe Linear>(value: T) -> T {\n    return value\n}\n";
+    let source = "fn hold<T canbe linear>(value: T) -> T {\n    return value\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -324,21 +324,24 @@ fn canbe_opts_a_type_parameter_in() {
     };
     assert_eq!(f.generic_canbe.len(), 1);
     assert_eq!(f.generic_canbe[0].0.name, "T");
-    assert_eq!(f.generic_canbe[0].1.name.name, "Linear");
+    assert_eq!(f.generic_canbe[0].1.name.name, "linear");
 }
 
 // [canbe-optin] [linear-generics] The clause is fn-only for now.
 #[test]
-fn canbe_on_a_non_fn_type_parameter_is_an_error() {
-    let source = "struct Box<T canbe Linear> {\n    item: T\n}\n";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("only supported on functions")),
-        "expected a fn-only error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
+fn canbe_linear_parses_on_a_struct_type_parameter() {
+    // [linear-generics] The conditional-container declaration (user
+    // decision 2026-09-12) — until then the clause was fn-only.
+    let source = "struct Box<T canbe linear> {\n    item: T\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let salvo_syntax::ast::Item::Struct(s) = &module.items[0] else {
+        panic!("expected a struct item");
+    };
+    assert_eq!(s.generic_canbe.len(), 1);
+    assert_eq!(s.generic_canbe[0].0.name, "T");
+    assert_eq!(s.generic_canbe[0].1.name.name, "linear");
 }
 
 // --- Names: casing and dot-names [name-casing] [name-dot] ---
@@ -1282,7 +1285,7 @@ fn the_deduction_clause_parses_every_entry_form() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
     let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> Pair<T, U>\n\
                =>[keep] !t\n\
-               => !a, b: None, c: Mut, d: -Q, .first: Proj[from: a], .second: Proj[from: a, b], c.items: Proj[from: b], Proj[from: a] {\n\
+               => !a, b: None, c: Mut, d: -Q, .first: proj[from: a], .second: proj[from: a, b], c.items: proj[from: b], proj[from: a] {\n\
                }\n";
     let (module, diags) = salvo_syntax::parse_module(src);
     let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
@@ -1342,7 +1345,7 @@ fn the_deduction_clause_parses_every_entry_form() {
             DeductionKind::Remove(q) => {
                 format!("Remove[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
             }
-            DeductionKind::Proj(_) => "Proj".into(),
+            DeductionKind::Proj(_) => "proj".into(),
         }
     }
 }
@@ -1364,4 +1367,43 @@ fn the_deduction_clause_rejects_the_old_and_ill_formed_shapes() {
     assert!(errs.iter().any(|e| e.contains("can only state a projection")), "{errs:?}");
     let errs = errors_of("fn f(a: Int) -> Int => a: {\n}\n");
     assert!(errs.iter().any(|e| e.contains("`None` to strip every")), "{errs:?}");
+}
+
+// [obligation-spelling] The obligation keywords parse in qualifier
+// position, carry their lowercase spelling as the qualifier name, and
+// `proj` still takes its `[from: …]` bracket.
+#[test]
+fn obligation_keywords_parse_in_type_positions() {
+    let source = "fn f(step: Emitted (proj Str) | Finished, g: once (Int) -> Str) \
+                  -> proj[from: step] Str => step, g {\n    return \"x\"\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn item");
+    };
+    // `once (Int) -> Str`: the keyword qualifies the fn type.
+    let salvo_syntax::ast::Type::QualifiedGroup { qualifiers, .. } = &f.params[1].ty else {
+        panic!("expected a qualified fn type, got {:?}", f.params[1].ty);
+    };
+    assert_eq!(qualifiers[0].name.name, "once");
+    // The return type is `proj[from: step] Str`.
+    let Some(salvo_syntax::ast::Type::Named { qualifiers, .. }) = &f.return_type else {
+        panic!("expected a named return type");
+    };
+    assert_eq!(qualifiers[0].name.name, "proj");
+    assert_eq!(qualifiers[0].from[0].name, "step");
+}
+
+// [obligation-spelling] `is once …` narrows through the keyword like any
+// qualifier, and the keywords stay usable nowhere else: a value named
+// `proj` is a parse error, which is what "reserved" means.
+#[test]
+fn obligation_keywords_are_reserved() {
+    let source = "fn f() {\n    let proj = 1\n}\n";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics.iter().any(|d| d.is_error()),
+        "expected `let proj` to be a parse error"
+    );
 }

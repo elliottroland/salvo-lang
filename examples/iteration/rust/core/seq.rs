@@ -43,3 +43,6 @@ pub fn filter_to<D: Clone, It: Clone, T: Clone>(mut dest: D, it: &mut It, keep: 
     }
     return dest;
 }
+
+pub fn drop<T: Clone>(value: T) {
+}

@@ -437,7 +437,7 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// learning sweep ran after the arguments were typed, `next` was reported as
 /// ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, Proj[from: c] => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj[from: c] => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -463,7 +463,7 @@ fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
 fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
     let errs = errors(&format!(
         "struct Bag {{ items: List<Int> }}\n\
-         struct BagYield : Yield<self, Int> canbe Mut {{ items: Proj List<Int>, at: Int }}\n\
+         struct BagYield : Yield<self, Int> canbe Mut {{ items: proj List<Int>, at: Int }}\n\
          fn iter(bag: Bag) -> Mut BagYield => bag {{\n    \
          return Mut BagYield {{ items: bag.items, at: 0 }}\n}}\n\
          fn next(p: Mut BagYield) -> Emitted Int | Finished => p: Mut {{\n    \

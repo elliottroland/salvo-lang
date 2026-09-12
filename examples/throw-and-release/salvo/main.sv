@@ -14,10 +14,11 @@
 
 // ===== 1. a resource that cannot be forgotten =====
 //
-// `: Linear<self>` says every value of this type carries a use obligation, and
-// the `close` the group asks for is how it is discharged. Forgetting it on any
-// path is a compile error naming the value and the path.
-struct FileHandle : Linear<self> {
+// `linear struct` says every value of this type carries a use obligation,
+// discharged by any fn in this file that consumes one — here, `close`.
+// Forgetting it on any path is a compile error naming the value and the
+// dischargers.
+linear struct FileHandle {
     // What was opened, for the trace this example prints.
     name: Str
 }
@@ -27,10 +28,11 @@ fn open_file(name: Str) [Console] -> FileHandle {
     return FileHandle { name: name }
 }
 
-// The discharge. `close` consumes its parameter — `=> !handle` moves it —
-// which is what makes it the release rather than a convention.
+// The discharge: a same-file fn that consumes its parameter. Inside it the
+// obligation still has to end — `discard` is the terminal, legal only here.
 fn close(handle: FileHandle) [Console] -> None => !handle {
     println("1. close ${handle.name}")
+    discard(handle)
 }
 
 // Two exits, two releases. Leave one out and the compiler says which path

@@ -347,7 +347,7 @@ Module {
                 docs: [
                     "The elements of [it] that [keep] accepts, in order — as a **view**: the",
                     "result holds borrows of the elements, so nothing is copied [copy-opt-in],",
-                    "and it lives no longer than the pass's source. `[it: Mut Proj]` is the",
+                    "and it lives no longer than the pass's source. `[it: Mut proj]` is the",
                     "written lend [proj-infer]: a generic body cannot show the analysis that an",
                     "element of an opaque pass is stored, so the signature says it. For a list",
                     "of your own to keep, see [filter_to].",
@@ -559,7 +559,7 @@ Module {
                                     qualifiers: [
                                         TypeRef {
                                             name: Ident {
-                                                name: "Proj",
+                                                name: "proj",
                                                 span: 2072..2076,
                                             },
                                             args: [],
@@ -607,7 +607,7 @@ Module {
                                             qualifiers: [
                                                 TypeRef {
                                                     name: Ident {
-                                                        name: "Proj",
+                                                        name: "proj",
                                                         span: 2142..2146,
                                                     },
                                                     args: [],
@@ -1399,7 +1399,7 @@ Module {
                                     qualifiers: [
                                         TypeRef {
                                             name: Ident {
-                                                name: "Proj",
+                                                name: "proj",
                                                 span: 3005..3009,
                                             },
                                             args: [],
@@ -2584,6 +2584,98 @@ Module {
                     },
                 ),
                 span: 4176..4501,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The uniform **consuming callback** for values that owe nothing: where a",
+                    "combinator takes an `end: (x: T) -> None` that consumes (the pattern that",
+                    "replaced the implicit release — a linear caller passes the type's own",
+                    "discharger), a non-linear caller passes `drop`. Deliberately *without*",
+                    "`canbe linear`: a linear argument is refused by the instantiation ban",
+                    "[linear-generics], which is exactly the protection — `drop` never",
+                    "discharges an obligation.",
+                ],
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "drop",
+                    span: 4980..4984,
+                },
+                generics: [
+                    Ident {
+                        name: "T",
+                        span: 4985..4986,
+                    },
+                ],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "value",
+                            span: 4988..4993,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "T",
+                                    span: 4995..4996,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4995..4996,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4988..4996,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "value",
+                                    span: 5013..5018,
+                                },
+                                path: [],
+                            },
+                            kind: Moved,
+                            span: 5012..5018,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 5004..5008,
+                            },
+                            args: [],
+                            from: [],
+                            span: 5004..5008,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [],
+                        span: 5019..5022,
+                    },
+                ),
+                span: 4977..5022,
             },
         ),
     ],

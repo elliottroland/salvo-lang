@@ -618,79 +618,6 @@ impl<'p> Emitter<'p> {
             .cloned()
     }
 
-    /// [iter-protocol] The loop header for a `for` over a **pass**: the
-    /// subject is bound to a local and each turn calls the `next` the checker
-    /// resolved, stopping when the result is not the `Emitted` arm.
-    ///
-    /// ```text
-    /// var __loop1_pass = countdown(3)
-    /// while (true) {
-    ///     val __loop1_step = next(__loop1_pass)
-    ///     if (__loop1_step !is U2_1<*, *>) { break }
-    ///     val n = __loop1_step.value as Int
-    /// ```
-    ///
-    /// `while (true)` plus a guard rather than Rust's `while let`, since
-    /// Kotlin has no pattern-matching loop condition. The cast is needed
-    /// because the arm is star-projected: an `is U2_1<*, *>` smart-cast
-    /// leaves `value` at `Any?`.
-    /// [linear-group] A raw pass with a `close`: the driving header plus the
-    /// release the loop owes it, in a `try`/`finally` so `break`, `return` and
-    /// exhaustion all reach it [kt-exit-finally]. Driving *is* what releases
-    /// a pass (user decision 2026-09-09).
-    fn emit_closing_pass_loop_header(
-        &mut self,
-        driver: salvo_core::PassDriver,
-        pattern: &Pattern,
-        iterable: &Expr,
-        indent: usize,
-    ) -> (String, String) {
-        let pad = "    ".repeat(indent);
-        let inner_pad = "    ".repeat(indent + 1);
-        let header = self.emit_pass_loop_header(driver.clone(), pattern, iterable, indent);
-        let place = format!("__loop{}_pass", self.loop_id);
-        let close = match &driver.close {
-            // [iter-generic-drive] An implicit `close` — the `?Linear<It>`
-            // spread's member — is called by its own name, like the `next`.
-            Some(salvo_core::PassMember::Implicit(name)) => {
-                format!("{}({place})", kt_ident(name))
-            }
-            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
-                Some(decl) => {
-                    let key = *key;
-                    let callee = self.kotlin_fn_name(decl);
-                    let effects: Vec<Ty> = self
-                        .checked
-                        .fn_effects
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|t| !is_throw_effect_ty(t))
-                        .collect();
-                    let mut args: Vec<String> = effects
-                        .iter()
-                        .map(|ty| self.lookup_effect_handler_by_ty(ty))
-                        .collect();
-                    args.push(place);
-                    format!("{callee}({})", args.join(", "))
-                }
-                None => String::new(),
-            },
-            None => String::new(),
-        };
-        // The pass local has to be declared *outside* the `try`, or the
-        // `finally` cannot see it: the header's first line is that `val`.
-        let (decl_line, loop_lines) = match header.split_once('\n') {
-            Some((first, rest)) => (format!("{first}\n"), rest.to_string()),
-            None => (String::new(), header),
-        };
-        (
-            format!("{decl_line}{pad}try {{\n{loop_lines}"),
-            format!("{pad}}} finally {{\n{inner_pad}{close}\n{pad}}}\n"),
-        )
-    }
-
     fn emit_pass_loop_header(
         &mut self,
         driver: salvo_core::PassDriver,
@@ -2400,12 +2327,10 @@ impl<'p> Emitter<'p> {
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
                 // after it is the same as for any other loop.
-                let claiming = self
-                    .pass_driver_of(iterable)
-                    .filter(|d| d.close.is_some())
-                    .map(|driver| {
-                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
-                    });
+                // [linear-group] No implicit discharge sites (user decision
+                // 2026-09-12): the loop never closes a pass — a linear one
+                // is checker-refused unless kept, so nothing here splices.
+                let claiming: Option<(String, String)> = None;
                 let pass = if claiming.is_some() {
                     None
                 } else {

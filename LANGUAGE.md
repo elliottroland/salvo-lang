@@ -344,7 +344,7 @@ let p: Old Surname Person | None = check_old_surname(person)
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
-Note that `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe Linear` in the linear types section).
+Note that `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in the linear types section).
 
 ### Auto-qualifiers and `Mut`
 
@@ -603,7 +603,7 @@ The rules:
 - **Boolean-valued, like `is`**, and usable in the same places: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head. A `^` branch consumes the arms it matched, so exhaustiveness works unchanged.
 - **The qualifiers must be there.** Nothing to remove is an error, not a false test — `^` removes a known claim, it does not test for one (that is `is`).
 - **Several at once** is allowed: `v ^ Mut NonEmpty`.
-- **Some qualifiers can never be dropped**: `Once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `Proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
+- **Some qualifiers can never be dropped**: `once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
 - **No binding form.** The subject itself reads widened, so `is Type name`'s counterpart would be redundant.
 
 ## Functions
@@ -973,12 +973,12 @@ Two things keep this a where-clause rather than a trait:
   overloaded like any other. The clause only moves the check to the
   declaration.
 
-Two groups are **designated**: the compiler knows them by name and reads the
-clause itself. `Yield<self, T>` is what makes a type a pass, so `for` resolves
-its `next` from the declaration ([Iteration](#iteration-passes-and-next)),
-and `Linear<self>` is what makes a value linear, so its `close` is the
-discharge ([Linearity](#linearity)). Both are ordinary `params` groups
-otherwise — declared in std, spreadable with `?`.
+One group is **designated**: the compiler knows `Yield<self, T>` by name and
+reads the clause itself — it is what makes a type a pass, so `for` resolves
+its `next` from the declaration ([Iteration](#iteration-passes-and-next)).
+It is an ordinary `params` group otherwise — declared in std, spreadable
+with `?`. (Linearity used to be the second designated group; it is a
+declaration modifier now, `linear struct` — see [Linearity](#linearity).)
 
 ### Variadic arguments
 
@@ -1133,15 +1133,14 @@ Leave the clause off `Zip` and the `for` reports it:
 ``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
 `: Yield<self, (A, B)>` on it to make it a pass) ```.
 
-A pass that owns something may declare a `close`, and the `for` sugar calls it
-on every exit — exhaustion, `break`, `return`, a `throw` passing through. A
-`close` does not make a type linear; `: Linear<self>` does that
-([Linearity](#linearity)), and then the obligation is checked as well as called.
-
-**Who owns the pass decides what the loop does with it.** A pass the function
-*keeps* — `it: Mut It` with `[it: Mut]` — is advanced **where it lives**: the
-position the loop reaches is what the caller sees next, so a function can take
-two elements and leave the rest.
+A pass that owns something declares itself `linear struct` and names its
+death in its own file ([Linearity](#linearity)) — and the `for` loop is
+**never** the discharge. Any *named* pass is advanced **where it lives**: the
+position the loop reaches is what the owner sees next, so a function can take
+two elements and leave the rest — and a linear pass is bound with `let`,
+driven, and explicitly discharged after the loop (the ordinary all-paths
+checking forces the `close` before every exit, `break` and early `return`
+included).
 
 ```
 fn take(p: Mut Slice<Int>, count: Int) -> Int => p: Mut { ... }   // keeps it
@@ -1151,25 +1150,25 @@ let first = take(p, 2)     // 1 + 2
 let rest = take(p, 9)      // 3 + 4 — the same pass, carried on
 ```
 
-A pass the function *owns* (no deduction hands it back) is consumed by the loop,
-and the loop is then what releases it. For a **generic** pass that may be linear
-(`<It canbe Linear>`) there is no `close` to resolve — the type is not known
-here — so the function asks for one the same way it asks for `next`:
+Only a *temporary* subject (`for x in iter(xs)`) is consumed by the loop — and
+a linear temporary is refused there, since the loop discharges nothing: bind
+it first. A **generic** function that owns a pass which may be linear
+(`<It canbe linear>`) takes its discharge as an ordinary consuming callback:
 
 ```
-fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) -> Int {
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
     let sum = 0
-    for n in it {          // the `for` calls the implicit `close` on every exit
+    for n in it {
         sum = sum + n
     }
+    end(it)                // the explicit terminal, on the one path out
     return sum
 }
 ```
 
-Leave `?Linear<It>` off and the loop reports it, naming that remedy: driving a
-resource-owning pass and dropping it silently is the leak the obligation exists
-to prevent. A pass that is *not* opted in needs nothing, and neither does one
-the function keeps.
+A linear caller passes the type's own discharger (`drain(handle, close)`); a
+plain caller passes std's `drop`, the consuming no-op. Nothing is implicit:
+leave the `end(it)` off and the obligation reports the leak at the exit.
 
 #### Letting the compiler write the struct: `iter fn`
 
@@ -1211,7 +1210,7 @@ hand-written pass works here.
   perform effects, because minting is not where a producer's work belongs. The
   block is declarations only — it is the pass's shape, not code that runs.
 - **The subject is ordinary data, and read-only inside the body.** The pass
-  *borrows* it (a `Proj` field, see "Projections"), so nothing is copied at the
+  *borrows* it (a `proj` field, see "Projections"), so nothing is copied at the
   mint, the subject cannot be moved or mutated while a pass over it lives, and
   writing through it is the same error as writing through any immutable value.
   A pass that wants a snapshot writes one: `state { rows: List<Int> = copy(c.rows) }`.
@@ -1223,7 +1222,7 @@ hand-written pass works here.
   there is no state machine, and effects are ordinary effects on an ordinary
   function.
 - An `iter fn` must be called `next`, must take exactly one parameter, and must
-  return `Emitted T | Finished` — or `Emitted (Proj[from: c] T) | Finished` when
+  return `Emitted T | Finished` — or `Emitted (proj[from: c] T) | Finished` when
   it emits borrowed elements of its subject `c` — it is the obligation's member,
   so the subject needs no `: Yield<self, T>` clause of its own.
 
@@ -1238,7 +1237,7 @@ fn iter(str: Str) [] -> Mut StrYield
 ```
 
 Each is an ordinary struct with an ordinary `next` — `ListYield` *borrows* the
-list (`items: Proj List<T>`) and keeps an index — so nothing about container
+list (`items: proj List<T>`) and keeps an index — so nothing about container
 iteration is special-cased in the language, and nothing is copied to walk a
 container. The backends keep their native loop as a fast path for a `for`
 straight over a list, an array or a string, which is why *that* form neither
@@ -1457,9 +1456,9 @@ The entries, by shape:
 | `=> list: Mut` | **exhaustive**: afterwards `Mut` is the *only* thing still known about the argument |
 | `=> list: None` | exhaustive and empty: every qualifier stripped |
 | `=> list: -NonEmpty` | **delta**: drops `NonEmpty`, leaves everything else intact |
-| `=> .items: Proj[from: list]` | the result's field `items` projects `list` (see "Projections") |
-| `=> v.items: Proj[from: other]` | the call re-points the parameter `v`'s field to project `other` |
-| `=> Proj[from: list]` | opaque: the result *holds* a borrow of `list` somewhere inside |
+| `=> .items: proj[from: list]` | the result's field `items` projects `list` (see "Projections") |
+| `=> v.items: proj[from: other]` | the call re-points the parameter `v`'s field to project `other` |
+| `=> proj[from: list]` | opaque: the result *holds* a borrow of `list` somewhere inside |
 | `=>[keep] !t` | a group: these entries are about the fn-typed parameter `keep` (its own parameter `t` named in its type, `keep: (t: T) -> Bool`) |
 
 Why does an exhaustive entry drop "qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
@@ -1511,20 +1510,20 @@ Inference is the strictest deduction over every function the body hands the valu
 
 A parameter that is kept compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is *owned* by the caller unless the signature says otherwise. If a function returns one of its parameters as an owned value, these two facts collide, and Salvo resolves it without a hidden clone: returning a parameter transfers ownership out through the return channel, and the parameter is deduced as _moved_ — the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, or passing it to a consuming call. Consequently, a written clause cannot promise a parameter back when the body returns it owned: `=> x` with `return x` is a compile-time error.
 
-The way to give a caller access to a parameter's data *without* moving it is to return a **projection** of it — `-> Proj[from: x] T` — which is a borrow, described next. This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere.
+The way to give a caller access to a parameter's data *without* moving it is to return a **projection** of it — `-> proj[from: x] T` — which is a borrow, described next. This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere.
 
 Binding a parameter with `let` is *not* on the move list: it creates a *shared fate* link instead (see "Shared fate and `copy`").
 
 ### Projections: borrowing without copying
 
-Salvo has no references in the source, but it has one qualifier that means "this value is borrowed from somewhere": **`Proj`**. It is how the standard library reads an element out of a list, walks a list, or filters one without copying anything — and how you write such a thing yourself. The principle behind it (user decision 2026-09-11) is that **a copy never happens without the program opting in**: `copy(x)` where you want one, a `_to` function that fills a destination you provide, and nothing else.
+Salvo has no references in the source, but it has one qualifier that means "this value is borrowed from somewhere": **`proj`**. It is how the standard library reads an element out of a list, walks a list, or filters one without copying anything — and how you write such a thing yourself. The principle behind it (user decision 2026-09-11) is that **a copy never happens without the program opting in**: `copy(x)` where you want one, a `_to` function that fills a destination you provide, and nothing else.
 
-**`Proj` is part of the type.** A projected value's type says so — `Proj Str`, `Mut List<Proj Str>`, `Emitted (Proj Str) | Finished` — in diagnostics, on hover, and through generics: matching `Emitted T` against an `Emitted (Proj Str)` binds `T = Proj Str`. An owned value satisfies a projected position (it can do strictly more), never the reverse — and the projection is never dropped silently: a function that takes a projected value writes the `Proj` in its parameter type, and passing a projection where an owned value is expected is an error naming the remedies (write the `Proj`, or pass `copy(...)`). The one exception is Copy scalars: `Proj Int` *is* `Int` — the number is the value itself on both backends. In overloading, an owned position beats a projected one, the way one arm beats its union: `Proj` accepts more, so it says less.
+**`proj` is part of the type.** A projected value's type says so — `proj Str`, `Mut List<proj Str>`, `Emitted (proj Str) | Finished` — in diagnostics, on hover, and through generics: matching `Emitted T` against an `Emitted (proj Str)` binds `T = proj Str`. An owned value satisfies a projected position (it can do strictly more), never the reverse — and the projection is never dropped silently: a function that takes a projected value writes the `proj` in its parameter type, and passing a projection where an owned value is expected is an error naming the remedies (write the `proj`, or pass `copy(...)`). The one exception is Copy scalars: `proj Int` *is* `Int` — the number is the value itself on both backends. In overloading, an owned position beats a projected one, the way one arm beats its union: `proj` accepts more, so it says less.
 
-**A projected value.** `Proj[from: p] T` on a result says the value *is* a borrow of the parameter `p` — an element of it, a field, the whole of it. It may appear wherever a type does: the whole result (`-> Proj[from: xs] Person`), a nullable (`-> (Proj[from: list] T)?`), a union arm (`-> Emitted (Proj[from: p] T) | Finished`), a tuple element. Several sources are written together, and a projection joined across branches is of all of them:
+**A projected value.** `proj[from: p] T` on a result says the value *is* a borrow of the parameter `p` — an element of it, a field, the whole of it. It may appear wherever a type does: the whole result (`-> proj[from: xs] Person`), a nullable (`-> (proj[from: list] T)?`), a union arm (`-> Emitted (proj[from: p] T) | Finished`), a tuple element. Several sources are written together, and a projection joined across branches is of all of them:
 
 ```
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> Proj[from: a, b] List<Int> {
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> {
     if flag { return a }
     return b
 }
@@ -1532,15 +1531,15 @@ fn either(a: List<Int>, b: List<Int>, flag: Bool) -> Proj[from: a, b] List<Int> 
 
 Three rules follow from "it is a borrow":
 
-- **It is read-only, whatever its `Mut` says.** `Proj Mut X` is a legal type — the value came out of a mutable slot — but a `Proj` value never satisfies a `Mut` position: `Mut X` is usable where `Proj Mut X` is expected, not the reverse. `copy(x)` is the way out, and yields a `Mut X` of your own.
+- **It is read-only, whatever its `Mut` says.** `proj Mut X` is a legal type — the value came out of a mutable slot — but a `proj` value never satisfies a `Mut` position: `Mut X` is usable where `proj Mut X` is expected, not the reverse. `copy(x)` is the way out, and yields a `Mut X` of your own.
 - **It shares fate with its source.** The caller's result is linked to the argument: mutating or moving the source poisons the projection, and moving the projection itself needs `copy` (a Copy scalar excepted: an `Int` read out of a list is the number itself on both backends, so it moves for free).
 - **The body must deliver it.** Every value the function returns must derive from a named source (a projection, element or alias of it) or be `None`; a source must be a kept parameter.
 
-**A view: an owned value that holds borrows.** A struct may declare fields as `Proj`, written without a source — the struct says *that* it projects, each literal says *what*:
+**A view: an owned value that holds borrows.** A struct may declare fields as `proj`, written without a source — the struct says *that* it projects, each literal says *what*:
 
 ```
-struct ListYield<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,   // borrows the list it walks
+struct ListYield<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,   // borrows the list it walks
     at: Int                // its own position
 }
 
@@ -1549,25 +1548,25 @@ fn iter<T>(list: List<T>) -> Mut ListYield<T> {
 }
 ```
 
-Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`Proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `Proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the clause says it: `=> Proj[from: list]` ("the result holds a borrow of `list`"), `=> .items: Proj[from: list]` (this field does), or on a fn type `=>[iter] Proj[from: c]`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
+Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the clause says it: `=> proj[from: list]` ("the result holds a borrow of `list`"), `=> .items: proj[from: list]` (this field does), or on a fn type `=>[iter] proj[from: c]`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
 
-A container can hold borrows too: `List<Proj T>` is a list of projected elements, and it is what `filter` returns:
+A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
 ```
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<Proj T> => it: Mut, Proj[from: it], keep
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj T> => it: Mut, proj[from: it], keep
 ```
 
 The result holds borrows of whatever the pass walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.
 
 **A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(list(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(list(1, 2)), f)`, `for x in iter(list(1, 2))` — the temporary lives that long on both backends.
 
-**A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`Proj[from: …]` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `Proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `Once`.
+**A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`proj[from: …]` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
 
-**Passes borrow.** A pass that walks data declares `: Yield<self, Proj T>` and its `next` returns `Emitted (Proj[from: p] T) | Finished` — the element is a borrow of the pass, which borrows the source — while a generator (a countdown, a random stream) declares `: Yield<self, T>` and emits owned values. The two must agree: an obligation at `Proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated pass borrows its subject the same way (`__subject: Proj Subject`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
+**Passes borrow.** A pass that walks data declares `: Yield<self, proj T>` and its `next` returns `Emitted (proj[from: p] T) | Finished` — the element is a borrow of the pass, which borrows the source — while a generator (a countdown, a random stream) declares `: Yield<self, T>` and emits owned values. The two must agree: an obligation at `proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated pass borrows its subject the same way (`__subject: proj Subject`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
 
-**Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: Proj[from: other]`, and the caller's variable at `v` becomes linked to `other` from the call on.
+**Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: proj[from: other]`, and the caller's variable at `v` becomes linked to `other` from the call on.
 
-**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListYield<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListYield<'a, T>` when elision cannot); `List<Proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
+**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListYield<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListYield<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
 
 ### Shared fate and `copy`
 
@@ -1578,10 +1577,10 @@ Salvo has no references, but variables can still overlap: `let m = n` and `let n
 - Move-mode needs every ancestor to be *owned* by the function. Locals always are. A parameter is owned when the function's deductions move it — and when its entry is inferred, a move-mode binding reaching a parameter *claims* it: the parameter becomes moved, and callers hand over ownership. A **written** entry that keeps the parameter pins it as borrowed instead: moving or mutating anything derived from it stays a compile-time error — you cannot move out of a borrow — and the remedy is `copy`.
 - The same ownership rule applies to a **projection in a moved position** — passing `h.tags` to a call that consumes it, or storing it in a literal. If the projected data is mutable, the move consumes the owner (`h` is unusable afterwards) or, for a kept parameter, is an error with the `copy` remedy. Projections of immutable data are free: whether a backend copies or shares immutable data is unobservable.
 
-The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links. Its parameter says `Proj T` because a projection is exactly what `copy` is *for* — and an owned value satisfies a projected position too, so `copy` of anything works. The result is un-projected one level with the rest kept: `copy` of a `Proj Mut Str` is a `Mut Str` of your own.
+The escape hatch is one word: the standard library's `copy` duplicates a value, leaving the source untouched and producing a fresh value with no links. Its parameter says `proj T` because a projection is exactly what `copy` is *for* — and an owned value satisfies a projected position too, so `copy` of anything works. The result is un-projected one level with the rest kept: `copy` of a `proj Mut Str` is a `Mut Str` of your own.
 
 ```
-fn copy<T>(value: Proj T) -> T => value   // intrinsic: each backend implements it
+fn copy<T>(value: proj T) -> T => value   // intrinsic: each backend implements it
 ```
 
 Here is the discipline at work, together with the deduction contract. With a *written* entry that keeps `persons`, moving a derived value out is an error:
@@ -1654,13 +1653,13 @@ size(xs)             // ERROR: xs was consumed by the lambda; copy first
 
 **Function types carry contracts.** A higher-order function can state what the function it receives does to its arguments, using the same deduction entries as ordinary signatures, scoped to the parameter as a group on the enclosing declaration — name the fn type's parameters in the type, then write `=>[f] …`: `fn apply(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v` demands a function that *consumes* its argument (so `f(data)` consumes `data`, and calling it twice with the same value is an error), while no group — or `=>[f] v` — demands one that *keeps* it (call it as often as you like; the caller keeps the argument). An unannotated function type keeps everything, and a group may not be written inline inside the parameter list. A lambda checked against a keeping contract cannot consume its parameters (`copy` if needed), and a named function passed by value is checked with its real deductions — a consuming function never sneaks into a keeping position (the reverse is fine: keeping more than required never hurts). On the Rust backend this decides the physical calling convention — borrowed argument types for keeping contracts, owned for consuming, `&mut impl FnMut` for the function value itself — while Kotlin's aliases need no change.
 
-A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`Once` function** — callable at most once. `Once` says a value may be *used* at most once, and what using means depends on what it qualifies: a function type (`fn run(f: Once () -> None)`) is used by calling it. A type of your own reaches the same place by opting in — `struct Ticket canbe Once` — the way it opts into mutability; those two are the only places `Once` may be written, and the opt-in is the author's call because an obligation should not attach to a type on the strength of a method name. Using a `Once` value consumes it, so the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along. Any ordinary value can be used where a `Once` one is expected (you may always promise to use something less often) — but never the reverse. On the Rust backend a `Once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
+A lambda that goes further and *consumes* a capture is allowed, but its type changes: it becomes a **`once` function** — callable at most once. `once` says a value may be *used* at most once, and it may be written on **any** type: the bound is a restriction the holder imposes on itself, demanding nothing of the type's author. What using means depends on the type. A function (`fn run(f: once () -> None)`) is used by calling it: the compiler rejects a second call, a call inside a loop, or a call after the value has been passed along, and a `once` function never fits a plain fn position (which could call it repeatedly). A data value (`once Ticket`) is used by consuming it — and since a plain-typed holder can consume at most once anyway, `once Ticket` may be handed to an ordinary consuming `redeem(t: Ticket)`: that is its one use. Any ordinary value can be used where a `once` one is expected (you may always promise to use something less often). On the Rust backend a `once` parameter compiles to `FnOnce`; on the JVM the restriction is enforced by the compiler alone.
 
 One more ordering rule: **arguments are evaluated left to right**, and within a single call a later argument cannot mention a value an earlier argument consumed — `f(a, a)` where both parameters move, or `f(a, size(a))`, are errors at the second argument (`copy` at the consuming argument is the remedy).
 
 Some consequences worth knowing:
 
-- **Values from calls are independent — unless they project.** `copy(x)` and most function results carry no links. A function that returns a *projection* of a kept parameter — `fn first<T>(list: List<T>) -> Proj[from: list] T?` — or a value that *holds* one (a pass over a list) hands the caller something that shares fate with the argument: mutating the collection poisons it, moving it out needs `copy`. See "Projections" below; on the Rust backend these are real borrows, which is what makes the standard library's `first`, `get`, `iter` and `filter` zero-copy.
+- **Values from calls are independent — unless they project.** `copy(x)` and most function results carry no links. A function that returns a *projection* of a kept parameter — `fn first<T>(list: List<T>) -> proj[from: list] T?` — or a value that *holds* one (a pass over a list) hands the caller something that shares fate with the argument: mutating the collection poisons it, moving it out needs `copy`. See "Projections" below; on the Rust backend these are real borrows, which is what makes the standard library's `first`, `get`, `iter` and `filter` zero-copy.
 - **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives. A `for`-loop binding is fresh each iteration: consuming it inside the body is fine.
 - **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation with no observable difference: Kotlin shares references throughout; Rust emits real moves for move-mode bindings and clones for borrow-mode ones (real borrows are a later stage).
 - **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
@@ -1697,21 +1696,22 @@ take(p)                  // fine again
 
 ### Linear types: values that must be used
 
-Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type declares **linearity** as an obligation, and the obligation names how it is discharged:
+Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type declares **linearity** with a modifier, and its file supplies the death:
 
 ```
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(handle: FileHandle) -> None {
+fn close(handle: FileHandle) -> None => !handle {
     // release the resource
+    discard(handle)
 }
 ```
 
-`Linear` is a `params` group the compiler knows — `params Linear<It> { fn close(it: It) -> None }` in `core.basic` — so the clause is an ordinary [obligation](#obligations-params-groups-on-a-type): declaring `: Linear<self>` without a matching `close` is an error at the struct. Declaring linearity is therefore declaring the discharge, in one place, and a `close` on its own never makes a type linear. => !it
+The **discharge set** is every function declared in the *type's own file* that consumes a parameter of the type — `close` for a file, `stop` *or* `join` for a thread handle, `remove(cache, entry)` for a pooled one (the extra parameters are ordinary parameters). A `linear struct` whose file has no such function is an error at the struct: the obligation would have no legal death. Leak diagnostics name the whole set. `discard(handle)` is the obligation's terminal, legal **only** inside a discharger — and a discharger gets no exemption: its own body must terminate the obligation on every path, by `discard` or by forwarding into another discharger (`fn shutdown(t: Thread) => !t { stop(t) }`).
 
-Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own. Inside `close` itself the parameter owes nothing — that is where the value legitimately dies.
+Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own.
 
 Dropping the obligation is a compile-time error, wherever it would happen:
 
@@ -1762,9 +1762,9 @@ fn no_leak(flag: Bool) {
 
 Rules that keep the obligation sound:
 
-- **Linearity is declared, not applied**: `Linear` cannot be written in a use-site type — every value of a `: Linear<self>` type is linear, always. (A qualifier you could forget to write would defeat the point.) `canbe Linear` on a declaration is an error naming the clause; on a *type parameter* it keeps its spelling, where it means something else entirely (below).
+- **Linearity is declared, not applied**: `linear` cannot be written in a use-site type — every value of a `linear struct` type is linear, always. (A spelling you could forget would defeat the point.) `canbe linear` on a declaration is an error naming the modifier; on a *type parameter* it keeps its spelling, where it means something else entirely (below).
 - **A composite may not hold a linear value** — for now. Storing a handle in a struct field, an array, a tuple, a union arm or a type argument (`List<FileHandle>`) is an error *at the store*, rather than moving the obligation into the container: a linear value lives only in a local, a parameter or a return value. This is an interim rule; carrying an obligation through a container is one design question together with conditional linearity ("a `Box<T>` is linear exactly when `T` is"), and until that is answered the compiler refuses rather than guesses. The store is refused wherever it is written — the field's declaration, the literal, or a call like `add(list, handle)` that would put a bare value into a container.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe Linear>(value: T) -> T` — the same `canbe Linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe Linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 
@@ -1918,7 +1918,7 @@ Three further rules follow from provenance being about the handle rather than th
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
 
-`Mut`, `Linear`, `Once` and `Proj` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `Once` never drop).
+`Mut`, `Linear`, `once` and `proj` are also claims about a handle rather than its contents, but they are compiler intrinsics rather than qualifiers you can declare: each one changes how code is generated, or how the ownership analysis treats a value. The rule of thumb is that a permission can be forgotten (`Mut Person` is usable as `Person`) while an obligation cannot (`Linear` and `once` never drop).
 
 ### Refinements
 
@@ -2166,7 +2166,7 @@ When building the compiler, _all_ `intrinsic` declarations must be handled by _e
 Functions can be intrinsic too. An `intrinsic fn` carries the signature and deductions the checker uses and has no body; each backend lowers calls to it directly, seeing the resolved argument type at every call site. That is what makes type-directed lowering possible where one generic template could not express it — the standard library's `copy` is the canonical example:
 
 ```
-intrinsic fn copy<T>(value: Proj T) -> T => value
+intrinsic fn copy<T>(value: proj T) -> T => value
 ```
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.

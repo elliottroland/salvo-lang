@@ -1208,11 +1208,11 @@ fn rustc_compiles_and_runs_borrows() {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Rust: `discard` lowers to `drop`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(path: Str) [Console] -> FileHandle => !path {
@@ -1280,15 +1280,15 @@ fn rustc_compiles_and_runs_linear() {
 
 // ===== L7a: generic linear opt-in [linear-generics] =====
 
-/// `<T canbe Linear>` in action: the opted std surface makes a linear
+/// `<T canbe linear>` in action: the opted std surface makes a linear
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(n: Int) [Console] -> FileHandle {
@@ -1296,7 +1296,7 @@ fn open_file(n: Int) [Console] -> FileHandle {
     return FileHandle {fd: n}
 }
 
-fn hold<T canbe Linear>(value: T) -> T {
+fn hold<T canbe linear>(value: T) -> T {
     return value
 }
 
@@ -1320,13 +1320,13 @@ fn rustc_compiles_and_runs_linear_generics() {
     run_rust_files(&files, "l7a-linear-generics", expected);
 }
 
-// ===== L7b: Once fn types [once-fn] =====
+// ===== L7b: once fn types [once-fn] =====
 
-/// A `Once` parameter accepts both a capture-consuming lambda (which is
-/// `Once`-typed by construction) and a plain lambda (inverted
+/// A `once` parameter accepts both a capture-consuming lambda (which is
+/// `once`-typed by construction) and a plain lambda (inverted
 /// subtyping); the checker guarantees at most one call.
 const ONCE_DEMO: &str = r#"
-fn run_once(f: Once () [Console] -> None) {
+fn run_once(f: once () [Console] -> None) {
     f()
 }
 
@@ -1346,7 +1346,7 @@ fn main() [use] -> None {
 }
 "#;
 
-// [once-fn] `Once` fn parameters emit `impl FnOnce`.
+// [once-fn] `once` fn parameters emit `impl FnOnce`.
 #[test]
 fn once_fn_params_emit_fnonce() {
     let files = generate(&[("main.sv", ONCE_DEMO)]);
@@ -1386,7 +1386,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {
+fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -1395,7 +1395,7 @@ fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> Proj[from: persons] Person? => persons, tag {
+fn head_of(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => persons, tag {
     return first(persons)
 }
 
@@ -2827,11 +2827,11 @@ fn provenance_survives_mutation_where_state_does_not() {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(n: Int) [Console] -> FileHandle {
@@ -3796,7 +3796,7 @@ pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 /// `return` alike. Before this the linear obligation counted as discharged by
 /// the move into the loop — bookkeeping — while the resource leaked.
 pub const RAW_CLOSE_DEMO: &str = r#"
-struct Lines : Yield<self, Int>, Linear<self> canbe Mut {
+linear struct Lines : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -3810,6 +3810,7 @@ fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
 }
 
 fn close(l: Lines) [Console] -> None => !l {
+    discard(l)
     println("closed")
 }
 
@@ -3818,6 +3819,7 @@ fn drained() [Console] -> None {
     for n in lines {
         println("n ${n}")
     }
+    close(lines)
     println("after drain")
 }
 
@@ -3827,6 +3829,7 @@ fn abandoned() [Console] -> None {
         println("m ${n}")
         break
     }
+    close(lines)
     println("after break")
 }
 
@@ -3840,15 +3843,24 @@ fn main() [use] {
 pub const RAW_CLOSE_OUTPUT: &str = "n 2\nn 1\nclosed\nafter drain\nm 5\nclosed\nafter break\n";
 
 #[test]
-fn a_raw_pass_with_a_close_is_released_by_the_loop() {
+fn a_raw_pass_is_driven_in_place_and_closed_explicitly() {
+    // [iter-drive-in-place] [linear-group] No implicit discharge sites
+    // (user decision 2026-09-12): the named pass is driven where it lives —
+    // no loop-local, no finally — and the program's own `close(lines)` is
+    // the discharge.
     let files = generate(&[("main.sv", RAW_CLOSE_DEMO)]);
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
     assert!(
-        main.content.contains("close(console, __loop1_pass);"),
-        "expected the release after the loop, got:\n{}",
+        !main.content.contains("__loop1_pass"),
+        "a named pass must not be bound into a loop local:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("close(console, lines);"),
+        "expected the program's own explicit close:\n{}",
         main.content
     );
 }
@@ -3873,8 +3885,8 @@ fn rustc_compiles_and_runs_a_released_raw_pass() {
 ///
 /// Shared with the other backend, byte for byte.
 pub const GENERIC_DRIVE_DEMO: &str = r#"
-struct Slice<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,
+struct Slice<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,
     at: Int
 }
 
@@ -3882,7 +3894,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -3959,7 +3971,7 @@ pub const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
 /// call is asserted in the emitted code and the program is run to prove it
 /// builds.
 pub const GENERIC_CLOSE_DEMO: &str = r#"
-struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+linear struct Handle : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -3976,10 +3988,12 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) -> None => !h {}
+fn close(h: Handle) -> None => !h { discard(h) }
 
-// Owns the pass: the loop releases it on every exit, `break` included.
-fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> Int => !it {
+// Owns the pass and takes its discharge as a consuming callback (user
+// decision 2026-09-12: no implicit discharge sites — the loop drives in
+// place, and `end(it)` is the explicit terminal on the one path out).
+fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -3987,21 +4001,22 @@ fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [
             break
         }
     }
+    end(it)
     return sum
 }
 
 fn main() [use] {
     use StdOutConsole()
-    println("all ${drain(open_handle(4), 100)}")
-    println("cut ${drain(open_handle(4), 5)}")
+    println("all ${drain(open_handle(4), 100, close)}")
+    println("cut ${drain(open_handle(4), 5, close)}")
 }
 "#;
 
 pub const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
 
 pub const YIELD_SPREAD_DEMO: &str = r#"
-struct Slice<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,
+struct Slice<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,
     at: Int
 }
 
@@ -4009,7 +4024,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -4782,7 +4797,7 @@ qualifier NonEmpty<T> of List<T> {
 }
 
 // Only callable while the compiler still believes the list is non-empty.
-fn count<T canbe Linear>(list: NonEmpty List<T>) -> Int => list {
+fn count<T canbe linear>(list: NonEmpty List<T>) -> Int => list {
     return size(list)
 }
 
@@ -5378,12 +5393,11 @@ fn rustc_compiles_and_runs_a_generic_drive() {
     run_rust_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
 }
 
-/// [linear-generics] The release: the implicit `close` is called after the loop
-/// *and* registered as a deferred entry, so a `return` out of the body reaches
-/// it too. The pass is **moved** into the loop's local, since the fn owns it —
-/// cloning it would have left the original unreleased.
+/// [linear-generics] The discharge is the program's: the pass is driven in
+/// place and the consuming callback `end(it)` is the explicit terminal —
+/// no loop-local, no deferred splice (user decision 2026-09-12).
 #[test]
-fn an_owned_generic_pass_is_closed_by_the_loop() {
+fn an_owned_generic_pass_is_discharged_by_the_callback() {
     let files = generate(&[("main.sv", GENERIC_CLOSE_DEMO)]);
     let src = &files
         .iter()
@@ -5391,12 +5405,12 @@ fn an_owned_generic_pass_is_closed_by_the_loop() {
         .expect("main.rs")
         .content;
     assert!(
-        src.contains("let mut __loop1_pass = it;"),
-        "expected the pass to be moved into the loop in:\n{src}"
+        !src.contains("__loop1_pass"),
+        "a named pass must not be bound into a loop local:\n{src}"
     );
     assert!(
-        src.contains("close(__loop1_pass);"),
-        "expected the implicit release after the loop in:\n{src}"
+        src.contains("end(it)"),
+        "expected the explicit consuming-callback discharge in:\n{src}"
     );
 }
 
@@ -5567,7 +5581,7 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     );
     // Tier 3 — the body hands the *whole* subject to `describe`, so no snapshot
     // can stand in for it and the pass holds the subject — **borrowed**, as a
-    // `Proj` field [proj-field]: the struct carries a lifetime and the mint
+    // `proj` field [proj-field]: the struct carries a lifetime and the mint
     // clones nothing [copy-opt-in].
     assert!(
         main.contains("pub struct __Pass_Row<'s> {\n    pub __subject: &'s Row,")
@@ -5620,7 +5634,7 @@ fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, Proj[from: c] => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj[from: c] => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -5856,16 +5870,16 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
 
 /// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
 /// that emits borrowed elements. The generated pass **borrows** its subject
-/// (`__subject: Proj Box<T>`, user decision 2026-09-11) instead of copying it,
+/// (`__subject: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
-/// generic subjects on the Kotlin backend [kt-copy]. `Proj[from: b]` in the
+/// generic subjects on the Kotlin backend [kt-copy]. `proj[from: b]` in the
 /// written return names the subject; the desugar redirects it to the pass.
 const GENERIC_ITER_FN_DEMO: &str = r#"
 struct Box<T> {
     items: List<T>
 }
 
-iter fn next<T>(b: Box<T>) -> Emitted (Proj[from: b] T) | Finished {
+iter fn next<T>(b: Box<T>) -> Emitted (proj[from: b] T) | Finished {
     state {
         at: Int = 0
     }
@@ -5897,12 +5911,12 @@ fn rustc_compiles_and_runs_a_generic_subject_iter_fn() {
 }
 
 /// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
-/// end: a wholesale `Proj[from: a, b]` joined across branches, and a
-/// re-pointing entry `v.items: Proj[from: other]` that makes a view borrow a
+/// end: a wholesale `proj[from: a, b]` joined across branches, and a
+/// re-pointing entry `v.items: proj[from: other]` that makes a view borrow a
 /// different list — Rust ties the struct's lifetime to the new source.
 const DEDUCTION_CLAUSE_DEMO: &str = r#"
 struct View canbe Mut {
-    items: Proj List<Int>,
+    items: proj List<Int>,
     at: Int
 }
 
@@ -5910,12 +5924,12 @@ fn view(items: List<Int>) -> Mut View {
     return Mut View { items: items, at: 0 }
 }
 
-fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: Proj[from: other] {
+fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: proj[from: other] {
     v.items = other
     v.at = 0
 }
 
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> Proj[from: a, b] List<Int> {
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> {
     if flag {
         return a
     }
@@ -5941,15 +5955,15 @@ fn rustc_compiles_and_runs_the_deduction_clause_projections() {
     run_rust_files(&files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT);
 }
 
-// ===== [proj-type] a borrowed union arm into a `Proj`-typed parameter =====
+// ===== [proj-type] a borrowed union arm into a `proj`-typed parameter =====
 
 /// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
-/// `Emitted (Proj Str) | Finished` — a union whose payload arm *borrows* —
+/// `Emitted (proj Str) | Finished` — a union whose payload arm *borrows* —
 /// and a fn takes that union whole by writing the projection in its
 /// parameter type. The same value is also read as a plain projection
 /// (`get(...)!`) and copied out of it ([copy-fn]).
 const PROJ_ARM_PARAM_DEMO: &str = r#"
-fn show(step: Emitted (Proj Str) | Finished) [Console] -> None {
+fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
     when step {
         is Emitted { println(step) }
         is Finished { println("done") }
@@ -6020,4 +6034,190 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
+}
+
+// ===== [linear-union-arm] the fallible-open shape, end to end =====
+
+/// O-C2 (user decision 2026-09-12): a written linear union arm. The `Ok`
+/// path closes the handle, the `Err` path owes nothing — and the emitted
+/// code is ordinary union lowering, because linearity is static and
+/// backend-identical [linear-static].
+const FALLIBLE_OPEN_DEMO: &str = r#"
+linear struct InputStream {
+    path: Str
+}
+
+fn close(s: InputStream) [Console] -> None => !s {
+    println("closed ${s.path}")
+    discard(s)
+}
+
+fn open(path: Str) -> Ok InputStream | Err Str {
+    if size(path) > 0 {
+        return ok(InputStream {path: path})
+    }
+    return err("empty path")
+}
+
+fn attempt(path: Str) [Console] -> None {
+    let r = open(path)
+    when r {
+        is Ok {
+            println("opened")
+            close(r)
+        }
+        is Err {
+            println("error: ${r}")
+        }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    attempt("a.txt")
+    attempt("")
+}
+"#;
+
+const FALLIBLE_OPEN_OUTPUT: &str = "opened\nclosed a.txt\nerror: empty path\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_linear_union_arm() {
+    let files = generate(&[("main.sv", FALLIBLE_OPEN_DEMO)]);
+    run_rust_files(&files, "linear-union-arm", FALLIBLE_OPEN_OUTPUT);
+}
+
+// ===== [linear-group] [linear-composite] the wrapper pass, end to end =====
+
+/// Acceptance shape 4 (user decision 2026-09-12): a lazy `take` over a
+/// linear source — a `linear struct` wrapper holding the source as a
+/// concrete linear field, driven in place, discharged through its own
+/// same-file `close_take`, which closes the source. The uncomposable-pass
+/// cut is closed.
+const WRAPPER_PASS_DEMO: &str = r#"
+linear struct Lines : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_lines(from: Int) -> Mut Lines {
+    return Mut Lines { at: from }
+}
+
+fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
+    if l.at <= 0 {
+        return finished()
+    }
+    let v = copy(l.at)
+    l.at = l.at - 1
+    return emitted(v)
+}
+
+fn close(l: Lines) [Console] -> None => !l {
+    println("closed lines")
+    discard(l)
+}
+
+linear struct Take : Yield<self, Int> canbe Mut {
+    source: Mut Lines,
+    left: Int
+}
+
+fn take(source: Mut Lines, n: Int) -> Mut Take => !source {
+    return Mut Take { source: source, left: n }
+}
+
+fn next(t: Mut Take) -> Emitted Int | Finished => t: Mut {
+    if t.left <= 0 {
+        return finished()
+    }
+    t.left = t.left - 1
+    return next(t.source)
+}
+
+fn close_take(t: Take) [Console] -> None => !t {
+    close(t.source)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let t = take(open_lines(5), 2)
+    for n in t {
+        println("n ${n}")
+    }
+    close_take(t)
+    println("done")
+}
+"#;
+
+const WRAPPER_PASS_OUTPUT: &str = "n 5\nn 4\nclosed lines\ndone\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_linear_wrapper_pass() {
+    let files = generate(&[("main.sv", WRAPPER_PASS_DEMO)]);
+    run_rust_files(&files, "wrapper-pass", WRAPPER_PASS_OUTPUT);
+}
+
+// ===== [fn-value-select] [linear-discard] `drop` as the uniform callback =====
+
+/// The consuming-callback pattern's two callers (user decision 2026-09-12):
+/// a linear pass hands its own discharger (`close`), a plain pass hands
+/// std's generic `drop` — instantiated *by name* from the position's fn
+/// type, which is the generic-fn-value instantiation closed with phase 3.
+const DROP_CALLBACK_DEMO: &str = r#"
+linear struct Handle : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_handle(from: Int) -> Mut Handle {
+    return Mut Handle { at: from }
+}
+
+fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
+    if h.at <= 0 {
+        return finished()
+    }
+    let v = copy(h.at)
+    h.at = h.at - 1
+    return emitted(v)
+}
+
+fn close(h: Handle) -> None => !h { discard(h) }
+
+struct Counter : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(c: Mut Counter) -> Emitted Int | Finished => c: Mut {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
+    let sum = 0
+    for n in it {
+        sum = sum + n
+    }
+    end(it)
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let h = open_handle(3)
+    println("linear ${drain(h, close)}")
+    let c = Mut Counter { at: 3 }
+    println("plain ${drain(c, drop)}")
+}
+"#;
+
+const DROP_CALLBACK_OUTPUT: &str = "linear 6\nplain 6\n";
+
+#[test]
+fn rustc_compiles_and_runs_drop_as_a_consuming_callback() {
+    let files = generate(&[("main.sv", DROP_CALLBACK_DEMO)]);
+    run_rust_files(&files, "drop-callback", DROP_CALLBACK_OUTPUT);
 }

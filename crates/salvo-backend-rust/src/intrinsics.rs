@@ -59,14 +59,14 @@ pub fn fn_call(
         }
         // `T?` is physical here, so an out-of-range index must produce
         // `None` rather than panic. The element is **borrowed**
-        // (`Option<&T>`): `get` declares `(Proj[from: list] T)?`, and a
+        // (`Option<&T>`): `get` declares `(proj[from: list] T)?`, and a
         // caller that needs ownership says `copy` [copy-opt-in]. (Until
         // 2026-09-11 every read cloned, even one that only tested `None`.)
         ("get", Some("List")) | ("get", Some("[]")) => {
             format!("{}.get(({}) as usize)", a(0), a(1))
         }
         ("add", Some("List")) => format!("{}.push({})", a(0), a(1)),
-        // `first` is a derived return (`Proj[from: list]`), so it
+        // `first` is a derived return (`proj[from: list]`), so it
         // borrows rather than clones [readonly-return].
         ("first", Some("List")) | ("first", Some("[]")) => format!("{}.first()", a(0)),
         ("size", Some("List")) | ("size", Some("[]")) => {

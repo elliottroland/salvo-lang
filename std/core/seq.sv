@@ -33,12 +33,12 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it
 
 // The elements of [it] that [keep] accepts, in order — as a **view**: the
 // result holds borrows of the elements, so nothing is copied [copy-opt-in],
-// and it lives no longer than the pass's source. `[it: Mut Proj]` is the
+// and it lives no longer than the pass's source. `[it: Mut proj]` is the
 // written lend [proj-infer]: a generic body cannot show the analysis that an
 // element of an opaque pass is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<Proj T> => it: Mut, Proj[from: it], keep {
-    let out = mutable_list<Proj T>()
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj[from: it], keep {
+    let out = mutable_list<proj T>()
     for x in it {
         if keep(x) {
             add(out, x)
@@ -62,7 +62,7 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A 
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
 intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
-intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<Proj T> => list, Proj[from: list], keep
+intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> => list, proj[from: list], keep
 intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
 
 // ===== mapping into a collection you provide [seq-into] =====
@@ -105,4 +105,14 @@ fn filter_to<D, It, T>(
         }
     }
     return dest
+}
+
+// The uniform **consuming callback** for values that owe nothing: where a
+// combinator takes an `end: (x: T) -> None` that consumes (the pattern that
+// replaced the implicit release — a linear caller passes the type's own
+// discharger), a non-linear caller passes `drop`. Deliberately *without*
+// `canbe linear`: a linear argument is refused by the instantiation ban
+// [linear-generics], which is exactly the protection — `drop` never
+// discharges an obligation.
+fn drop<T>(value: T) [] -> None => !value {
 }

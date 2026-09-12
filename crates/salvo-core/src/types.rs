@@ -141,7 +141,7 @@ pub struct FnParamContract {
     /// qualifiers [deduce-syntax].
     pub effect: QualEffect,
     pub mutable: bool,
-    /// [proj-infer] `[p: Proj]` written on the fn type: a call's result
+    /// [proj-infer] `[p: proj]` written on the fn type: a call's result
     /// holds a borrow of this argument.
     pub lent: bool,
 }
@@ -219,18 +219,18 @@ impl Ty {
         }
     }
 
-    /// [proj-type] The type with a *top-level* `Proj` removed (nested ones —
+    /// [proj-type] The type with a *top-level* `proj` removed (nested ones —
     /// inside a union arm or a type argument — stay): what a kept, non-`Mut`
     /// position reads through a projection.
     pub fn strip_top_proj(&self) -> Ty {
         let mut names = HashSet::new();
-        names.insert("Proj".to_string());
+        names.insert("proj".to_string());
         self.clone().remove_quals(&names)
     }
 
     /// [proj-type] Whether the type is a projection at its top level.
     pub fn is_proj(&self) -> bool {
-        self.quals().iter().any(|q| q.name == "Proj")
+        self.quals().iter().any(|q| q.name == "proj")
     }
 
     pub fn quals(&self) -> &[Qual] {
@@ -269,12 +269,12 @@ impl Ty {
             other => (Vec::new(), other),
         };
         quals.append(&mut new_quals);
-        // [copy-scalar-free] `Proj Int` is `Int`: a borrowed Copy scalar is
+        // [copy-scalar-free] `proj Int` is `Int`: a borrowed Copy scalar is
         // the value itself on both backends, so the qualifier is erased
-        // rather than carried (and `Proj Proj X` dedups to `Proj X` below
+        // rather than carried (and `proj proj X` dedups to `proj X` below
         // [proj-type]).
         if is_copy_scalar(&base) {
-            quals.retain(|q| q.name != "Proj");
+            quals.retain(|q| q.name != "proj");
         }
         quals.sort_by(|a, b| a.name.cmp(&b.name));
         quals.dedup();
@@ -393,7 +393,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 }
             }
             // [proj-type] The group may drop its qualifiers only if none is a
-            // never-drop one: `Proj (A | B)` is a borrow of the union, not
+            // never-drop one: `proj (A | B)` is a borrow of the union, not
             // the union.
             if quals.iter().any(|q| q.drop_block().is_some()) {
                 // …unless the target is the same group minus droppable
@@ -420,16 +420,16 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         // A non-union is a subtype of a union when it fits some arm.
         (_, Ty::Union(arms)) => arms.iter().any(|arm| is_subtype(a, arm)),
-        // [proj-type] `X <: Proj X`: an owned value fits a projected position
+        // [proj-type] `X <: proj X`: an owned value fits a projected position
         // (the borrow of an owned value is a borrow), never the reverse. The
-        // value's own top-level `Proj`, if any, is matched by the
+        // value's own top-level `proj`, if any, is matched by the
         // qualified/qualified arm; here `a` has none.
         (_, Ty::Qualified { quals, .. })
-            if quals.iter().any(|q| q.name == "Proj")
-                && !a.quals().iter().any(|q| q.name == "Proj") =>
+            if quals.iter().any(|q| q.name == "proj")
+                && !a.quals().iter().any(|q| q.name == "proj") =>
         {
             let mut names = HashSet::new();
-            names.insert("Proj".to_string());
+            names.insert("proj".to_string());
             is_subtype(a, &b.clone().remove_quals(&names))
         }
         (
@@ -446,15 +446,15 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             (is_subtype(ba, bb) || nested_group_remainder(qa, qb, ba, bb).is_some())
                 && qb
                     .iter()
-                    .all(|q| q.name == "Once" || q.effect || qa.contains(q))
+                    .all(|q| q.name == "once" || q.effect || qa.contains(q))
                 // [proj-type] A never-drop qualifier the value carries
-                // (`Proj`, `Linear`) must be expected too: `Emitted (Proj
+                // (`proj`, `Linear`) must be expected too: `Emitted (proj
                 // Str)` is not an `Emitted Str` — the borrow is inside.
-                // `Proj` on a Copy scalar is free [copy-scalar-free].
+                // `proj` on a Copy scalar is free [copy-scalar-free].
                 && qa
                     .iter()
-                    .filter(|q| !q.effect && q.drop_block().is_some() && q.name != "Once")
-                    .filter(|q| !(q.name == "Proj" && is_copy_scalar(ba)))
+                    .filter(|q| !q.effect && q.drop_block().is_some() && q.name != "once")
+                    .filter(|q| !(q.name == "proj" && is_copy_scalar(ba)))
                     .all(|q| qb.contains(q))
                 // [fn-effects] An effect claim runs the *other* way, like
                 // [fn-effects] on a fn type: every effect the supplied
@@ -466,39 +466,49 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                     .all(|q| qb.contains(q))
         }
         // [once-fn] INVERTED subtyping, flagged for future review
-        // (user decision 2026-09-02): `Once` *restricts* (usable at
+        // (user decision 2026-09-02): `once` *restricts* (usable at
         // most once) instead of refining, so a plain value may be used
-        // where a `Once` one is expected — the opposite direction of
+        // where a `once` one is expected — the opposite direction of
         // every other qualifier. Generalized 2026-09-07 from fn types to
-        // any base: an un-driven value of a `canbe Once` type fits where
-        // a `Once` one is wanted (the `Iter<T>` factory this was built
+        // any base: an un-driven value of a `canbe once` type fits where
+        // a `once` one is wanted (the `Iter<T>` factory this was built
         // for went with the reduction to `next`), since promising to use
         // something at most once demands less than being able to use it
-        // repeatedly. Never the reverse — `Once` never drops [qual-widen].
+        // repeatedly. Never the reverse — `once` never drops [qual-widen].
         //
         // Deliberately unconditional on the base, unlike the *position*
-        // rule: whether `Once` may be **written** on a type needs the
-        // declaration (`canbe Once`), which lives in the checker's scope
-        // and not here. An `Once` on a base that never opted in has
+        // rule: whether `once` may be **written** on a type needs the
+        // declaration (`canbe once`), which lives in the checker's scope
+        // and not here. An `once` on a base that never opted in has
         // already been reported, so accepting it in this direction costs
         // nothing and keeps one mistake to one diagnostic.
         // [fn-effects] The same shape, for the same reason: a producer that
         // performs *no* effects fits a position that expects some.
         (_, Ty::Qualified { quals, base })
-            if quals.iter().all(|q| q.name == "Once" || q.effect)
-                && quals.iter().any(|q| q.name == "Once" || q.effect) =>
+            if quals.iter().all(|q| q.name == "once" || q.effect)
+                && quals.iter().any(|q| q.name == "once" || q.effect) =>
         {
             is_subtype(a, base)
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
-        // ([qual-widen]'s single exclusion list: `Once`, `Linear`,
-        // `Proj`). [copy-scalar-free] `Proj` on a Copy scalar is the one
+        // ([qual-widen]'s single exclusion list: `once`, `Linear`,
+        // `proj`). [copy-scalar-free] `proj` on a Copy scalar is the one
         // exception: a borrowed `Int` is the number itself on both
-        // backends, so `Proj Int <: Int`.
+        // backends, so `proj Int <: Int`.
         (Ty::Qualified { quals, base }, _) => {
             quals
                 .iter()
-                .all(|q| q.drop_block().is_none() || (q.name == "Proj" && is_copy_scalar(base)))
+                .all(|q| {
+                    q.drop_block().is_none()
+                        || (q.name == "proj" && is_copy_scalar(base))
+                        // [once-fn] D6 (user decision 2026-09-12): on a
+                        // *data* type, `once T <: T` — a plain-typed holder
+                        // can consume at most once anyway (a move is a
+                        // move), so the bound survives the drop. On a fn
+                        // type it never drops: a plain fn value is callable
+                        // repeatedly, which is exactly what `once` forbids.
+                        || (q.name == "once" && !matches!(**base, Ty::Fn { .. }))
+                })
                 && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
@@ -612,7 +622,7 @@ pub fn nested_group_arm(value: &Ty, group: &Ty) -> Option<(Ty, usize)> {
 }
 
 /// Whether a fn value with contract `a` may be used where contract `b`
-/// is expected [fn-contract]. INVERTED direction like `Once` [once-fn]:
+/// is expected [fn-contract]. INVERTED direction like `once` [once-fn]:
 /// a fn that *keeps* its argument fits where a *consuming* one is
 /// expected (the caller merely over-estimates the damage), never the
 /// reverse. `None` = keeps everything.
@@ -642,19 +652,6 @@ pub fn contract_fits(
     })
 }
 
-/// Whether `Once` may be written on this base type *without* an opt-in
-/// [once-fn]: function types, where using a value means calling it. (The
-/// other built-in — the `Iter<T>` factory, where using a value meant
-/// driving it — went with the reduction to `next`.)
-///
-/// A type of one's own reaches the same place by declaring `canbe Once`,
-/// which needs the declaration and therefore lives in the checker
-/// (`has_auto_once`) — this predicate is only the built-in half. Widening it
-/// to every type is roadmap D6, to be designed together with D7.
-pub fn once_position(ty: &Ty) -> bool {
-    matches!(ty, Ty::Fn { .. })
-}
-
 /// [qual-widen]. The single exclusion list: `is_subtype`'s `Qual T <: T`
 /// rule and the `^` widening check both read it, so the two cannot drift as
 /// intrinsic qualifiers are added (user decision 2026-09-05).
@@ -665,18 +662,18 @@ pub fn once_position(ty: &Ty) -> bool {
 pub fn qual_drop_block(name: &str) -> Option<&'static str> {
     match name {
         // [once-fn] A once-callable fn is not a many-callable fn.
-        "Once" => Some(
-            "`Once` restricts rather than refines: dropping it would make a              once-callable value callable again",
+        "once" => Some(
+            "`once` restricts rather than refines: dropping it would make a              once-callable value callable again",
         ),
         // [linear-obligation] Declared on the type, never written at a use
         // site, so there is nothing to remove — and removing it would drop
         // a use obligation.
-        "Linear" => Some(
+        "Linear" | "linear" => Some(
             "linearity is declared on the type, not applied at a use site, and              it carries a use obligation that cannot be dropped",
         ),
         // [readonly-return] The value is borrowed from somewhere else.
-        "Proj" => Some(
-            "`Proj` marks a value derived from another: dropping it would              claim ownership the value does not have",
+        "proj" => Some(
+            "`proj` marks a value derived from another: dropping it would              claim ownership the value does not have",
         ),
         _ => None,
     }
@@ -742,16 +739,16 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
         (_, Ty::Any) => Some(Greater),
         // 3. Qualifier sets by inclusion, together with the bases. The
         // *larger* qualifier set says more, so the sets go in swapped:
-        // `set_cmp` ranks the smaller set higher. Except `Proj`, which
-        // inverts [proj-type]: `X <: Proj X`, so a `Proj` position accepts
+        // `set_cmp` ranks the smaller set higher. Except `proj`, which
+        // inverts [proj-type]: `X <: proj X`, so a `proj` position accepts
         // owned values *too* — it accepts more, so it says less, the way a
         // union says less than one of its arms. It is compared as its own
-        // dimension, so `Proj Mut Str` vs `Str` (more qualifiers, less
+        // dimension, so `proj Mut Str` vs `Str` (more qualifiers, less
         // ownership) is unrankable rather than a guess.
         (Ty::Qualified { .. }, _) | (_, Ty::Qualified { .. }) => {
             let (mut qa, mut qb) = (qual_names(a), qual_names(b));
-            let pa = qa.iter().position(|q| *q == "Proj").map(|i| qa.remove(i)).is_some();
-            let pb = qb.iter().position(|q| *q == "Proj").map(|i| qb.remove(i)).is_some();
+            let pa = qa.iter().position(|q| *q == "proj").map(|i| qa.remove(i)).is_some();
+            let pb = qb.iter().position(|q| *q == "proj").map(|i| qb.remove(i)).is_some();
             let proj_dim = match (pa, pb) {
                 (false, true) => Greater,
                 (true, false) => Less,
@@ -920,12 +917,12 @@ impl fmt::Display for Ty {
                 fmt_args(f, args)
             }
             Ty::Qualified { quals, base } => {
-                // [proj-type] `Proj` reads first: it says what the value *is*
+                // [proj-type] `proj` reads first: it says what the value *is*
                 // (a borrow); the rest say what is known about it.
-                for q in quals.iter().filter(|q| q.name == "Proj") {
+                for q in quals.iter().filter(|q| q.name == "proj") {
                     write!(f, "{q} ")?;
                 }
-                for q in quals.iter().filter(|q| q.name != "Proj") {
+                for q in quals.iter().filter(|q| q.name != "proj") {
                     write!(f, "{q} ")?;
                 }
                 if matches!(**base, Ty::Union(_)) {
@@ -1136,18 +1133,18 @@ mod tests {
         assert_eq!(spec_cmp(&ne_generic, &list(int.clone())), None);
         // Agreeing criteria compose, though.
         assert_eq!(spec_cmp(&ne_list, &list(var.clone())), Some(Greater));
-        // 5. [proj-type] `Proj` inverts: `X <: Proj X`, so a `Proj`
+        // 5. [proj-type] `proj` inverts: `X <: proj X`, so a `proj`
         // position accepts owned values too — an owned position says more.
         let proj = |ty: Ty| {
             ty.qualify(vec![Qual {
                 effect: false,
-                name: "Proj".into(),
+                name: "proj".into(),
                 args: vec![],
             }])
         };
         assert_eq!(spec_cmp(&str_, &proj(str_.clone())), Some(Greater));
         assert_eq!(spec_cmp(&proj(str_.clone()), &str_), Some(Less));
-        // Structurally too: `List<Str>` beats `List<Proj Str>`.
+        // Structurally too: `List<Str>` beats `List<proj Str>`.
         assert_eq!(
             spec_cmp(&list(str_.clone()), &list(proj(str_.clone()))),
             Some(Greater)
@@ -1160,7 +1157,7 @@ mod tests {
             args: vec![],
         }]);
         assert_eq!(spec_cmp(&proj_mut_str, &str_), None);
-        // Agreeing dimensions compose: `Mut Str` beats `Proj Mut Str`.
+        // Agreeing dimensions compose: `Mut Str` beats `proj Mut Str`.
         let mut_str = str_.clone().qualify(vec![Qual {
             effect: false,
             name: "Mut".into(),

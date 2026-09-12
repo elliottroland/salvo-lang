@@ -1,6 +1,6 @@
 //! [proj-infer] Which parameters a function's result *holds a borrow of*.
 //!
-//! A struct with `Proj` fields is an owned object that projects other
+//! A struct with `proj` fields is an owned object that projects other
 //! values: `Mut ListYield<T> { items: list, at: 0 }` is a pass of its own,
 //! whose `items` borrows `list`. A function returning such a struct hands
 //! the caller a value tied to some of its arguments, and the caller has to
@@ -11,14 +11,14 @@
 //! the user write the rest.** So:
 //!
 //! * A fn with a body: the lent set is read off the body — every value the
-//!   fn returns, followed through struct literals (a `Proj` field takes
+//!   fn returns, followed through struct literals (a `proj` field takes
 //!   the roots of what is stored in it; an owned field holding a view
 //!   takes that view's lends), through calls to other lending fns, through
 //!   local bindings, `!`, and branches. Per field, exact.
 //! * A fn without a body (an intrinsic, an effect member) or a fn *type*:
 //!   conservatively every kept parameter, which is exact for the
 //!   one-argument case (`iter(list)`) and only ever over-links.
-//! * `[p: Proj]` written in the deduction list declares the set outright.
+//! * `[p: proj]` written in the deduction list declares the set outright.
 //!   With a body it must equal the inferred set (over-declaring is as much
 //!   an error as under-declaring, so an annotation cannot go stale); it is
 //!   the only way to say anything for a bodiless declaration.
@@ -45,10 +45,10 @@ pub struct LendsEnv<'a, 'p> {
     pub memo: &'a mut HashMap<usize, Vec<usize>>,
 }
 
-/// Whether a `Proj` qualifier appears anywhere in `ty`.
+/// Whether a `proj` qualifier appears anywhere in `ty`.
 pub fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &TypeRef) -> bool {
-        r.name.name == "Proj" || r.args.iter().any(type_has_proj)
+        r.name.name == "proj" || r.args.iter().any(type_has_proj)
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
@@ -63,7 +63,7 @@ pub fn type_has_proj(ty: &Type) -> bool {
     }
 }
 
-/// Whether a `Proj` appears inside a type *argument* of `ty` (not on the
+/// Whether a `proj` appears inside a type *argument* of `ty` (not on the
 /// value itself — that is a wholesale projection).
 pub fn type_arg_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &TypeRef) -> bool {
@@ -98,11 +98,11 @@ fn struct_names(ty: &Type, out: &mut Vec<String>) {
 }
 
 /// Whether a value of this type can hold a borrow: it is (or contains) a
-/// struct with a `Proj` field, directly or through an owned field whose
+/// struct with a `proj` field, directly or through an owned field whose
 /// type does.
 pub fn holds_proj(ty: &Type, structs: &HashMap<&str, &StructDecl>) -> bool {
     fn go(ty: &Type, structs: &HashMap<&str, &StructDecl>, seen: &mut HashSet<String>) -> bool {
-        // A `Proj` in a type argument (`List<Proj T>`) is a borrow the
+        // A `proj` in a type argument (`List<proj T>`) is a borrow the
         // container holds.
         if type_arg_has_proj(ty) {
             return true;
@@ -124,7 +124,7 @@ pub fn holds_proj(ty: &Type, structs: &HashMap<&str, &StructDecl>) -> bool {
 }
 
 /// The struct's fields that hold borrows: `(name, is_proj_field)`, where a
-/// non-`Proj` field is listed when its own type holds a borrow.
+/// non-`proj` field is listed when its own type holds a borrow.
 fn borrowing_fields<'p>(
     decl: &'p StructDecl,
     structs: &HashMap<&str, &StructDecl>,
@@ -165,8 +165,8 @@ pub fn kept_params(decl: &FnDecl) -> Vec<usize> {
 }
 
 /// The parameters named as sources by written projection entries about the
-/// *result* — `=> Proj[from: a]`, `=> .items: Proj[from: a]` — if any were
-/// written. (An entry about a *parameter's* field, `v.items: Proj[from: x]`,
+/// *result* — `=> proj[from: a]`, `=> .items: proj[from: a]` — if any were
+/// written. (An entry about a *parameter's* field, `v.items: proj[from: x]`,
 /// re-points that parameter and is not a lend of the result.)
 pub fn declared_lends(decl: &FnDecl) -> Option<Vec<usize>> {
     let list = decl.deductions.as_ref()?;
@@ -205,7 +205,7 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
     // [proj-infer] A written projection entry decides outright — *before*
     // the written-return gate below, because instantiation can make a
     // result hold borrows the written type does not show (`-> Mut List<T>`
-    // with `T = Proj Str`): the author's `=> Proj[from: it]` names the
+    // with `T = proj Str`): the author's `=> proj[from: it]` names the
     // lends exactly, and must win over the every-kept-argument fallback
     // the caller would otherwise apply.
     if let Some(declared) = declared_lends(decl) {
@@ -279,7 +279,7 @@ impl<'p> Walk<'_, '_, 'p> {
     /// The parameters a *value* holds borrows of.
     fn lends_of_expr(&mut self, e: &Expr) -> Option<HashSet<usize>> {
         match e {
-            // A struct literal: `Proj` fields take the roots of what they
+            // A struct literal: `proj` fields take the roots of what they
             // store; owned fields that are themselves views take their lends.
             Expr::StructLit { ty, fields, .. } => {
                 let mut names = Vec::new();
@@ -412,7 +412,7 @@ impl<'p> Walk<'_, '_, 'p> {
     /// The positional arguments (receiver first) and the visible
     /// declarations of a call by name. `None` for a call through a local
     /// of fn type (a lambda, a fn-typed parameter): no body to read, and
-    /// its type's `[p: Proj]` entries are the caller's business.
+    /// its type's `[p: proj]` entries are the caller's business.
     fn resolve_call<'e>(&self, e: &'e Expr) -> Option<(Vec<&'e Expr>, Vec<&'p FnDecl>)> {
         let Expr::Call { callee, args, .. } = e else {
             return None;
@@ -444,7 +444,7 @@ impl<'p> Walk<'_, '_, 'p> {
         Some((all_args, decls))
     }
 
-    /// The parameters a *place* is rooted in — what a `Proj` field stores.
+    /// The parameters a *place* is rooted in — what a `proj` field stores.
     /// A call in place position is either a wholesale projection
     /// (`get(ts, i)`: rooted where its source argument is) or a forwarded
     /// view (what it holds).
@@ -482,7 +482,7 @@ impl<'p> Walk<'_, '_, 'p> {
             }
             Expr::StructLit { .. } => self.lends_of_expr(e),
             // A literal or computed temporary has no root; storing it in a
-            // `Proj` field is refused elsewhere, so nothing is lent here.
+            // `proj` field is refused elsewhere, so nothing is lent here.
             _ => Some(HashSet::new()),
         }
     }

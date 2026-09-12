@@ -19,6 +19,7 @@ fun open_file(console: Console, name: String): FileHandle {
 
 fun close(console: Console, handle: FileHandle) {
     println(console, "1. close ${handle.name}")
+    (handle).let {}
 }
 
 fun read_size(console: Console, name: String, want: Int): Int {

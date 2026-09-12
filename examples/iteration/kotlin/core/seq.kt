@@ -65,3 +65,6 @@ fun<D, It, T> filter_to(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Un
     }
     return dest
 }
+
+fun<T> drop(value: T) {
+}

@@ -12,6 +12,7 @@ Module {
                     span: 7..13,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [],
                 auto_qualifiers: [
                     TypeRef {
@@ -99,6 +100,7 @@ Module {
                         span: 71..79,
                     },
                 ],
+                linear: false,
                 span: 0..81,
             },
         ),
@@ -119,6 +121,7 @@ Module {
                         span: 98..99,
                     },
                 ],
+                generic_canbe: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [
@@ -165,6 +168,7 @@ Module {
                         span: 121..130,
                     },
                 ],
+                linear: false,
                 span: 83..132,
             },
         ),

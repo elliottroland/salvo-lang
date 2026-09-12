@@ -390,7 +390,7 @@ impl Server<'_> {
         }
         let (span, ty) = best?;
         // A fate-linked (derived) variable presents its compiler
-        // qualifier: the type line carries a bare `Proj`, and the
+        // qualifier: the type line carries a bare `proj`, and the
         // qualifier's parameters (roots, binding sites) follow as
         // on-request detail [fate-link] (progressive disclosure — user
         // decision 2026-09-02).
@@ -415,13 +415,13 @@ impl Server<'_> {
                 })
                 .collect();
             let detail = format!(
-                "Compiler qualifier `Proj` — shares fate with {}. Reads are \
+                "Compiler qualifier `proj` — shares fate with {}. Reads are \
                  free; moving or mutating it is rejected; `copy(...)` makes an \
                  independent value.",
                 roots.join(", ")
             );
             return Some(markdown_hover(
-                docs::hover_markdown(&format!("Proj {ty}"), &[Some(detail)]),
+                docs::hover_markdown(&format!("proj {ty}"), &[Some(detail)]),
                 span_to_range(content, span),
             ));
         }
@@ -1315,7 +1315,7 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
 
 /// Renders an effective deduction clause [deduce-syntax]: `!p` for a moved
 /// parameter, bare for keep-all, `p: A B` for an exhaustive set (`p: None`
-/// when it is empty), `p: -A` for a delta, and `Proj[from: a, b]` for the
+/// when it is empty), `p: -A` for a delta, and `proj[from: a, b]` for the
 /// parameters the result holds borrows of [proj-infer]. Empty when there is
 /// nothing to say (every parameter kept whole, nothing lent).
 fn render_deductions(
@@ -1368,7 +1368,7 @@ fn render_deductions(
         .map(|d| d.param.as_str())
         .collect();
     if !lent.is_empty() {
-        entries.push(format!("Proj[from: {}]", lent.join(", ")));
+        entries.push(format!("proj[from: {}]", lent.join(", ")));
     }
     entries.join(", ")
 }
@@ -1418,9 +1418,9 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
                 DeductionKind::Proj(sources) => {
                     let srcs: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
                     if t.is_empty() {
-                        format!("Proj[from: {}]", srcs.join(", "))
+                        format!("proj[from: {}]", srcs.join(", "))
                     } else {
-                        format!("{t}: Proj[from: {}]", srcs.join(", "))
+                        format!("{t}: proj[from: {}]", srcs.join(", "))
                     }
                 }
             }

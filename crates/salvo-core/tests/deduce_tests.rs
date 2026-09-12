@@ -883,7 +883,7 @@ fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
 
 /// [fate-field-disjoint] A **dynamic index** may land on any element, so
 /// `arr[i]` and `arr[j]` are treated as possibly the same storage
-/// ([`Proj::Element`]'s may-alias rule) — precision stops where the analysis
+/// ([`proj::Element`]'s may-alias rule) — precision stops where the analysis
 /// cannot tell two places apart.
 #[test]
 fn a_dynamic_index_stays_conservative() {
@@ -1128,7 +1128,7 @@ effect Sink {{
 }
 
 /// `=>[f] !t` scopes a consumption to a fn-typed parameter (its parameter
-/// named in the type), and `Proj[from: a, b]` joins two sources.
+/// named in the type), and `proj[from: a, b]` joins two sources.
 #[test]
 fn fn_type_groups_and_multi_source_projections() {
     let src = format!(
@@ -1136,7 +1136,7 @@ fn fn_type_groups_and_multi_source_projections() {
 fn apply<T>(list: List<T>, f: (t: List<T>) -> Int) -> Int =>[f] !t {{
     return f(list)
 }}
-fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> Proj[from: a, b] List<T> {{
+fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> proj[from: a, b] List<T> {{
     if flag {{
         return a
     }}
@@ -1158,7 +1158,7 @@ fn main<T>(a: List<T>, b: List<T>) -> None {{
         "the projection must be linked to both sources: {errs:?}"
     );
     assert!(
-        !errs.iter().any(|e| e.contains("returns `Proj[from: a, b]`, so every returned value")),
+        !errs.iter().any(|e| e.contains("returns `proj[from: a, b]`, so every returned value")),
         "either branch is a valid source: {errs:?}"
     );
 }

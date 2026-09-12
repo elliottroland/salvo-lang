@@ -65,7 +65,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 474..480,
                             },
                             args: [],
@@ -164,7 +164,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 569..575,
                             },
                             args: [],
@@ -365,7 +365,7 @@ Module {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
-                                        name: "Proj",
+                                        name: "proj",
                                         span: 740..744,
                                     },
                                     args: [],
@@ -424,7 +424,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 999..1005,
                             },
                             args: [],
@@ -646,7 +646,7 @@ Module {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
-                                        name: "Proj",
+                                        name: "proj",
                                         span: 1110..1114,
                                     },
                                     args: [],
@@ -703,7 +703,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 1211..1217,
                             },
                             args: [],
@@ -1008,6 +1008,7 @@ Module {
                         span: 2044..2045,
                     },
                 ],
+                generic_canbe: [],
                 obligations: [
                     TypeRef {
                         name: Ident {
@@ -1031,7 +1032,7 @@ Module {
                                 qualifiers: [
                                     TypeRef {
                                         name: Ident {
-                                            name: "Proj",
+                                            name: "proj",
                                             span: 2061..2065,
                                         },
                                         args: [],
@@ -1069,7 +1070,7 @@ Module {
                     FieldDecl {
                         docs: [
                             "The list being walked — borrowed, not owned: a pass is a position in",
-                            "someone else's data. A `Proj` field makes the struct a view of",
+                            "someone else's data. A `proj` field makes the struct a view of",
                             "whatever each literal stores there [proj-field]; `iter` above lends",
                             "its `list`, which the checker reads off its body [proj-infer].",
                         ],
@@ -1081,7 +1082,7 @@ Module {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
-                                        name: "Proj",
+                                        name: "proj",
                                         span: 2385..2389,
                                     },
                                     args: [],
@@ -1139,6 +1140,7 @@ Module {
                         span: 2449..2456,
                     },
                 ],
+                linear: false,
                 span: 2027..2458,
             },
         ),
@@ -1265,7 +1267,7 @@ Module {
                                     qualifiers: [
                                         TypeRef {
                                             name: Ident {
-                                                name: "Proj",
+                                                name: "proj",
                                                 span: 2709..2713,
                                             },
                                             args: [],

@@ -121,7 +121,7 @@ next.
   the whole machine apparatus went — `generator.rs`, both backends' renderers,
   the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
   COMPLETED.md.
-**2b — Copies only by opt-in.** **✅ Complete 2026-09-11** — `Proj` everywhere,
+**2b — Copies only by opt-in.** **✅ Complete 2026-09-11** — `proj` everywhere,
 views, `?copy`, the std audit, `iter fn` passes borrowing their subject, and
 the `=>` deduction respelling; leftovers under "Projections and copies —
 leftovers". Phase 3 is next.
@@ -131,20 +131,19 @@ leftovers". Phase 3 is next.
 [fate-field-disjoint] and partial moves [fate-partial-move], both on the
 `Place` substrate P1 built. Phase 3 is next.
 
-**3 — Finish linearity: composition and conditionality.** Three questions that
-have to be answered together rather than one:
-
-- **L8** — how an obligation travels through a container, and when a container is
-  linear at all. Today storing a linear value in a composite is refused outright,
-  which is what makes a linear pass uncomposable and blocks phase 4's result
-  shape.
-- **D7** — linearity conditioned on a use-site qualifier. Its original motivation
-  (`Once Iter<T>` versus plain `Iter<T>`) died with `Iter<T>`, so the case has to
-  be re-derived from L8's container question.
-- **D6** — `Once` on any type, which an earlier decision (user, 2026-09-07) binds
-  to D7: "we'll need to design those together".
-- Also in scope, because it is a hole in what already shipped: the **linear
-  instantiation ban does not cover effect members with their own generics**.
+**3 — Finish linearity: composition and conditionality.** **✅ Complete
+2026-09-12** — decided and built in one day (all calls and the build record
+in COMPLETED.md's decision log, "Phase 3 decided" and "Phase 3 built").
+The lowercase obligation keywords, `linear struct` + the same-file
+discharge model, linear union arms (the fallible open), no implicit
+discharge sites (loop splicing deleted; the consuming-callback pattern +
+std's `drop`), conditional containers with settle-by-decomposition,
+`once` on any type (D6), the effect-member and fn-value instantiation
+bans, and generic-fn-value instantiation from the expected type — all
+with acceptance tests on both backends. Leftovers, recorded under
+"Linear types" below: the generic wrapper-pass loop-emission gap, bare
+generic struct literals not inferring type args, and intrinsic
+containers (`List<linear T>`) deferred by decision.
 
 **4 — The filesystem, on an IO stream design** ("Standard library surface →
 S-IO"), using linearity and iterators — which is why it follows 1 and 3. Two
@@ -183,9 +182,6 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| **L8** — how an obligation travels through a container, and when a container is linear | phase 3 | "Linear types" |
-| **D7** — qualifier-conditional linearity (with D6) | phase 3 | "Deductions and qualifier reasoning" |
-| **D6** — `Once` on any type (with D7) | phase 3 | "Deductions and qualifier reasoning" |
 | Operator typing rules — legal operand types, numeric promotion, `Bool` for `&&`/`\|\|` | before phase 4 | "Consolidated leftovers" |
 | Two effects declaring one member name: keep the error, or add `println@Console(...)` | before phase 4 | "Effects" |
 | **S-IO** — the stream design the filesystem is the first customer of | phase 4 | "Standard library surface" |
@@ -233,7 +229,7 @@ signature notation**. Rust's model is that ownership is all-or-nothing per
 parameter — a borrowed parameter refuses a move out of it (E0507), an owned one
 may be partially moved because the caller already surrendered the whole value
 — so the state is function-local. Salvo already implemented exactly this, so
-the binary kept/moved deduction stands. `Proj[from: p]` is a different
+the binary kept/moved deduction stands. `proj[from: p]` is a different
 axis (the **return** channel, where the borrowed place escapes), and a
 place-parameterized deduction (`[p: -tags]`) is deliberately **not** wanted: it
 is viral, and passing the field rather than the struct (`f(p.tags)`) says the
@@ -246,7 +242,7 @@ substrate both halves of L5 stand on.
 
 ### L7 remainders — recorded, none forced
 
-The L7 milestone landed in four pieces (L7a `<T canbe Linear>`, L7b `Once` fn
+The L7 milestone landed in four pieces (L7a `<T canbe linear>`, L7b `once` fn
 types, L7c derived returns, L7d fn-type contracts). What it recorded and did not
 build:
 
@@ -255,8 +251,8 @@ build:
   the narrowed type, with per-qualifier join directions). Unforced — L7c and L7d
   landed on links alone. The dividend would be diagnostics carrying LSP
   related-information spans from the qualifier's parameters.
-- **`Once` inference**: a callee that calls its fn-typed parameter at most once
-  does not auto-promote it to `Once`; written only [once-fn]. The same
+- **`once` inference**: a callee that calls its fn-typed parameter at most once
+  does not auto-promote it to `once`; written only [once-fn]. The same
   written-validates / unwritten-infers pattern deductions use, when it is taken.
 - **Per-parameter written contracts beyond kept/moved/quals** on fn types
   [fn-contract].
@@ -273,61 +269,29 @@ smuggled through one. A hole in what already shipped rather than a missing
 feature, and it belongs with phase 3 because that is when the obligation rules
 are being reopened anyway.
 
-### L8 — Composition and conditional linearity (phase 3, opened 2026-09-08)
+### L8 — Composition and conditional linearity — ✅ complete 2026-09-12
 
-Answered together with D6 and D7 (see "The sequence"). Deferred deliberately, and the iterator reduction is what makes it concrete.
-`Linear` became a designated obligation group in R4 (see "Decided (user,
-2026-09-08): `Linear` becomes a compiler-known obligation group" in
-COMPLETED.md), and with it
-came an **interim refusal**, built in R4 part 2 and now what
-`[linear-composite]` says: storing a linear value in a composite — struct or
-handler-state field, type argument, array/tuple/union component — is an error
-*at the store* rather than making the composite linear. What L8 has to answer is
-therefore not "should containers be refused" but "how does an obligation travel
-through one, and when is a container linear at all".
+Answered together with D6 and D7 and built the same day (phase 3; the
+decision set and build record are in COMPLETED.md's log). Union arms carry
+obligations and settle by narrowing [linear-union-arm]; conditional
+containers are `struct Box<T canbe linear>` with settle-by-decomposition,
+and concrete linear fields take the `linear struct` marker
+[linear-generics] [linear-composite]; the wrapper pass (lazy `take` over a
+linear source) runs on both backends. What the phase leaves open:
 
-Two things to consider together when this is picked up, both recorded from the
-decisions and the R0 prototype rather than guessed:
+- **Generic wrapper-pass loop emission.** A `for` in a *caller* over a
+  generic conditional pass (`Take<It>` instantiated at the call) does not
+  fill the pass's `next` implicit at the loop's emission — rustc E0061
+  (`next__5(&mut t)` missing the callback argument). Checker-clean;
+  refused only by the target compiler, so loud, never wrong. Repro: the
+  step-6 generic wrapper probe; the concrete-wrapper e2e
+  (`wrapper-pass`) covers the semantics meanwhile.
+- **Bare generic struct literals do not infer type arguments**:
+  `Box { item: open_lines(n) }` needs `Box<Lines> { … }` written.
+  Pre-existing; surfaced by the conditional-container work.
+- **Intrinsic containers** (`List<linear T>` with drain-style discharges)
+  — deferred by decision (2026-09-12); user structs and unions first.
 
-- **A linear pass cannot be composed.** A wrapper pass over
-  `open_lines("a.txt")` is refused, because it stores its source. So "can you
-  `map` over a file's lines *lazily*?" is currently *no*, and it is the test
-  case to design against: it is the canonical reason to want lazy sequences at
-  all, and the reason the laziness question (below) cannot be answered without
-  this one. The user accepted the interim uncomposability (2026-09-08) rather
-  than widening the rule early. std's own lazy pair — the combinator that made
-  this concrete — was removed 2026-09-10, so nothing in the language exercises
-  the shape today.
-- **The fallible-open shape.** S-IO settled on `Ok InputStream | Err Str`, and a
-  linear value in a union arm is exactly what the interim rule refuses — so
-  S-IO needs either an exception for union arms or a different result shape.
-
-Two motivating examples beyond "close a file" (user, 2026-09-10), recorded to
-inform the design when it is picked up:
-
-- **A thread handle is discharged by `stop` *or* `join`.** The obligation has
-  *alternative* discharge functions, so a fixed obligation group built around
-  a single `close` is the wrong shape (user's judgment: a mistake). The
-  declaration must be able to name a *set* of discharging functions, any one
-  of which satisfies the obligation.
-- **A cache handle is discharged by removing the entry** — `remove(cache,
-  handle)` — so a discharge can require *another value* (the cache) besides
-  the handle. Discharge is not necessarily unary-on-self: the obligation
-  names functions with ordinary signatures, and the discharge site must
-  satisfy their other parameters like any call.
-
-Both bear on the regions question (below): a scope close cannot
-*bulk*-discharge obligations whose discharge is a choice (`stop` vs `join`)
-or needs context the scope does not hold (the cache) — an argument that
-regions manage memory while obligations stay explicit per path.
-
-And two spellings that must stay distinct, decided with the group
-(2026-09-08): `: Linear` on a *type declaration* is the obligation ("provides a
-`close`"), while `canbe Linear` on a *type parameter* is permission ("may be
-instantiated with a linear type"). Conditional linearity is where the second
-grows teeth — `Wrapper<T>` being linear exactly when `T` is — and it is also
-where the composite refusal can be lifted without making every container
-linear. The presence of a `close` function never implies either.
 
 ## Effects
 
@@ -416,7 +380,7 @@ same-name-pass implicit collision, and the unchecked-cast warnings in
 generated Kotlin. See COMPLETED.md.)
 
 Two open *questions* the iterator work forwarded to the qualifier roadmap
-rather than answering: **D6** (`Once` on any type — the I2b collision forces it
+rather than answering: **D6** (`once` on any type — the I2b collision forces it
 in a narrower form; see COMPLETED.md) and **D7** (qualifier-conditional
 linearity). Both are under "Deductions and qualifier reasoning" below.
 
@@ -497,7 +461,7 @@ patterns need the opposite — mutation through a *shared* path:
 ### The proposal: a capability qualifier, not a container type
 
 `Cell` joins the intrinsic capability qualifiers (`Mut`, `Linear`,
-`Once`, `Proj`) rather than arriving as a std generic type
+`once`, `proj`) rather than arriving as a std generic type
 `Cell<T>`. The family fits exactly — each intrinsic qualifier exists
 because it needs "a representation choice, a flow rule, a subtyping
 direction or a restricted position that no user declaration could
@@ -555,7 +519,7 @@ cannot hand its insides to a function you wrote."
   than the field case, and a direct consequence of "no handle into the
   contents".
 - **Linear contents need `replace`.** Overwriting a cell holding a
-  `canbe Linear` value would silently drop an obligation; `replace(cell,
+  `canbe linear` value would silently drop an obligation; `replace(cell,
   v) -> T` hands the old value back and transfers the obligation, while
   plain assignment over linear contents stays an error.
 - **Deductions say nothing.** A fn taking a `Cell` and writing it needs
@@ -599,7 +563,7 @@ the pattern, and it is the most demanding customer this roadmap has:
 **If `Cell` lands, this is the acceptance case to run first**, because it
 exercises the two hard parts together: a cell captured for longer than any
 scope, and several live holders derived from one capture. The narrower version
-— a producer returning `Once Iter<T>`, where exactly one pass exists — needs no
+— a producer returning `once Iter<T>`, where exactly one pass exists — needs no
 `Cell` at all and may be answerable with **shared fate** ([fate-link]) once a
 pass *is* the state machine (roadmap I2c); that is recorded under "Producer
 parameters: `Mut` refused" and is the cheaper thing to try first.
@@ -708,247 +672,22 @@ arm, and only an explicitly parenthesized group can be qualified
   2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
   in practice.
 
-### D6 — `Once` on any type (phase 3, opened 2026-09-07)
+### D6 — `once` on any type — ✅ complete 2026-09-12
 
-`Once` is specified as *fn-type only* ([once-fn], "the language-level
-call-multiplicity qualifier"). The iterator rework generalizes it to a
-**use-multiplicity** qualifier and applies it to `Iter<T>`, with the fn
-case as the instance where using means calling (user decision
-2026-09-07; see "Roadmap: iterators — Salvo-level pull iterators" in
-COMPLETED.md). The
-generalization was accepted; the *scope* was deliberately left narrow.
+Decided yes and built with phase 3 (COMPLETED.md's log): the position gate
+is gone, `once` is valid on any type, and on data it drops at consuming
+positions (`once T <: T` for non-fn bases — a plain-typed holder consumes
+at most once anyway) while fn types keep the strict never-drop rule
+[once-fn]. The `once`-inference residual (auto-promoting a callee that
+calls its fn param once) stays not-built, as recorded.
 
-- **Open question: is `Once` valid on any type?** Nothing in its
-  semantics is iterator- or fn-specific — it is an obligation-side
-  qualifier the compiler owns, never droppable, with inverted variance
-  ([qual-*]: permissions drop, obligations do not), and enforcement is
-  the existing consumption machinery [deduce-consume]. So `Once
-  FileHandle` or `Once Ticket` would already mean something coherent:
-  "use this at most once".
-- **Why it was not opened up in the same step** (user decision
-  2026-09-07): shipping a general affine qualifier as a side effect of
-  an iterator change is how a language surface grows by accident. The
-  position list stays explicit — fn types and `Iter<T>` — and widens on
-  demand.
-- **What to weigh when it comes up**: `Once T` (at most once) sits next
-  to `canbe Linear` (exactly once) and `Mut`/`Proj`; a general
-  `Once` makes the affine/linear pair complete and user-reachable,
-  which is a bigger vocabulary decision than it looks. Also note
-  `Once` is *applied* at use sites while `Linear` is *declared*
-  ([linear-canbe], "linearity is declared, not applied") — a general
-  `Once` would be the first obligation a user can attach to someone
-  else's type.
+### D7 — Qualifier-conditional linearity — ✅ closed 2026-09-12, no surface
 
-### D7 — Qualifier-conditional linearity (phase 3, opened 2026-09-07)
+Decided with phase 3: covered by conditional containers ([linear-generics]
+— the type-argument axis is the re-derivation of the need), no use-site
+`linear` spelling; revisit only if a customer appears that a container
+cannot express.
 
-**Its stated motivation is stale and the case has to be re-derived**: the split
-this was written for — `Once Iter<T>` (a pass, which must be drained or closed)
-versus plain `Iter<T>` (a factory, which holds nothing) — died with `Iter<T>` in
-R5. What survives is the general question, and it is the same machinery question
-L8 asks along a different axis: L8 conditions the obligation on a *type
-argument*, D7 on a *use-site qualifier*. Answer them together, with D6.
-
-Today linearity is a property of a *declaration*: `canbe Linear` opts a
-type in, and every value of it carries the obligation [linear-canbe]
-[linear-obligation]. There is no way to say **"the qualified form carries
-the obligation, the plain form does not."**
-
-The iterator rework is the first concrete need. `Once Iter<T>` (a pass)
-holds a position and may hold a resource, so it must be drained or
-closed; plain `Iter<T>` (a factory) holds nothing and needs no disposal.
-`canbe Linear` on the `Iter` declaration cannot express that split, since
-it would burden the factory too.
-
-- **Not blocking**: the mandatory `close` is *compiler-injected* on every
-  exit out of a `for` (decision 4 of the iterator roadmap), so the
-  no-leak half is covered without linearity. `Once` covers the no-replay
-  half. This item is about making the obligation *visible and checked in
-  the language* rather than injected.
-- **What it would take**: linearity conditioned on a use-site qualifier —
-  i.e. the obligation set becomes a function of the qualified type, not
-  of the declaration. The existing all-paths obligation machinery
-  (`owes_linear`, `check_linear_exit`, `merge_fallthrough`) would not
-  change shape; what changes is which values enter it.
-- **Relation to D6**: if `Once` generalizes to any type, this is the
-  natural companion — the pair "at most once" (applied) and "exactly
-  once" (currently declared) would want the same application mechanism.
-  **Decide them together** (user, 2026-09-07: "I think we'll need to design
-  the 'Once on any type' (D6) and the 'optional Linear' (D7) together").
-  The 2026-09-07 iterator work took the narrow road instead — `canbe Once`,
-  an opt-in on the declaration — precisely so that this pair stays a single
-  deliberate design rather than an accumulation of special cases.
-- **Payoff beyond iterators**: it is the general shape of
-  "borrowed handle versus owned resource" without lifetimes — the same
-  question `Proj[from: p]` answers for derived returns [readonly-return].
-
-
-The predicate/constructive split [qual-predicate] [qual-constructive] is
-an *evidence* axis — how a value acquires a fact. It says nothing about
-what the fact is *about*, which is why `NonEmpty` is legitimately both
-(one state claim, two evidence routes [qual-ctor-predicate]). Three
-independent axes were identified:
-
-| Axis | Values | Status |
-|---|---|---|
-| Evidence | predicate (runtime `qualifies`) / constructive (mint-only) | in the spec |
-| **Subject** | **state (contents) / provenance (the handle)** | **D5** |
-| Authority | user-declarable / compiler intrinsic | implicit |
-
-One combination is impossible and explains the shape of the intrinsics:
-a **predicate capability cannot exist** — no inspection of the bits
-reveals whether you are *permitted* to write, so `Mut` has no
-`qualifies` and never could. Capability/provenance implies constructive;
-constructive does not imply capability (`Sorted` minted by `sort()` is
-mint-only *state*).
-
-Decided (user, 2026-09-03):
-
-1. **Qualifier declarations gain a subject axis**: *state* (default,
-   today's semantics) and *provenance*. Option B of the explored set.
-2. **Provenance is a content-independent claim about where the handle
-   came from** — mint-only (no `qualifies` body; `is Q` on a non-union
-   subject stays a compile error, as [qual-constructive] already says).
-   The payoff: a provenance tag **survives an unlisted mutation**.
-   D1's stripping rule is sound only for claims about contents —
-   [deduce-syntax] says so in as many words ("mutation can invalidate a
-   caller's *state* predicates") — so exempting provenance needs no new
-   soundness argument. Without this, `Authenticated Request` loses its
-   tag to any logger declaring `[req: Mut]`, and D3 refinements would be
-   the only escape: per-qualifier-per-function boilerplate for a fact
-   that is blanket-true.
-3. **Provenance is droppable** (forgetting provenance is safe) and
-   **survives being stored into another value**.
-4. **Provenance composes without a `with` declaration**, mirroring the
-   `Mut` auto-qualifier [type-canbe-mut]: it is orthogonal to every
-   claim about contents. Tags stack freely, including several over one
-   base (`Authenticated EnvironmentId Str`). `with` [qual-with] keeps
-   its original job — two *state* claims co-applying, where explicit
-   compatibility is the whole point. Without this rule
-   `Ok EnvironmentId Str` would be inexpressible (per-tag
-   `qualifier Ok<T> of T with EnvironmentId` does not scale, and
-   `Ok (EnvironmentId Str)` is the nested-qualified case [qual-generic]
-   calls discouraged) — a newtype that cannot be returned in a `Result`
-   is half a newtype.
-5. **Hard capabilities stay compiler intrinsics** (`Mut`, `Linear`,
-   `Once`, `Proj[from: p]`). Each needs something no user can write:
-   a per-backend representation choice (`Mut` is *not* erased —
-   `MutableList`, `&mut`), a rule in the flow analysis, a non-standard
-   subtyping direction (`Once` inverts it), or a restricted syntactic
-   position (`Linear` never at a use site; `Proj` return-only).
-   User-authored versions would need a metalanguage for checker rules —
-   rejected as out of proportion to Simplicity/Verifiability.
-6. **Vocabulary.** What users declare is *state* or *provenance*. What
-   the compiler owns are *permissions* and *obligations*, and the
-   sub-rule is **permissions are droppable, obligations are not**:
-   `Mut Person <: Person` (`map` returns `List<T>` while knowing
-   `Mut List<T>` internally), while `Once` may never be dropped and
-   `Linear` cannot be written at all.
-
-**Motivating example (record this one — it is more legible than
-`Authenticated`): the wrapper/newtype pattern.** The Kotlin habit of
-`data class Environment(val id: Id)` with a nested
-`data class Id(val value: String)` exists so that an incomplete refactor
-is a type error instead of a silently mis-wired `String`. As a Salvo
-provenance qualifier (`qualifier EnvironmentId of Str` plus a
-constructor), it is content-independent (any string can be an id),
-mint-only, and not runtime-testable — and it delivers the protection,
-because a bare `Str` does not subtype `EnvironmentId Str`: swapping two
-tagged arguments fails to compile in both positions. Only widening is
-open, which is the approved droppability, and is the same hole Kotlin
-has whenever the target parameter is `String`.
-
-Two properties of the erased design worth knowing before revisiting it:
-
-- **In union position the tag is reified.** `Ok Str | Err Str` already
-  works — positional wrappers give arms a physical identity even when
-  they erase to the same type, and `is Err Str` matches precisely
-  [is-precise]. So `EnvironmentId Str | DeploymentId Str` discriminates
-  at runtime; erasure applies to a value in a parameter, not to a value
-  in a union.
-- **What erasure actually costs** is identity, not usability: two tags
-  over `"prod"` compare equal and collide as keys in one map. Display,
-  interpolation, base-type operations and (static) overloading all work
-  for free — the `toString` override the Kotlin pattern needs exists
-  only to undo the boxing, which Salvo never does.
-
-7. **Provenance stays erased** (user decision 2026-09-03, D5a settled):
-   uniform with [qual-erasure], so the backends are untouched by D5.
-   Reification (a wrapper type per tag per backend) was declined: it
-   needs wrap/unwrap insertion at every widening site, double wrapping
-   inside unions, and messier interop for std fns taking `Str`, while
-   the only benefit — distinct equality and map keys — is already
-   reachable with a one-field struct, which *is* the nominal flavor of
-   this pattern and needs no new feature. The decisive cost is two
-   lowering models for one concept, doubling the checker/emitter
-   agreement surface. Kotlin's own tool for this job
-   (`@JvmInline value class`) is likewise unboxed except in
-   generic/nullable/collection positions, so the erased design is the
-   idiomatic trade, not an exotic one.
-Namespacing (the former D5b) outgrew this section and is now its own
-roadmap item, **N1** — dot-names apply to structs as well as qualifiers,
-so it is a naming feature independent of the subject axis.
-
-What landed (rule [qual-subject]):
-
-- **Syntax** (user decision 2026-09-03, confirmed after implementation):
-  `provenance qualifier Q of T`, a prefix modifier matching the existing
-  `intrinsic`/`external` shape. Plain `qualifier` stays state
-  (`QualSubject::State` is the AST default), so nothing existing changed;
-  there is deliberately no `state` keyword — one keyword for the
-  non-default is enough, and the default is documented. Revisitable if it
-  reads badly in practice (there is no compatibility to preserve).
-- **Stripping exemption (the payoff)**: `QualEffect::removal_set` now
-  takes a provenance predicate and filters the removal set, so a
-  provenance tag survives any call. The *inference* side matches
-  (`remove_quals` filters, `restrict_to` re-admits the parameter's
-  declared provenance quals) so inferred signatures never claim a removal
-  that cannot happen. Deduce works from a program-wide provenance name
-  set — the deduction machinery is qualifier-name keyed throughout, and
-  [mod-collision] already rejects one name declared by two visible
-  modules; the checker uses the precise per-file scope.
-- **Mint-only**: a `provenance` qualifier with a body is an error naming
-  both halves (no `qualifies`, no field overrides). `is Q` on a non-union
-  provenance value needed no new code — provenance is bodiless, so
-  [qual-constructive]'s existing message fires.
-- **Free composition**: the pairwise `with` check in `validate_quals`
-  skips any pair where either side is provenance.
-- **No backend work**: provenance erases like every qualifier
-  [qual-erasure]. The only emitter-visible consequence is *which
-  overload* the checker picked.
-- Verified end to end on both backends with one program that makes the
-  distinction observable in program output: a `Mut List<Int>` carrying a
-  state tag and one carrying a provenance tag both go through `add`
-  (`[list: Mut]`), then dispatch — `trusted 3` (provenance survived),
-  `plain 3` (state stripped), `checked 2` (state intact without
-  mutation), identical under `kotlinc` and `rustc`.
-
-Implementation sketch (no backend work — provenance is erased, so
-emitters are untouched under D5a-as-recommended):
-
-- `QualifierDecl` gains the subject kind (parser + AST); the checker's
-  `validate_quals` enforces the provenance legality rules (no
-  `qualifies` body, no `with` needed, `is` on a non-union subject
-  rejected — the last one is already [qual-constructive] behavior).
-- The removal-set computation in the deduction machinery skips
-  provenance tags when a call strips state qualifiers; the *contagious*
-  exhaustiveness rule [deduce-syntax] narrows accordingly.
-- Stacking validation stops requiring pairwise `with` when either side
-  is provenance.
-
-**Future intrinsic capabilities (watch list, in order of how soon they
-force themselves on us).** `Sendable`/thread-safety the moment
-concurrency lands — structurally inferred, trusted-by-audit for
-externals (the `canbe Linear` pattern), and asymmetric between backends,
-so it cannot be user-authored. That moment is **phase 5**; see "Threading
-and concurrency" for what it collides with today. Then `Uniq`/`Shared` if sharing arrives
-(`Uniq` is the precondition for in-place mutation of a shared type),
-`Local`/`Escaping` (the conservative refusal of escaping closures
-becomes a contract), `Init` for two-phase initialization
-(`MaybeUninit`/`lateinit`), and `Const` if compile-time evaluation
-lands. Note that `Uniq` and `Local` are facts the fate analysis
-*already computes*: they are the user-facing side of the recorded
-"internal qualifier unification" leftover, which is the strongest reason
-to set the vocabulary up deliberately now.
 
 ### Related, independent: `!is` in expressions
 
@@ -976,9 +715,9 @@ start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
 
 ## Projections and copies — leftovers (phase 2b complete 2026-09-11)
 
-Phase 2b — `Proj` everywhere, views, `?copy`, the std audit, the `iter fn`
+Phase 2b — `proj` everywhere, views, `?copy`, the std audit, the `iter fn`
 borrow, and the `=>` deduction respelling — is **built**, and so are the
-follow-ons: **`Proj` as a type qualifier landed 2026-09-12** (option A),
+follow-ons: **`proj` as a type qualifier landed 2026-09-12** (option A),
 and **capturing lambdas are views + written lend entries take precedence
 over the instantiation fallback landed the same day** (user decision; both
 in COMPLETED.md's decision log with the soundness hole and the two emitter
@@ -988,10 +727,10 @@ defects they closed). The rules live in LANGUAGE_SPEC.md ([proj-type]
 BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
 
 - **Type-mention tracing for instantiation links (refinement, recorded
-  2026-09-12).** With no written entry, a `Proj`-holding instantiation
+  2026-09-12).** With no written entry, a `proj`-holding instantiation
   still links its result to *every* kept argument — including a container
   the substituted type never mentions (`keep_all(iter(words), tags)` links
-  to `tags`). The remedy today is the written `=> Proj[from: it]` entry,
+  to `tags`). The remedy today is the written `=> proj[from: it]` entry,
   which now takes precedence; the refinement would link only kept
   arguments whose substituted type contains the projection. Build it if
   over-linking bites where the entry is unavailable (an unannotatable
@@ -1002,11 +741,11 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   visible at a glance. Accepted for now (the hover shows the effective clause;
   the diagnostics name the cause). If it bites, the remedy is an opt-in
   "exhaustive" marker or a lint that asks for `!p` to be written.
-- **Re-pointing entries are declared, not verified.** `=> v.items: Proj[from:
+- **Re-pointing entries are declared, not verified.** `=> v.items: proj[from:
   other]` links the caller's `v` to `other` at the call, and the emitter ties
   the lifetimes; the *body* is trusted to perform the re-pointing. The
   inference in `lends.rs` is return-centric — extending it to assignments
-  into a parameter's `Proj` fields is the verification.
+  into a parameter's `proj` fields is the verification.
 - **Binding a view of a temporary (user, 2026-09-11 — refuse for now).** A
   derived-return or lending call whose borrowed argument is a temporary may be
   used within its statement — `map(iter(list(4, 5)), f)`, `for x in
@@ -1025,13 +764,13 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   form is a lowercase name in the generics list — `[name-casing]` already
   makes it parse:
   ```
-  struct Pair<T, U, a, b> { first: Proj[from: a] T, second: Proj[from: b] U }
+  struct Pair<T, U, a, b> { first: proj[from: a] T, second: proj[from: b] U }
   fn get_pair<T, U>(ts: List<T>, us: List<U>, i: Int) -> Pair<T, U, ts, us> => ts, us
   ```
-  with Rust emitting one lifetime per link parameter (today every `Proj`
+  with Rust emitting one lifetime per link parameter (today every `proj`
   field shares one `'s`, which rustc unifies to the shortest source — sound,
   less flexible). Elision would follow Rust's. Not built; the `.f:
-  Proj[from: a]` entries cover per-field precision wherever there is a body.
+  proj[from: a]` entries cover per-field precision wherever there is a body.
 - **Accumulator bodies** (`best = person; …; return best` under a projected
   return) are out of scope: reassignable borrowed locals are a recorded
   refinement of [readonly-return].
@@ -1050,7 +789,7 @@ surface and `Console`). See "The sequence".
 
 An `Fs` effect was designed in outline (effect + `intrinsic handler
 DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
-`intrinsic type … canbe Linear`, errors in the return type because
+`intrinsic type … canbe linear`, errors in the return type because
 [effect-member-no-effects] forbids a member from declaring `[Throw<M>]`).
 **Deferred by the user 2026-09-06**: IO *streams* should be designed
 properly first, with the filesystem as their first customer, rather than
@@ -1269,7 +1008,7 @@ construction rather than by rule.
 | today | frozen `Reg` value |
 |---|---|
 | returning a kept parameter's projection is a move / needs `copy` | legal — the return borrows the region, not the parameter |
-| derived returns (`Proj[from: p]`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
+| derived returns (`proj[from: p]`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
 | shared fate: links, root mutation poisons derivatives | no links exist; nothing can mutate a frozen root |
 | storing one value in two literals consumes it at the first | handles duplicate freely |
 | re-test (`is NonEmpty`) after every mutating call | claims are permanent |
@@ -1338,14 +1077,14 @@ blocking, and several are "revisit only if a customer appears".
   matrix size itself — trimming compile-and-run cases whose behavior the
   goldens already pin.
 
-- **`Once` inference**: a callee calling its fn param at most once does
-  not auto-promote to `Once`; written only [once-fn]. Same
+- **`once` inference**: a callee calling its fn param at most once does
+  not auto-promote to `once`; written only [once-fn]. Same
   written-validates/unwritten-infers pattern as deductions when taken.
 - **Returning/storing capture-carrying closures**: rustc lifetime error
   the checker does not reject; the recorded refinement is
   `move`-closure emission with hoisted clones, pending a treatment for
   captured effect-handler locals [fate-lambda].
-- **Exactly-once closures**: a `Once` lambda may not consume a *linear*
+- **Exactly-once closures**: a `once` lambda may not consume a *linear*
   capture (the closure would inherit the obligation) [linear-lambda];
   supporting it means linear fn values.
 - **Reassignable borrowed locals** (accumulator bodies in derived-return

@@ -313,19 +313,19 @@ Conventions:
   may carry the named qualifier. Two sites use it — auto-qualifiers on
   struct and type declarations (`struct Person canbe Mut` [struct-mut],
   `intrinsic type List<T> canbe Mut` [type-canbe-mut], `struct FileHandle
-  canbe Linear` on a type parameter [linear-generics]) and, for a
-  declaration, the `: Linear<self>` obligation [linear-group]; per-type-parameter opt-ins on fns
-  (`fn hold<T canbe Linear>` [linear-generics]).
+  canbe linear` on a type parameter [linear-generics]) and, for a
+  declaration, the `linear struct` modifier [linear-group]; per-type-parameter opt-ins on fns
+  (`fn hold<T canbe linear>` [linear-generics]).
   * `canbe` and `with` are unrelated clauses: `canbe` grants a qualifier
     to one declaration ("this may be Mut"), while `with` declares that
     two qualifiers may co-apply to one type ("Old may stack with
     Surname", [qual-with]). Separate keywords (`TokenKind::KwCanbe`),
     accepted at disjoint positions (user decision 2026-09-03).
   * Only the compiler's own qualifiers can be opted into: `Mut`, `Linear`
-    and `Once` on declarations, `Linear` on type parameters. A user
+    and `once` on declarations, `Linear` on type parameters. A user
     qualifier in a `canbe` clause is the `with` confusion above, and is
     rejected as such.
-  * `Once` joined the list 2026-09-07 (user decision) so a hand-written
+  * `once` joined the list 2026-09-07 (user decision) so a hand-written
     **pass** can declare that driving it uses it up
     ([iter-protocol], [once-fn]) — the alternative, inferring it from the
     presence of a `next`, would attach an obligation to someone's type on
@@ -412,12 +412,12 @@ Conventions:
     for one concept was the cost that settled it).
   * The compiler's own capability qualifiers stay intrinsic and are *not*
     user-declarable: `Mut` [type-canbe-mut], `Linear` [linear-group],
-    `Once` [once-fn], `Proj` [readonly-return] each need a
+    `once` [once-fn], `proj` [readonly-return] each need a
     representation choice, a flow rule, a non-standard subtyping
     direction, or a restricted position. Vocabulary: users declare
     *state* or *provenance*; the compiler owns *permissions* (droppable,
     like `Mut`) and *obligations* (never droppable, like `Linear` and
-    `Once`).
+    `once`).
 * [qual-predicate] A qualifier with a body is a *predicate qualifier*: it
   declares `fn qualifies(x: OfType) -> Bool`.
   * The `qualifies` signature is validated: exactly one param accepting
@@ -688,8 +688,8 @@ Conventions:
     is qualifier names only: a *type* there is an `is` question.
   * **Droppability comes from one list** — `types::qual_drop_block`, which
     `Qual T <: T` also reads, so the two cannot drift as intrinsic
-    qualifiers are added. `Once` (restricts rather than refines), `Linear`
-    (carries a use obligation) and `Proj` (the value is derived from
+    qualifiers are added. `once` (restricts rather than refines), `Linear`
+    (carries a use obligation) and `proj` (the value is derived from
     another) may never be dropped; every other qualifier may, since dropping
     a *claim* only loses knowledge and dropping a *permission* only loses
     permission.
@@ -716,7 +716,7 @@ Conventions:
     `when v { ^ Ok { when v { … } } }`), or bind at the inner type
     (`let inner: A | B = value`). The droppable-qualifier rule does the
     unwrapping ([qual-erasure]: `Qual T <: T`), which is also why the
-    intrinsic capability qualifiers need no special case — `Once` is
+    intrinsic capability qualifiers need no special case — `once` is
     excluded from dropping and `Linear` is never written at a use site.
     The diagnostic names this remedy. Considered and rejected
     (2026-09-04): merging nested qualifiers (`Ok Err Str` collides with
@@ -1071,33 +1071,38 @@ Conventions:
   * Without the spread there is nothing to drive with, and the subject reports
     the ordinary not-iterable error [iter-resolve]: a bare type parameter says
     nothing, which is [call-resolve]'s rule for generics.
-* [iter-drive-in-place] Who **owns** the pass decides what the loop does with
-  it (user decision 2026-09-09):
-  * A pass the fn **keeps** — a `Mut` parameter its deduction clause hands back, or
-    a projection of one — is advanced *where it lives*: the position the loop
-    reaches is what the caller sees next, the loop counts as a **mutation** of it
-    rather than a move, and the release stays the caller's (a `close` here would
-    be their use-after-close).
-  * A pass the fn **owns** is consumed by the loop, and the loop releases it: the
-    resolved `close` for a concrete pass, or the implicit one for a generic pass.
-  * The rule exists because the two backends disagreed without it: Rust bound the
-    subject into a local — a *clone*, since a kept parameter is a `&mut` — so the
-    caller never saw the position the loop reached, while Kotlin aliased it and
-    did [backend-parity].
-  * [linear-generics] A **generic** pass the fn owns, whose type parameter says
-    `canbe Linear`, needs a `close` the body can name: the `?Linear<It>` spread,
-    or a `?close: (it: It) -> None` with `=>[close] !it` written by hand.
-    Missing, that is an error
-    naming the remedy — driving a resource-owning pass and dropping it is the
-    leak [linear-group] exists to prevent. A pass that is not opted in needs
-    nothing (a non-linear pass may be abandoned, the same latitude a hand-written
-    `while` has), and neither does one the fn keeps.
+* [iter-drive-in-place] Any **named place** is driven *where it lives*
+  (user decision 2026-09-12, extending the 2026-09-09 kept-parameter rule
+  to locals and owned parameters — and deleting the loop's implicit
+  release entirely):
+  * A pass named by a variable or parameter is advanced in place: the
+    position the loop reaches is what the owner sees next, the loop counts
+    as a **mutation** rather than a move, driving an exhausted pass again
+    is legal (zero iterations), and the discharge stays the owner's —
+    a linear pass is bound with `let`, driven, and explicitly discharged
+    after the loop and before early exits (the ordinary all-paths
+    analysis enforces it) [linear-group].
+  * Only a **temporary** subject (a minted pass, a call result) is
+    consumed by the loop — and a *linear* temporary is refused there
+    ("a `for` cannot consume a linear pass"): the loop never discharges
+    what it drives, so an owned linear pass has to be a named place.
+  * The in-place rule exists because the two backends disagreed without
+    it: Rust bound the subject into a local — a *clone*, for a kept
+    parameter's `&mut` — so the caller never saw the position the loop
+    reached, while Kotlin aliased it and did [backend-parity].
+  * [linear-generics] A **generic** pass under `canbe linear` follows the
+    same rules: drive it in place and let the owner discharge, or — for a
+    fn that owns the pass — take a **consuming callback**
+    (`end: (x: It) -> None` with `=>[end] !x`) and hand the pass to it
+    after the loop; callers pass the type's own discharger for a linear
+    pass and std's `drop` for a plain one [linear-discard]. (This
+    replaces the deleted `?Linear<It>` spread.)
 * [iter-pass] `iter` converts a **container** into a fresh pass
   (`fn iter<T>(list: List<T>) [] -> Mut ListYield<T>`), and that is the whole => !list
   of container iteration: std declares a pass struct plus a `next` per
   intrinsic container, so the language has no container protocol of its own
   (user decision 2026-09-08, roadmap R5).
-  * The container is **borrowed by** the pass (a `Proj` field
+  * The container is **borrowed by** the pass (a `proj` field
     [proj-field]; user decision 2026-09-11 — until then it was moved in):
     `iter(xs)` keeps `xs` usable and links the pass to it, so walking the
     same container twice is `iter(xs)` twice, and mutating `xs` while a pass
@@ -1131,7 +1136,7 @@ Conventions:
     drivable by declaring `: Yield<self, T>` and supplying the `next` — checked at
     the struct, where a misspelled member is caught, rather than surfacing
     as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
-    this replaced `params Iterator<St, T>` and the `Once` requirement). The
+    this replaced `params Iterator<St, T>` and the `once` requirement). The
     state is `Mut` because advancing a pass mutates its position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
@@ -1144,9 +1149,9 @@ Conventions:
     without the clause is not a pass ([iter-resolve] names the remedy) —
     the tie is declared, never inferred from a method name.
   * Driving consumes the subject: it is moved into the loop, exactly as the
-    `Once` passes it replaced were. Drive-in-place (`Mut` borrow — "a
+    `once` passes it replaced were. Drive-in-place (`Mut` borrow — "a
     second drive continues") is recorded as the eventual semantics and
-    deferred with `Once`-on-producers\' deletion (R5).
+    deferred with `once`-on-producers\' deletion (R5).
   * `next` takes its state as `Mut St`: advancing a pass mutates its
     position, and the backends pass a mutable place. A `next` with the right
     *result* shape and a non-`Mut` state is an error saying so, rather than
@@ -1381,7 +1386,7 @@ Conventions:
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
     combinator work — `total<C, It>(c: C, ?iter: (c: C) -> Mut It,
-    ?Yield<It, Int>) -> Int =>[iter] Proj[from: c] => c`, where nothing but
+    ?Yield<It, Int>) -> Int =>[iter] proj[from: c] => c`, where nothing but
     the chosen `iter` says what `It` is (and the group says the pass it
     returns holds a borrow of `c` [proj-infer]):
     `C` is only known after the arguments, so the sweeps between them cannot
@@ -1460,12 +1465,12 @@ Conventions:
 
   * **It is a desugaring, done in the syntax crate** (`desugar::expand_pass_fns`,
     inside `parse_module`), into a hidden `struct __Pass_<Subject> :
-    Yield<self, T> canbe Mut { __subject: Proj Subject, <state fields> }`, an
+    Yield<self, T> canbe Mut { __subject: proj Subject, <state fields> }`, an
     `fn iter(s: Subject) [] -> Mut __Pass_<Subject>` whose body is the struct
     literal (its lend of `s` inferred [proj-infer]), and the author's body as
     `fn next(__p: Mut __Pass_<Subject>) -> Emitted T | Finished => __p: Mut`
     with the subject and the state fields written out as field reads (a
-    `Proj[from: s]` in the written return is redirected to `__p`
+    `proj[from: s]` in the written return is redirected to `__p`
     [yield-proj]). Nothing downstream knows the form exists, which
     is why `for`, the combinators, `let p = iter(c)`, deductions, narrowing and
     both emitters need no new machinery.
@@ -1486,13 +1491,13 @@ Conventions:
     2. the body only ever reads *plain fields* of it, their types are visible
        (the subject's struct is declared somewhere in the **program** — the
        expansion runs program-wide, local declarations winning a name) and the
-       subject type is non-generic: one **`Proj` field per field read**
+       subject type is non-generic: one **`proj` field per field read**
        (a Copy scalar stays owned [copy-scalar-free]), initialized at the mint
        (`__Pass_Fibs { count: f.count, … }`), keeping the field's own name
        unless a `state` field already has it;
     3. otherwise — the subject handed on as a value, an assignment through it, a
        generic subject, a declaration the program cannot see: the **whole
-       subject** is borrowed (`__subject: Proj Subject`, minted as
+       subject** is borrowed (`__subject: proj Subject`, minted as
        `__subject: s`).
   * **Borrowing rather than copying** is what keeps the backends in step
     without a copy: a write to the subject during a drive is *refused* rather
@@ -1733,9 +1738,9 @@ Conventions:
     | `=> list: A B` | **exhaustive**: afterwards *only* `A B` apply |
     | `=> list: None` | exhaustive and empty: every qualifier stripped |
     | `=> list: -A` | **delta**: drop `A`, everything else survives |
-    | `=> .f: Proj[from: a]` | the result's field `f` projects `a` [proj-infer] |
-    | `=> v.f: Proj[from: a]` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
-    | `=> Proj[from: a, b]` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
+    | `=> .f: proj[from: a]` | the result's field `f` projects `a` [proj-infer] |
+    | `=> v.f: proj[from: a]` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
+    | `=> proj[from: a, b]` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
     | `=>[f] entry, …` | a group: entries about the fn-typed parameter `f`, whose own parameters are named in its type [fn-contract] |
 
   * **Unmentioned means inferred.** A parameter the clause does not mention
@@ -1808,7 +1813,7 @@ Conventions:
     them — they are the Rust backend's ownership/borrow contract.
   * Moves are inferred when a bare parameter is: passed to a call whose
     contract consumes it, returned *owned* (a return under a wholesale
-    `Proj[from: p]` is a borrow, not a move [readonly-return]), `break`-ed,
+    `proj[from: p]` is a borrow, not a move [readonly-return]), `break`-ed,
     stored in a
     struct/array/tuple literal, or passed to a `use` handler
     constructor. Binding a bare parameter (or a projection of one) with
@@ -1921,7 +1926,7 @@ Conventions:
   ([fate-field-disjoint]). Reads never consume and
   never poison, on any member, at any time. Function results are
   independent — unless the fn declares a derived return
-  (`Proj[from: p]` [readonly-return]), in which case the result
+  (`proj[from: p]` [readonly-return]), in which case the result
   links to the argument; a fn returning a projection of a kept
   parameter *without* the annotation must `copy` internally.
   `copy(...)` produces an unlinked value [copy-fn].
@@ -1931,10 +1936,10 @@ Conventions:
   * Links are flow state: they union across branch merges (may-be-linked
     is linked) and survive loop back-edge re-checking.
   * Tooling presentation (user decision 2026-09-02): a derived variable
-    is rendered with a compiler-inserted `Proj` qualifier — bare on
+    is rendered with a compiler-inserted `proj` qualifier — bare on
     the type line, with its parameters (the fate roots and binding
     sites, recorded in `Checked::fate_reads`) shown only as on-request
-    detail. Presentation-only today; `Proj` is not part of the type
+    detail. Presentation-only today; `proj` is not part of the type
     system and cannot be written in source. Parameterized compiler
     qualifiers as *checked* signature vocabulary are the leading design
     for L7 (see COMPLETED.md, and ROADMAP.md for what is left of it).
@@ -2036,7 +2041,7 @@ Conventions:
     mutating `o.inner` poisons one derived from `o.inner.tags`;
   * the **whole variable** (`[]`), which is a prefix of everything: a
     `Mut` argument of a bare identifier, a reassignment, `++`;
-  * a **computed index**, since `Proj::Element` may-aliases any element
+  * a **computed index**, since `proj::Element` may-aliases any element
     position — `xs[i]` and `xs[j]` are not distinguished.
   * A derivation that is not a plain projection chain (a `!` unwrap, a
     value the analysis cannot place) links with an **unknown** path,
@@ -2105,7 +2110,7 @@ Conventions:
     remedy capture `copy(x)`); an inferable parameter is *claimed* as
     moved [deduce-infer].
   * A lambda that *consumes* a capture (a call that moves it, a store,
-    spread, `return`/`break`) is `Once`-typed [once-fn]: the
+    spread, `return`/`break`) is `once`-typed [once-fn]: the
     capture is consumed at creation and the closure is callable at most
     once — the closure *owns* that value, so it is **not** a view of it
     [lambda-view]. Consuming a *linear* capture remains an error
@@ -2142,7 +2147,7 @@ Conventions:
     damage), never the reverse; mutation permission must be granted by
     the expectation (`contract_fits`).
   * Effect lists on fn types are enforced as of E3 step 3 — see
-    [fn-effects]. `Once` inference remains open.
+    [fn-effects]. `once` inference remains open.
 * [fn-effects] A fn type may declare effects — `(s: Str) [Logger] -> Str` —
   and they mean **a requirement the caller of the value supplies**, not a
   capability the value carries (user decision 2026-09-04). The effects are
@@ -2156,7 +2161,7 @@ Conventions:
     needs those effects *here*, so `fn run(f: (s: Str) [Logger] -> Str)`
     needs no list of its own — and its callers must supply `Logger`, since
     that is where the value comes from at run time. Inheritance reaches
-    through qualifiers (`Once () [Logger] -> None`), optionals and unions,
+    through qualifiers (`once () [Logger] -> None`), optionals and unions,
     and it is part of the callee's contract at call sites.
   * **Variance**: a value performing *fewer* effects fits where more are
     expected (a pure lambda passes to a `[Logger]` position and simply
@@ -2185,99 +2190,99 @@ Conventions:
     pass as `::name` function references, or an adapter lambda when the
     effect lists differ). Rust renders fn parameters
     as `&mut impl FnMut(…)` (accepting both plain and handler-mutating
-    closures; `Once` stays owned `impl FnOnce`), argument types per
+    closures; `once` stays owned `impl FnOnce`), argument types per
     contract (kept non-Copy `&T`, kept `Mut` `&mut T`, moved/Copy
     owned), call-site arguments per the recorded contract, lambda
     parameter bindings/annotations per contract, and named fns wrap in
     mechanical adapter closures bridging the contract's calling
     convention to the declaration's actual modes.
-* [once-fn] `Once` is the language-level **use**-multiplicity qualifier
+* [once-fn] `once` is the language-level **use**-multiplicity qualifier
   (decision L7b, 2026-09-02; generalized from calls to uses by a user
   decision 2026-09-07): it means the value may be used **at most once**.
   Enforcement is consumption [deduce-consume], and what counts as a use
   depends on the type.
-  * **Valid positions**: *function types* (`f: Once () -> None`), where
-    using means calling, and **a type that opts in with `canbe Once`**
-    [canbe-optin] (user decision 2026-09-07), which is how a hand-written
-    pass says that driving it uses it up [iter-protocol]. Opting in is the
-    author's call for the same reason `Linear` is declared rather than
-    applied [linear-group]: an obligation should not attach to someone's
-    type on the strength of a method name. Making `Once` valid on *any*
-    type is roadmap D6, to be designed with D7.
-    * The built-in half is `types::once_position`; the opt-in half is the
-      checker's `has_auto_once`, since it needs the declaration.
-      `is_subtype`'s inverted rule deliberately checks *neither* — where
-      the qualifier may be **written** is a different question from what
-      it means once present, and a `Once` on a base that never opted in has
-      already been reported.
-  * **On a fn type**: calling a `Once` value consumes it, so a second
+  * **Valid on any type** (D6, user decision 2026-09-12; until then
+    fn-types plus `canbe once` opt-ins): the upper bound `[0,1]` is a
+    restriction the holder imposes on itself, demanding nothing of the
+    type's author — `once Ticket` means "use at most once" wherever it is
+    written, and the position gate (`types::once_position`,
+    `has_auto_once`) is gone.
+    * On a **data** type, using is consuming, and `once T <: T`: a
+      plain-typed holder can consume at most once anyway (a move is a
+      move), so the bound survives the drop — `spend(t: once Ticket)`
+      forwards `t` to a consuming `redeem(t: Ticket)` and the second
+      `redeem(t)` is the ordinary consumed-value error.
+    * On a **fn** type nothing changed: using is calling, a plain fn
+      value is callable repeatedly, so `once` never drops there — passing
+      a `once` fn where a plain one is expected stays refused.
+  * **On a fn type**: calling a `once` value consumes it, so a second
     call, a call on the loop back edge, and a call after the value
     escapes are the ordinary consumed-use errors; a call on only some
     branches leaves it maybe-consumed (conservative), and zero calls is
     fine.
-  * **On a `canbe Once` type**: using means whatever the type's own operations
-    do with it. Driving a **pass** consumes it whether or not `Once` is written
-    [iter-protocol] — the position it holds has moved — so `Once` adds nothing
-    there and R5 dropped the requirement; what it still expresses is a value of
-    one's own that may be used at most once.
-  * `Once` erases like every other qualifier [qual-erasure].
+  * **On any other data type**: using means consuming — a move into a
+    consuming call, a store, a `return`. (`canbe once` opt-ins are no
+    longer required or meaningful; the D6 generalization covers every
+    type. Driving a named pass advances it in place
+    [iter-drive-in-place], which is a mutation, not a use.)
+  * `once` erases like every other qualifier [qual-erasure].
   * **Inverted subtyping — flagged for future review** (user decision
-    2026-09-02): `Once` *restricts* instead of refining, so plain
-    `(A) -> B` <: `Once (A) -> B` (any fn may be treated as
-    once-callable) and, generally, `T` <: `Once T`; and `Once` may **never**
+    2026-09-02): `once` *restricts* instead of refining, so plain
+    `(A) -> B` <: `once (A) -> B` (any fn may be treated as
+    once-callable) and, generally, `T` <: `once T`; and `once` may **never**
     be dropped — the exact opposite of every other qualifier's direction. Special-cased in
     `is_subtype` and `unify`.
 
   * A lambda that *consumes* a capture is legal (superseding the
-    always-error rule in [fate-lambda]) and is `Once`-typed by
+    always-error rule in [fate-lambda]) and is `once`-typed by
     construction: the capture is consumed at creation and the closure
-    fits only `Once` positions. Consuming a *linear* capture is still
+    fits only `once` positions. Consuming a *linear* capture is still
     an error (the closure would inherit an exactly-once obligation —
     future work).
   * Escape rule (conservative, relaxable with fn-type contracts):
-    passing a `Once` value as an argument consumes it regardless of the
+    passing a `once` value as an argument consumes it regardless of the
     callee's contract — fn-value ownership is otherwise untracked.
-  * No inference in v1: a callee must *write* `Once` to accept
+  * No inference in v1: a callee must *write* `once` to accept
     consuming lambdas (a body that calls its fn param once does not
     auto-promote); inference may come later (written validates,
     unwritten infers — the deduction precedent).
-  * Backends: Rust emits `Once` fn parameters as `impl FnOnce(…)`
+  * Backends: Rust emits `once` fn parameters as `impl FnOnce(…)`
     (rustc's capture inference already makes consuming closures
     `FnOnce`); Kotlin emits the ordinary function type — the
     multiplicity is protocol-only on the JVM.
-* [proj-type] **`Proj` is part of the type** (option A, user decision
+* [proj-type] **`proj` is part of the type** (option A, user decision
   2026-09-12; until then it was erased in lowering and carried only on
-  fate links). `Proj Str`, `Mut List<Proj Str>`, `Emitted (Proj Str) |
+  fate links). `proj Str`, `Mut List<proj Str>`, `Emitted (proj Str) |
   Finished` are the checker's types: they print in diagnostics and hover,
   and a generic binds through them (`Emitted T` against
-  `Emitted (Proj Str)` gives `T = Proj Str`).
-  * Subtyping: `X <: Proj X` — an owned value satisfies a projected
+  `Emitted (proj Str)` gives `T = proj Str`).
+  * Subtyping: `X <: proj X` — an owned value satisfies a projected
     position (it can do strictly more). The reverse never holds, and
-    `Proj` is **never dropped implicitly**: it is a *never-drop* qualifier
+    `proj` is **never dropped implicitly**: it is a *never-drop* qualifier
     (like `Linear`; unlike `Ok`), so passing a projection where an owned
     value is expected is an error naming the type and the remedies
-    ("write the parameter's type with the `Proj`, or pass `copy(...)`") —
+    ("write the parameter's type with the `proj`, or pass `copy(...)`") —
     the same on both backends because Rust makes them different
     representations. The checker distinguishes why a projection blocked a
     call (it would be mutated, consumed, or sits nested inside the type)
     and says so.
-  * `Proj` on a Copy scalar erases: `Proj Int` *is* `Int` — the number is
+  * `proj` on a Copy scalar erases: `proj Int` *is* `Int` — the number is
     the value itself on both backends [copy-scalar-free].
-  * Unification treats `Proj` in a *pattern* as optional (like `Once`): a
-    parameter written `Proj T` accepts an owned argument (binding `T` to
+  * Unification treats `proj` in a *pattern* as optional (like `once`): a
+    parameter written `proj T` accepts an owned argument (binding `T` to
     it whole) and a projected one (binding `T` to the base minus the
-    matched qualifiers — `Proj T` against `Mut Str` gives `T = Mut Str`).
-  * Overloading: a `Proj` position **accepts more, so it says less** — an
-    owned position beats a projected one (`X <: Proj X`, so the inversion
+    matched qualifiers — `proj T` against `Mut Str` gives `T = Mut Str`).
+  * Overloading: a `proj` position **accepts more, so it says less** — an
+    owned position beats a projected one (`X <: proj X`, so the inversion
     mirrors the union rung of [fn-overload-rank]); it is its own ranking
-    dimension, so `Proj Mut Str` vs `Str` is an ambiguity, not a guess.
-    (This replaces the earlier "`Proj` never affects overloading".)
-  * At a *definition* over a bare generic, `Proj T` constrains the value
+    dimension, so `proj Mut Str` vs `Str` is an ambiguity, not a guess.
+    (This replaces the earlier "`proj` never affects overloading".)
+  * At a *definition* over a bare generic, `proj T` constrains the value
     (a projection may arrive) but the body treats `T` uniformly; which
     instantiations actually borrow is the call sites' fact
     [rs-proj-arm].
-* [readonly-return] `-> Proj[from: p] T` marks a **projected return** (L7c,
-  2026-09-02; `Proj[from: p]` as a qualifier on the type, user decision
+* [readonly-return] `-> proj[from: p] T` marks a **projected return** (L7c,
+  2026-09-02; `proj[from: p]` as a qualifier on the type, user decision
   2026-09-11): the fn returns a *borrow* of the kept parameter `p` instead
   of an independent value — the relaxation of S1a's "results are always
   independent" rule.
@@ -2299,22 +2304,22 @@ Conventions:
     reference parameter; with more, a `'a` is generated onto every source
     parameter and the return — the first deliberate exception to the
     no-lifetimes invariant. std's `first`, `get` and `next` are clone-free.
-* [proj-anywhere] `Proj[from: a, b]` is a qualifier writable wherever a
+* [proj-anywhere] `proj[from: a, b]` is a qualifier writable wherever a
   type is (user decisions 2026-09-11): the whole result, a union arm
-  (`Emitted (Proj[from: p] T) | Finished`), a nullable, a tuple element, a
-  type argument (`List<Proj T>`) and a struct field. Where it sits decides
+  (`Emitted (proj[from: p] T) | Finished`), a nullable, a tuple element, a
+  type argument (`List<proj T>`) and a struct field. Where it sits decides
   what it means:
   * On the value itself (result, arm, tuple element): a **wholesale**
     projection [readonly-return] — `[from: …]` is required and names kept
     parameters; several sources are one projection of all of them (a
     projection joined across branches is "from both").
-  * Inside a type argument (`List<Proj T>`) or on a struct field: a borrow
+  * Inside a type argument (`List<proj T>`) or on a struct field: a borrow
     the value **holds** [proj-field] [proj-infer] — `from` is *not*
-    written (the value's, not the type's), and a `Proj` type argument is
+    written (the value's, not the type's), and a `proj` type argument is
     allowed only on the intrinsic containers the backends render as such
     (`List`, arrays) [proj-type-arg]; on a user struct it would smuggle a
     borrow into a field through generics.
-  * On a parameter, bare `Proj T` names the kind of value expected (a
+  * On a parameter, bare `proj T` names the kind of value expected (a
     projection) and behaves as a kept parameter.
   * A *view of a temporary* — a projecting or lending call whose borrowed
     argument is a call result or literal — may be used within its
@@ -2323,10 +2328,10 @@ Conventions:
     bind a view of a temporary"). Rust exposed it (E0716); the rule keeps
     the backends in agreement. A possible later automation (hoisting the
     temporary) is recorded in ROADMAP.
-* [proj-readonly] A `Proj` value is **read-only whatever its `Mut` says**
-  (user decision 2026-09-11): `Proj Mut X` is a legal type — the value came
+* [proj-readonly] A `proj` value is **read-only whatever its `Mut` says**
+  (user decision 2026-09-11): `proj Mut X` is a legal type — the value came
   out of a mutable slot — but it never satisfies a `Mut` position (`Mut X <:
-  Proj Mut X`, not the reverse); passing it where `Mut` is required, or
+  proj Mut X`, not the reverse); passing it where `Mut` is required, or
   mutating it, reports the projection and the `copy` remedy. `copy` is the
   way out and yields an owned `Mut X`. Moving a wholesale projection is
   refused the same way — except a Copy scalar [copy-scalar-free].
@@ -2336,60 +2341,60 @@ Conventions:
     wholesale projection, `held` a borrow an owned object carries
     [proj-infer]. A variable whose every link is held may be mutated (its
     own fields are its own); one with a wholesale or alias link may not.
-* [proj-field] **Any struct may hold `Proj` fields**, written without a
-  source (`items: Proj List<T>`): the struct declares *that* it projects,
+* [proj-field] **Any struct may hold `proj` fields**, written without a
+  source (`items: proj List<T>`): the struct declares *that* it projects,
   each literal decides *what* (user decision 2026-09-11; replaces the
   pass-only exemption that first landed). Such a struct is an owned object
   that *holds* borrows — a **view**: its `Mut` is real (a pass is advanced
-  in place), its non-`Proj` fields are its own, and it may be moved, stored
+  in place), its non-`proj` fields are its own, and it may be moved, stored
   or passed on; what it may not do is outlive its roots. A struct holding a
-  view in an owned field is a view too. Writing `Proj[from: x]` on a field
+  view in an owned field is a view too. Writing `proj[from: x]` on a field
   is an error ("names no source").
   * Rust: the struct carries one lifetime, `View<'s>`, with `&'s` fields
     and `<'s>` on owned view-typed fields; every mention elides (`'_`)
     except where a lend ties it [rs-proj-lends]. Kotlin: unchanged.
-  * Assigning a `Proj` field re-points the borrow; a fn that does so writes
-    `=> v.items: Proj[from: other]` [proj-infer], and Rust renders the
+  * Assigning a `proj` field re-points the borrow; a fn that does so writes
+    `=> v.items: proj[from: other]` [proj-infer], and Rust renders the
     assignment as a borrow with the struct's lifetime tied to `other`.
 * [proj-infer] **Which parameters a result holds borrows of is inferred**
   (user decision 2026-09-11: "infer what can be inferred; the user writes
   what inference cannot reach"):
-  * With a body: read off every returned value — a `Proj` field takes the
+  * With a body: read off every returned value — a `proj` field takes the
     roots of what is stored in it; an owned view-typed field, a forwarding
     call, a local, a `!`, a branch are followed (`lends.rs`, memoised per
     declaration, conservative on any shape it cannot follow: every kept
     parameter). Per field, exact.
   * Without a body — an effect member, an intrinsic, a fn type — the
-    written entries decide (`=> Proj[from: c]`, `=> .items: Proj[from: c]`,
-    `=>[iter] Proj[from: c]`), else conservatively every kept parameter
+    written entries decide (`=> proj[from: c]`, `=> .items: proj[from: c]`,
+    `=>[iter] proj[from: c]`), else conservatively every kept parameter
     (exact for `iter(list)`; only ever over-links).
   * A written projection entry about the result must name every lend the
     body performs; it may name more (a generic body — `filter`'s
     `add(out, x)` with `x` an element of an opaque pass — lends through
     opacity the analysis cannot see, and the entry is how it says so).
     A written entry takes **precedence over the instantiation fallback**
-    (2026-09-12): where a substituted return holds `Proj` the written
-    type does not show (`-> Mut List<T>` with `T = Proj Str`), a call
+    (2026-09-12): where a substituted return holds `proj` the written
+    type does not show (`-> Mut List<T>` with `T = proj Str`), a call
     links the result to *every* kept argument unless the author's
-    `=> Proj[from: it]` names the lends — then only those link, still
+    `=> proj[from: it]` names the lends — then only those link, still
     flowing through a temporary in the named position to its roots.
   * The caller links the result to the lent arguments, *held*
     [proj-readonly]; returning a view rooted in a local is an error ("a
     local that dies with this call"), and a returned view may be rooted
     only in the fn's own lent parameters. A re-pointing entry
-    (`v.items: Proj[from: other]`) gives the caller's variable at `v` a
+    (`v.items: proj[from: other]`) gives the caller's variable at `v` a
     held link to `other`'s roots from the call on (the body is trusted for
     these — see ROADMAP).
   * Reserved, not built: struct-level **link parameters**
-    (`struct Pair<T, U, a, b> { first: Proj[from: a] T, … }`) as the
+    (`struct Pair<T, U, a, b> { first: proj[from: a] T, … }`) as the
     per-field explicit form, should the conservative fallback ever bite;
     `[name-casing]` already makes it parse (ROADMAP).
 * [lambda-view] **A capturing lambda is a view** (user decision
   2026-09-12): the closure holds a borrow of every non-Copy capture its
-  body only reads, exactly as a struct holds its `Proj` fields
+  body only reads, exactly as a struct holds its `proj` fields
   [proj-field] — because a body can return projections rooted in a
   capture (`i -> get(words, i)!` hands out elements of `words`), which no
-  fn type can name (`Proj[from: …]` sources are parameters; captures are
+  fn type can name (`proj[from: …]` sources are parameters; captures are
   unnameable). So the *value* carries the link: binding the lambda links
   it to the captured roots (held, borrowed); a call result linked to a
   lambda argument reaches those roots transitively (which is what makes
@@ -2397,25 +2402,25 @@ Conventions:
   a later move of `all`); a capture-free lambda holds nothing, so
   `map(p, w -> w)` binds with no ceremony (a lambda expression is never
   itself a "temporary" a view could dangle from). A capture the closure
-  *consumes* is owned, not borrowed — the `Once` rule [fate-lambda] —
+  *consumes* is owned, not borrowed — the `once` rule [fate-lambda] —
   and a Copy scalar capture links nothing [copy-scalar-free]. Before
   this rule, naming the lambda (`let f = i -> get(words, i)!`) evaded
   the discipline entirely: `eat(words)` was accepted with the view live.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a
     `Vec<&String>`) — no clone [copy-opt-in].
-* [yield-proj] A pass that walks data declares `: Yield<self, Proj T>` and
-  its `next` returns `Emitted (Proj[from: p] T) | Finished` — the element is
+* [yield-proj] A pass that walks data declares `: Yield<self, proj T>` and
+  its `next` returns `Emitted (proj[from: p] T) | Finished` — the element is
   a projection of the pass, which projects the source; a generator declares
   `: Yield<self, T>` and emits owned values (user decision 2026-09-11: one
-  `Yield` group, the element type argument carrying `Proj`). The
-  obligation and the member must agree — `Proj` on one and not the other
+  `Yield` group, the element type argument carrying `proj`). The
+  obligation and the member must agree — `proj` on one and not the other
   is an error naming the fix. Reading combinators (`?Yield<It, T>`) accept
-  both. std's `ListYield`/`ArrayYield`/`StrYield` borrow (`items: Proj
+  both. std's `ListYield`/`ArrayYield`/`StrYield` borrow (`items: proj
   List<T>`; `StrYield` emits owned `Char`); an `iter fn`'s generated pass
-  borrows its subject (`__subject: Proj Subject`, `Proj` snapshot fields,
+  borrows its subject (`__subject: proj Subject`, `proj` snapshot fields,
   Copy scalars owned) and names the subject as the elements' source
-  (`Emitted (Proj[from: b] T)`), which the desugar redirects to the pass
+  (`Emitted (proj[from: b] T)`), which the desugar redirects to the pass
   parameter. Rust: the element generic is retagged to `&T` at call sites
   whose filled `next` borrows [rs-proj-arm].
 * [copy-opt-in] **A copy never happens without the program opting in**
@@ -2448,13 +2453,13 @@ Conventions:
     FnMut(&T) -> T>` field, members call `(self.copy)(&v)`, the `use` site
     passes a `move` adapter; `copy` at a retagged element position is the
     identity [rs-proj-arm].
-* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: Proj T) -> T =>
+* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: proj T) -> T =>
   value` — duplicates a value: the argument is kept untouched, and the
   result is a fresh owned value with no fate links. The parameter says
-  `Proj T` because a projection is exactly what `copy` is *for* — and
-  `X <: Proj X` [proj-type] means an owned value is accepted too. The
+  `proj T` because a projection is exactly what `copy` is *for* — and
+  `X <: proj X` [proj-type] means an owned value is accepted too. The
   binding un-projects one level and keeps the rest: `copy` of a
-  `Proj Mut Str` is a `Mut Str`. It is the one-word remedy in every fate
+  `proj Mut Str` is a `Mut Str`. It is the one-word remedy in every fate
   diagnostic.
   * Lowered type-directedly by each backend [intrinsic-fn]; identity
     where no Salvo operation can mutate the value, a real copy where
@@ -2463,33 +2468,35 @@ Conventions:
 
 ## Linear types
 
-* [linear-group] A type declares linearity as an **obligation**:
-  `struct Lines : Linear<self> { … }` against the designated
-  `params Linear<It> { fn close(it: It) -> None }` (user decisions => !it
-  2026-09-08, roadmap R4 — replacing `canbe Linear`, decision L6a
-  2026-09-02). Declaring it *is* declaring how the obligation is discharged,
-  because [group-obligation] requires the member: a type that says
-  `: Linear<self>` without a matching `close` is an error at the **struct**.
-  * **`close` consumes** (`=> !it` moves its parameter), which
-    is what makes it the discharge rather than a convention. Inside the
-    `close` implementation the parameter owes nothing — that is where the
-    value legitimately dies, and without the exemption a `close` would be the
-    one thing linearity makes impossible to write.
-  * **A `close` never implies linearity.** Only the clause does; a bare
-    `close` function is an ordinary function. Attaching an obligation on the
-    strength of a function name is what [qual-*] keeps the compiler from
-    doing — and it is what keeps a generated pass with a release, which gets
-    a `close`, composable [iter-fn].
-  * **`canbe` no longer grants it**: `canbe` means only "may be qualified
-    thus" (`canbe Mut`, `canbe Once`), and `canbe Linear` on a *declaration*
-    is an error naming `: Linear<self>`. On a **type parameter** it keeps its
-    spelling [linear-generics] — permission on a parameter is a different
-    thing from obligation on a declaration.
-  * Every value of the type is linear — `Linear` still cannot be written in a
-    use-site type (a per-value qualifier that could be forgotten would defeat
-    the protection). Tooling may present linearity as a compiler-facing
-    property.
-  * **Not yet covered**: `intrinsic type` carries no obligation clause, so a
+* [linear-group] A type declares linearity with the **`linear struct`
+  modifier**: `linear struct Lines { … }` (user decision 2026-09-12,
+  replacing the designated `: Linear<self>` group entry of 2026-09-08,
+  which replaced `canbe linear`, L6a 2026-09-02 — the `params Linear`
+  group is deleted). The obligation's **discharge set** is every fn
+  declared in the *type's own file* whose contract consumes a parameter
+  of the type — `close` for a file, `stop`/`join` for a thread,
+  `remove(cache, entry)` for a pooled handle (context parameters are
+  ordinary parameters; generic dischargers count). Declaring a `linear
+  struct` with no discharger is an error at the **struct** ("no legal
+  death"), and leak diagnostics enumerate the set.
+  * **A discharger is not an exemption**: inside it, the consumed
+    parameter still owes, and the obligation must terminate on every
+    path — `discard(x)` as the terminal [linear-discard], or a forward
+    into another consuming fn (`shutdown(t) { stop(t) }`).
+  * **A `close` never implies linearity.** Only the modifier does; a bare
+    consuming function of a non-linear type is an ordinary function.
+    Attaching an obligation on the strength of a function name is what
+    [qual-*] keeps the compiler from doing.
+  * **`canbe` does not grant it**: `canbe` means only "may be qualified
+    thus" (`canbe Mut`, `canbe once`), and `canbe linear` on a
+    *declaration* is an error naming `linear struct`. On a **type
+    parameter** it keeps its spelling [linear-generics] — permission on a
+    parameter is a different thing from obligation on a declaration.
+  * Every value of the type is linear — `linear` still cannot be written
+    in a use-site type (a per-value spelling that could be forgotten
+    would defeat the protection) [obligation-spelling]. Hover presents
+    linearity from the declaration.
+  * **Not yet covered**: `intrinsic type` carries no modifier, so a
     linear opaque type has no spelling until `TypeDecl` gains one (nothing
     declares one today).
 * [linear-obligation] A linear value carries a *use obligation*: on
@@ -2514,30 +2521,57 @@ Conventions:
     ownership needs contracts [deduce-fixpoint]); reported variables
     are marked consumed so each obligation errors once.
 * [linear-discard] `core.discard` —
-  `intrinsic fn discard<T canbe Linear>(value: T) -> None` — deliberately => !value
-  drops a value, consuming it. **No longer an escape hatch from linearity**
-  (user decision 2026-09-08): `discard` on a linear value is an error naming
-  its `close`, since dropping a handle is exactly the leak the obligation
-  exists to prevent — the hole that made the separate-groups design wrong.
-  It remains the escape hatch for non-linear values (decision L6c). Lowered per
+  `intrinsic fn discard<T canbe linear>(value: T) -> None` — deliberately => !value
+  drops a value, consuming it. For a **linear** value it is the
+  obligation's **terminal**, legal only inside a *discharger* of the
+  value's type (a same-file consuming fn [linear-group]; user decision
+  2026-09-12, revising 2026-09-08's blanket refusal): anywhere else it is
+  an error naming the discharge set — dropping a handle elsewhere is
+  exactly the leak the obligation exists to prevent. It remains the
+  unrestricted escape hatch for non-linear values (decision L6c), and
+  std's `fn drop<T>(value: T) -> None => !value` is the *passable* form
+  for consuming-callback positions — deliberately without `canbe linear`,
+  so a linear argument is refused by the instantiation ban
+  [linear-generics]. Lowered per
   backend [intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
   ignores (`(value).let {}`). Failure/panic paths are out of scope
   until Salvo has such semantics.
+* [linear-union-arm] **A union arm may be linear** (O-C2, user decision
+  2026-09-12): a union value *is* the value — one handle, not a box
+  holding one — so `fn open(path: Str) -> Ok InputStream | Err Str` is
+  legal, the un-narrowed union **owes**, and narrowing settles it:
+  narrowed to the linear arm, the value owes as that arm (discharge as
+  normal); narrowed to a **non-linear arm, the obligation is
+  discharged** — an `Err Str` never held the handle. `T?` falls out
+  (`None` owes nothing), which is the optional-handle and lookup shape.
+  This is the phase-4 unblocking move (the fallible open).
+  * Implementation: the discharge-by-narrowing is a **flow fact**
+    (`linear_settled`), set where a narrow lands a linear value on a
+    non-linear type, surviving the branch's narrow-restore exactly as
+    consumption does, and joined across branches (settled on every path —
+    by narrowing or by consuming — means settled after the join). The
+    no-`else` fall-through path of an `if` applies the else-narrows'
+    settling (`if h is Lines s { close(s) }`: on the untaken path `h`
+    is `None`).
+  * Backends: nothing — linearity is static and backend-identical
+    [linear-static]; the union lowers as any union does.
 * [linear-composite] A composite may not **hold** a linear value
   (interim rule, user decision 2026-09-08, roadmap R4 part 2 — replacing
   decision L6d's contagion, under which a composite containing a linear
-  component became linear itself). Its obligation would have to travel
+  component became linear itself; **union arms carved out 2026-09-12**
+  [linear-union-arm]). Its obligation would have to travel
   with the container, and composition plus conditional linearity are one
   design question (roadmap L8), so until that is answered a linear value
-  lives only in a **local, a parameter or a return value**. Refused *at
+  lives only in a **local, a parameter or a return value** — or a union
+  arm. Refused *at
   the store*, so the container is never built and there is no follow-on
   leak to report:
   * a **struct or handler-state field** whose declared type is linear —
     at the field, naming it (`Holder.handle`);
   * a **written composite** with a linear component, one level at a time
     so a nested one reports at its own node: a type argument
-    (`List<Lines>`), an array element (`Lines[]`), a tuple component, a
-    union arm — including `Lines?`, which is `Lines | None`;
+    (`List<Lines>`), an array element (`Lines[]`), a tuple component —
+    but **not** a union arm [linear-union-arm];
   * an **array or tuple literal** whose element type is linear (nothing
     written to refuse);
   * a **struct literal** field taking a linear value where the field's
@@ -2545,7 +2579,7 @@ Conventions:
     store the struct's own declaration cannot see;
   * a **call** that takes a bare `T` and puts a `T` inside a composite —
     `add(list: Mut List<T>, elem: T)` is the shape — refused whatever the
-    callee's `<T canbe Linear>` claims, since no container can carry the
+    callee's `<T canbe linear>` claims, since no container can carry the
     obligation yet. A signature that only *reads* a composite of `T`
     (`size(list: List<T>) -> Int`) stores nothing and stays legal.
   * Consequently a *union* is not a container: a value of `Lines | Int`
@@ -2560,10 +2594,26 @@ Conventions:
 * [linear-generics] An unconstrained generic parameter cannot be
   instantiated with a linear type (decision L6d): unopted generic code
   does not honor the obligation. A fn opts in *per type parameter* with
-  `<T canbe Linear>` (decision L7a-syntax, 2026-09-02 — the same
-  `canbe Linear` phrase as on type declarations, one qualifier per
+  `<T canbe linear>` (decision L7a-syntax, 2026-09-02 — the same
+  `canbe linear` phrase as on type declarations, one qualifier per
   `canbe`, the comma separates parameters; spelled `with` until the
-  2026-09-03 rename [canbe-optin]):
+  2026-09-03 rename [canbe-optin]). The ban reaches everywhere a generic
+  binds (extended 2026-09-12): ordinary calls, **effect members' own
+  generics** (`swallow<T>(x: T)` cannot bind a linear `T` — handlers
+  never promised to honor it), and **fn values** (a generic fn passed by
+  name instantiates from the position's expected fn type
+  [fn-value-select], and that instantiation is checked too, which is what
+  makes std's `drop` refuse a linear pass while filling the same
+  consuming-callback slot for a plain one).
+  **Structs opt in the same way** (user decision 2026-09-12):
+  `struct Box<T canbe linear>` with `T` reaching a field is a
+  **conditional container** — `Box<Lines>` is linear, `Box<Int>` is plain
+  — whose discharge set is checked at its declaration like any linear
+  struct's [linear-group], and whose obligation **settles by
+  decomposition**: once every field through which linearity reaches the
+  value has been moved out (`return box.item` in `unbox`), the shell owes
+  nothing. A *concrete* linear field takes the `linear struct` marker
+  instead [linear-composite].
   * inside the opted fn, `T`-typed values are treated as linear
     (`Ty::Var` counts as linear), so the body is
     checked under the worst case — including that forwarding an opted
@@ -2571,7 +2621,7 @@ Conventions:
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
     audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
     (whose declaration is now honestly
-    `intrinsic fn discard<T canbe Linear>(value: T) -> None` — no => !value
+    `intrinsic fn discard<T canbe linear>(value: T) -> None` — no => !value
     blessed-by-name special case), while `get` stays out (returns an
     alias of an element) and `copy` refuses with a dedicated message
     (duplicating an obligation is meaningless). The opt-ins are
@@ -2620,11 +2670,27 @@ Conventions:
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
+* [obligation-spelling] **Obligations are lowercase keywords** (user
+  decision 2026-09-12): `proj`, `once`, `linear` — reserved words, written
+  in qualifier position (`proj NonEmpty List<T>`, `once (A) -> B`,
+  `proj[from: p]`) but visually distinct from user qualifiers, the way
+  `provenance` marks its declaration form. The lowercase marks the closed
+  set of compiler-owned behaviors: a qualifier *narrows* and may be
+  dropped; an obligation *widens* (`T <: proj T`, `T <: once T`) and never
+  drops — the reader should not have to learn the direction per name.
+  Bounds follow (`T canbe linear`, and `q canbe once` stays available as
+  the future multiplicity-variable spelling); `canbe Mut` and every other
+  permission stay uppercase. `linear` is never written in a use-site type
+  ([linear-group]'s rule, now enforced on the keyword); it appears in
+  declarations and bounds only.
 * [name-casing] Casing is a *rule*, not a convention (N1a, user decision
   2026-09-03): names of types — structs, qualifiers, type declarations
   and aliases, effects, handlers, generic parameters — start with an
   uppercase letter; names of values — fns, parameters, fields,
-  variables, bindings, lambda parameters — do not. Module path segments
+  variables, bindings, lambda parameters — do not. The three obligation
+  *keywords* (`proj`, `once`, `linear` [obligation-spelling]) are the
+  deliberate exception in type positions: reserved words, not names, so
+  they collide with nothing. Module path segments
   are lowercase, and since a module path *is* a file path [mod-file],
   that constrains file and directory names (`src/Utils.sv` is an error
   naming the file).
@@ -2645,7 +2711,7 @@ Conventions:
     written as type refs), plus generic parameters in scope and the
     language-level `None`, which has no declaration. Qualifiers:
     declared qualifiers plus the compiler's intrinsic `Mut`, `Linear`,
-    `Once` (`Proj` is parsed as part of the return annotation, never
+    `once` (`proj` is parsed as part of the return annotation, never
     as a type ref).
   * A name found in the *other* namespace gets a wording hint instead of
     an import suggestion (`unknown type `Tag` (`Tag` is a qualifier, not
@@ -2870,7 +2936,7 @@ Conventions:
 * [lsp-name-positions] Every *name position* resolves to its declaration for
   hover and go-to-definition, including the two that did not until
   2026-09-11: the group name in a struct's **obligation clause**
-  (`: Linear<self>`), and the type or qualifier name in an **`is` check**
+  (`: Yield<self, T>`), and the type or qualifier name in an **`is` check**
   (`i is Positive`). Before, hovering the latter fell through to the
   enclosing expression and reported only its `Bool`.
 * [doc-qualifies-body] Hover on a **predicate qualifier** shows the
@@ -2928,7 +2994,7 @@ Conventions:
   omitted) and the *effective* deduction clause in the `=>` spelling: the
   inferred/validated one (`Checked::deductions` [deduce-infer]) when
   available, else as declared. Consumed parameters render as `!p`; kept
-  whole ones, and Copy scalars, are omitted; lends render as `Proj[from:
+  whole ones, and Copy scalars, are omitted; lends render as `proj[from:
   …]`; fn-type groups as `=>[f] …`. Effect-member calls
   have no `FnKey` and are not recorded.
 * [diag-import-suggest] Diagnostics for unresolved names carry structured
@@ -3051,7 +3117,7 @@ Conventions:
       owner ("Member of effect `Log`."). Members have no `FnKey`, so no
       *inferred* deductions are shown — the declared list is
       [decl-explicit], which members must write anyway.
-  * A fate-linked (derived) variable hovers as `Proj T` — a bare
+  * A fate-linked (derived) variable hovers as `proj T` — a bare
     compiler qualifier on the type line — with the qualifier's parameters
     (the roots it shares fate with and their binding sites, plus the
     `copy` remedy) as detail below (progressive disclosure, user decision

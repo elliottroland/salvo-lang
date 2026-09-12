@@ -387,7 +387,13 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_fn_flavored(false, FnFlavor::Iter).map(Item::Fn)
             }
-            TokenKind::KwStruct => self.parse_struct().map(Item::Struct),
+            TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
+            // [linear-group] [obligation-spelling] `linear struct X { … }`:
+            // the exactly-once obligation as a declaration modifier.
+            TokenKind::KwLinear if matches!(self.peek_at(1).kind, TokenKind::KwStruct) => {
+                self.bump();
+                self.parse_struct(true).map(Item::Struct)
+            }
             TokenKind::KwQualifier => self
                 .parse_qualifier(false, QualSubject::State)
                 .map(Item::Qualifier),
@@ -533,7 +539,7 @@ impl<'s> Parser<'s> {
         let (generics, canbe) = self.parse_generics_canbe();
         for (ident, _) in &canbe {
             self.error(
-                "`canbe` on a type parameter is only supported on functions",
+                "`canbe` on a type parameter is only supported on functions and structs",
                 ident.span,
             );
         }
@@ -541,7 +547,7 @@ impl<'s> Parser<'s> {
     }
 
     /// Type parameters with optional per-parameter `canbe` opt-ins
-    /// [linear-generics] [canbe-optin]: `<T canbe Linear, U>` — one
+    /// [linear-generics] [canbe-optin]: `<T canbe linear, U>` — one
     /// qualifier per `canbe` (the comma separates parameters).
     fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
         let mut generics = Vec::new();
@@ -579,11 +585,14 @@ impl<'s> Parser<'s> {
         (generics, canbe)
     }
 
-    fn parse_struct(&mut self) -> Option<StructDecl> {
+    fn parse_struct(&mut self, linear: bool) -> Option<StructDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwStruct)?.span;
         let name = self.ident_decl_dotted("struct")?;
-        let generics = self.parse_generics();
+        // [linear-generics] Structs take per-parameter `canbe` opt-ins too
+        // (user decision 2026-09-12): `struct Box<T canbe linear>` is the
+        // conditional-container declaration.
+        let (generics, generic_canbe) = self.parse_generics_canbe();
         // `: Linear, Yield<Str>` — obligation groups this type satisfies
         // [group-obligation]. Before `canbe`, because `:` states what the
         // type must *provide* while `canbe` states what it may be qualified
@@ -619,9 +628,11 @@ impl<'s> Parser<'s> {
             docs,
             name,
             generics,
+            generic_canbe,
             obligations,
             auto_qualifiers,
             fields,
+            linear,
             span: start.to(end),
         })
     }
@@ -1070,8 +1081,8 @@ impl<'s> Parser<'s> {
             }
             let ty = self.parse_type()?;
             // [proj-anywhere] The derived-return summary the checker and the
-            // emitters consume: the parameter named by the *first* `Proj` in
-            // the return type. `Proj[from: p] T` is now an ordinary qualifier
+            // emitters consume: the parameter named by the *first* `proj` in
+            // the return type. `proj[from: p] T` is now an ordinary qualifier
             // on `T`, so the old prefix spelling reads identically.
             derived_return = first_proj_source(&ty);
             return_type = Some(ty);
@@ -1303,7 +1314,7 @@ impl<'s> Parser<'s> {
 
     /// One entry [deduce-syntax]: `!elem`, `elem`, `elem: Qual…`,
     /// `elem: None`, `elem: Nothing`, `elem: -Qual…`, `elem: +Qual…`,
-    /// `x.f: Proj[from: a]`, `.f: Proj[from: a]`, or a bare `Proj[from: a]`.
+    /// `x.f: proj[from: a]`, `.f: proj[from: a]`, or a bare `proj[from: a]`.
     fn parse_deduction_entry(&mut self) -> Option<Deduction> {
         let start = self.peek().span;
         // `!elem`: consumed.
@@ -1316,11 +1327,11 @@ impl<'s> Parser<'s> {
                 kind: DeductionKind::Moved,
             });
         }
-        // Bare `Proj[from: …]`: opaque.
-        if matches!(&self.peek().kind, TokenKind::Ident(n) if n == "Proj") {
+        // Bare `proj[from: …]`: opaque.
+        if matches!(&self.peek().kind, TokenKind::KwProj) {
             let r = self.parse_type_ref()?;
             if r.from.is_empty() {
-                self.error("a bare `Proj` deduction needs its sources: `Proj[from: c]`", r.span);
+                self.error("a bare `proj` deduction needs its sources: `proj[from: c]`", r.span);
             }
             return Some(Deduction {
                 span: start.to(r.span),
@@ -1348,11 +1359,11 @@ impl<'s> Parser<'s> {
         };
         let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
         let kind = if self.eat(&TokenKind::Colon).is_some() {
-            // `: Proj[from: …]`
-            if matches!(&self.peek().kind, TokenKind::Ident(n) if n == "Proj") {
+            // `: proj[from: …]`
+            if matches!(&self.peek().kind, TokenKind::KwProj) {
                 let r = self.parse_type_ref()?;
                 if r.from.is_empty() {
-                    self.error("a projection entry needs its sources: `Proj[from: c]`", r.span);
+                    self.error("a projection entry needs its sources: `proj[from: c]`", r.span);
                 }
                 end = r.span;
                 DeductionKind::Proj(r.from)
@@ -1437,14 +1448,14 @@ impl<'s> Parser<'s> {
         };
         if matches!(target, DeductionTarget::Result { .. }) && !matches!(kind, DeductionKind::Proj(_)) {
             self.error(
-                "a result path (`.field`) can only state a projection: `.field: Proj[from: p]`",
+                "a result path (`.field`) can only state a projection: `.field: proj[from: p]`",
                 start.to(end),
             );
         }
         if let DeductionTarget::Param { path, .. } = &target {
             if !path.is_empty() && !matches!(kind, DeductionKind::Proj(_)) {
                 self.error(
-                    "a parameter's field path can only state a projection: `v.field: Proj[from: p]`",
+                    "a parameter's field path can only state a projection: `v.field: proj[from: p]`",
                     start.to(end),
                 );
             }
@@ -1503,7 +1514,10 @@ impl<'s> Parser<'s> {
         // Only continue the sequence on the same line (or inside a group) so
         // a type at the end of a line never swallows the next line.
         let mut refs = vec![self.parse_type_ref()?];
-        while self.at_ident() && self.same_line() {
+        while (self.at_ident()
+            || matches!(self.kind(), TokenKind::KwProj | TokenKind::KwOnce | TokenKind::KwLinear))
+            && self.same_line()
+        {
             refs.push(self.parse_type_ref()?);
         }
         // Qualifiers applied to a parenthesized type: `Ok (Ok Str | Err Int)`.
@@ -1609,6 +1623,29 @@ impl<'s> Parser<'s> {
     /// dot-call) are untouched — the casing rule [name-casing] is what
     /// makes that decidable.
     fn type_ref_name(&mut self) -> Option<Ident> {
+        // [obligation-spelling] The obligation keywords stand in qualifier
+        // position: `proj NonEmpty List<T>`, `once (A) -> B`. They carry
+        // their keyword spelling as the name, so the checker and displays
+        // agree with the source. `linear` parses here too — `canbe linear`
+        // bounds arrive through this path — and the *checker* refuses it in
+        // use-site type positions ([linear-group]: a per-value spelling
+        // could be forgotten), keeping the diagnostic better than a parse
+        // error.
+        match self.kind() {
+            TokenKind::KwProj => {
+                let span = self.bump().span;
+                return Some(Ident { name: "proj".to_string(), span });
+            }
+            TokenKind::KwOnce => {
+                let span = self.bump().span;
+                return Some(Ident { name: "once".to_string(), span });
+            }
+            TokenKind::KwLinear => {
+                let span = self.bump().span;
+                return Some(Ident { name: "linear".to_string(), span });
+            }
+            _ => {}
+        }
         let head = self.ident()?;
         // [iter-fn] A leading `_` is the compiler's namespace: a generated pass
         // struct is `__Pass_<Subject>`, and it exists as a real declaration
@@ -1649,24 +1686,24 @@ impl<'s> Parser<'s> {
         let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
-        // [proj-anywhere] `Proj[from: param]`: the borrow's source, written on
-        // the qualifier itself so it can sit anywhere a type does — a union
+        // [proj-anywhere] `proj[from: param]`: the borrow's source, written on
+        // the obligation itself so it can sit anywhere a type does — a union
         // arm, a type argument, a tuple element — and so a type borrowing
-        // from two parameters names each. Only `Proj` takes the bracket; a
+        // from two parameters names each. Only `proj` takes the bracket; a
         // `[` after any other name is the array postfix `T[]`, handled by
         // the caller, so it is only consumed here when followed by an ident.
         let mut from = Vec::new();
-        if name.name == "Proj"
+        if name.name == "proj"
             && self.at(&TokenKind::LBracket)
             && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
         {
             self.bump(); // [
             let key = self.ident()?;
             if key.name != "from" {
-                self.error("expected `from:` in `Proj[from: param]`", key.span);
+                self.error("expected `from:` in `proj[from: param]`", key.span);
             }
             self.expect(&TokenKind::Colon)?;
-            // `Proj[from: a, b]`: several sources at once [proj-anywhere].
+            // `proj[from: a, b]`: several sources at once [proj-anywhere].
             loop {
                 from.push(self.ident()?);
                 if self.eat(&TokenKind::Comma).is_none() {
@@ -2197,6 +2234,15 @@ impl<'s> Parser<'s> {
         loop {
             if !self.same_line() {
                 break;
+            }
+            // [obligation-spelling] `is once (A) -> B`, `is proj Str`: the
+            // obligation keywords open a type ref like any qualifier.
+            if matches!(
+                self.kind(),
+                TokenKind::KwProj | TokenKind::KwOnce | TokenKind::KwLinear
+            ) {
+                refs.push(self.parse_type_ref()?);
+                continue;
             }
             let TokenKind::Ident(name) = self.kind() else {
                 break;
@@ -3194,15 +3240,15 @@ enum FnFlavor {
     Iter,
 }
 
-/// [proj-anywhere] The source parameter of the first `Proj[from: p]` in a
+/// [proj-anywhere] The source parameter of the first `proj[from: p]` in a
 /// type, searching arms, arguments and elements in order.
 pub fn first_proj_source(ty: &Type) -> Option<Ident> {
-    // [proj-infer] Only a *wholesale* `Proj` — on the result itself, an
-    // arm, a tuple element — makes a derived return. A `Proj` inside a type
-    // argument (`List<Proj T>`) is a borrow the result *holds*, tracked as a
+    // [proj-infer] Only a *wholesale* `proj` — on the result itself, an
+    // arm, a tuple element — makes a derived return. A `proj` inside a type
+    // argument (`List<proj T>`) is a borrow the result *holds*, tracked as a
     // lend, so type arguments are not descended into.
     fn in_ref(r: &TypeRef) -> Option<Ident> {
-        if r.name.name == "Proj" {
+        if r.name.name == "proj" {
             if let Some(from) = r.from.first() {
                 return Some(from.clone());
             }

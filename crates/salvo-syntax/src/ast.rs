@@ -171,6 +171,11 @@ pub struct StructDecl {
     pub docs: Vec<String>,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// Per-type-parameter opt-ins, `<T canbe linear>` [linear-generics]:
+    /// a **conditional container** — the struct is linear exactly when the
+    /// instantiation puts a linear type in a field the parameter reaches
+    /// (user decision 2026-09-12).
+    pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// Obligations [group-obligation]: `params` groups this type promises
     /// to satisfy, written `: Group<Args>` after the generics and before
     /// `canbe`. Each member of each named group must have a matching
@@ -180,6 +185,13 @@ pub struct StructDecl {
     /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
+    /// [linear-group] `linear struct X` — the exactly-once obligation,
+    /// declared as a modifier (user decision 2026-09-12; replaces the
+    /// `: Linear<self>` group entry). A generic struct with a
+    /// `canbe linear` parameter is *conditionally* linear without the
+    /// modifier; the modifier is for leaf types and concrete linear
+    /// fields.
+    pub linear: bool,
     pub span: Span,
 }
 
@@ -323,9 +335,9 @@ pub struct FnDecl {
     pub iter_state: Vec<FieldDecl>,
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// Per-type-parameter opt-ins: `<T canbe Linear>` [linear-generics].
+    /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,
-    /// `-> Proj[from: param] T`: the returned value is derived from
+    /// `-> proj[from: param] T`: the returned value is derived from
     /// (borrows) the named kept parameter [readonly-return].
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
@@ -383,9 +395,9 @@ pub enum EffectRef {
 /// `=> list: None` (exhaustive and empty — every qualifier stripped),
 /// `=> list: -NonEmpty` (*delta* — drop `NonEmpty`, keep the rest),
 /// `=> !list` (moved; `list: Nothing` says the same),
-/// `=> .items: Proj[from: list]` (the result's field projects `list`),
-/// `=> v.items: Proj[from: other]` (a parameter's field is re-pointed), and
-/// `=> Proj[from: c]` (opaque: the result holds a borrow of `c`)
+/// `=> .items: proj[from: list]` (the result's field projects `list`),
+/// `=> v.items: proj[from: other]` (a parameter's field is re-pointed), and
+/// `=> proj[from: c]` (opaque: the result holds a borrow of `c`)
 /// [proj-infer]. A parameter the clause does not mention is *inferred*
 /// from the body; a bodiless declaration must mention every parameter
 /// except Copy scalars.
@@ -428,7 +440,7 @@ pub enum DeductionTarget {
     Param { name: Ident, path: Vec<Ident> },
     /// A field path of the result (`.items`).
     Result { path: Vec<Ident> },
-    /// The result as a whole, opaquely: a bare `Proj[from: c]` says the
+    /// The result as a whole, opaquely: a bare `proj[from: c]` says the
     /// result *holds* a borrow of `c` somewhere inside [proj-infer].
     Opaque,
 }
@@ -446,7 +458,7 @@ pub enum DeductionKind {
     Remove(Vec<TypeRef>),
     /// `=> !list` / `=> list: Nothing`: moved (the caller loses access).
     Moved,
-    /// `Proj[from: a, b]`: a projection of the named parameters — of the
+    /// `proj[from: a, b]`: a projection of the named parameters — of the
     /// entry's target (a result path, a parameter, a parameter's field) or,
     /// with no target, held somewhere inside the result [proj-infer].
     Proj(Vec<Ident>),
@@ -518,10 +530,10 @@ impl Type {
 pub struct TypeRef {
     pub name: Ident,
     pub args: Vec<Type>,
-    /// [proj-anywhere] `Proj[from: a, b]`: for the `Proj` qualifier, the
+    /// [proj-anywhere] `proj[from: a, b]`: for the `proj` qualifier, the
     /// kept parameters the value borrows from (several when a projection is
-    /// joined across branches). Only `Proj` carries them, wherever a type
-    /// does — a return, a union arm (`(Proj[from: xs] T)?`). Empty on a
+    /// joined across branches). Only `proj` carries them, wherever a type
+    /// does — a return, a union arm (`(proj[from: xs] T)?`). Empty on a
     /// field or parameter (the source is the value's, not the type's).
     pub from: Vec<Ident>,
     pub span: Span,

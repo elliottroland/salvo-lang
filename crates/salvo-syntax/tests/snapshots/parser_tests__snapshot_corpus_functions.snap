@@ -1018,6 +1018,7 @@ Module {
                     span: 934..939,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [
@@ -1064,6 +1065,7 @@ Module {
                         span: 962..970,
                     },
                 ],
+                linear: false,
                 span: 927..972,
             },
         ),
@@ -1216,6 +1218,7 @@ Module {
                     span: 1066..1067,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [
                     TypeRef {
                         name: Ident {
@@ -1307,6 +1310,7 @@ Module {
                         span: 1136..1157,
                     },
                 ],
+                linear: false,
                 span: 1066..1067,
             },
         ),
@@ -1777,6 +1781,7 @@ Module {
                     span: 1349..1358,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [
                     TypeRef {
                         name: Ident {
@@ -1847,6 +1852,7 @@ Module {
                         span: 1394..1401,
                     },
                 ],
+                linear: false,
                 span: 1342..1403,
             },
         ),

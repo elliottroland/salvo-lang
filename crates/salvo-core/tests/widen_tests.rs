@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn first<T>(list: List<T>) [] -> Proj[from: list] T? => list\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -149,10 +149,10 @@ fn a_widened_value_loses_what_the_qualifier_granted() {
 /// the two cannot drift.
 #[test]
 fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
-    // `Proj` is in the same list; since 2026-09-11 it *is* writable
+    // `proj` is in the same list; since 2026-09-11 it *is* writable
     // [proj-anywhere], but it is stripped at lowering (a borrow is
     // provenance, not part of the type), so a `^` never meets it.
-    for (qual, needle) in [("Once", "once-callable"), ("Linear", "use obligation")] {
+    for (qual, needle) in [("once", "once-callable"), ("Linear", "use obligation")] {
         let errs = errors(&format!(
             "{PRELUDE}\n\
              fn probe(p: Person) [] -> None => p {{\n\
@@ -368,28 +368,28 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
     );
 }
 
-// ===== `Proj` placement [proj-anywhere] [proj-field] =====
+// ===== `proj` placement [proj-anywhere] [proj-field] =====
 
-/// [proj-anywhere] `Proj[from: p]` is an ordinary qualifier now, writable
+/// [proj-anywhere] `proj[from: p]` is an ordinary qualifier now, writable
 /// wherever a type appears: the old return prefix and the union-arm spelling
-/// mean the same thing, and a parameter may be a bare `Proj`.
+/// mean the same thing, and a parameter may be a bare `proj`.
 #[test]
 fn proj_is_writable_in_arm_and_parameter_positions() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head_a(list: List<Person>) [] -> Proj[from: list] Person? => list {{\n    return first(list)\n}}\n\
-         fn head_b(list: List<Person>) [] -> (Proj[from: list] Person)? => list {{\n    return first(list)\n}}\n\
-         fn hold(p: Proj Person) [] -> Int => p {{\n    return 1\n}}\n"
+         fn head_a(list: List<Person>) [] -> proj[from: list] Person? => list {{\n    return first(list)\n}}\n\
+         fn head_b(list: List<Person>) [] -> (proj[from: list] Person)? => list {{\n    return first(list)\n}}\n\
+         fn hold(p: proj Person) [] -> Int => p {{\n    return 1\n}}\n"
     ));
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
 }
 
-/// [proj-anywhere] A `Proj` in a *return* type must say what it borrows from.
+/// [proj-anywhere] A `proj` in a *return* type must say what it borrows from.
 #[test]
 fn a_proj_return_without_a_source_is_an_error() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head(list: List<Person>) [] -> Proj Person? => list {{\n    return first(list)\n}}\n"
+         fn head(list: List<Person>) [] -> proj Person? => list {{\n    return first(list)\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("must name its source")),
@@ -403,47 +403,47 @@ fn a_proj_return_without_a_source_is_an_error() {
 fn a_proj_source_must_be_a_parameter() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head(list: List<Person>) [] -> (Proj[from: nope] Person)? => list {{\n    return first(list)\n}}\n"
+         fn head(list: List<Person>) [] -> (proj[from: nope] Person)? => list {{\n    return first(list)\n}}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains("`Proj[from: nope]` names no parameter")),
+        errs.iter().any(|e| e.contains("`proj[from: nope]` names no parameter")),
         "got: {errs:?}"
     );
 }
 
 
-/// [proj-anywhere] A `Proj` parameter is a kept parameter: the body may read
+/// [proj-anywhere] A `proj` parameter is a kept parameter: the body may read
 /// it and may not move it.
 #[test]
 fn a_proj_parameter_cannot_be_moved() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn eat(p: Person) [] -> None => !p {{}}\n\
-         fn hold(p: Proj Person) [] -> Int => p {{\n    eat(p)\n    return 1\n}}\n"
+         fn hold(p: proj Person) [] -> Int => p {{\n    eat(p)\n    return 1\n}}\n"
     ));
     // [proj-type] Caught at the type level: a projection into a consuming
     // position.
     assert!(
-        errs.iter().any(|e| e.contains("`p` is a projection (`Proj Person`), and `eat` consumes `p`")),
+        errs.iter().any(|e| e.contains("`p` is a projection (`proj Person`), and `eat` consumes `p`")),
         "got: {errs:?}"
     );
 }
 
 // ---- [proj-field] [proj-infer] [proj-readonly] (user decisions 2026-09-11) ----
 
-const VIEW_PRELUDE: &str = "struct View<T> canbe Mut {\n    items: Proj List<T>,\n    at: Int\n}\n\
+const VIEW_PRELUDE: &str = "struct View<T> canbe Mut {\n    items: proj List<T>,\n    at: Int\n}\n\
 fn view<T>(items: List<T>) -> Mut View<T> => items {\n    return Mut View<T> { items: items, at: 0 }\n}\n\
 fn advance<T>(v: Mut View<T>) -> Int => v: Mut {\n    v.at = v.at + 1\n    return v.at\n}\n";
 
-/// [proj-field] Any struct may hold a `Proj` field; it is written without a
+/// [proj-field] Any struct may hold a `proj` field; it is written without a
 /// source — each literal decides what it projects.
 #[test]
 fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
     let errs = errors(VIEW_PRELUDE);
     assert!(errs.is_empty(), "{errs:?}");
-    let errs = errors("struct Bad<T> {\n    items: Proj[from: x] List<T>\n}\n");
+    let errs = errors("struct Bad<T> {\n    items: proj[from: x] List<T>\n}\n");
     assert!(
-        errs.iter().any(|e| e.contains("a `Proj` field names no source")),
+        errs.iter().any(|e| e.contains("a `proj` field names no source")),
         "{errs:?}"
     );
 }
@@ -470,10 +470,10 @@ fn a_held_view_may_be_advanced_but_a_projection_may_not() {
          fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
-    // [proj-type] Caught at the type level: `Proj Mut View<Int>` never
+    // [proj-type] Caught at the type level: `proj Mut View<Int>` never
     // satisfies a `Mut` position.
     assert!(
-        errs.iter().any(|e| e.contains("`v` is a projection (`Proj Mut View<Int>`), which can only be read")),
+        errs.iter().any(|e| e.contains("`v` is a projection (`proj Mut View<Int>`), which can only be read")),
         "{errs:?}"
     );
 }
@@ -494,13 +494,13 @@ fn a_view_keeps_its_source_alive_through_an_inferred_lend() {
     );
 }
 
-/// [proj-infer] A written `[p: Proj]` list must match the body exactly; a
+/// [proj-infer] A written `[p: proj]` list must match the body exactly; a
 /// returned view rooted in a local is refused.
 #[test]
 fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> => a, Proj[from: a], b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
+         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> => a, proj[from: a], b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -516,20 +516,20 @@ fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-/// [proj-infer] `[p: Proj]` alone keeps everything (it is not an
+/// [proj-infer] `[p: proj]` alone keeps everything (it is not an
 /// afterwards-qualifier), and a bodiless declaration may carry it.
 #[test]
 fn a_written_proj_entry_keeps_and_declares() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> => xs, Proj[from: xs], tag\n}}\n\
+         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> => xs, proj[from: xs], tag\n}}\n\
          fn eat(xs: List<Int>) -> Int => !xs {{ return 0 }}\n\
          fn main(xs: List<Int>, tag: Str) [Src] {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
     // The first `advance` is fine (the entry keeps `xs` and lends it); the
     // second sees the view poisoned by `eat(xs)` — the link came from the
-    // written `Proj`, there being no body to infer it from.
+    // written `proj`, there being no body to infer it from.
     assert!(
         errs.iter().any(|e| e.contains("`v` cannot be used here")),
         "{errs:?}"

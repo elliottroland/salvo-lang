@@ -72,6 +72,14 @@ pub enum TokenKind {
     KwTry,
     KwTrue,
     KwFalse,
+    /// [obligation-spelling] `proj` — the borrow obligation, in type
+    /// positions and deduction entries (`proj[from: p]`).
+    KwProj,
+    /// [obligation-spelling] `once` — the at-most-once obligation.
+    KwOnce,
+    /// [obligation-spelling] `linear` — the exactly-once obligation:
+    /// `linear struct X` declarations and `canbe linear` bounds.
+    KwLinear,
 
     // Punctuation and operators
     LParen,
@@ -161,6 +169,13 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("try", TokenKind::KwTry),
     ("true", TokenKind::KwTrue),
     ("false", TokenKind::KwFalse),
+    // [obligation-spelling] The obligation keywords: lowercase, reserved —
+    // compiler-owned behaviors, visually distinct from user qualifiers
+    // (user decision 2026-09-12). `proj`/`once` appear in type positions;
+    // `linear` before `struct` and in `canbe linear` bounds.
+    ("proj", TokenKind::KwProj),
+    ("once", TokenKind::KwOnce),
+    ("linear", TokenKind::KwLinear),
 ];
 
 impl TokenKind {

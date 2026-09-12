@@ -86,7 +86,7 @@
         },
         {
           "name": "keyword.other.salvo",
-          "match": "\\b(as|of|with|canbe|is|use)\\b"
+          "match": "\\b(as|of|with|canbe|is|use|proj|once|linear)\\b"
         },
         {
           "name": "constant.language.boolean.salvo",

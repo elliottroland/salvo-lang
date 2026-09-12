@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> None => !value\nparams Linear<It> {\n    fn close(it: It) -> None => !it\n}\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -73,11 +73,11 @@ effect Throw<M> {
 qualifier Ok<T> of T
 qualifier Thrown<M> of M
 
-struct Handle : Linear<self> {
+linear struct Handle {
     fd: Int
 }
 
-fn close(x: Handle) -> None => !x {}
+fn close(x: Handle) -> None => !x { discard(x) }
 
 
 fn open_handle(fd: Int) [] -> Handle {
@@ -383,7 +383,7 @@ fn an_inner_try_takes_only_its_own_throws() {
 // assumption. Both are reachable: a *qualified union* is a claim about a
 // union, so the inner arms are matched by binding at the inner type — the
 // droppable-qualifier rule (`Qual T <: T`) does the unwrapping, which is
-// also why `Once` (never droppable) needs no special case here.
+// also why `once` (never droppable) needs no special case here.
 
 /// [try] A body that already returns a result yields
 /// `Ok (Ok Int | Err Str) | Thrown M`, and the inner result is reachable.

@@ -88,6 +88,9 @@ pub struct DefSite {
 pub struct ModuleScope<'p> {
     pub fns: HashMap<&'p str, Vec<FnEntry<'p>>>,
     pub structs: HashMap<&'p str, &'p StructDecl>,
+    /// The file index each visible struct was declared in — what the
+    /// same-file discharger rule keys on [linear-group].
+    pub struct_files: HashMap<&'p str, usize>,
     pub effects: HashMap<&'p str, &'p EffectDecl>,
     /// `params` groups visible here [implicit-group].
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
@@ -763,6 +766,7 @@ fn add_items<'p>(
             let name = visible_as(&s.name.name);
             if ctx.admit(NameKind::Struct, name, module, level, import_span) {
                 scope.structs.insert(name, s);
+                scope.struct_files.insert(name, *file);
                 origin(name, scope);
                 def_site(name, *file, s.name.span, scope);
             }

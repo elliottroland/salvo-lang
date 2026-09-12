@@ -173,13 +173,13 @@ fn a_caller_must_supply_an_inherited_effect() {
     );
 }
 
-/// [fn-effects] Inheritance reaches through a qualifier: `Once` fn types
+/// [fn-effects] Inheritance reaches through a qualifier: `once` fn types
 /// carry effects the same way.
 #[test]
 fn inheritance_reaches_through_a_qualifier() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run_once(f: Once () [Logger] -> None) -> None => !f {{\n\
+         fn run_once(f: once () [Logger] -> None) -> None => !f {{\n\
          f()\n\
          }}\n\
          fn caller() [Logger] -> None {{\n\

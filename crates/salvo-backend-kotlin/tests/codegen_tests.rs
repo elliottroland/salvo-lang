@@ -871,8 +871,8 @@ const FN_FIELD_OUTPUT: &str = "n 6\nn 4\nn 2\ndone\n";
 ///
 /// Shared with the Rust backend, byte for byte.
 const GENERIC_DRIVE_DEMO: &str = r#"
-struct Slice<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,
+struct Slice<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,
     at: Int
 }
 
@@ -880,7 +880,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -957,7 +957,7 @@ const GENERIC_DRIVE_OUTPUT: &str = "first 3\nrest 7\nv 8\nv 9\nv 7\n";
 /// call is asserted in the emitted code and the program is run to prove it
 /// builds.
 const GENERIC_CLOSE_DEMO: &str = r#"
-struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
+linear struct Handle : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -974,10 +974,12 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) -> None => !h {}
+fn close(h: Handle) -> None => !h { discard(h) }
 
-// Owns the pass: the loop releases it on every exit, `break` included.
-fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> Int => !it {
+// Owns the pass and takes its discharge as a consuming callback (user
+// decision 2026-09-12: no implicit discharge sites — the loop drives in
+// place, and `end(it)` is the explicit terminal on the one path out).
+fn drain<It canbe linear>(it: Mut It, stop: Int, end: (x: It) -> None, ?Yield<It, Int>) [] -> Int => !it =>[end] !x {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -985,13 +987,14 @@ fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [
             break
         }
     }
+    end(it)
     return sum
 }
 
 fn main() [use] {
     use StdOutConsole()
-    println("all ${drain(open_handle(4), 100)}")
-    println("cut ${drain(open_handle(4), 5)}")
+    println("all ${drain(open_handle(4), 100, close)}")
+    println("cut ${drain(open_handle(4), 5, close)}")
 }
 "#;
 
@@ -999,7 +1002,7 @@ const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
 
 /// backend's `rustc_compiles_and_runs_a_released_raw_pass`.
 const RAW_CLOSE_DEMO: &str = r#"
-struct Lines : Yield<self, Int>, Linear<self> canbe Mut {
+linear struct Lines : Yield<self, Int> canbe Mut {
     at: Int
 }
 
@@ -1013,6 +1016,7 @@ fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
 }
 
 fn close(l: Lines) [Console] -> None => !l {
+    discard(l)
     println("closed")
 }
 
@@ -1021,6 +1025,7 @@ fn drained() [Console] -> None {
     for n in lines {
         println("n ${n}")
     }
+    close(lines)
     println("after drain")
 }
 
@@ -1030,6 +1035,7 @@ fn abandoned() [Console] -> None {
         println("m ${n}")
         break
     }
+    close(lines)
     println("after break")
 }
 
@@ -1043,7 +1049,10 @@ fn main() [use] {
 const RAW_CLOSE_OUTPUT: &str = "n 2\nn 1\nclosed\nafter drain\nm 5\nclosed\nafter break\n";
 
 #[test]
-fn a_raw_pass_with_a_close_is_released_in_a_finally() {
+fn a_raw_pass_is_driven_in_place_with_no_finally() {
+    // [iter-drive-in-place] [linear-group] No implicit discharge sites
+    // (user decision 2026-09-12): no finally splice — the program's own
+    // `close(lines)` is the discharge, an ordinary call.
     let program = build_program(&[("main.sv", RAW_CLOSE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -1054,8 +1063,12 @@ fn a_raw_pass_with_a_close_is_released_in_a_finally() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("} finally {") && src.contains("close(console, __loop1_pass)"),
-        "expected the release in a finally, got:\n{src}"
+        !src.contains("} finally {") && !src.contains("__loop1_pass"),
+        "expected no finally splice and no loop local, got:\n{src}"
+    );
+    assert!(
+        src.contains("close(console, lines)"),
+        "expected the program's own explicit close:\n{src}"
     );
 }
 
@@ -1068,8 +1081,8 @@ fn kotlinc_compiles_and_runs_a_released_raw_pass() -> KotlinCase {
 }
 
 const YIELD_SPREAD_DEMO: &str = r#"
-struct Slice<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,
+struct Slice<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,
     at: Int
 }
 
@@ -1077,7 +1090,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1720,6 +1733,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_deduction_clause_projections,
     kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter,
     kotlinc_compiles_and_runs_a_capture_rooted_projection,
+    kotlinc_compiles_and_runs_a_linear_union_arm,
+    kotlinc_compiles_and_runs_a_linear_wrapper_pass,
+    kotlinc_compiles_and_runs_drop_as_a_consuming_callback,
 ];
 
 /// The package prefix isolating one case inside the shared compilation.
@@ -2708,11 +2724,11 @@ fn kotlinc_compiles_and_runs_borrows() -> KotlinCase {
 /// guarantees no path leaks the handle; the demo verifies the lowering
 /// (Kotlin: `discard` evaluates and ignores via `.let {}`).
 const LINEAR_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(path: Str) [Console] -> FileHandle => !path {
@@ -2750,15 +2766,15 @@ fn kotlinc_compiles_and_runs_linear() -> KotlinCase {
 
 // ===== L7a: generic linear opt-in [linear-generics] =====
 
-/// `<T canbe Linear>` in action: the opted std surface makes a linear
+/// `<T canbe linear>` in action: the opted std surface makes a linear
 /// collection workflow legal end to end — construct empty, `add`
 /// individually, `size`, and `discard` the (linear) collection.
 const LINEAR_GENERICS_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(n: Int) [Console] -> FileHandle {
@@ -2766,7 +2782,7 @@ fn open_file(n: Int) [Console] -> FileHandle {
     return FileHandle {fd: n}
 }
 
-fn hold<T canbe Linear>(value: T) -> T {
+fn hold<T canbe linear>(value: T) -> T {
     return value
 }
 
@@ -2788,13 +2804,13 @@ fn kotlinc_compiles_and_runs_linear_generics() -> KotlinCase {
     kotlin_case(files, "l7a-linear-generics", expected)
 }
 
-// ===== L7b: Once fn types [once-fn] =====
+// ===== L7b: once fn types [once-fn] =====
 
-/// A `Once` parameter accepts both a capture-consuming lambda (which is
-/// `Once`-typed by construction) and a plain lambda (inverted
+/// A `once` parameter accepts both a capture-consuming lambda (which is
+/// `once`-typed by construction) and a plain lambda (inverted
 /// subtyping); the checker guarantees at most one call.
 const ONCE_DEMO: &str = r#"
-fn run_once(f: Once () [Console] -> None) {
+fn run_once(f: once () [Console] -> None) {
     f()
 }
 
@@ -2835,7 +2851,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {
+fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -2844,7 +2860,7 @@ fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> Proj[from: persons] Person? => persons, tag {
+fn head_of(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => persons, tag {
     return first(persons)
 }
 
@@ -4172,11 +4188,11 @@ fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
-struct FileHandle : Linear<self> {
+linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 
 
 fn open_file(n: Int) [Console] -> FileHandle {
@@ -5297,7 +5313,7 @@ qualifier NonEmpty<T> of List<T> {
 }
 
 // Only callable while the compiler still believes the list is non-empty.
-fn count<T canbe Linear>(list: NonEmpty List<T>) -> Int => list {
+fn count<T canbe linear>(list: NonEmpty List<T>) -> Int => list {
     return size(list)
 }
 
@@ -5889,8 +5905,8 @@ fn kotlinc_compiles_and_runs_a_generic_drive() -> KotlinCase {
 /// concrete types stays unannotated (those casts are checked at run time
 /// and draw no warning).
 const SUPPRESS_DEMO: &str = r#"
-struct Slice<T> : Yield<self, Proj T> canbe Mut {
-    items: Proj List<T>,
+struct Slice<T> : Yield<self, proj T> canbe Mut {
+    items: proj List<T>,
     at: Int
 }
 
@@ -5898,7 +5914,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -5959,11 +5975,14 @@ fn a_generic_payload_cast_gets_the_suppression() {
     );
 }
 
-/// [linear-generics] The release: the implicit `close` goes in the `finally`
-/// the exit-splice lowering uses here [kt-exit-finally], so `break`, `return`
-/// and exhaustion all reach it.
+/// [linear-generics] The discharge is the program's own: the pass drives in
+/// place and `end(it)` is the explicit terminal — no finally splice (user
+/// decision 2026-09-12).
 #[test]
-fn an_owned_generic_pass_is_closed_by_the_loop() {
+fn an_owned_generic_pass_is_discharged_by_the_callback() {
+    // [linear-group] No implicit discharge sites (user decision
+    // 2026-09-12): no finally splice — `end(it)` is the program's own
+    // terminal, an ordinary call through the fn-typed parameter.
     let program = build_program(&[("main.sv", GENERIC_CLOSE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -5974,8 +5993,12 @@ fn an_owned_generic_pass_is_closed_by_the_loop() {
         .expect("main.kt")
         .content;
     assert!(
-        src.contains("} finally {") && src.contains("close(__loop1_pass)"),
-        "expected the implicit release in a `finally` in:\n{src}"
+        !src.contains("} finally {"),
+        "expected no finally splice in:\n{src}"
+    );
+    assert!(
+        src.contains("end(it)"),
+        "expected the explicit consuming-callback discharge in:\n{src}"
     );
 }
 
@@ -6199,7 +6222,7 @@ fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, Proj[from: c] => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj[from: c] => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -6380,16 +6403,16 @@ fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
 
 /// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
 /// that emits borrowed elements. The generated pass **borrows** its subject
-/// (`__subject: Proj Box<T>`, user decision 2026-09-11) instead of copying it,
+/// (`__subject: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
-/// generic subjects on the Kotlin backend [kt-copy]. `Proj[from: b]` in the
+/// generic subjects on the Kotlin backend [kt-copy]. `proj[from: b]` in the
 /// written return names the subject; the desugar redirects it to the pass.
 const GENERIC_ITER_FN_DEMO: &str = r#"
 struct Box<T> {
     items: List<T>
 }
 
-iter fn next<T>(b: Box<T>) -> Emitted (Proj[from: b] T) | Finished {
+iter fn next<T>(b: Box<T>) -> Emitted (proj[from: b] T) | Finished {
     state {
         at: Int = 0
     }
@@ -6423,12 +6446,12 @@ fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
 }
 
 /// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
-/// end: a wholesale `Proj[from: a, b]` joined across branches, and a
-/// re-pointing entry `v.items: Proj[from: other]` that makes a view borrow a
+/// end: a wholesale `proj[from: a, b]` joined across branches, and a
+/// re-pointing entry `v.items: proj[from: other]` that makes a view borrow a
 /// different list — Rust ties the struct's lifetime to the new source.
 const DEDUCTION_CLAUSE_DEMO: &str = r#"
 struct View canbe Mut {
-    items: Proj List<Int>,
+    items: proj List<Int>,
     at: Int
 }
 
@@ -6436,12 +6459,12 @@ fn view(items: List<Int>) -> Mut View {
     return Mut View { items: items, at: 0 }
 }
 
-fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: Proj[from: other] {
+fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: proj[from: other] {
     v.items = other
     v.at = 0
 }
 
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> Proj[from: a, b] List<Int> {
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> {
     if flag {
         return a
     }
@@ -6469,15 +6492,15 @@ fn kotlinc_compiles_and_runs_the_deduction_clause_projections() -> KotlinCase {
     kotlin_case(files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT)
 }
 
-// ===== [proj-type] a borrowed union arm into a `Proj`-typed parameter =====
+// ===== [proj-type] a borrowed union arm into a `proj`-typed parameter =====
 
 /// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
-/// `Emitted (Proj Str) | Finished` — a union whose payload arm *borrows* —
+/// `Emitted (proj Str) | Finished` — a union whose payload arm *borrows* —
 /// and a fn takes that union whole by writing the projection in its
 /// parameter type. On the JVM the projection erases; the point here is
 /// byte-identical stdout with the Rust backend.
 const PROJ_ARM_PARAM_DEMO: &str = r#"
-fn show(step: Emitted (Proj Str) | Finished) [Console] -> None {
+fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
     when step {
         is Emitted { println(step) }
         is Finished { println("done") }
@@ -6539,4 +6562,190 @@ fn kotlinc_compiles_and_runs_a_capture_rooted_projection() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "pick-list", PICK_LIST_OUTPUT)
+}
+
+// ===== [linear-union-arm] the fallible-open shape =====
+
+/// The Kotlin half of O-C2: linearity is checker-only, so the union with a
+/// linear arm lowers like any other — what this pins is byte-identical
+/// stdout with the Rust backend [linear-static].
+const FALLIBLE_OPEN_DEMO: &str = r#"
+linear struct InputStream {
+    path: Str
+}
+
+fn close(s: InputStream) [Console] -> None => !s {
+    println("closed ${s.path}")
+    discard(s)
+}
+
+fn open(path: Str) -> Ok InputStream | Err Str {
+    if size(path) > 0 {
+        return ok(InputStream {path: path})
+    }
+    return err("empty path")
+}
+
+fn attempt(path: Str) [Console] -> None {
+    let r = open(path)
+    when r {
+        is Ok {
+            println("opened")
+            close(r)
+        }
+        is Err {
+            println("error: ${r}")
+        }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    attempt("a.txt")
+    attempt("")
+}
+"#;
+
+const FALLIBLE_OPEN_OUTPUT: &str = "opened\nclosed a.txt\nerror: empty path\n";
+
+fn kotlinc_compiles_and_runs_a_linear_union_arm() -> KotlinCase {
+    let program = build_program(&[("main.sv", FALLIBLE_OPEN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "linear-union-arm", FALLIBLE_OPEN_OUTPUT)
+}
+
+// ===== [linear-group] [linear-composite] the wrapper pass =====
+
+/// The Kotlin half of acceptance shape 4: byte-identical stdout with the
+/// Rust backend for the lazy `take` over a linear source.
+const WRAPPER_PASS_DEMO: &str = r#"
+linear struct Lines : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_lines(from: Int) -> Mut Lines {
+    return Mut Lines { at: from }
+}
+
+fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
+    if l.at <= 0 {
+        return finished()
+    }
+    let v = copy(l.at)
+    l.at = l.at - 1
+    return emitted(v)
+}
+
+fn close(l: Lines) [Console] -> None => !l {
+    println("closed lines")
+    discard(l)
+}
+
+linear struct Take : Yield<self, Int> canbe Mut {
+    source: Mut Lines,
+    left: Int
+}
+
+fn take(source: Mut Lines, n: Int) -> Mut Take => !source {
+    return Mut Take { source: source, left: n }
+}
+
+fn next(t: Mut Take) -> Emitted Int | Finished => t: Mut {
+    if t.left <= 0 {
+        return finished()
+    }
+    t.left = t.left - 1
+    return next(t.source)
+}
+
+fn close_take(t: Take) [Console] -> None => !t {
+    close(t.source)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let t = take(open_lines(5), 2)
+    for n in t {
+        println("n ${n}")
+    }
+    close_take(t)
+    println("done")
+}
+"#;
+
+const WRAPPER_PASS_OUTPUT: &str = "n 5\nn 4\nclosed lines\ndone\n";
+
+fn kotlinc_compiles_and_runs_a_linear_wrapper_pass() -> KotlinCase {
+    let program = build_program(&[("main.sv", WRAPPER_PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "wrapper-pass", WRAPPER_PASS_OUTPUT)
+}
+
+// ===== [fn-value-select] [linear-discard] `drop` as the uniform callback =====
+
+/// The Kotlin half: byte-identical stdout with the Rust backend for the
+/// consuming-callback pattern's two callers.
+const DROP_CALLBACK_DEMO: &str = r#"
+linear struct Handle : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn open_handle(from: Int) -> Mut Handle {
+    return Mut Handle { at: from }
+}
+
+fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
+    if h.at <= 0 {
+        return finished()
+    }
+    let v = copy(h.at)
+    h.at = h.at - 1
+    return emitted(v)
+}
+
+fn close(h: Handle) -> None => !h { discard(h) }
+
+struct Counter : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(c: Mut Counter) -> Emitted Int | Finished => c: Mut {
+    if c.at <= 0 {
+        return finished()
+    }
+    let v = copy(c.at)
+    c.at = c.at - 1
+    return emitted(v)
+}
+
+fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Yield<It, Int>) -> Int => !it =>[end] !x {
+    let sum = 0
+    for n in it {
+        sum = sum + n
+    }
+    end(it)
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let h = open_handle(3)
+    println("linear ${drain(h, close)}")
+    let c = Mut Counter { at: 3 }
+    println("plain ${drain(c, drop)}")
+}
+"#;
+
+const DROP_CALLBACK_OUTPUT: &str = "linear 6\nplain 6\n";
+
+fn kotlinc_compiles_and_runs_drop_as_a_consuming_callback() -> KotlinCase {
+    let program = build_program(&[("main.sv", DROP_CALLBACK_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "drop-callback", DROP_CALLBACK_OUTPUT)
 }

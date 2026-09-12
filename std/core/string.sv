@@ -34,7 +34,7 @@ fn iter(str: Str) [] -> Mut StrYield => str {
 // in it. A `Str` is immutable, so the pass holds it and moves the index.
 struct StrYield : Yield<self, Char> canbe Mut {
     // The string being walked.
-    text: Proj Str,
+    text: proj Str,
     // The index of the next character to emit.
     at: Int
 }

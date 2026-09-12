@@ -487,6 +487,7 @@ Module {
                     span: 1685..1693,
                 },
                 generics: [],
+                generic_canbe: [],
                 obligations: [
                     TypeRef {
                         name: Ident {
@@ -547,7 +548,7 @@ Module {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
-                                        name: "Proj",
+                                        name: "proj",
                                         span: 1768..1772,
                                     },
                                     args: [],
@@ -592,6 +593,7 @@ Module {
                         span: 1830..1837,
                     },
                 ],
+                linear: false,
                 span: 1678..1839,
             },
         ),

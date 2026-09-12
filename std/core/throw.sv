@@ -33,6 +33,6 @@ qualifier Thrown<M> of M
 // [qual-ctor-fn] Tags a value as the thrown arm of an outcome union
 // without throwing anything — for code that produces an outcome by hand
 // (a stub, a test double, a value read back from storage).
-fn thrown<M canbe Linear>(message: M) [] -> M as Thrown {
+fn thrown<M canbe linear>(message: M) [] -> M as Thrown {
     return message
 }

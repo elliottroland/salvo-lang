@@ -268,7 +268,7 @@ fn diagnostics_hover_and_shutdown() {
     );
 
     // [fate-link] Hovering a fate-linked (derived) variable presents the
-    // compiler qualifier: a bare `Proj` on the type line, with the
+    // compiler qualifier: a bare `proj` on the type line, with the
     // qualifier's parameters (root, binding site) as detail below
     // (progressive disclosure).
     send(
@@ -300,11 +300,11 @@ fn diagnostics_hover_and_shutdown() {
         .as_str()
         .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
     assert!(
-        value.starts_with("```salvo\nProj Str\n```"),
+        value.starts_with("```salvo\nproj Str\n```"),
         "unexpected hover type line: {value}"
     );
     assert!(
-        value.contains("Compiler qualifier `Proj`")
+        value.contains("Compiler qualifier `proj`")
             && value.contains("shares fate with `xs` (bound at 6:")
             && value.contains("`copy(...)`"),
         "unexpected hover detail: {value}"

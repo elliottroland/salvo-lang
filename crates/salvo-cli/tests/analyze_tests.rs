@@ -1219,11 +1219,11 @@ fn l4_lambda_captures() {
         ),
         "stderr: {stderr}"
     );
-    // A capture-consuming lambda is legal since L7b but `Once`-typed
+    // A capture-consuming lambda is legal since L7b but `once`-typed
     // [once-fn]: passing it where a plain fn is expected fails at the
     // boundary.
     assert!(
-        stderr.contains("no matching overload for `run(Once () -> "),
+        stderr.contains("no matching overload for `run(once () -> "),
         "stderr: {stderr}"
     );
     // A written-kept parameter cannot be captured-and-mutated.
@@ -1254,17 +1254,17 @@ fn l6_linear_obligations() {
     let dir = src_dir("l6_linear");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+        "linear struct FileHandle {\n    fd: Int\n}
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 \n\n\
-         struct Box2 : Linear<self> {\n    item: FileHandle\n}
+         linear struct Box2 {\n    item: FileHandle\n}
 
-fn close(x: Box2) -> None => !x {}
+fn close(x: Box2) -> None => !x { discard(x) }
 \n\n\
-         struct Conn : Linear<self> {\n    tags: Mut List<Int>\n}
+         linear struct Conn {\n    tags: Mut List<Int>\n}
 
-fn close(x: Conn) -> None => !x {}
+fn close(x: Conn) -> None => !x { discard(x) }
 \n\n\
          fn open_file(path: Str) -> FileHandle => !path {\n    \
          return FileHandle {fd: size(path)}\n}\n\n\
@@ -1327,30 +1327,26 @@ fn close(x: Conn) -> None => !x {}
         stderr.contains("this lambda captures and mutates `conn`, which holds a linear value"),
         "stderr: {stderr}"
     );
-    // [linear-composite] R4 part 2: `Box2` holds a `FileHandle`, which is
-    // refused at the field — the store's *declaration*, so `Box2`'s own
-    // `close` cannot make the container carry the obligation. The
-    // `composite_refused` body itself is silent: the container was never
-    // legally built, so there is no follow-on leak.
-    assert!(
-        stderr.contains("`FileHandle` is linear, so it cannot be the type of field `Box2.item`"),
-        "stderr: {stderr}"
-    );
-    // Exactly the eight violations: the positive matrix is clean.
-    assert!(stderr.contains("8 errors"), "stderr: {stderr}");
+    // [linear-composite] [linear-group] `Box2` is a `linear struct` with a
+    // concrete linear field — legal since 2026-09-12: the container carries
+    // the obligation, `close_box` discharges it by forwarding, and the
+    // whole shape draws no error.
+    assert!(!stderr.contains("Box2.item"), "stderr: {stderr}");
+    // Exactly the seven violations: the positive matrix is clean.
+    assert!(stderr.contains("7 errors"), "stderr: {stderr}");
 }
 
 // [linear-generics] Generic instantiation with a linear type is refused
-// unless the type parameter declares `<T canbe Linear>`; variadic
+// unless the type parameter declares `<T canbe linear>`; variadic
 // positions refuse linear values outright (they are untracked).
 #[test]
 fn l6_generics_refuse_linear_types() {
     let dir = src_dir("l6_generics");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+        "linear struct FileHandle {\n    fd: Int\n}
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 \n\n\
          fn hold<T>(value: T) -> T {\n    return value\n}\n\n\
          fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
@@ -1365,7 +1361,7 @@ fn close(x: FileHandle) -> None => !x {}
     assert!(
         stderr.contains(
             "cannot instantiate generic parameter `T` of `hold` with linear type \
-             `FileHandle`: `hold` does not declare `<T canbe Linear>`"
+             `FileHandle`: `hold` does not declare `<T canbe linear>`"
         ),
         "stderr: {stderr}"
     );
@@ -1375,7 +1371,7 @@ fn close(x: FileHandle) -> None => !x {}
     );
 }
 
-// [linear-generics] L7a: `<T canbe Linear>` opts a generic fn into
+// [linear-generics] L7a: `<T canbe linear>` opts a generic fn into
 // linear instantiation — its body treats `T` values as linear (a
 // written-moved parameter that the body drops is rejected), forwarding
 // an opted `T` to an *unopted* generic is rejected, only `Linear` is
@@ -1388,14 +1384,14 @@ fn l7a_generic_linear_opt_in() {
     let dir = src_dir("l7a_optin");
     fs::write(
         dir.join("main.sv"),
-        "struct FileHandle : Linear<self> {\n    fd: Int\n}
+        "linear struct FileHandle {\n    fd: Int\n}
 
-fn close(x: FileHandle) -> None => !x {}
+fn close(x: FileHandle) -> None => !x { discard(x) }
 \n\n\
          fn open_file(n: Int) -> FileHandle {\n    return FileHandle {fd: n}\n}\n\n\
-         fn hold<T canbe Linear>(value: T) -> T {\n    return value\n}\n\n\
-         fn eat<T canbe Linear>(value: T) -> None => !value {\n}\n\n\
-         fn forward<T canbe Linear>(value: T) -> T {\n    let kept = unopted(value)\n    \
+         fn hold<T canbe linear>(value: T) -> T {\n    return value\n}\n\n\
+         fn eat<T canbe linear>(value: T) -> None => !value {\n}\n\n\
+         fn forward<T canbe linear>(value: T) -> T {\n    let kept = unopted(value)\n    \
          return kept\n}\n\n\
          fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
          fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
@@ -1417,13 +1413,13 @@ fn close(x: FileHandle) -> None => !x {}
     assert!(
         stderr.contains(
             "cannot instantiate generic parameter `T` of `unopted` with linear \
-             type `T`: `unopted` does not declare `<T canbe Linear>`"
+             type `T`: `unopted` does not declare `<T canbe linear>`"
         ),
         "stderr: {stderr}"
     );
     // Only `Linear` is supported in the clause.
     assert!(
-        stderr.contains("only `Linear` is supported in a type-parameter `with` clause"),
+        stderr.contains("only `linear` is supported in a type-parameter `with` clause"),
         "stderr: {stderr}"
     );
     // Variadic positions refuse linear values.
@@ -1445,21 +1441,21 @@ fn close(x: FileHandle) -> None => !x {}
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
 }
 
-// [once-fn] L7b: `Once` on fn types means callable at most once,
+// [once-fn] L7b: `once` on fn types means callable at most once,
 // enforced by consumption — a second call, a call in a loop, and a
 // call after passing the value on all error; a maybe-call is fine
-// ("at most once"). Subtyping is inverted (plain fns fit `Once`
+// ("at most once"). Subtyping is inverted (plain fns fit `once`
 // positions, never the reverse), a capture-consuming lambda is legal
-// but `Once`-typed, and `Once` applies only to fn types.
+// but `once`-typed, and `once` applies only to fn types.
 #[test]
 fn l7b_once_fns() {
     let dir = src_dir("l7b_once");
     fs::write(
         dir.join("main.sv"),
-        "fn run_once(f: Once () -> None) {\n    f()\n}\n\n\
-         fn run_twice_bad(f: Once () -> None) {\n    f()\n    f()\n}\n\n\
-         fn run_in_loop_bad(f: Once () -> None) {\n    for i in list(1, 2) {\n        f()\n    }\n}\n\n\
-         fn run_maybe(f: Once () -> None, flag: Bool) {\n    if flag {\n        f()\n    }\n}\n\n\
+        "fn run_once(f: once () -> None) {\n    f()\n}\n\n\
+         fn run_twice_bad(f: once () -> None) {\n    f()\n    f()\n}\n\n\
+         fn run_in_loop_bad(f: once () -> None) {\n    for i in list(1, 2) {\n        f()\n    }\n}\n\n\
+         fn run_maybe(f: once () -> None, flag: Bool) {\n    if flag {\n        f()\n    }\n}\n\n\
          fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
          fn once_where_plain_bad() {\n    let xs = list(1, 2)\n    \
@@ -1468,8 +1464,8 @@ fn l7b_once_fns() {
          let g = () -> { consume_list(xs) }\n    run_once(g)\n}\n\n\
          fn plain_where_once_ok() {\n    let n = 5\n    \
          let g = () -> { let m = n + 1 }\n    run_once(g)\n}\n\n\
-         fn escape_rule(f: Once () -> None) {\n    run_once(f)\n    f()\n}\n\n\
-         fn not_a_fn(x: Once Int) {\n}\n",
+         fn escape_rule(f: once () -> None) {\n    run_once(f)\n    f()\n}\n\n\
+         fn not_a_fn(x: once Int) {\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1480,34 +1476,33 @@ fn l7b_once_fns() {
         stderr
             .matches(
                 "`f` cannot be used here: it was consumed (moved) by a call \
-                 (a `Once` function is callable at most once)"
+                 (a `once` function is callable at most once)"
             )
             .count(),
         2,
         "stderr: {stderr}"
     );
-    // A `Once` lambda cannot go where a plain fn is expected.
+    // A `once` lambda cannot go where a plain fn is expected.
     assert!(
-        stderr.contains("no matching overload for `run_plain(Once () -> "),
+        stderr.contains("no matching overload for `run_plain(once () -> "),
         "stderr: {stderr}"
     );
-    // Passing a `Once` value on consumes it (escape rule).
+    // Passing a `once` value on consumes it (escape rule).
     assert!(
         stderr.contains("`f` cannot be used here: it was consumed (moved) by an earlier call"),
         "stderr: {stderr}"
     );
-    // `Once` applies to fn types; a type of one's own opts in with
-    // `canbe Once` [canbe-optin]. Widening it to *any* type is roadmap D6, to
-    // be designed with D7.
+    // [once-fn] D6 (user decision 2026-09-12): `once` is valid on any
+    // type now, so `not_a_fn(x: once Int)` draws no error.
     assert!(
-        stderr.contains("`Once` applies to function types") && stderr.contains("`canbe Once`"),
+        !stderr.contains("`once` applies to function types"),
         "stderr: {stderr}"
     );
-    // run_maybe, once_where_once_ok, plain_where_once_ok are clean.
-    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+    // run_maybe, once_where_once_ok, plain_where_once_ok, not_a_fn are clean.
+    assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }
 
-// [readonly-return] L7c: `-> Proj[from: p] T?` marks a derived
+// [readonly-return] L7c: `-> proj[from: p] T?` marks a derived
 // return — the callee may return projections/elements of the kept
 // parameter `p` without `copy`, and the caller's result fate-links to
 // the argument. Violations: returning an independent value, annotating
@@ -1521,16 +1516,16 @@ fn l7c_derived_returns() {
         dir.join("main.sv"),
         "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
          fn take(p: Person) -> None => !p {\n}\n\n\
-         fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {\n    \
+         fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {\n    \
          for person in persons {\n        if person.age >= 18 {\n            return person\n        }\n    }\n    \
          return None\n}\n\n\
-         fn forwarded(persons: List<Person>, tag: Str) -> Proj[from: persons] Person? => persons, tag {\n    \
+         fn forwarded(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => persons, tag {\n    \
          return first(persons)\n}\n\n\
-         fn bad_independent(persons: List<Person>) -> Proj[from: persons] Person? => persons {\n    \
+         fn bad_independent(persons: List<Person>) -> proj[from: persons] Person? => persons {\n    \
          return Person {name: \"made up\", age: 1}\n}\n\n\
-         fn bad_moved(persons: List<Person>) -> Proj[from: persons] Person? => !persons {\n    \
+         fn bad_moved(persons: List<Person>) -> proj[from: persons] Person? => !persons {\n    \
          return None\n}\n\n\
-         fn bad_param(persons: List<Person>) -> Proj[from: nobody] Person? => persons {\n    \
+         fn bad_param(persons: List<Person>) -> proj[from: nobody] Person? => persons {\n    \
          return None\n}\n\n\
          fn poison_after_mutation() -> Int {\n    \
          let people = mutable_list(Person {name: \"Ada\", age: 36})\n    \
@@ -1550,17 +1545,17 @@ fn l7c_derived_returns() {
     assert!(!out.status.success());
     assert!(
         stderr.contains(
-            "this function returns `Proj[from: persons]`, so every returned \
+            "this function returns `proj[from: persons]`, so every returned \
              value must be derived from `persons`"
         ),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`Proj[from: persons]` requires `persons` to be kept"),
+        stderr.contains("`proj[from: persons]` requires `persons` to be kept"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`Proj[from: nobody]` names no parameter"),
+        stderr.contains("`proj[from: nobody]` names no parameter"),
         "stderr: {stderr}"
     );
     // Mutating the argument poisons the derived result.
@@ -1574,7 +1569,7 @@ fn l7c_derived_returns() {
     // The borrowed result can never be moved; `copy` is the remedy
     // (ok_copy_escape is clean). [proj-type] names the projection's type.
     assert!(
-        stderr.contains("`h` is a projection (`Proj Person`), and `take` consumes `p`"),
+        stderr.contains("`h` is a projection (`proj Person`), and `take` consumes `p`"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("5 errors"), "stderr: {stderr}");
@@ -1921,7 +1916,7 @@ qualifier NonEmpty<T> of List<T> {
     refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
 }
 
-fn count<T canbe Linear>(list: NonEmpty List<T>) -> Int => list {
+fn count<T canbe linear>(list: NonEmpty List<T>) -> Int => list {
     return size(list)
 }
 
@@ -2008,7 +2003,7 @@ fn main() [use] {
     );
 }
 
-// [proj-type] A union arm that borrows (`Emitted (Proj Str) | Finished`)
+// [proj-type] A union arm that borrows (`Emitted (proj Str) | Finished`)
 // passes whole into a parameter only when the parameter's type *writes*
 // the projection; an owned parameter refuses it, naming the type and the
 // two remedies. The phase-2b cut's negative half, closed 2026-09-12.
@@ -2028,23 +2023,23 @@ fn an_owned_parameter_refuses_a_borrowed_union_arm() {
     assert!(!out.status.success());
     assert!(
         stderr.contains(
-            "this argument holds a borrowed value (`Proj Emitted Str | Finished`) \
+            "this argument holds a borrowed value (`proj Emitted Str | Finished`) \
              where `show` expects an owned one for `step`"
         ),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("Write the parameter's type with the `Proj`"),
+        stderr.contains("Write the parameter's type with the `proj`"),
         "stderr: {stderr}"
     );
 }
 
 // [proj-type] What a pass combinator's result *is*: `map`/`keep_all` over a
-// container's pass yield a `Mut List<Proj Str>` — a view, fate-linked to
+// container's pass yield a `Mut List<proj Str>` — a view, fate-linked to
 // the container — so consuming either the view or the container is
 // refused; an instantiation over a *generator* pass has no container and
 // stays free. And `copy` un-projects exactly one level: `copy(e)` on a
-// `Proj Mut Str` is a `Mut Str` (observed via the mismatch against `Int`).
+// `proj Mut Str` is a `Mut Str` (observed via the mismatch against `Int`).
 // The phase-2b regression set, closed 2026-09-12.
 #[test]
 fn a_combinator_result_is_a_view_of_its_container() {
@@ -2052,7 +2047,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
-         fn keep(w: Proj Str) -> Proj[from: w] Str => w {\n    return w\n}\n\n\
+         fn keep(w: proj Str) -> proj[from: w] Str => w {\n    return w\n}\n\n\
          struct Chars {\n    n: Int\n}\n\n\
          iter fn next(c: Chars) -> Emitted Str | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
@@ -2081,7 +2076,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
     // The combinator's type, named whole by the refusal to consume it.
     assert!(
         stderr.contains(
-            "`kept` holds a borrowed value (`Mut List<Proj Str>`) where `eat` \
+            "`kept` holds a borrowed value (`Mut List<proj Str>`) where `eat` \
              expects an owned one for `xs`"
         ),
         "stderr: {stderr}"
@@ -2095,7 +2090,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
         ),
         "stderr: {stderr}"
     );
-    // `copy(e)` on a `Proj Mut Str` is a `Mut Str`: one level un-projected,
+    // `copy(e)` on a `proj Mut Str` is a `Mut Str`: one level un-projected,
     // the `Mut` kept.
     assert!(
         stderr.contains("expected `Int`, found `Mut Str`"),
@@ -2153,11 +2148,11 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [proj-infer] A written opaque projection entry (`=> Proj[from: it]`)
+// [proj-infer] A written opaque projection entry (`=> proj[from: it]`)
 // names the lends exactly and takes precedence over the instantiation
-// fallback that links a `Proj`-holding result to every kept argument —
+// fallback that links a `proj`-holding result to every kept argument —
 // even where the *written* return type shows no projection (`Mut List<T>`
-// with `T = Proj Str`). The link still flows through the named source.
+// with `T = proj Str`). The link still flows through the named source.
 // (Closed 2026-09-12; before, the entry was consulted only behind a
 // written-return-type gate the instantiation case never passed.)
 #[test]
@@ -2167,7 +2162,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
          fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
-         -> Mut List<T> => it: Mut, Proj[from: it], labels {\n    \
+         -> Mut List<T> => it: Mut, proj[from: it], labels {\n    \
          let out = mutable_list<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
          let words = list(\"ann\", \"bo\")\n    \

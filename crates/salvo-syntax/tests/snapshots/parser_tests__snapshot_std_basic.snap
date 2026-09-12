@@ -232,7 +232,7 @@ Module {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
-                                        name: "Proj",
+                                        name: "proj",
                                         span: 594..598,
                                     },
                                     args: [],
@@ -293,140 +293,51 @@ Module {
                 span: 576..609,
             },
         ),
-        Params(
-            ParamsDecl {
-                docs: [
-                    "[linear-group] [group-obligation] What **linear** means: a type declares",
-                    "`: Linear<self>` and supplies the `close` that discharges the obligation.",
-                    "Declaring it without one is an error at the *struct* — the compiler knows",
-                    "which function to look for, because the group is designated, at most one per",
-                    "type, and has a single member.",
-                    "",
-                    "`close` **consumes**: `=> !it` moves its parameter, so the",
-                    "value is not kept. That is what makes it the discharge rather than a mere",
-                    "convention, and why `discard` no longer satisfies a linear obligation",
-                    "[linear-discard] — dropping a handle is exactly the leak the obligation",
-                    "exists to prevent.",
-                ],
-                name: Ident {
-                    name: "Linear",
-                    span: 1287..1293,
-                },
-                generics: [
-                    Ident {
-                        name: "It",
-                        span: 1294..1296,
-                    },
-                ],
-                fns: [
-                    FnDecl {
-                        docs: [],
-                        intrinsic: false,
-                        is_iter: false,
-                        iter_state: [],
-                        name: Ident {
-                            name: "close",
-                            span: 1307..1312,
-                        },
-                        generics: [],
-                        generic_canbe: [],
-                        derived_return: None,
-                        params: [
-                            Param {
-                                name: Ident {
-                                    name: "it",
-                                    span: 1313..1315,
-                                },
-                                ty: Named {
-                                    qualifiers: [],
-                                    base: TypeRef {
-                                        name: Ident {
-                                            name: "It",
-                                            span: 1317..1319,
-                                        },
-                                        args: [],
-                                        from: [],
-                                        span: 1317..1319,
-                                    },
-                                },
-                                variadic: false,
-                                implicit: false,
-                                span: 1313..1319,
-                            },
-                        ],
-                        implicit_groups: [],
-                        effects: None,
-                        deductions: Some(
-                            [
-                                Deduction {
-                                    target: Param {
-                                        name: Ident {
-                                            name: "it",
-                                            span: 1333..1335,
-                                        },
-                                        path: [],
-                                    },
-                                    kind: Moved,
-                                    span: 1332..1335,
-                                },
-                            ],
-                        ),
-                        return_type: Some(
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "None",
-                                        span: 1324..1328,
-                                    },
-                                    args: [],
-                                    from: [],
-                                    span: 1324..1328,
-                                },
-                            },
-                        ),
-                        constructs: None,
-                        body: None,
-                        span: 1304..1328,
-                    },
-                ],
-                span: 1280..1337,
-            },
-        ),
         Fn(
             FnDecl {
                 docs: [
-                    "[intrinsic-fn] [linear-discard] Deliberately drops a value, consuming",
-                    "it. **Not** an escape hatch from linearity: a linear value's discharge is",
-                    "its own `close`, and `discard` on one is refused, naming it.",
+                    "[linear-group] [linear-discard] What **linear** means: a type declares",
+                    "itself with the `linear struct` modifier, and its obligation — use the",
+                    "value exactly once, ending in a discharge — is discharged by any fn",
+                    "declared in the *type's own file* that consumes a parameter of it (its",
+                    "**dischargers**: `close` for a file, `stop`/`join` for a thread,",
+                    "`remove(cache, handle)` for a pooled handle). A `linear struct` with no",
+                    "discharger is an error at the struct: the obligation would have no",
+                    "legal death.",
+                    "",
+                    "`discard` is the obligation's **terminal**: inside a discharger — and",
+                    "only there — `discard(value)` ends the obligation. Everywhere else,",
+                    "dropping a handle is exactly the leak linearity exists to prevent, and",
+                    "a discharger's own body must terminate the obligation on every path",
+                    "(a `discard`, or a forward into another consuming fn).",
                 ],
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
                 name: Ident {
                     name: "discard",
-                    span: 1566..1573,
+                    span: 1513..1520,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 1574..1575,
+                        span: 1521..1522,
                     },
                 ],
                 generic_canbe: [
                     (
                         Ident {
                             name: "T",
-                            span: 1574..1575,
+                            span: 1521..1522,
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
-                                span: 1582..1588,
+                                name: "linear",
+                                span: 1529..1535,
                             },
                             args: [],
                             from: [],
-                            span: 1582..1588,
+                            span: 1529..1535,
                         },
                     ),
                 ],
@@ -435,23 +346,23 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 1590..1595,
+                            span: 1537..1542,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 1597..1598,
+                                    span: 1544..1545,
                                 },
                                 args: [],
                                 from: [],
-                                span: 1597..1598,
+                                span: 1544..1545,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 1590..1598,
+                        span: 1537..1545,
                     },
                 ],
                 implicit_groups: [],
@@ -464,12 +375,12 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "value",
-                                    span: 1615..1620,
+                                    span: 1562..1567,
                                 },
                                 path: [],
                             },
                             kind: Moved,
-                            span: 1614..1620,
+                            span: 1561..1567,
                         },
                     ],
                 ),
@@ -479,17 +390,17 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 1606..1610,
+                                span: 1553..1557,
                             },
                             args: [],
                             from: [],
-                            span: 1606..1610,
+                            span: 1553..1557,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 1563..1610,
+                span: 1510..1557,
             },
         ),
         Params(
@@ -503,12 +414,12 @@ Module {
                 ],
                 name: Ident {
                     name: "ToStr",
-                    span: 1992..1997,
+                    span: 1939..1944,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 1998..1999,
+                        span: 1945..1946,
                     },
                 ],
                 fns: [
@@ -519,7 +430,7 @@ Module {
                         iter_state: [],
                         name: Ident {
                             name: "to_str",
-                            span: 2010..2016,
+                            span: 1957..1963,
                         },
                         generics: [],
                         generic_canbe: [],
@@ -528,23 +439,23 @@ Module {
                             Param {
                                 name: Ident {
                                     name: "value",
-                                    span: 2017..2022,
+                                    span: 1964..1969,
                                 },
                                 ty: Named {
                                     qualifiers: [],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 2024..2025,
+                                            span: 1971..1972,
                                         },
                                         args: [],
                                         from: [],
-                                        span: 2024..2025,
+                                        span: 1971..1972,
                                     },
                                 },
                                 variadic: false,
                                 implicit: false,
-                                span: 2017..2025,
+                                span: 1964..1972,
                             },
                         ],
                         implicit_groups: [],
@@ -556,20 +467,20 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Str",
-                                        span: 2030..2033,
+                                        span: 1977..1980,
                                     },
                                     args: [],
                                     from: [],
-                                    span: 2030..2033,
+                                    span: 1977..1980,
                                 },
                             },
                         ),
                         constructs: None,
                         body: None,
-                        span: 2007..2033,
+                        span: 1954..1980,
                     },
                 ],
-                span: 1985..2035,
+                span: 1932..1982,
             },
         ),
     ],

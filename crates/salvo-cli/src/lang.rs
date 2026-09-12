@@ -27,7 +27,11 @@ const DECLARATION_KEYWORDS: &[&str] = &[
     "fn", "let", "struct", "qualifier", "effect", "handler", "params", "type", "intrinsic",
     "platform", "import", "provenance", "refn", "rename", "state",
 ];
-const OTHER_KEYWORDS: &[&str] = &["as", "of", "with", "canbe", "is", "use"];
+const OTHER_KEYWORDS: &[&str] = &[
+    "as", "of", "with", "canbe", "is", "use",
+    // [obligation-spelling] The obligation keywords.
+    "proj", "once", "linear",
+];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 
 fn alternation(words: &[&str]) -> String {

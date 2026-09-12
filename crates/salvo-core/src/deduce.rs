@@ -62,7 +62,7 @@ pub struct ParamDeduction {
     /// What a call does to the *argument's* known qualifiers. Only
     /// meaningful when `kept`.
     pub effect: QualEffect,
-    /// [proj-infer] A `Proj[from: p]` entry names this parameter: the
+    /// [proj-infer] A `proj[from: p]` entry names this parameter: the
     /// result holds a borrow of it. Only ever `true` from a written clause.
     pub lent: bool,
     /// [deduce-syntax] The entry was *written* (`=> p …`), as opposed to
@@ -419,7 +419,7 @@ pub(crate) fn from_written(
             }
         }
     }
-    // [proj-infer] The parameters some `Proj[from: …]` entry names.
+    // [proj-infer] The parameters some `proj[from: …]` entry names.
     let lent_names: HashSet<&str> = list
         .iter()
         .filter_map(|d| d.proj_sources())
@@ -663,7 +663,7 @@ struct Walk<'a, 'p> {
     /// the signature then promises. Removals are unaffected — applying one
     /// unconditionally is the conservative direction.
     cond_depth: usize,
-    /// [proj-field] Struct name → its `Proj` field names. Storing into
+    /// [proj-field] Struct name → its `proj` field names. Storing into
     /// such a field *lends* the value rather than moving it.
     proj_fields: &'a HashMap<String, HashSet<String>>,
     /// Checker expression types by span, for a bare `{…}` literal whose
@@ -881,7 +881,7 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Stmt::Return { value: Some(v), .. } => {
-                // [readonly-return] A fn returning `Proj[from: p, …] T` hands
+                // [readonly-return] A fn returning `proj[from: p, …] T` hands
                 // its result out *borrowed*: returning a source (or a
                 // projection of one) keeps it. Everything else returned is
                 // moved.
@@ -912,7 +912,7 @@ impl<'p> Walk<'_, 'p> {
     }
 
     /// Whether `e`, returned, is a projection the signature declares: its
-    /// provenance root is a `from` source of a wholesale `Proj` in the
+    /// provenance root is a `from` source of a wholesale `proj` in the
     /// return type [readonly-return].
     fn returns_projection_of(&self, e: &Expr) -> bool {
         let Some(rt) = &self.decl.return_type else { return false };
@@ -962,7 +962,7 @@ impl<'p> Walk<'_, 'p> {
             }
             // Struct/array/tuple construction stores the value.
             Expr::StructLit { ty, fields, span } => {
-                // [proj-field] A `Proj` field lends: the value is read,
+                // [proj-field] A `proj` field lends: the value is read,
                 // not stored, so its parameter stays kept.
                 let struct_name: Option<String> = match ty {
                     Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
@@ -1257,12 +1257,12 @@ impl<'p> Walk<'_, 'p> {
     }
 }
 
-/// [proj-field] Whether a written type carries a `Proj` qualifier
+/// [proj-field] Whether a written type carries a `proj` qualifier
 /// anywhere.
-/// [proj-anywhere] The `from` sources of every wholesale `Proj` in a type.
+/// [proj-anywhere] The `from` sources of every wholesale `proj` in a type.
 fn proj_sources_of(ty: &Type) -> Vec<String> {
     fn in_ref(r: &salvo_syntax::ast::TypeRef, out: &mut Vec<String>) {
-        if r.name.name == "Proj" {
+        if r.name.name == "proj" {
             out.extend(r.from.iter().map(|i| i.name.clone()));
         }
         for a in &r.args {
@@ -1299,7 +1299,7 @@ fn proj_sources_of(ty: &Type) -> Vec<String> {
 
 fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &salvo_syntax::ast::TypeRef) -> bool {
-        r.name.name == "Proj" || r.args.iter().any(type_has_proj)
+        r.name.name == "proj" || r.args.iter().any(type_has_proj)
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),

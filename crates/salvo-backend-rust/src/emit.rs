@@ -912,20 +912,20 @@ struct Emitter<'p> {
     loop_optional: HashMap<String, bool>,
     loop_id: usize,
     destructure_id: usize,
-    /// The current fn has a derived return (`Proj[from: ...]`
+    /// The current fn has a derived return (`proj[from: ...]`
     /// [readonly-return]): `return` values render as borrows.
     derived_return_fn: bool,
     /// [rs-proj-lends] Parameter names that an implicit's *lent* position
-    /// (`?iter: (c: C) -> [c: Proj] Mut It`) is named after, collected while
+    /// (`?iter: (c: C) -> [c: proj] Mut It`) is named after, collected while
     /// the current fn's implicit parameters render: the enclosing fn keeps
     /// `c` under lifetime `'c`, which the position's `&'c C` shares.
     lent_position_params: Vec<String>,
-    /// [proj-type] The lifetime a `Proj` renders under while set (`'s` inside
+    /// [proj-type] The lifetime a `proj` renders under while set (`'s` inside
     /// a borrowing struct or a `next` over one, `'a` on a tied return):
     /// `&'s T` instead of the elided `&T`.
     proj_lifetime: Option<String>,
     /// [rs-proj-arm] Locals whose union storage has *borrowed* arms: bound
-    /// from a call whose return type has a `Proj` arm (`let step =
+    /// from a call whose return type has a `proj` arm (`let step =
     /// next(p)` is a `Union2<&T, Finished>`). Reading such an arm's payload
     /// yields a reference — a Copy scalar derefs once more, anything else
     /// binds as `Ref` [rs-opt-borrow].
@@ -937,15 +937,15 @@ struct Emitter<'p> {
     /// the handler stores them, so the adapters are owned `move` closures,
     /// as a producer's are.
     emitting_producer_args: bool,
-    /// [rs-proj-struct] Structs with a `Proj` field — passes borrowing their
+    /// [rs-proj-struct] Structs with a `proj` field — passes borrowing their
     /// source [proj-field]. Each is emitted with a lifetime `'s`
-    /// (`ListYield<'s, T>`) and its `Proj` fields as `&'s T`; every mention
+    /// (`ListYield<'s, T>`) and its `proj` fields as `&'s T`; every mention
     /// of the type carries the lifetime (`ListYield<'_, T>` in signatures).
     borrowing_structs: HashSet<String>,
     /// [rs-proj-struct] The current fn returns a borrowing struct by value.
     returns_borrowing_struct: bool,
     /// [rs-proj-arm] In a union-returning derived fn, the constructor
-    /// names (`emitted`) whose arm is the `Proj` one.
+    /// names (`emitted`) whose arm is the `proj` one.
     proj_arm_ctors: Vec<String>,
     taken_names: HashSet<String>,
     generated_imports: BTreeSet<String>,
@@ -1355,62 +1355,6 @@ impl<'p> Emitter<'p> {
         )
     }
 
-    /// [linear-group] A raw pass with a `close`: the ordinary driving header,
-    /// plus the release the loop owes it. Driving *is* what releases a pass
-    /// (user decision 2026-09-09) — the linear obligation is discharged by the
-    /// move into the loop, which is bookkeeping, so without this the resource
-    /// leaked while the checker was satisfied.
-    ///
-    /// The release is registered as an exit splice as well as spliced after
-    /// the loop, so a `return` out of the body reaches it — the same shape the
-    /// origin and producer forms use.
-    fn emit_closing_pass_loop_header(
-        &mut self,
-        driver: salvo_core::PassDriver,
-        pattern: &Pattern,
-        iterable: &Expr,
-        indent: usize,
-    ) -> (String, String) {
-        let header = self.emit_pass_loop_header(driver.clone(), pattern, iterable, indent);
-        // The place the header bound: `emit_pass_loop_header` names it from
-        // the same counter, so the last one issued is this loop's.
-        let place = format!("__loop{}_pass", self.loop_id);
-        let close = match &driver.close {
-            // [iter-generic-drive] An implicit `close` — the `?Linear<It>`
-            // spread's member — is called by its own name, like the `next`. The
-            // position *consumes* the pass (`close(it) -> [] None`), so the
-            // local is moved in rather than borrowed.
-            Some(salvo_core::PassMember::Implicit(name)) => {
-                format!("{}({place});", rs_ident(name))
-            }
-            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
-                Some(decl) => {
-                    let key = *key;
-                    let callee = self.rust_fn_name(decl);
-                    let effects: Vec<Ty> = self
-                        .checked
-                        .fn_effects
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|t| !is_throw_effect_ty(t))
-                        .collect();
-                    let mut args: Vec<String> = effects
-                        .iter()
-                        .map(|ty| self.thread_effect_by_ty(ty))
-                        .collect();
-                    args.push(place);
-                    format!("{callee}({});", args.join(", "))
-                }
-                None => String::new(),
-            },
-            None => String::new(),
-        };
-        self.exit_splices.push(close.clone());
-        (header, close)
-    }
-
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
         match self.program.modules.get(key.file)?.items.get(key.item)? {
             Item::Fn(f) => Some(f),
@@ -1569,7 +1513,7 @@ impl<'p> Emitter<'p> {
                 rc_fn_type(&rendered)
             } else if borrowing && type_has_proj(&field.ty) {
                 // [rs-proj-struct] The borrowed field: `&'s T` of the type
-                // under the `Proj` — the general rendering, under `'s`.
+                // under the `proj` — the general rendering, under `'s`.
                 let saved = self.proj_lifetime.replace("'s".to_string());
                 let rendered = self.emit_type(&field.ty);
                 self.proj_lifetime = saved;
@@ -2260,7 +2204,7 @@ impl<'p> Emitter<'p> {
             return ParamMode::Owned;
         }
         if is_fn_group(&param.ty) {
-            return ParamMode::Owned; // `Once` closures pass by value
+            return ParamMode::Owned; // `once` closures pass by value
         }
         if matches!(param.ty, Type::Fn { .. }) {
             // [rs-fn-field] A callback the callee **stores** arrives owned (and
@@ -2314,8 +2258,8 @@ impl<'p> Emitter<'p> {
         } else {
             self.emit_type(ty)
         };
-        // [proj-type] A `Proj`-typed parameter is already the reference its
-        // type renders as; a kept mode adds no second `&`. A `Proj` over a
+        // [proj-type] A `proj`-typed parameter is already the reference its
+        // type renders as; a kept mode adds no second `&`. A `proj` over a
         // bare generic renders owned (`T` — the instantiation carries the
         // borrow, see `emit_type`), so its mode still applies.
         if strip_top_proj_ast(ty).is_some() && !variadic && base.starts_with('&') {
@@ -2636,7 +2580,7 @@ impl<'p> Emitter<'p> {
                     }
                     _ => {
                         self.error(format!(
-                            "`{}` is lent through an implicit (`[{want}: Proj]`), so `{}` must \
+                            "`{}` is lent through an implicit (`[{want}: proj]`), so `{}` must \
                              keep it (`-> [{want}] ...`): a consumed value has nothing a view \
                              could outlive",
                             want, f.name.name
@@ -2648,7 +2592,7 @@ impl<'p> Emitter<'p> {
                 extra_lifetimes.push("'c".to_string());
             }
         }
-        // [proj-field] Re-pointing entries (`v.items: Proj[from: other]`):
+        // [proj-field] Re-pointing entries (`v.items: proj[from: other]`):
         // the borrowing struct at `v` takes a borrow of `other`, so the two
         // share a named lifetime — `v: &mut View<'r>`, `other: &'r T`.
         if let Some(list) = &f.deductions {
@@ -2701,7 +2645,7 @@ impl<'p> Emitter<'p> {
             f.return_type.as_ref(),
             Some(Type::Named { base, .. }) if self.borrowing_structs.contains(&base.name.name)
         );
-        // [rs-proj-arm] Which constructors build the `Proj` arm: the
+        // [rs-proj-arm] Which constructors build the `proj` arm: the
         // qualifier written on that arm names the constructive qualifier,
         // and its constructor fn shares the qualifier's name in lowercase
         // by std convention (`Emitted` ↔ `emitted`) — but the reliable link
@@ -2714,7 +2658,7 @@ impl<'p> Emitter<'p> {
                         Type::Named { qualifiers, .. }
                         | Type::QualifiedGroup { qualifiers, .. } => qualifiers
                             .iter()
-                            .find(|q| q.name.name != "Proj")
+                            .find(|q| q.name.name != "proj")
                             .map(|q| q.name.name.clone()),
                         _ => None,
                     })
@@ -2754,7 +2698,7 @@ impl<'p> Emitter<'p> {
             } else if ref_param_count > 1 {
                 lifetime_generics = "'a".to_string();
                 // Retag every source parameter's type with 'a
-                // (`Proj[from: a, b]` names several) [proj-anywhere].
+                // (`proj[from: a, b]` names several) [proj-anywhere].
                 let sources: Vec<usize> = f
                     .return_type
                     .as_ref()
@@ -2799,7 +2743,7 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 // [proj-type] Every other projected shape — `Option<&T>`, a
-                // union with a `Proj` arm (`Union2<&'a T, Finished>`, an
+                // union with a `proj` arm (`Union2<&'a T, Finished>`, an
                 // ordinary instantiation of the shared enum [rs-proj-arm]),
                 // `&T` itself, a tuple — is the general rendering of the
                 // written type, under the lifetime this fn names.
@@ -2821,7 +2765,7 @@ impl<'p> Emitter<'p> {
                 }
                 other => {
                     self.error(format!(
-                        "`Proj[from: ...]` returns support only plain, optional, \
+                        "`proj[from: ...]` returns support only plain, optional, \
                          struct-borrow and union shapes, not `{other:?}`"
                     ));
                     self.emit_return_type(f.return_type.as_ref())
@@ -2830,7 +2774,7 @@ impl<'p> Emitter<'p> {
         } else {
             let rendered = self.emit_return_type(f.return_type.as_ref());
             // [rs-proj-lends] A result that *holds* borrows (a struct with
-            // `Proj` fields) carries a lifetime that must reach the lent
+            // `proj` fields) carries a lifetime that must reach the lent
             // parameters [proj-infer]. One reference parameter: elision ties
             // them. More: name `'a` on every lent parameter and the return.
             let lent: Vec<usize> = fn_key
@@ -3126,15 +3070,15 @@ impl<'p> Emitter<'p> {
     // ================= types =================
 
     fn emit_type(&mut self, ty: &Type) -> String {
-        // [proj-type] `Proj X` *is* a reference: `&X`, at whatever depth it
+        // [proj-type] `proj X` *is* a reference: `&X`, at whatever depth it
         // sits — a union arm (`Union2<&String, Finished>`), a type argument
-        // (`Vec<&String>`), a field, a parameter. (A Copy scalar's `Proj` is
+        // (`Vec<&String>`), a field, a parameter. (A Copy scalar's `proj` is
         // erased by the checker and never reaches here written.)
         //
         // Except over a bare *generic parameter* with no lifetime context:
-        // `Proj T` at the definition site renders `T`. A generic body treats
+        // `proj T` at the definition site renders `T`. A generic body treats
         // its `T` uniformly, and whether a use is borrowed is the
-        // instantiation's fact — the caller substitutes `T = Proj Str`
+        // instantiation's fact — the caller substitutes `T = proj Str`
         // (rendering `&String`) and the turbofish retag spells it
         // [rs-proj-arm]. Rendering `&T` here would borrow for *every*
         // instantiation, owned ones included. When `proj_lifetime` *is* set
@@ -3224,11 +3168,11 @@ impl<'p> Emitter<'p> {
             Type::QualifiedGroup {
                 qualifiers, base, ..
             } => {
-                // [once-fn] A `Once` fn type emits `impl FnOnce`: the
+                // [once-fn] A `once` fn type emits `impl FnOnce`: the
                 // checker guarantees at most one call, and rustc's
                 // capture inference makes consuming closures `FnOnce`
                 // on its own.
-                if qualifiers.iter().any(|q| q.name.name == "Once") {
+                if qualifiers.iter().any(|q| q.name.name == "once") {
                     if let Type::Fn {
                         params,
                         ret,
@@ -3419,12 +3363,12 @@ impl<'p> Emitter<'p> {
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
-                // [proj-type] `Proj X` is `&X` (a Copy scalar's `Proj` never
+                // [proj-type] `proj X` is `&X` (a Copy scalar's `proj` never
                 // reaches the type — the checker erases it). Except over a
-                // bare in-scope generic with no lifetime context: `Proj T`
+                // bare in-scope generic with no lifetime context: `proj T`
                 // at the definition site is `T` — the instantiation carries
                 // the borrow (see `emit_type`).
-                if quals.iter().any(|q| q.name == "Proj") && !Self::is_copy_ty(base) {
+                if quals.iter().any(|q| q.name == "proj") && !Self::is_copy_ty(base) {
                     let bare_generic = self.proj_lifetime.is_none()
                         && matches!(
                             &**base,
@@ -3549,7 +3493,7 @@ impl<'p> Emitter<'p> {
             .map(|(i, a)| {
                 let a = (*a).clone();
                 let r = self.rust_ty(&a);
-                // [proj-type] An arm already typed `Proj` renders `&T` on
+                // [proj-type] An arm already typed `proj` renders `&T` on
                 // its own.
                 if borrowed.contains(&i) && !a.is_proj() {
                     format!("&{r}")
@@ -3620,7 +3564,7 @@ impl<'p> Emitter<'p> {
                 // them all borrow would be more uniform and would touch every
                 // existing `?Iterable`/`?cmp` call site, which is a change of
                 // its own rather than a fix for this one.
-                // [rs-proj-lends] Except a *lent* position (`[c: Proj]`): the
+                // [rs-proj-lends] Except a *lent* position (`[c: proj]`): the
                 // result holds a borrow of it, which a by-value parameter
                 // could not outlive (E0515), so it arrives as `&T`.
                 if kept && mutable {
@@ -3847,7 +3791,7 @@ impl<'p> Emitter<'p> {
                 span,
             } => {
                 let t = self.emit_raw(target);
-                // [proj-field] Assigning a `Proj` field re-points a borrow:
+                // [proj-field] Assigning a `proj` field re-points a borrow:
                 // the field is `&'s T`, so the value is borrowed, not moved
                 // or cloned.
                 if self.assigns_proj_field(target) {
@@ -3955,12 +3899,12 @@ impl<'p> Emitter<'p> {
     /// through.
     fn emit_return_value(&mut self, v: &Expr) -> String {
         // [rs-proj-struct] A borrowing struct literal is returned by value:
-        // its `Proj` fields are borrows (rendered in `emit_struct_lit`), the
+        // its `proj` fields are borrows (rendered in `emit_struct_lit`), the
         // struct itself is an owned cursor.
         if self.derived_return_fn && self.returns_borrowing_struct {
             return self.emit_expr(v);
         }
-        // [rs-proj-arm] A union return with a `Proj` arm: a value built for
+        // [rs-proj-arm] A union return with a `proj` arm: a value built for
         // the borrowing arm lends its argument (the `Option<&T>` local is
         // unwrapped to the `&T`, never cloned); a value for any other arm is
         // an ordinary owned return.
@@ -4002,7 +3946,7 @@ impl<'p> Emitter<'p> {
                 };
             }
             self.error(format!(
-                "a `Proj[from: ...]` return value must be a projection or \
+                "a `proj[from: ...]` return value must be a projection or \
                  alias of the annotated parameter (got `{v:?}`)"
             ));
         }
@@ -4094,7 +4038,7 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [rs-proj-arm] An argument lent into a `Proj` arm, as a `&T`: an
+    /// [rs-proj-arm] An argument lent into a `proj` arm, as a `&T`: an
     /// optional-borrow local is unwrapped to its reference, a reference
     /// binding passes as is, an owned place is borrowed.
     fn borrow_arg_for_arm(&mut self, arg: &Expr) -> String {
@@ -4112,7 +4056,7 @@ impl<'p> Emitter<'p> {
             Some(b) => b,
             None => {
                 self.error(format!(
-                    "a value lent into a `Proj` arm must be a borrow or a place (got `{arg:?}`)"
+                    "a value lent into a `proj` arm must be a borrow or a place (got `{arg:?}`)"
                 ));
                 self.emit_expr(arg)
             }
@@ -4373,7 +4317,7 @@ impl<'p> Emitter<'p> {
             if !self.mutated.contains(name.name.as_str()) && self.is_optional_derived_call(value) {
                 self.bindings.insert(name.name.clone(), BindKind::OptRef);
             }
-            // [rs-proj-arm] `let step = next(p)`: the union's `Proj` arm holds
+            // [rs-proj-arm] `let step = next(p)`: the union's `proj` arm holds
             // a reference; later payload reads see it.
             let borrowed_arms = self.call_borrowed_arms(value);
             if borrowed_arms.is_empty() {
@@ -4874,12 +4818,10 @@ impl<'p> Emitter<'p> {
                 // [iter-fn] An origin comes first: its machine is
                 // constructed here rather than minted from a factory, and it
                 // closes like a producer does.
-                let producer = self
-                    .pass_driver_of(iterable)
-                    .filter(|d| d.close.is_some())
-                    .map(|driver| {
-                        self.emit_closing_pass_loop_header(driver, pattern, iterable, indent)
-                    });
+                // [linear-group] No implicit discharge sites (user decision
+                // 2026-09-12): the loop never closes a pass — a linear one
+                // is checker-refused unless kept, so nothing here splices.
+                let producer: Option<(String, String)> = None;
                 // [iter-protocol] A **pass** is *driven*, not iterated: the
                 // header calls the `next` the checker resolved. Everything
                 // after it — the `else` bookkeeping, the body, the spliced
@@ -5129,7 +5071,7 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [proj-field] Whether an assignment target is a `Proj` field of a
+    /// [proj-field] Whether an assignment target is a `proj` field of a
     /// struct (by the checker's type of the base).
     fn assigns_proj_field(&mut self, target: &Expr) -> bool {
         let Expr::Field { base, field, .. } = target else {
@@ -5152,7 +5094,7 @@ impl<'p> Emitter<'p> {
     /// [rs-proj-arm] The match adapter that copies a union's borrowed
     /// Copy arms out into the owned union the position wants, or `None`
     /// when no adaptation applies (no borrowed arms, or the position's own
-    /// arm is `Proj` too). Errors on a non-Copy payload.
+    /// arm is `proj` too). Errors on a non-Copy payload.
     fn adapt_borrowed_arms_to_owned(
         &mut self,
         arg: &Expr,
@@ -5203,7 +5145,7 @@ impl<'p> Emitter<'p> {
                     self.error(format!(
                         "a borrowed `{}` element cannot flow into a position that owns it \
                          (`{}`): bind the element and pass `copy(...)` of it, or write the \
-                         position's arm as `Proj`",
+                         position's arm as `proj`",
                         inner_name(&inner),
                         inner_name(arm)
                     ));
@@ -5231,7 +5173,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [rs-proj-arm] Whether `arm` of the subject's storage holds a
-    /// reference: the subject is a local bound from a `Proj`-arm call, or
+    /// reference: the subject is a local bound from a `proj`-arm call, or
     /// is such a call itself.
     fn subject_arm_is_borrowed(&mut self, subject: &Expr, arm: usize) -> bool {
         match subject {
@@ -5245,7 +5187,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [rs-proj-arm] The value-arm indices a call's result holds as
-    /// references: the `Proj` arms of the resolved callee's written return
+    /// references: the `proj` arms of the resolved callee's written return
     /// type. Empty for anything else.
     fn call_borrowed_arms(&mut self, call: &Expr) -> Vec<usize> {
         let Expr::Call { span, .. } = call else {
@@ -5998,7 +5940,7 @@ impl<'p> Emitter<'p> {
                 // reference; an *owned* position needs the value — a deref
                 // for a Copy scalar [copy-scalar-free], a clone otherwise.
                 // [proj-type] Unless the expression's own type *is* the
-                // projection (`get(xs, i)!` is a `Proj Str`): the borrow is
+                // projection (`get(xs, i)!` is a `proj Str`): the borrow is
                 // the value — a lambda whose tail returns it yields `&T`,
                 // clone-free — and any position that truly needs ownership
                 // is checker-refused without `copy` before emission.
@@ -6495,7 +6437,7 @@ impl<'p> Emitter<'p> {
                 self.rust_ty(&a)
             })
             .collect();
-        // [rs-proj-arm] In a derived fn whose union has a `Proj` arm the
+        // [rs-proj-arm] In a derived fn whose union has a `proj` arm the
         // checker's `Ty` has the borrow stripped, so spelling the arguments
         // would say `T` where the enum wants `&T`; rustc infers them from
         // the return type, so they are left out there.
@@ -7357,7 +7299,7 @@ impl<'p> Emitter<'p> {
                 _ => None,
             })
             .collect();
-        // [rs-proj-struct] The `Proj` fields of a borrowing struct take a
+        // [rs-proj-struct] The `proj` fields of a borrowing struct take a
         // borrow of the stored value, not a move or clone of it.
         let proj_fields: Vec<String> = type_name
             .as_deref()
@@ -7669,7 +7611,7 @@ impl<'p> Emitter<'p> {
             // kept non-`Mut` position is `&T` (Copy scalars by value). A fn's
             // own implicit keeps the by-value convention implicits have.
             let is_ctor_implicit = matches!(self.bindings.get(name), Some(BindKind::SelfField));
-            // [rs-proj-lends] A *lent* position (`[c: Proj]`) is `&T` on any
+            // [rs-proj-lends] A *lent* position (`[c: proj]`) is `&T` on any
             // implicit: the result holds a borrow of it.
             let kept_ref: Vec<bool> = self
                 .implicits
@@ -7927,10 +7869,10 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        // [rs-proj-arm] A union value whose `Proj` arm is a reference
+        // [rs-proj-arm] A union value whose `proj` arm is a reference
         // (`next(p)` is `Union2<&i32, Finished>`) flowing into a position
         // written as the owned union (`step: Emitted Int | Finished`): the
-        // Salvo types agree (`Proj` is not a type), the Rust ones do not.
+        // Salvo types agree (`proj` is not a type), the Rust ones do not.
         // A Copy payload is copied out by a match adapter
         // [copy-scalar-free]; anything else would need a hidden clone, which
         // this backend refuses to emit.
@@ -8401,7 +8343,7 @@ impl<'p> Emitter<'p> {
                                             ParamMode::RefMut if already_ref => {
                                                 self.error(format!(
                                                     "`{}` mutates `{}`, but the position \
-                                                     lends it (`Proj`): a lent argument is \
+                                                     lends it (`proj`): a lent argument is \
                                                      read-only",
                                                     decl.name.name, p.name.name
                                                 ));
@@ -8556,7 +8498,7 @@ impl<'p> Emitter<'p> {
             all.truncate(1);
         }
         // [yield-proj] Which implicit `next`s filled here emit a *borrow*
-        // (`Emitted (Proj T)`): the checker's element type has the borrow
+        // (`Emitted (proj T)`): the checker's element type has the borrow
         // stripped, so the type argument the combinator is instantiated at
         // must be respelled `&T` — `map::<ListYield<String>, &String, i32>`.
         // The element generic is the one the spread's `Yield<It, T>` binds
@@ -8650,7 +8592,7 @@ impl<'p> Emitter<'p> {
                 for g in &borrowed_elem_generics {
                     if let Some(i) = f.generics.iter().position(|x| x.name == *g) {
                         // [proj-type] Already a projection in the checker's
-                        // type (`T = Proj Str` renders `&String`): nothing to
+                        // type (`T = proj Str` renders `&String`): nothing to
                         // retag.
                         if args.get(i).is_some_and(|t| t.is_proj()) {
                             continue;
@@ -8999,7 +8941,7 @@ fn cond_code(code: String) -> String {
 }
 
 /// Whether an AST type is a fn type (possibly under qualifiers like
-/// `Once`): such types render as `impl Fn…`, which Rust only allows in
+/// `once`): such types render as `impl Fn…`, which Rust only allows in
 /// parameter/return position — never on a `let` binding [fn-contract].
 fn is_fn_type(ty: &Type) -> bool {
     match ty {
@@ -9025,11 +8967,11 @@ fn bin_prec(op: BinaryOp) -> u8 {
     }
 }
 
-/// [proj-anywhere] The `from` lists of every `Proj` in a written type that
+/// [proj-anywhere] The `from` lists of every `proj` in a written type that
 /// names sources, in order of appearance.
 fn proj_refs_with_from(ty: &Type) -> Vec<Vec<String>> {
     fn in_ref(r: &salvo_syntax::ast::TypeRef, out: &mut Vec<Vec<String>>) {
-        if r.name.name == "Proj" && !r.from.is_empty() {
+        if r.name.name == "proj" && !r.from.is_empty() {
             out.push(r.from.iter().map(|i| i.name.clone()).collect());
         }
         for a in &r.args {
@@ -9066,9 +9008,9 @@ fn proj_refs_with_from(ty: &Type) -> Vec<Vec<String>> {
     out
 }
 
-/// [proj-type] The type under a *top-level* `Proj` (on a named type or a
+/// [proj-type] The type under a *top-level* `proj` (on a named type or a
 /// qualified group), or `None` when the type is not a projection at its
-/// top. A Copy scalar under `Proj` is the scalar itself [copy-scalar-free].
+/// top. A Copy scalar under `proj` is the scalar itself [copy-scalar-free].
 fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
     let is_scalar = |t: &Type| {
         matches!(
@@ -9083,10 +9025,10 @@ fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
         )
     };
     match ty {
-        Type::Named { qualifiers, base } if qualifiers.iter().any(|q| q.name.name == "Proj") => {
+        Type::Named { qualifiers, base } if qualifiers.iter().any(|q| q.name.name == "proj") => {
             let rest: Vec<salvo_syntax::ast::TypeRef> = qualifiers
                 .iter()
-                .filter(|q| q.name.name != "Proj")
+                .filter(|q| q.name.name != "proj")
                 .cloned()
                 .collect();
             let inner = Type::Named {
@@ -9103,10 +9045,10 @@ fn strip_top_proj_ast(ty: &Type) -> Option<Type> {
             qualifiers,
             base,
             span,
-        } if qualifiers.iter().any(|q| q.name.name == "Proj") => {
+        } if qualifiers.iter().any(|q| q.name.name == "proj") => {
             let rest: Vec<salvo_syntax::ast::TypeRef> = qualifiers
                 .iter()
-                .filter(|q| q.name.name != "Proj")
+                .filter(|q| q.name.name != "proj")
                 .cloned()
                 .collect();
             if rest.is_empty() {
@@ -9959,10 +9901,10 @@ fn collect_is_bindings<'a>(
     }
 }
 
-/// [rs-proj-struct] Whether a written type carries a `Proj` anywhere.
+/// [rs-proj-struct] Whether a written type carries a `proj` anywhere.
 fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &TypeRef) -> bool {
-        r.name.name == "Proj" || r.args.iter().any(type_has_proj)
+        r.name.name == "proj" || r.args.iter().any(type_has_proj)
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers.iter().any(in_ref) || in_ref(base),
@@ -9977,14 +9919,14 @@ fn type_has_proj(ty: &Type) -> bool {
     }
 }
 
-/// [rs-proj-struct] The type with its outermost `Proj` qualifier removed —
+/// [rs-proj-struct] The type with its outermost `proj` qualifier removed —
 /// what a `&'s …` wraps.
 fn strip_proj(ty: &Type) -> Type {
     match ty {
         Type::Named { qualifiers, base } => Type::Named {
             qualifiers: qualifiers
                 .iter()
-                .filter(|q| q.name.name != "Proj")
+                .filter(|q| q.name.name != "proj")
                 .cloned()
                 .collect(),
             base: base.clone(),
@@ -9996,7 +9938,7 @@ fn strip_proj(ty: &Type) -> Type {
         } => {
             let quals: Vec<TypeRef> = qualifiers
                 .iter()
-                .filter(|q| q.name.name != "Proj")
+                .filter(|q| q.name.name != "proj")
                 .cloned()
                 .collect();
             if quals.is_empty() {

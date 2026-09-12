@@ -1,6 +1,6 @@
 //! The type checker.
 //!
-//! Walks every function body of every language file, inferring a type for
+//! Walks eery function body of every language file, inferring a type for
 //! each expression and recording side tables the backend consults:
 //!
 //! * `expr_ty`: the logical type of each expression (after flow narrowing).
@@ -138,14 +138,6 @@ pub struct PassDriver {
     /// the subject is *not* consumed, since a fresh machine is minted per
     /// loop.
     pub origin: bool,
-    /// [linear-group] [iter-fn] The `close` of a **raw** pass, when it
-    /// has one: driving is what releases a pass, so the `for` sugar calls it
-    /// on every exit — exhaustion, `break` and `return` alike (user decision
-    /// 2026-09-09). Without it a pass that owns something leaked while the
-    /// linear obligation counted as discharged by the move into the loop, which
-    /// is bookkeeping, not release. `None` for the origin form, whose machine
-    /// has its own `__close`.
-    pub close: Option<PassMember>,
     /// [iter-drive-in-place] The subject is a **place the enclosing fn keeps**
     /// — a `Mut` parameter its deduction list hands back, or a projection of one
     /// — so the loop advances the pass *where it lives* instead of taking it
@@ -364,7 +356,7 @@ pub struct Checked {
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
-    /// variable's type with a bare `Proj` compiler qualifier and
+    /// variable's type with a bare `proj` compiler qualifier and
     /// serves the parameters (roots, binding sites) as on-request detail
     /// (user decision 2026-09-02, progressive disclosure).
     pub fate_reads: HashMap<Key, Vec<FateRead>>,
@@ -378,13 +370,13 @@ pub struct Checked {
     /// storing the view is an error (it would outlive what it borrows).
     pub temp_views: HashSet<Key>,
     /// [proj-infer] Calls whose result *holds borrows* of some arguments
-    /// (a fn returning a struct with `Proj` fields), keyed by the call span:
+    /// (a fn returning a struct with `proj` fields), keyed by the call span:
     /// the indices of the lent arguments (dot-notation receivers are
     /// argument 0). The checker links the result to them, held; the Rust
     /// backend ties the result's lifetime to those parameters.
     pub lending_calls: HashMap<Key, Vec<usize>>,
     /// [proj-infer] Per fn, the parameters its result holds borrows of
-    /// (declared with `[p: Proj]` or inferred from the body). Read by the
+    /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
     pub fn_lends: HashMap<FnKey, Vec<usize>>,
     /// [interp-struct] Interpolations of a **struct** with no `to_str` of its
@@ -409,7 +401,7 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
-    /// Calls to fns with a derived return (`Proj[from: param]`
+    /// Calls to fns with a derived return (`proj[from: param]`
     /// [readonly-return]), keyed by the call span: the index of the
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
@@ -478,8 +470,8 @@ pub struct ImplicitParam {
     /// Where it was written: the parameter, or the `?Group<T>` spread.
     pub span: Span,
     /// [proj-anywhere] Which union arms of the member's *written* return
-    /// type carry `Proj` — a borrow the lowered `Ty` no longer shows. `Yield`'s
-    /// `next` has `[0]`: `Emitted (Proj[from: it] T) | Finished`. A backend
+    /// type carry `proj` — a borrow the lowered `Ty` no longer shows. `Yield`'s
+    /// `next` has `[0]`: `Emitted (proj[from: it] T) | Finished`. A backend
     /// that distinguishes borrows from values (Rust) renders those arms as
     /// references. Empty for a non-union return or a plain implicit.
     pub borrowed_arms: Vec<usize>,
@@ -717,7 +709,7 @@ fn check_once<'p>(
             param_mutations,
             own_fn: None,
             own_contract: None,
-            own_close_param: None,
+            own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
@@ -858,6 +850,11 @@ struct LocalVar {
     /// handler registration) — names the event in the use-site
     /// diagnostic [deduce-consume].
     consumed_by: Option<&'static str>,
+    /// [linear-union-arm] The obligation of a linear-union value was
+    /// discharged by narrowing to a non-linear arm on every path
+    /// reaching here (set per-branch by `with_narrows`, joined by
+    /// `merge_fallthrough`).
+    linear_settled: bool,
     /// Whether this variable is a parameter (or handler state field) of
     /// the enclosing fn: a parameter root is *owned* for move-mode
     /// bindings only when the fn's effective contract moves it
@@ -974,7 +971,7 @@ struct FateLink {
     /// ownership through it [fate-move-mode].
     borrowed: bool,
     /// [proj-infer] The borrow is *held by fields*: the variable is an owned
-    /// object of its own (a struct with `Proj` fields — a pass over a list)
+    /// object of its own (a struct with `proj` fields — a pass over a list)
     /// whose fields project the root, rather than the root's data itself.
     /// Such a variable may be mutated (its own fields are its own) and moved
     /// (the object travels, the borrow with it); what it may not do is
@@ -1041,6 +1038,10 @@ struct Poison {
 #[derive(Clone, PartialEq)]
 struct VarState {
     narrowed: Ty,
+    /// [linear-union-arm] The path narrowed a linear union to a
+    /// non-linear arm, discharging the obligation — a flow fact, like
+    /// consumption, surviving the branch's narrow-restore.
+    linear_settled: bool,
     links: Vec<FateLink>,
     poison: Option<Poison>,
     consumed_by: Option<&'static str>,
@@ -1133,7 +1134,13 @@ struct Checker<'p, 'r> {
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
-    own_close_param: Option<String>,
+    /// [linear-group] The linear types the *current fn* may `discard`: it
+    /// is a **discharger** of each — declared in the same file as the type,
+    /// consuming a parameter of it (user decision 2026-09-12; replaces the
+    /// designated-`close` exemption). Inside the fn the obligation still
+    /// owes until terminated on every path — `discard` or a forward into
+    /// another consuming fn.
+    own_discharges: std::collections::HashSet<String>,
     /// Whether the current fn has a *written* deduction list: written
     /// contracts never gain claims — a kept parameter stays kept and
     /// derived moves stay errors [fate-derived-readonly].
@@ -1163,21 +1170,21 @@ struct Checker<'p, 'r> {
     /// and the enclosing projection does the precise check instead.
     projection_base: usize,
     /// Type parameters of the current fn that opted into linearity with
-    /// `<T canbe Linear>` [linear-generics]: `T`-typed values are treated
+    /// `<T canbe linear>` [linear-generics]: `T`-typed values are treated
     /// as linear in the body, and callers may instantiate them with
     /// linear types.
     own_linear_generics: HashSet<String>,
     /// The current fn's derived-return parameter
-    /// (`-> Proj[from: p] T` [readonly-return]): every returned
+    /// (`-> proj[from: p] T` [readonly-return]): every returned
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
-    /// [proj-anywhere] Every source of the fn's wholesale `Proj` return
-    /// (`Proj[from: a, b] T`): a returned value may derive from any of them.
+    /// [proj-anywhere] Every source of the fn's wholesale `proj` return
+    /// (`proj[from: a, b] T`): a returned value may derive from any of them.
     own_derived_sources: Vec<String>,
     /// [proj-anywhere] When the return type is a union, the *qualifier
-    /// names* of the arms that carry `Proj` (`Emitted` for
-    /// `Emitted (Proj[from: p] T) | Finished`). A returned value whose
+    /// names* of the arms that carry `proj` (`Emitted` for
+    /// `Emitted (proj[from: p] T) | Finished`). A returned value whose
     /// constructor builds one of these arms must be derived from the
     /// source; a value into any other arm is an ordinary move. Empty when
     /// the whole return type is the borrow (the pre-2b shape).
@@ -1187,10 +1194,10 @@ struct Checker<'p, 'r> {
     /// [proj-infer] The current fn's lent parameter *names*: what a returned
     /// held view may be rooted in.
     own_lends: Vec<String>,
-    /// [proj-infer] The current fn wrote `[p: Proj]` entries.
+    /// [proj-infer] The current fn wrote `[p: proj]` entries.
     own_lends_declared: bool,
     /// [proj-anywhere] The span of a constructor call whose result is being
-    /// returned into a `Proj` arm: its argument is *lent* into the arm, not
+    /// returned into a `proj` arm: its argument is *lent* into the arm, not
     /// moved (the caller receives a borrow of it), so the call contract's
     /// consumption is suppressed for exactly that call.
     lending_ctor: Option<Span>,
@@ -1244,7 +1251,7 @@ struct CaptureInfo {
     /// creation [fate-lambda].
     mutated: bool,
     /// The body *consumes* the capture: legal, but the lambda becomes
-    /// `Once` — callable at most once [once-fn].
+    /// `once` — callable at most once [once-fn].
     moved: bool,
 }
 
@@ -1331,18 +1338,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // written list when present (never gains claims),
                     // else the previous round's inferred facts.
                     self.own_fn = Some(key);
-                    // [linear-group] Is this the designated `close` of a
-                    // linear type? Then its parameter's obligation is
-                    // discharged by this very function.
-                    self.own_close_param = None;
-                    if f.name.name == "close" && f.params.len() == 1 {
-                        let pt = self.lower_type(&f.params[0].ty);
-                        if let Ty::Named { name, .. } = pt.strip_quals() {
-                            if self.has_auto_linear(name) {
-                                self.own_close_param = Some(f.params[0].name.name.clone());
-                            }
-                        }
-                    }
                     self.own_written = f
                         .deductions
                         .as_ref()
@@ -1353,9 +1348,38 @@ impl<'p, 'r> Checker<'p, 'r> {
                         })
                         .unwrap_or_default();
                     self.own_contract = self.effective_contract(Some(key), f);
+                    // [linear-group] Is this fn a **discharger**? For each
+                    // consumed parameter whose type is a linear struct
+                    // declared in this same file, `discard` becomes legal
+                    // in this body (user decision 2026-09-12).
+                    self.own_discharges = f
+                        .params
+                        .iter()
+                        .filter_map(|p| {
+                            let base = match &p.ty {
+                                ast::Type::Named { base, .. } => &base.name.name,
+                                _ => return None,
+                            };
+                            if !self.linear_capable(base) {
+                                return None;
+                            }
+                            if self.scope.struct_files.get(base.as_str()).copied()
+                                != Some(self.file_idx)
+                            {
+                                return None;
+                            }
+                            let consumed = self
+                                .own_contract
+                                .as_ref()
+                                .is_some_and(|c| {
+                                    c.iter().any(|d| d.param == p.name.name && !d.kept)
+                                });
+                            consumed.then(|| base.clone())
+                        })
+                        .collect();
                     self.check_fn(f, &[], &[]);
                     self.own_fn = None;
-                    self.own_close_param = None;
+                    self.own_discharges.clear();
                     self.own_written.clear();
                     self.own_contract = None;
                 }
@@ -1547,7 +1571,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for field in &s.fields {
                         self.validate_type(&field.ty);
                         // [proj-field] Any struct may hold a borrow through a
-                        // `Proj` field; it is then a *view*, tied to whatever
+                        // `proj` field; it is then a *view*, tied to whatever
                         // its literal stored there [proj-infer].
                         self.check_proj_field(&s.name.name, field);
                         self.check_linear_field(&s.name.name, field);
@@ -1588,8 +1612,52 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// compared: the group declares none and each implementation declares
     /// its own.
     fn check_obligations(&mut self, s: &'p ast::StructDecl) {
+        // [linear-group] A `linear struct` — and a conditional container
+        // (`canbe linear` reaching a field [linear-generics]) — must have a
+        // legal death: at least one fn in the *same file* consuming a
+        // parameter of this type (user decision 2026-09-12 — the discharge
+        // set is same-file consumption, not a designated member). Round
+        // two, so inferred contracts count.
+        let conditional = s.generic_canbe.iter().any(|(id, q)| {
+            q.name.name == "linear"
+                && s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name))
+        });
+        if (s.linear || conditional) && self.inferred.is_some() {
+            let set = self.discharge_set(&s.name.name);
+            if set.is_empty() {
+                let what = if s.linear {
+                    format!("linear struct `{}`", s.name.name)
+                } else {
+                    format!(
+                        "`{}` is conditionally linear (`canbe linear` reaches a field)",
+                        s.name.name
+                    )
+                };
+                self.error(
+                    s.name.span,
+                    format!(
+                        "{what} has no discharger: no fn in this file consumes a \
+                         `{0}`, so the obligation has no legal death — declare one \
+                         (e.g. `fn close(x: {0}) -> None => !x {{ discard(x) }}`)",
+                        s.name.name
+                    ),
+                );
+            }
+        }
         let scope = self.scope;
         for (i, ob) in s.obligations.iter().enumerate() {
+            // [linear-group] The pre-2026-09-12 spelling, caught before the
+            // unknown-group error would puzzle: linearity is a declaration
+            // modifier now.
+            if ob.name.name == "Linear" {
+                self.error(
+                    ob.span,
+                    "linearity is declared with the `linear struct` modifier, \
+                     not as an obligation: write `linear struct …` and supply a \
+                     same-file fn that consumes the value",
+                );
+                continue;
+            }
             // The same group twice is a mistake, not an emphasis.
             if s.obligations[..i]
                 .iter()
@@ -1688,12 +1756,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let mut fwd = HashMap::new();
                         let mut rev = HashMap::new();
                         if tys_match_renamed(&expected, &candidate, &mut fwd, &mut rev) {
-                            // [yield-proj] `Proj` strips from types, so the
+                            // [yield-proj] `proj` strips from types, so the
                             // shapes match either way; the *borrowness* has to
-                            // agree separately. An obligation at `Proj T`
+                            // agree separately. An obligation at `proj T`
                             // promises borrowed elements, which the member's
                             // written return must deliver — and vice versa:
-                            // a `next` emitting `Proj` under a plain
+                            // a `next` emitting `proj` under a plain
                             // `Yield<self, T>` would hand a borrow to callers
                             // expecting to own it.
                             let ob_proj = ob.args.iter().any(|a| first_proj_span(a).is_some());
@@ -1707,17 +1775,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     ob.span,
                                     if ob_proj {
                                         format!(
-                                            "`{}` declares `: {}<self, Proj …>`, but its `{}` \
+                                            "`{}` declares `: {}<self, proj …>`, but its `{}` \
                                              returns an owned element: write \
-                                             `Emitted (Proj[from: p] T) | Finished`, or drop \
-                                             the `Proj` from the obligation",
+                                             `Emitted (proj[from: p] T) | Finished`, or drop \
+                                             the `proj` from the obligation",
                                             s.name.name, ob.name.name, member.name.name
                                         )
                                     } else {
                                         format!(
                                             "`{}`'s `{}` returns a borrowed element \
-                                             (`Proj`), so its obligation must say so: \
-                                             `: {}<self, Proj T>`",
+                                             (`proj`), so its obligation must say so: \
+                                             `: {}<self, proj T>`",
                                             s.name.name, member.name.name, ob.name.name
                                         )
                                     },
@@ -1755,7 +1823,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// permission/obligation qualifiers; user qualifiers are applied in
     /// types, not granted by opt-in.
     ///
-    /// `Once` joined the list 2026-09-07 (user decision) so a hand-written
+    /// `once` joined the list 2026-09-07 (user decision) so a hand-written
     /// **pass** — a type with a `next` [iter-protocol] — can say that
     /// driving it uses it up. Opting in is the author's call for the same
     /// reason `Linear` is declared rather than applied [linear-group]: an
@@ -1763,18 +1831,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// method name.
     fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
         for q in quals {
-            if matches!(q.name.name.as_str(), "Mut" | "Once") {
+            if matches!(q.name.name.as_str(), "Mut" | "once") {
                 continue;
             }
             // [linear-group] `canbe` grants a *qualifier*; linearity is an
             // **obligation**, and declaring it means supplying the `close`
             // that discharges it. The two were spelled alike until R4; now
             // `canbe` means only "may be qualified thus".
-            if q.name.name == "Linear" {
+            if q.name.name == "linear" {
                 self.error(
                     q.span,
                     "linearity is declared as an obligation, not granted with \
-                     `canbe`: write `: Linear<self>` and supply its `close`"
+                     `canbe`: write `linear struct` and supply a same-file discharger"
                         .to_string(),
                 );
                 continue;
@@ -1782,31 +1850,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 q.span,
                 format!(
-                    "only `Mut` and `Once` can be opted into with `canbe` \
+                    "only `Mut` and `once` can be opted into with `canbe` \
                      (found `{}`)",
                     q.name.name
                 ),
             );
         }
-    }
-
-    /// [once-fn] [canbe-optin] Whether this type opted into `Once` with a
-    /// `canbe` clause, which is what makes `Once T` writable for a type of
-    /// one's own. Mirrors [`Self::has_auto_mut`].
-    fn has_auto_once(&self, base: &Ty) -> bool {
-        let Ty::Named { name, .. } = base.strip_quals() else {
-            return false;
-        };
-        let has_once = |quals: &[ast::TypeRef]| quals.iter().any(|q| q.name.name == "Once");
-        self.scope
-            .structs
-            .get(name.as_str())
-            .is_some_and(|s| has_once(&s.auto_qualifiers))
-            || self
-                .scope
-                .opaque_types
-                .get(name.as_str())
-                .is_some_and(|t| has_once(&t.auto_qualifiers))
     }
 
     /// [decl-explicit] Nothing the compiler cannot see may be inferred: a
@@ -2120,7 +2169,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
-                // [yield-proj] `?Yield<It, Proj T>`: a `Proj` on a spread
+                // [yield-proj] `?Yield<It, proj T>`: a `proj` on a spread
                 // argument marks the arms of the member's return that mention
                 // that generic as borrows — the caller requires a pass that
                 // *walks* data. The member's own return may mark arms too.
@@ -2722,12 +2771,64 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => effects.clone(),
         };
         self.out.lambda_effects.insert(self.key(name_span), taken);
-        Ty::Fn {
+        let candidate = Ty::Fn {
             params,
             ret: Box::new(ret),
             contract,
             effects,
+        };
+        // [fn-value-select] A **generic** fn passed by name instantiates
+        // from the position's expected fn type (closed 2026-09-12 with the
+        // consuming-callback pattern: `drain(counter, drop)` binds `drop`'s
+        // `T = Counter`). Without this the value's type kept its unbound
+        // `Var`s and no concrete position could unify with it. The target
+        // languages infer the instantiation at the adapter's forwarding
+        // call, so the emitters need nothing.
+        if !decl.generics.is_empty() {
+            if let Some(want) = expected.map(|t| t.strip_quals()) {
+                if matches!(want, Ty::Fn { .. }) {
+                    let mut subst: HashMap<String, Ty> = HashMap::new();
+                    if unify(&candidate, want, &mut subst) && !subst.is_empty() {
+                        let generic_names: HashSet<String> =
+                            decl.generics.iter().map(|g| g.name.clone()).collect();
+                        // [linear-generics] The instantiation ban applies
+                        // here as at any call: an unopted generic cannot
+                        // bind a linear type.
+                        if self.inferred.is_some() {
+                            let opted: HashSet<&str> = decl
+                                .generic_canbe
+                                .iter()
+                                .filter(|(_, q)| q.name.name == "linear")
+                                .map(|(id, _)| id.name.as_str())
+                                .collect();
+                            for g in &decl.generics {
+                                if opted.contains(g.name.as_str()) {
+                                    continue;
+                                }
+                                if let Some(bound) = subst.get(&g.name) {
+                                    if self.ty_own_linear(bound) {
+                                        self.error(
+                                            name_span,
+                                            format!(
+                                                "cannot instantiate generic parameter \
+                                                 `{}` of `{name}` with linear type \
+                                                 `{bound}`: `{name}` does not declare \
+                                                 `<{} canbe linear>`, so it does not \
+                                                 honor the use obligation",
+                                                g.name, g.name
+                                            ),
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        return substitute_vars(&candidate, &subst, &generic_names);
+                    }
+                }
+            }
         }
+        candidate
     }
 
     /// [fn-rename] Brings a `rename fn` into force: resolves the overload it
@@ -3243,7 +3344,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
-        // [readonly-return] `-> Proj[from: p] T`: `p` must be a
+        // [readonly-return] `-> proj[from: p] T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
@@ -3255,7 +3356,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|r| r.from.iter().map(|i| i.name.clone()).collect())
             .unwrap_or_default();
         // [proj-infer] What this fn's result holds borrows of: declared with
-        // `[p: Proj]`, else inferred from the body, else (no body) every kept
+        // `[p: proj]`, else inferred from the body, else (no body) every kept
         // parameter. A written list is checked against the body exactly, so
         // it cannot go stale in either direction.
         {
@@ -3319,7 +3420,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "the deduction list says the result projects {}, but the \
                                  body returns a value that projects {}: every lend the body \
-                                 performs must be written (or omit the `Proj` entries and \
+                                 performs must be written (or omit the `proj` entries and \
                                  let them be inferred)",
                                 show(&declared),
                                 show(&inferred)
@@ -3357,13 +3458,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(proj_arm_qualifiers)
             .unwrap_or_default();
-        // [proj-anywhere] Every *wholesale* `Proj` in the return type — on the
+        // [proj-anywhere] Every *wholesale* `proj` in the return type — on the
         // result, an arm, a tuple element — must say what it borrows from:
         // without `[from: p]` there is nothing to link the result to, and the
-        // caller could not know which argument it depends on. A `Proj` inside
-        // a type argument (`List<Proj T>`) is a borrow the result *holds*:
+        // caller could not know which argument it depends on. A `proj` inside
+        // a type argument (`List<proj T>`) is a borrow the result *holds*:
         // it names no source, the lend does [proj-infer]. Parameters may write
-        // a bare `Proj` (it names the *kind* of value expected, not a source).
+        // a bare `proj` (it names the *kind* of value expected, not a source).
         if let Some(rt) = &f.return_type {
             let held: Vec<Span> = proj_refs_in_type_args(rt).iter().map(|r| r.span).collect();
             for r in proj_refs(rt) {
@@ -3372,9 +3473,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(from) = r.from.first() {
                         self.error(
                             from.span,
-                            "a `Proj` element names no source: the list holds the borrow, \
+                            "a `proj` element names no source: the list holds the borrow, \
                              and which parameter it is of is inferred from the body (or \
-                             written as `=> Proj[from: p]` in the deduction clause)"
+                             written as `=> proj[from: p]` in the deduction clause)"
                                 .to_string(),
                         );
                     }
@@ -3383,7 +3484,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if r.from.is_empty() {
                     self.error(
                         r.span,
-                        "`Proj` in a return type must name its source: `Proj[from: param]`"
+                        "`proj` in a return type must name its source: `proj[from: param]`"
                             .to_string(),
                     );
                 }
@@ -3394,7 +3495,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             from.span,
                             format!(
-                                "`Proj[from: {}]` names no parameter of this function",
+                                "`proj[from: {}]` names no parameter of this function",
                                 from.name
                             ),
                         );
@@ -3423,7 +3524,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         id.span,
                         format!(
-                            "`Proj[from: {}]` requires `{}` to be kept: a \
+                            "`proj[from: {}]` requires `{}` to be kept: a \
                              moved parameter is owned by this function, so its \
                              data is returned by ordinary moves",
                             id.name, id.name
@@ -3432,22 +3533,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [linear-generics] Type-parameter opt-ins: `<T canbe Linear>`
+        // [linear-generics] Type-parameter opt-ins: `<T canbe linear>`
         // treats `T`-typed values as linear in this body and admits
         // linear instantiation at call sites. Only `Linear` is
         // supported in a type-parameter `with` clause.
         self.own_linear_generics = f
             .generic_canbe
             .iter()
-            .filter(|(_, q)| q.name.name == "Linear")
+            .filter(|(_, q)| q.name.name == "linear")
             .map(|(id, _)| id.name.clone())
             .collect();
         for (_, q) in &f.generic_canbe {
-            if q.name.name != "Linear" {
+            if q.name.name != "linear" {
                 self.error(
                     q.span,
                     format!(
-                        "only `Linear` is supported in a type-parameter `with` \
+                        "only `linear` is supported in a type-parameter `with` \
                          clause (found `{}`)",
                         q.name.name
                     ),
@@ -3533,6 +3634,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: p.name.span,
@@ -3563,6 +3665,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: imp.span,
@@ -3592,6 +3695,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     links: Vec::new(),
                     poison: None,
                     consumed_by: None,
+                linear_settled: false,
                     is_param: true,
                     for_origin: None,
                     decl_span: field.name.span,
@@ -4075,6 +4179,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 links,
                 poison: None,
                 consumed_by: None,
+                linear_settled: false,
                 is_param,
                 for_origin,
                 decl_span: name.span,
@@ -4115,7 +4220,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// lets move-mode candidates cover every binding of a consuming
     /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
-        // [proj-field] A struct literal with `Proj` fields is derived
+        // [proj-field] A struct literal with `proj` fields is derived
         // from the values stored in them: a pass minted over `list` shares
         // fate with `list`. Other fields are moved in and carry no link.
         if let Expr::StructLit { fields, span, .. } = value {
@@ -4133,7 +4238,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         match &f.kind {
                             StructLitFieldKind::Named { name, value } => {
                                 if proj_fields.contains(&name.name) {
-                                    // [proj-infer] A `Proj` field projects
+                                    // [proj-infer] A `proj` field projects
                                     // what is stored in it: the literal holds
                                     // a borrow of that value's roots.
                                     for mut l in self.links_for_value(value, bind_span) {
@@ -4550,18 +4655,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_param_claims(links);
         let root = &links[0].root_name;
         // [proj-readonly] A wholesale projection is the root's own data seen
-        // through `Proj`: read-only whatever its `Mut` says, and `copy` is
+        // through `proj`: read-only whatever its `Mut` says, and `copy` is
         // the way to a value of one's own.
         if links.iter().any(|l| l.borrowed && !l.held) {
             let why = if action == "mutate" {
-                " — a `Proj` value never satisfies a `Mut` position"
+                " — a `proj` value never satisfies a `Mut` position"
             } else {
                 ""
             };
             self.error(
                 span,
                 format!(
-                    "cannot {action} `{name}`: it is a projection (`Proj`) of `{root}`, \
+                    "cannot {action} `{name}`: it is a projection (`proj`) of `{root}`, \
                      which can only be read{why}; use `copy({name})` for a value of your own"
                 ),
             );
@@ -4818,7 +4923,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Handles consumption of a variable inside a lambda body
     /// [fate-lambda] [once-fn]: consuming a capture makes the lambda
-    /// `Once` — callable at most once — so the consumption is legal and
+    /// `once` — callable at most once — so the consumption is legal and
     /// proceeds (the value is owned by the closure from creation on).
     /// Exception: a *linear* capture may not be swallowed (the closure
     /// would inherit an exactly-once obligation, a future feature) —
@@ -4846,7 +4951,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return true;
         }
-        // Mark every enclosing lambda `Once` (an outer lambda re-creating
+        // Mark every enclosing lambda `once` (an outer lambda re-creating
         // an inner consuming closure would re-consume per run).
         let var_id = self.lookup(name).map(|v| v.id);
         if let Some(var_id) = var_id {
@@ -4891,7 +4996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [proj-field] The names of a struct type's `Proj` fields (empty
+    /// [proj-field] The names of a struct type's `proj` fields (empty
     /// for anything that is not a struct with one).
     fn proj_fields_of(&self, ty: &Ty) -> Vec<String> {
         let Ty::Named { name, .. } = ty.strip_quals() else {
@@ -4908,7 +5013,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [proj-infer] Whether a value of this (lowered) type can hold a
-    /// borrow: it is, or contains, a struct with a `Proj` field, directly or
+    /// borrow: it is, or contains, a struct with a `proj` field, directly or
     /// through an owned field whose type does.
     fn ty_holds_proj(&self, ty: &Ty) -> bool {
         fn names(ty: &Ty, out: &mut Vec<String>) {
@@ -5004,7 +5109,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [proj-infer] The parameters `decl`'s result holds borrows of —
-    /// declared (`[p: Proj]`), inferred from its body, or every kept
+    /// declared (`[p: proj]`), inferred from its body, or every kept
     /// parameter when there is no body. Memoised per declaration.
     fn infer_lends(&mut self, decl: &'p FnDecl) -> Vec<usize> {
         let scope_fns = &self.scope.fns;
@@ -5062,7 +5167,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .iter()
                         .any(|x| self.own_lends.iter().any(|n| n == &x.root_name))
                 });
-            // A written `[p: Proj]` list is checked against the body as a
+            // A written `[p: proj]` list is checked against the body as a
             // whole (in `check_fn`); the per-return report would repeat it.
             if !lent && !self.own_lends_declared {
                 self.error(
@@ -5070,7 +5175,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "cannot return this value: it holds a borrow of `{root}`, which \
                          this function's signature does not lend; declare it with \
-                         `[{root}: Proj]`, or keep `{root}` so the borrow can be inferred"
+                         `[{root}: proj]`, or keep `{root}` so the borrow can be inferred"
                     ),
                 );
             }
@@ -5139,7 +5244,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if matches!(value, Expr::Ident(id) if id.name == "None") {
             return;
         }
-        // Any of the declared sources will do (`Proj[from: a, b]`).
+        // Any of the declared sources will do (`proj[from: a, b]`).
         let sources: Vec<String> = if self.own_derived_sources.is_empty() {
             vec![from.to_string()]
         } else {
@@ -5165,7 +5270,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 value.span(),
                 format!(
-                    "this function returns `Proj[from: {shown}]`, so every \
+                    "this function returns `proj[from: {shown}]`, so every \
                      returned value must be derived from `{shown}` (a projection, \
                      element, or alias) or be `None`"
                 ),
@@ -5255,7 +5360,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     declared_q.iter().any(|q| q == "Mut"),
                 ),
             };
-            // [proj-anywhere] A constructor lending into a `Proj` arm keeps
+            // [proj-anywhere] A constructor lending into a `proj` arm keeps
             // its argument: the caller receives a borrow of it. Only when
             // the call really builds a constructive qualifier — otherwise
             // the ordinary contract stands and the return check reports.
@@ -5278,7 +5383,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             let arg_once = self
                 .lookup(&id.name)
-                .map(|v| v.narrowed.quals().iter().any(|q| q.name == "Once"))
+                .map(|v| v.narrowed.quals().iter().any(|q| q.name == "once"))
                 .unwrap_or(false);
             if !kept || arg_once {
                 if self.inferred.is_none() {
@@ -5377,7 +5482,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             .cloned()
             .unwrap_or(Ty::Unknown);
         let mut visited = HashSet::new();
-        if !self.ty_transitively_mut(&ty, &mut visited) {
+        // [linear-group] A projection of *linear* data is a real move
+        // whatever its mutability: "immutable projections are free" is a
+        // clone-vs-share latitude [fate-partial-move], and duplicating an
+        // obligation is exactly what linearity cannot allow. Recording the
+        // move is also what lets decomposition settle a container (`return
+        // box.item` in its discharger).
+        if !self.ty_transitively_mut(&ty, &mut visited) && !self.ty_own_linear(&ty) {
             return Vec::new();
         }
         let links = self.links_for_value(expr, span);
@@ -5504,7 +5615,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [linear-group], or it is a union one of whose arms does (a union
     /// value is one value: the obligation cannot be lost by narrowing or
     /// by a branch merge), or it is a type parameter opted in with
-    /// `<T canbe Linear>` [linear-generics].
+    /// `<T canbe linear>` [linear-generics].
     ///
     /// **Not** transitive through composites, since R4 part 2: a
     /// composite may not *hold* a linear value at all
@@ -5514,9 +5625,48 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// composites is also what keeps the diagnostics single: the store is
     /// the one error, with no follow-on leak for the container.
     fn ty_own_linear(&self, ty: &Ty) -> bool {
+        self.ty_own_linear_guarded(ty, 0)
+    }
+
+    /// [linear-generics] The containment half: a **conditional container**
+    /// (`struct Box<T canbe linear>`) is linear exactly when the
+    /// instantiation puts a linear type where an opted-in parameter
+    /// reaches a field (user decision 2026-09-12) — `Box<Lines>` owes,
+    /// `Box<Int>` is plain. Depth-guarded: mutually recursive containers
+    /// terminate conservatively.
+    fn ty_own_linear_guarded(&self, ty: &Ty, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
         match ty.strip_quals() {
-            Ty::Named { name, .. } => self.has_auto_linear(name),
-            Ty::Union(arms) => arms.iter().any(|a| self.ty_own_linear(a)),
+            Ty::Named { name, args } => {
+                if self.has_auto_linear(name) {
+                    return true;
+                }
+                let Some(s) = self.scope.structs.get(name.as_str()) else {
+                    return false;
+                };
+                if s.generic_canbe.is_empty() || args.is_empty() {
+                    return false;
+                }
+                // Which opted-in parameters reach a field, and whether the
+                // instantiation makes any of those arguments linear.
+                s.generic_canbe
+                    .iter()
+                    .filter(|(_, q)| q.name.name == "linear")
+                    .filter_map(|(id, _)| {
+                        let i = s.generics.iter().position(|g| g.name == id.name)?;
+                        let reaches = s
+                            .fields
+                            .iter()
+                            .any(|f| type_mentions_generic(&f.ty, &id.name));
+                        (reaches).then(|| args.get(i)).flatten()
+                    })
+                    .any(|arg| self.ty_own_linear_guarded(arg, depth + 1))
+            }
+            Ty::Union(arms) => arms
+                .iter()
+                .any(|a| self.ty_own_linear_guarded(a, depth + 1)),
             // [linear-generics] An opted-in type parameter is treated as
             // linear inside its fn (worst case), which also makes calls
             // that forward it to other generics require *their* opt-in.
@@ -5525,29 +5675,166 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [linear-group] Whether a declaration is **linear**: it states the
-    /// designated `: Linear<self>` obligation (roadmap R4, user decisions
-    /// 2026-09-08 — the spelling moved from `canbe Linear`, which now means
-    /// only "may be qualified thus"). Declaring it is declaring how the
-    /// obligation is discharged, since the group's `close` must be supplied
-    /// [group-obligation].
+    /// [linear-group] Whether a declaration is **linear**: it carries the
+    /// `linear struct` modifier (user decision 2026-09-12 — replacing the
+    /// designated `: Linear<self>` group entry, which itself replaced
+    /// `canbe linear`, 2026-09-08). Declaring it obliges the same file to
+    /// contain at least one **discharger** — a fn consuming a parameter of
+    /// this type — checked at the declaration.
     ///
-    /// A `close` alone never makes a type linear: only this clause does, and
-    /// generic code opts in per type parameter with `<T canbe Linear>`
+    /// A `close` alone never makes a type linear: only the modifier does,
+    /// and generic code opts in per type parameter with `<T canbe linear>`
     /// [linear-generics]. Attaching an obligation on the strength of a
     /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
-        self.scope
-            .structs
-            .get(name)
-            .is_some_and(|s| s.obligations.iter().any(|o| o.name.name == "Linear"))
+        self.scope.structs.get(name).is_some_and(|s| s.linear)
+    }
+
+    /// [linear-generics] Whether values of this struct *can* owe: the
+    /// `linear struct` marker, or a conditional container (`canbe linear`
+    /// reaching a field). What gates being a discharger — a same-file
+    /// consuming fn of a `Box<T canbe linear>` may `discard` its parameter
+    /// whatever the instantiation, since a plain instantiation's discard
+    /// is an ordinary drop.
+    fn linear_capable(&self, name: &str) -> bool {
+        self.scope.structs.get(name).is_some_and(|s| {
+            s.linear
+                || s.generic_canbe.iter().any(|(id, q)| {
+                    q.name.name == "linear"
+                        && s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name))
+                })
+        })
+    }
+
+    /// [linear-group] The fields through which linearity reaches a value of
+    /// `ty`: each field whose type, under this instantiation, is itself
+    /// linear. Empty for a linear *leaf* (`linear struct FileHandle { fd:
+    /// Int }`) — its obligation is its own, not its fields'.
+    fn linear_fields_of(&self, ty: &Ty) -> Vec<String> {
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return Vec::new();
+        };
+        let Some(s) = self.scope.structs.get(name.as_str()) else {
+            return Vec::new();
+        };
+        let subst: HashMap<String, Ty> = s
+            .generics
+            .iter()
+            .map(|g| g.name.clone())
+            .zip(args.iter().cloned())
+            .collect();
+        s.fields
+            .iter()
+            .filter(|f| {
+                // The field's type under the instantiation: a generic
+                // field substitutes; a concrete one stands as declared.
+                let field_linear = match &f.ty {
+                    ast::Type::Named { base, .. }
+                        if base.args.is_empty() && subst.contains_key(&base.name.name) =>
+                    {
+                        subst
+                            .get(&base.name.name)
+                            .is_some_and(|t| self.ty_own_linear(t))
+                    }
+                    other => self.ast_type_own_linear(other).is_some(),
+                };
+                field_linear
+            })
+            .map(|f| f.name.name.clone())
+            .collect()
+    }
+
+    /// [linear-group] The **discharge set** of a linear type: every fn
+    /// declared in the *same file* as the type whose effective contract
+    /// consumes a parameter of it. Any of these is a legal terminal for the
+    /// obligation; `discard` is legal only inside one of them.
+    fn discharge_set(&self, type_name: &str) -> Vec<String> {
+        let Some(decl) = self.scope.structs.get(type_name) else {
+            return Vec::new();
+        };
+        let struct_file = self.scope.struct_files.get(type_name).copied();
+        let mut out: Vec<String> = Vec::new();
+        for (fn_name, entries) in self.scope.fns.iter() {
+            for e in entries {
+                if Some(e.key.file) != struct_file {
+                    continue;
+                }
+                let consumes_self_typed = e.decl.params.iter().any(|p| {
+                    let base_matches = match &p.ty {
+                        ast::Type::Named { base, .. } => base.name.name == type_name,
+                        ast::Type::QualifiedGroup { base, .. } => matches!(
+                            base.as_ref(),
+                            ast::Type::Named { base: b, .. } if b.name.name == type_name
+                        ),
+                        _ => false,
+                    };
+                    base_matches && self.param_consumed_by_entry(e, &p.name.name)
+                });
+                if consumes_self_typed {
+                    out.push((*fn_name).to_string());
+                    break;
+                }
+            }
+        }
+        let _ = decl;
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// [linear-group] A human-readable name for a linear value's legal
+    /// terminals: its type's dischargers, backticked and `/`-joined
+    /// ("`stop`/`join`"), or a generic phrase where the type is opaque (a
+    /// generic parameter) or the set is empty (the declaration check
+    /// reports that separately).
+    fn linear_discharge_hint(&self, ty: &Ty) -> String {
+        let name = match ty.strip_quals() {
+            Ty::Named { name, .. } => Some(name.clone()),
+            Ty::Union(arms) => arms.iter().find_map(|a| match a.strip_quals() {
+                Ty::Named { name, .. } if self.has_auto_linear(name) => Some(name.clone()),
+                _ => None,
+            }),
+            _ => None,
+        };
+        let set = name.as_deref().map(|n| self.discharge_set(n)).unwrap_or_default();
+        if set.is_empty() {
+            "its discharger".to_string()
+        } else {
+            set.iter()
+                .map(|f| format!("`{f}`"))
+                .collect::<Vec<_>>()
+                .join(" / ")
+        }
+    }
+
+    /// Whether an overload entry's written/inferred contract consumes
+    /// `param` — the declaration-side predicate `discharge_set` needs (the
+    /// effective contract of an arbitrary decl, not the currently-checked
+    /// fn).
+    fn param_consumed_by_entry(&self, entry: &crate::resolve::FnEntry<'p>, param: &str) -> bool {
+        // A written `!p` decides outright; otherwise consult the inferred
+        // facts when available (round two).
+        if let Some(list) = &entry.decl.deductions {
+            if list.iter().any(|d| {
+                d.param_name().is_some_and(|n| n.name == param)
+                    && matches!(d.kind, ast::DeductionKind::Moved)
+            }) {
+                return true;
+            }
+        }
+        if let Some(inferred) = self.inferred {
+            if let Some(facts) = inferred.get(&entry.key) {
+                return facts.iter().any(|f| f.param == param && !f.kept);
+            }
+        }
+        false
     }
 
     /// `ty_own_linear` over written (AST) types, without lowering: used by
     /// the composite refusal, which runs at declaration sites
     /// [linear-composite].
     ///
-    /// Deliberately blind to `<T canbe Linear>` type parameters: a
+    /// Deliberately blind to `<T canbe linear>` type parameters: a
     /// declaration that *may* be instantiated with a linear type stores
     /// nothing by itself — std's `add(list: Mut List<T>, elem: T)` is a
     /// legal signature — so the generic case is refused at the
@@ -5558,10 +5845,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Named { base, .. } => {
                 let name = &base.name.name;
                 if self.has_auto_linear(name) {
-                    Some(name.clone())
-                } else {
-                    None
+                    return Some(name.clone());
                 }
+                // [linear-generics] A conditional container written with a
+                // linear argument in an opted-in, field-reaching position
+                // (`Box<Lines>`) is linear itself.
+                if let Some(s) = self.scope.structs.get(name.as_str()) {
+                    for (id, q) in &s.generic_canbe {
+                        if q.name.name != "linear" {
+                            continue;
+                        }
+                        let Some(i) = s.generics.iter().position(|g| g.name == id.name) else {
+                            continue;
+                        };
+                        if !s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name)) {
+                            continue;
+                        }
+                        if let Some(arg) = base.args.get(i) {
+                            if let Some(found) = self.ast_type_own_linear(arg) {
+                                return Some(found);
+                            }
+                        }
+                    }
+                }
+                None
             }
             ast::Type::QualifiedGroup { base, .. } => self.ast_type_own_linear(base),
             // A union value is one value, so an arm's obligation is the
@@ -5603,8 +5910,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut found: Vec<(Span, String, String)> = Vec::new();
         match ty {
             ast::Type::Named { base, .. } => {
-                for a in &base.args {
+                for (i, a) in base.args.iter().enumerate() {
                     if let Some(linear) = self.ast_type_own_linear(a) {
+                        // [linear-generics] A parameter that declares
+                        // `canbe linear` accepts a linear argument: the
+                        // container is then *conditionally linear* and the
+                        // obligation is checked on the container itself
+                        // (user decision 2026-09-12).
+                        let opted = self
+                            .scope
+                            .structs
+                            .get(base.name.name.as_str())
+                            .is_some_and(|s| {
+                                s.generics.get(i).is_some_and(|g| {
+                                    s.generic_canbe
+                                        .iter()
+                                        .any(|(id, q)| id.name == g.name && q.name.name == "linear")
+                                })
+                            });
+                        if opted {
+                            continue;
+                        }
                         found.push((
                             a.span(),
                             linear,
@@ -5625,22 +5951,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
-            ast::Type::Union { arms, .. } => {
-                for a in arms {
-                    if let Some(linear) = self.ast_type_own_linear(a) {
-                        found.push((a.span(), linear, "a union arm".to_string()));
-                    }
-                }
-            }
-            ast::Type::Nullable { inner, .. } => {
-                if let Some(linear) = self.ast_type_own_linear(inner) {
-                    found.push((
-                        inner.span(),
-                        linear,
-                        "a union arm (`T?` is `T | None`)".to_string(),
-                    ));
-                }
-            }
+            // [linear-union-arm] A union arm may be linear (O-C2, user
+            // decision 2026-09-12): a union value is one handle, so the
+            // obligation is the union's and narrowing settles it —
+            // `Ok InputStream | Err Str` is exactly the fallible-open
+            // shape phase 4 needs, and `T?` follows. The value-level
+            // rules live in `owes_linear`; nothing to refuse here.
+            ast::Type::Union { .. } | ast::Type::Nullable { .. } => {}
             ast::Type::QualifiedGroup { .. } | ast::Type::Fn { .. } => {}
         }
         for (span, linear, position) in found {
@@ -5665,19 +5982,46 @@ impl<'p, 'r> Checker<'p, 'r> {
         if var.is_param && !self.param_owned(name) {
             return false;
         }
-        if self.is_own_close_param(name) {
+        // [linear-union-arm] O-C2 (user decision 2026-09-12): a union value
+        // *is* the value — one handle, not a box holding one — so a written
+        // linear arm makes the un-narrowed union owe, and **narrowing
+        // decides**: narrowed to the linear arm, the value owes as that
+        // arm; narrowed to a non-linear arm, the obligation is discharged —
+        // an `Err Str` never held the handle. `T?` falls out (`None` owes
+        // nothing). The settling is a flow fact (`linear_settled`) so it
+        // survives the branch narrow-restore, and the live narrowed type
+        // covers the within-branch case.
+        if var.linear_settled {
             return false;
         }
+        // [linear-group] [linear-generics] **Decomposition settles a
+        // container** (user decision 2026-09-12): when every field through
+        // which linearity reaches this value has been moved out — `return
+        // box.item` in `unbox`, `end(t.source)` in a wrapper's close —
+        // nothing inside owes any more, and the shell dies freely. Only
+        // containers qualify: a linear *leaf* (no linear fields) owes as
+        // itself and settles only by discharge.
+        {
+            let ty = if matches!(var.narrowed, Ty::Unknown) {
+                &var.declared
+            } else {
+                &var.narrowed
+            };
+            let lf = self.linear_fields_of(ty);
+            if !lf.is_empty()
+                && lf.iter().all(|f| {
+                    var.moved_places
+                        .iter()
+                        .any(|m| matches!(m.path.first(), Some(crate::place::Step::Field(n)) if n == f))
+                })
+            {
+                return false;
+            }
+        }
+        if !matches!(var.narrowed, Ty::Unknown) {
+            return self.ty_own_linear(&var.narrowed);
+        }
         self.ty_own_linear(&var.declared)
-    }
-
-    /// [linear-group] The parameter of a type's designated `close` owes
-    /// nothing: `close` **is** the discharge, so the value legitimately dies
-    /// there — that is the point of the obligation naming a function. Without
-    /// this, a `close` implementation would be the one place linearity makes
-    /// impossible to write.
-    fn is_own_close_param(&self, name: &str) -> bool {
-        self.own_close_param.as_deref() == Some(name)
     }
 
     /// Reports every live linear obligation in the top scope frame —
@@ -5694,12 +6038,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|(name, var)| (name.clone(), var.decl_span))
             .collect();
         for (name, decl_span) in owed {
+            let hint = self
+                .lookup(&name)
+                .map(|v| self.linear_discharge_hint(&v.declared))
+                .unwrap_or_else(|| "its discharger".to_string());
             self.error(
                 decl_span,
                 format!(
                     "`{name}` still owns a linear value when it goes out of \
                      scope; move it onward (pass, return, or store it) or \
-                     discharge it with `close({name})`"
+                     discharge it with {hint}"
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
@@ -5725,11 +6073,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         for name in owed {
+            let hint = self
+                .lookup(&name)
+                .map(|v| self.linear_discharge_hint(&v.declared))
+                .unwrap_or_else(|| "its discharger".to_string());
             self.error(
                 span,
                 format!(
                     "cannot {what} while `{name}` still owns a linear value; \
-                     move it onward, or discharge it with its `close({name})`"
+                     move it onward, or discharge it with {hint}"
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
@@ -5780,7 +6132,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The effects a parameter's type contributes to the enclosing fn
     /// [fn-effects]: those declared on a fn type, reached through
-    /// qualifiers (`Once () [Console] -> None`) and optional wrappers
+    /// qualifiers (`once () [Console] -> None`) and optional wrappers
     /// (`((s: Str) [Logger] -> Str)?`).
     fn inherited_fn_effects(&mut self, ty: &ast::Type) -> Vec<Ty> {
         match ty {
@@ -5792,7 +6144,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // its `next`), but the refused type still lowers — one mistake,
             // one diagnostic — so the claim is read off the qualified type
             // here, and the *base* is still walked, since a qualified group
-            // can wrap a fn type (`Once (() [Console] -> None)`).
+            // can wrap a fn type (`once (() [Console] -> None)`).
             ast::Type::QualifiedGroup { base, .. } => {
                 let mut out = self.claimed_effects(ty);
                 for ty in self.inherited_fn_effects(base) {
@@ -6416,7 +6768,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !links.is_empty() {
             // [proj-infer] A variable whose every link is *held* is an owned
             // object that merely projects its roots (a pass over a list):
-            // its own fields are its own, and its `Proj` fields cannot be
+            // its own fields are its own, and its `proj` fields cannot be
             // written through, so mutating it cannot reach a root. It may be
             // advanced. A wholesale projection or a plain alias cannot
             // [proj-readonly].
@@ -6573,9 +6925,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut saved_views: Vec<(String, Option<Ty>)> = Vec::new();
         for n in narrows {
             if n.place.is_root() {
+                // [linear-union-arm] Narrowing a linear union to a
+                // non-linear arm discharges the obligation: an `Err Str`
+                // never held the handle. A flow fact — it survives the
+                // restore below, and the branch join settles the variable
+                // only when every path did this (or consumed the value).
+                let settles = !self.ty_own_linear(&n.narrowed)
+                    && self
+                        .lookup(&n.place.root)
+                        .is_some_and(|v| self.ty_own_linear(&v.narrowed));
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     saved.push((n.place.root.clone(), var.narrowed.clone()));
                     var.narrowed = n.narrowed.clone();
+                    if settles {
+                        var.linear_settled = true;
+                    }
                     if n.declared != var.declared {
                         saved_views.push((n.place.root.clone(), var.widened.clone()));
                         var.widened = Some(n.declared.clone());
@@ -6656,6 +7020,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             name.clone(),
                             VarState {
                                 narrowed: var.narrowed.clone(),
+                                linear_settled: var.linear_settled,
                                 links: var.links.clone(),
                                 poison: var.poison.clone(),
                                 consumed_by: var.consumed_by,
@@ -6674,6 +7039,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for (name, state) in saved {
                 if let Some(var) = frame.get_mut(name) {
                     var.narrowed = state.narrowed.clone();
+                    var.linear_settled = state.linear_settled;
                     var.links = state.links.clone();
                     var.poison = state.poison.clone();
                     var.consumed_by = state.consumed_by;
@@ -6752,13 +7118,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [linear-obligation] The linear rule is the dual of
                 // maybe-moved: an owned linear value consumed on *some*
                 // fall-through paths but not all is dropped on the
-                // remaining ones.
+                // remaining ones. [linear-union-arm] A path that narrowed
+                // the value to a **non-linear arm** owes nothing there —
+                // an `Err Str` never held the handle — so it counts as
+                // settled, exactly like a consuming path.
+                let all_settled;
                 {
-                    let consumed = narrowed_states
+                    let settled = states
                         .iter()
-                        .filter(|t| matches!(t, Ty::Nothing))
+                        .filter(|s| {
+                            matches!(s.narrowed, Ty::Nothing)
+                                || s.linear_settled
+                                || !self.ty_own_linear(&s.narrowed)
+                        })
                         .count();
-                    if consumed > 0 && consumed < narrowed_states.len() {
+                    all_settled = settled == states.len();
+                    if settled > 0 && settled < states.len() {
                         let owes = self
                             .locals
                             .get(frame_idx)
@@ -6851,6 +7226,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name)) {
                     var.narrowed = joined;
+                    // [linear-union-arm] Settled on every path means the
+                    // obligation is gone after the join, whatever the
+                    // joined type says.
+                    if all_settled && states.iter().any(|s| s.linear_settled) {
+                        var.linear_settled = true;
+                    }
                     var.links = links;
                     var.poison = poison;
                     var.consumed_by = consumed_by;
@@ -6866,8 +7247,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "`{name}` owns a linear value that is consumed on some \
-                     paths but not others; consume it on every path, or \
-                     `discard({name})` on the paths that keep it"
+                     paths but not others; discharge or move it on every path"
                 ),
             );
         }
@@ -7005,7 +7385,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // Named but no group, or unnamed: keeps everything.
                     _ => (true, QualEffect::KeepAll),
                 };
-                // [proj-infer] `=>[f] Proj[from: c]` on a fn type: the only
+                // [proj-infer] `=>[f] proj[from: c]` on a fn type: the only
                 // way to say what a bodiless value's result holds.
                 let lent = match (name, deductions) {
                     (Some(id), Some(list)) => list
@@ -7060,9 +7440,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Vec<Qual> {
         qualifiers
             .iter()
-            // [proj-type] `Proj` is part of the lowered type (user decision
-            // 2026-09-12): `Proj Str` and `Str` are different types, ordered
-            // `Str <: Proj Str`, so a borrow inside a union arm or a container
+            // [proj-type] `proj` is part of the lowered type (user decision
+            // 2026-09-12): `proj Str` and `Str` are different types, ordered
+            // `Str <: proj Str`, so a borrow inside a union arm or a container
             // is visible wherever the value flows. Its `[from: p]` is not: the
             // source is a fact about the value, carried by fate links.
             .map(|q| {
@@ -7105,8 +7485,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // alias itself rather than its target.
         let name_span = base.name.span;
         self.record_def_ref(name_span, name);
-        // [proj-type-arg] A `Proj` type argument makes a *container of
-        // borrows* (`List<Proj T>` is a view, `Vec<&T>`). That is only
+        // [proj-type-arg] A `proj` type argument makes a *container of
+        // borrows* (`List<proj T>` is a view, `Vec<&T>`). That is only
         // meaningful for the intrinsic containers the backends render that
         // way; on a user struct it would smuggle a borrow into a field
         // through the back door of generics, unseen by [proj-infer]'s
@@ -7117,7 +7497,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         span,
                         format!(
-                            "`Proj` cannot be a type argument of `{name}`: a struct's \
+                            "`proj` cannot be a type argument of `{name}`: a struct's \
                              fields own their values, so it cannot hold a borrow \
                              through a generic parameter (only the intrinsic \
                              containers — `List`, arrays — may be views)"
@@ -7199,7 +7579,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// intrinsic ones (which have no declaration to find — their
     /// position-specific rules are enforced by `validate_quals`).
     fn qual_name_exists(&self, name: &str) -> bool {
-        matches!(name, "Mut" | "Linear" | "Once" | "Proj")
+        matches!(name, "Mut" | "Linear" | "linear" | "once" | "proj")
             || self.scope.is_qualifier(name)
             // [fn-effects] An effect claims what driving a producer
             // performs, and it is written where a qualifier goes. Where it
@@ -7333,13 +7713,33 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `add(list: Mut List<T>, elem: T)` is the shape that matters — a
     /// call instantiating such a `T` with a linear type **is** the store,
     /// so it is refused at the call site whatever the callee's
-    /// `<T canbe Linear>` claims. A bare `T` (or a qualified one, `T as
+    /// `<T canbe linear>` claims. A bare `T` (or a qualified one, `T as
     /// Ok`) is a value passed along, not stored, and stays legal.
     fn var_in_composite(&self, ty: &ast::Type, var: &str) -> bool {
         let inside =
             |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
         match ty {
-            ast::Type::Named { base, .. } => base.args.iter().any(|a| inside(a)),
+            // [linear-generics] A type argument to a *conditional
+            // container's* opted-in parameter is not a refused store (user
+            // decision 2026-09-12): the container carries the obligation
+            // itself (`take(source, 2)` building a `Take<It>`), and its
+            // discharge set is checked at its declaration.
+            ast::Type::Named { base, .. } => {
+                base.args.iter().enumerate().any(|(i, a)| {
+                    let opted = self
+                        .scope
+                        .structs
+                        .get(base.name.name.as_str())
+                        .is_some_and(|s| {
+                            s.generics.get(i).is_some_and(|g| {
+                                s.generic_canbe
+                                    .iter()
+                                    .any(|(id, q)| id.name == g.name && q.name.name == "linear")
+                            })
+                        });
+                    !opted && inside(a)
+                })
+            }
             ast::Type::QualifiedGroup { base, .. } => self.var_in_composite(base, var),
             ast::Type::Array { elem, .. } => inside(elem),
             ast::Type::Tuple { elems, .. } => elems.iter().any(|e| inside(e)),
@@ -7384,7 +7784,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// message can name the field. (Composite field *types* —
     /// `xs: List<Lines>` — are refused by `validate_type`; this catches
     /// the bare `h: Lines`.)
-    /// [proj-field] A `Proj` field is written without a source: the struct
+    /// [proj-field] A `proj` field is written without a source: the struct
     /// declares *that* it projects, and each literal says *what* — the
     /// source is a property of the value, not the type, and is tracked by
     /// the fate links of whoever holds the struct [proj-infer].
@@ -7394,9 +7794,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     from.span,
                     format!(
-                        "field `{owner}.{}`: a `Proj` field names no source — the value \
+                        "field `{owner}.{}`: a `proj` field names no source — the value \
                          stored in it at each literal decides what it projects; write \
-                         `Proj` alone",
+                         `proj` alone",
                         field.name.name
                     ),
                 );
@@ -7405,7 +7805,35 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn check_linear_field(&mut self, owner: &str, field: &ast::FieldDecl) {
+        // [linear-composite] [linear-group] A concrete linear field is
+        // legal exactly on a `linear struct` (user decision 2026-09-12):
+        // the marker is what gives the composite its own obligation and
+        // discharge set, so the contents have a legal death through it.
+        // Unmarked, the store stays refused — with the marker as the
+        // remedy. (A `canbe linear` generic field is the *conditional*
+        // case and is not a concrete store; handler state has no marker
+        // and stays refused outright.)
         if let Some(linear) = self.ast_type_own_linear(&field.ty) {
+            let owner_is_linear = self
+                .scope
+                .structs
+                .get(owner)
+                .is_some_and(|s| s.linear);
+            if owner_is_linear {
+                return;
+            }
+            if self.scope.structs.contains_key(owner) {
+                self.error(
+                    field.ty.span(),
+                    format!(
+                        "`{linear}` is linear, so field `{owner}.{}` makes the \
+                         container a resource too: declare `linear struct {owner}` \
+                         (and a same-file fn consuming it) to say so",
+                        field.name.name
+                    ),
+                );
+                return;
+            }
             self.refuse_linear_composite(
                 field.ty.span(),
                 &linear,
@@ -7503,19 +7931,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 }
                 // [linear-group] Linearity is declared, not applied: every
-                // value of a `canbe Linear` type is linear, so writing
+                // value of a `canbe linear` type is linear, so writing
                 // `Linear` at a use site is meaningless (and forgetting
                 // it must not silently drop the protection).
-                if q.name.name == "Linear" {
+                if q.name.name == "linear" {
                     self.error(
                         q.span,
                         "`Linear` cannot be written in a type: linearity is \
-                         declared on the type itself (`canbe Linear`) and applies \
+                         declared on the type itself (`canbe linear`) and applies \
                          to every value of it",
                     );
                     continue;
                 }
-                // [once-fn] `Once` is the language-level *use*-multiplicity
+                // [once-fn] `once` is the language-level *use*-multiplicity
                 // qualifier. It began as call-multiplicity, on function
                 // types only, and was generalized 2026-09-07 (user
                 // decision): using a function value means calling it, and
@@ -7555,16 +7983,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
-                if q.name.name == "Once" {
-                    if !crate::types::once_position(base) && !self.has_auto_once(base) {
-                        self.error(
-                            q.span,
-                            format!(
-                                "`Once` applies to function types; a type of your own \
-                                 opts in with `canbe Once` (found `{base}`)"
-                            ),
-                        );
-                    }
+                if q.name.name == "once" {
+                    // [once-fn] D6 (user decision 2026-09-12): `once` is
+                    // valid on **any** type — the upper bound `[0,1]` is a
+                    // self-restriction that demands nothing of the type's
+                    // author, so `once FileHandle` or `once Ticket` means
+                    // "use at most once" wherever it is written. The old
+                    // fn-only/`canbe once` gate is gone; enforcement is the
+                    // existing consumption machinery [deduce-consume].
                     continue;
                 }
                 let Some(decl) = decl else { continue };
@@ -8692,7 +9118,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match value {
                     Some(v) => {
                         // [proj-anywhere] A constructor call whose result
-                        // goes into a `Proj` arm lends its argument: mark
+                        // goes into a `proj` arm lends its argument: mark
                         // it before checking so the contract does not
                         // consume the value the caller is about to borrow.
                         // The call is resolved during checking, so the arm
@@ -8723,7 +9149,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             None => None,
                             Some(from) if self.own_proj_arms.is_empty() => Some(from),
                             // [proj-anywhere] A union return: only a value
-                            // built for a `Proj` arm is a borrow. The arm is
+                            // built for a `proj` arm is a borrow. The arm is
                             // read off the constructor the value goes
                             // through (`emitted(x)` builds `Emitted`).
                             Some(from) => self
@@ -8934,7 +9360,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Expr::Ident(id) = inner else {
             // [proj-anywhere] A *value* that borrows — the result of a
             // derived-return call (`iter(bag.items)`, `first(xs)`) or a
-            // literal with `Proj` fields — cannot be moved out: it is a view
+            // literal with `proj` fields — cannot be moved out: it is a view
             // of something the caller keeps, and moving it (a `return`, a
             // store) would let the view outlive what it borrows. The remedy
             // is the same as for a derived variable: `copy`.
@@ -8965,7 +9391,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             "cannot {action} this value: it is a view of `{root}` (it \
                              borrows from it), so it can only be read here; use `copy` \
                              to make an independent value, or declare the borrow on \
-                             this function's return (`Proj[from: {root}]`)"
+                             this function's return (`proj[from: {root}]`)"
                         ),
                     );
                     return;
@@ -9187,7 +9613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.out.repr_ty.insert(self.key(id.span), declared);
                     }
                     // Expose the fate links of derived-variable reads for
-                    // tooling (`Proj` presentation) [fate-link].
+                    // tooling (`proj` presentation) [fate-link].
                     if !links.is_empty() {
                         let reads: Vec<FateRead> = links
                             .iter()
@@ -9493,7 +9919,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let proj_fields = self.proj_fields_of(&struct_ty);
                 for f in fields {
                     match &f.kind {
-                        // [proj-field] A `Proj` field *borrows* what is
+                        // [proj-field] A `proj` field *borrows* what is
                         // stored in it: the literal becomes derived from the
                         // value (see `links_for_value`), and nothing moves.
                         StructLitFieldKind::Named { name, .. }
@@ -9691,7 +10117,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty, iterable, iterable.span());
-                // [once-fn] Driving a **pass** consumes it: `Once Iter<T>`
+                // [once-fn] Driving a **pass** consumes it: `once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
                 // error and the elements are owned by the loop rather than
@@ -9715,7 +10141,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let drives_in_place = recorded.as_ref().is_some_and(|d| d.in_place);
                 let drives_pass = !drives_origin
                     && !drives_in_place
-                    && (iter_ty.quals().iter().any(|q| q.name == "Once")
+                    && (iter_ty.quals().iter().any(|q| q.name == "once")
                         || self.yield_obligation(iter_ty.strip_quals()).is_some()
                         // [iter-generic-drive] A generic pass is a pass: the
                         // implicit `next` in the driver is the declaration.
@@ -10039,7 +10465,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// [proj-type] The pass also decides whether its elements are *borrowed*:
     /// a binding an argument made (`(s: Str) -> …`) is widened to the pass's
-    /// `Proj Str` when it fits under it — a kept lambda parameter reads the
+    /// `proj Str` when it fits under it — a kept lambda parameter reads the
     /// projection just fine, and the `next` that fills the spread returns it.
     fn learn_yield_elems(
         &mut self,
@@ -10111,29 +10537,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             args: args.clone(),
         };
         self.pass_declared_elem_ty(&origin_ty)
-    }
-
-    /// [linear-group] The `close` of a pass, if one is visible: a single
-    /// parameter that unifies with the subject's bare type. Not required —
-    /// most passes own nothing — and never *implied* by anything: a `close`
-    /// is an ordinary function, and it is the type's `: Linear<self>` clause
-    /// that makes releasing it an obligation.
-    fn pass_close_fn(&mut self, stripped: &Ty) -> Option<FnKey> {
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self.scope.fns.get("close")?.clone();
-        for entry in entries {
-            let decl = entry.decl;
-            if decl.params.len() != 1 {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let pt = self.lower_type(&decl.params[0].ty);
-            self.generics = saved;
-            let mut subst = HashMap::new();
-            if unify(pt.strip_quals(), stripped, &mut subst) {
-                return Some(entry.key);
-            }
-        }
-        None
     }
 
     /// The `next` overload a subject drives, found by unifying the protocol
@@ -10221,18 +10624,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
-            // [linear-group] Driving is what releases a pass, so a raw pass
-            // with a `close` is closed by the loop, on every exit (user
-            // decision 2026-09-09). Resolved here, beside the `next`, so the
-            // emitters get both halves of the protocol from one table.
+            // [linear-group] **No implicit discharge sites** (user decision
+            // 2026-09-12, replacing the 2026-09-09 loop-splice): a `for`
+            // never closes a pass. A linear pass must be *kept* — bound
+            // with `let`, driven in place, and explicitly discharged — so
+            // a consuming drive of one is refused here rather than
+            // leaking on the loop's exits.
             // [iter-drive-in-place] A pass the fn keeps is the caller's: it
-            // advances where it lives, and the caller's `close` releases it.
+            // advances where it lives, and its discharge stays the owner's.
             let in_place = iterable.is_some_and(|e| self.drives_in_place(e));
-            let close = if in_place {
-                None
-            } else {
-                self.pass_close_fn(stripped).map(PassMember::Fn)
-            };
+            if !in_place && self.inferred.is_some() && self.ty_own_linear(stripped) {
+                let hint = self.linear_discharge_hint(stripped);
+                self.error(
+                    span,
+                    format!(
+                        "a `for` cannot consume a linear pass (`{stripped}`): the \
+                         loop never discharges what it drives — bind the pass with \
+                         `let`, loop over it, then discharge it with {hint}"
+                    ),
+                );
+            }
             self.out.for_drivers.insert(
                 self.key(span),
                 PassDriver {
@@ -10240,7 +10651,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     emitted_arm,
                     arms,
                     origin: false,
-                    close,
                     in_place,
                     mint_iter_fn: mint,
                 },
@@ -10324,14 +10734,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// one. Driving such a pass has to be visible to the caller, so the loop
     /// advances it in place rather than binding it into a local.
     fn drives_in_place(&self, iterable: &'p Expr) -> bool {
+        // [iter-drive-in-place] Any *named place* is driven where it lives
+        // (user decision 2026-09-12, extending the kept-parameter rule to
+        // locals and owned parameters): a `for` never consumes a variable,
+        // so a linear pass is bound, driven, and explicitly discharged
+        // after — the loop is not a discharge site. Only a *temporary*
+        // subject (a minted pass, a call result) is consumed by the loop.
         crate::place::Place::of_expr(iterable)
-            .map(|p| self.is_param(&p.root) && !self.param_owned(&p.root))
+            .map(|p| self.lookup(&p.root).is_some())
             .unwrap_or(false)
-    }
-
-    /// Whether a name is a parameter of the fn being checked.
-    fn is_param(&self, name: &str) -> bool {
-        self.lookup(name).is_some_and(|v| v.is_param)
     }
 
     /// [iter-generic-drive] The element type of a **generic** pass: the
@@ -10386,13 +10797,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         // [iter-drive-in-place] A pass the fn keeps advances where it lives, and
-        // its release stays the caller's.
+        // its release stays the caller's. [linear-group] A consuming drive
+        // of a possibly-linear pass is refused — no implicit discharge
+        // sites (user decision 2026-09-12) — and the remedy is the same as
+        // for a concrete pass: keep it, or take a consuming callback and
+        // hand the pass to it.
         let in_place = self.drives_in_place(iterable);
-        let close = if in_place {
-            None
-        } else {
-            self.generic_pass_close(subject, span)
-        };
+        if !in_place && self.inferred.is_some() && self.ty_own_linear(subject) {
+            self.error(
+                span,
+                format!(
+                    "a `for` cannot consume a pass that may be linear \
+                     (`{subject}` is `canbe linear`): the loop never discharges \
+                     what it drives — keep the pass (drive it in place and let \
+                     the caller discharge it), or take a consuming callback \
+                     (`end: ({subject}) -> None` with `=>[end] !it`) and hand \
+                     the pass to it after the loop"
+                ),
+            );
+        }
         self.out.for_drivers.insert(
             self.key(span),
             PassDriver {
@@ -10400,55 +10823,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 emitted_arm,
                 arms,
                 origin: false,
-                close,
                 in_place,
                 mint_iter_fn: None,
             },
         );
         Some(elem)
-    }
-
-    /// [iter-generic-drive] [linear-generics] The release a generic drive owes.
-    ///
-    /// A pass whose type parameter says `canbe Linear` may own something, and
-    /// when the fn **moves** it in, the obligation travelled *here*: the loop is
-    /// what has to release it. The only `close` a generic body can name is an
-    /// implicit one — the `?Linear<It>` spread, or a `?close` written by hand —
-    /// so a body without one is an error naming that remedy, rather than a loop
-    /// that silently drops the resource [linear-group].
-    ///
-    /// A pass the fn **keeps** needs nothing: the obligation stayed with the
-    /// caller, and closing someone else's pass here would be the double release.
-    fn generic_pass_close(&mut self, subject: &Ty, span: Span) -> Option<PassMember> {
-        // An implicit `close` for this subject, whatever grouping brought it in.
-        let implicit = self.own_implicits.iter().find_map(|imp| {
-            let Ty::Fn { params, .. } = imp.ty.strip_quals() else {
-                return None;
-            };
-            if params.len() == 1 && params[0].strip_quals() == subject && imp.name == "close" {
-                Some(imp.name.clone())
-            } else {
-                None
-            }
-        });
-        if let Some(name) = implicit {
-            return Some(PassMember::Implicit(name));
-        }
-        if !self.ty_own_linear(subject) {
-            return None;
-        }
-        self.error(
-            span,
-            format!(
-                "driving a `{subject}` this function owns needs a `close` for it: \
-                 `{subject}` may be linear (`canbe Linear`), and this function moves \
-                 the pass in, so the loop is what has to release it — declare \
-                 `?Linear<{subject}>` (or `?close: ({subject}) -> [] None`) and the \
-                 `for` will call it on every exit, or hand the pass back with a \
-                 deduction that keeps it"
-            ),
-        );
-        None
     }
 
     /// Whether a `for` subject is one of the containers a backend iterates
@@ -10647,12 +11026,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             effects,
         };
         // [once-fn] A lambda that consumes a capture is callable at most
-        // once: its type gains `Once`, so it only fits `Once` fn
+        // once: its type gains `once`, so it only fits `once` fn
         // positions and calling it consumes it.
         if consumes_captures {
             fn_ty.qualify(vec![Qual {
                 effect: false,
-                name: "Once".to_string(),
+                name: "once".to_string(),
                 args: Vec::new(),
             }])
         } else {
@@ -10747,7 +11126,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [lambda-view] A read capture of non-Copy data makes the
             // closure a **view**: it holds a borrow of the captured
-            // variable, exactly as a struct holds its `Proj` fields
+            // variable, exactly as a struct holds its `proj` fields
             // [proj-field] — the body can return projections rooted in a
             // capture (`i -> get(words, i)!`), which no fn type can name,
             // so the value itself carries the link. Binding the lambda
@@ -10755,7 +11134,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // lambda reaches the captured roots transitively; moving or
             // mutating the capture poisons the closure. Two exclusions: a
             // *consumed* capture is owned — the closure swallowed the
-            // value at creation (which is what made it `Once`
+            // value at creation (which is what made it `once`
             // [once-fn]), so there is no source left to borrow from — and
             // a Copy scalar capture is the value itself on both backends
             // [copy-scalar-free].
@@ -10864,7 +11243,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let fty = self.lower_type_subst(&df.ty, &subst, 0);
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
-                            if self.ty_own_linear(&vty) && !self.ty_own_linear(&fty) {
+                            // [linear-generics] A field whose declared type
+                            // mentions an opted-in parameter (`canbe
+                            // linear`) accepts the store: the container is
+                            // conditionally linear and owes as a whole
+                            // (user decision 2026-09-12).
+                            let opted_field = decl.generic_canbe.iter().any(|(id, q)| {
+                                q.name.name == "linear"
+                                    && type_mentions_generic(&df.ty, &id.name)
+                            });
+                            if self.ty_own_linear(&vty) && !self.ty_own_linear(&fty) && !opted_field
+                            {
                                 let linear = format!("{vty}");
                                 self.refuse_linear_composite(
                                     value.span(),
@@ -11370,8 +11759,32 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             None => {
                 // No `else`: the no-branch-taken path falls through with
-                // the current state.
-                fallthrough.push(self.snapshot_narrows());
+                // the current state. [linear-union-arm] With one linear
+                // exception: on this path every condition was false, so
+                // the else-narrows hold — and an else-narrow that lands a
+                // linear union on a non-linear arm (`if h is InputStream s
+                // { close(s) }`: here `h` is `None`) discharges the
+                // obligation on this path, exactly as the then-narrow
+                // does inside the branch. Only the settling is applied;
+                // the general narrowing stays out of the join as before.
+                let mut snap = self.snapshot_narrows();
+                for n in &acc_else {
+                    if !n.place.is_root() || self.ty_own_linear(&n.narrowed) {
+                        continue;
+                    }
+                    let owed = self
+                        .lookup(&n.place.root)
+                        .is_some_and(|v| self.ty_own_linear(&v.narrowed));
+                    if !owed {
+                        continue;
+                    }
+                    for frame in snap.iter_mut() {
+                        if let Some(state) = frame.get_mut(&n.place.root) {
+                            state.linear_settled = true;
+                        }
+                    }
+                }
+                fallthrough.push(snap);
                 branch_tys.push(Ty::none());
                 tails.push(None);
             }
@@ -11970,26 +12383,26 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             _,
         ) => {
             let arg_quals: Vec<&str> = arg.quals().iter().map(|q| q.name.as_str()).collect();
-            // [once-fn] A `Once` requirement is satisfied by any fn
+            // [once-fn] A `once` requirement is satisfied by any fn
             // (inverted subtyping: plain fns may be treated as
             // once-callable). [fn-effects] An effect claim is the same
             // direction: a producer that performs *fewer* effects fits a
             // position expecting more, so the claim need not be present on
             // the argument — while an effect the argument *does* claim must
             // be one the position expects, which `is_subtype` then checks.
-            // [proj-type] `Proj T` is satisfied by an owned value too
-            // (`X <: Proj X`), so it need not be on the argument either.
+            // [proj-type] `proj T` is satisfied by an owned value too
+            // (`X <: proj X`), so it need not be on the argument either.
             // The residual the base unifies against keeps the argument's
             // never-drop qualifiers the pattern did not match (`Emitted T`
-            // against `Emitted (Proj Str)` binds `T = Proj Str`), and
+            // against `Emitted (proj Str)` binds `T = proj Str`), and
             // drops the droppable ones as before.
             let residual = {
                 let names: HashSet<String> = pq.iter().map(|q| q.name.clone()).collect();
                 arg.clone().remove_quals(&names)
             };
             pq.iter().all(|q| {
-                q.name == "Once"
-                    || q.name == "Proj"
+                q.name == "once"
+                    || q.name == "proj"
                     || q.effect
                     || arg_quals.contains(&q.name.as_str())
             }) && arg
@@ -12011,14 +12424,20 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             }),
             _ => parms.iter().any(|p| unify(p, arg, subst)),
         },
-        // `Qual T` can be passed where `T` is expected — except `Once`,
-        // which may never be dropped [once-fn]. (A top-level `Proj` is
+        // `Qual T` can be passed where `T` is expected — except `once`,
+        // which may never be dropped [once-fn]. (A top-level `proj` is
         // dropped *here*, for the binding: `size(list: List<T>)` given a
-        // `Proj List<Str>` binds `T = Str`; whether the position may take
+        // `proj List<Str>` binds `T = Str`; whether the position may take
         // the projection is the assignability check's business
         // [proj-type].)
         (_, Ty::Qualified { quals, base }) => {
-            !quals.iter().any(|q| q.name == "Once" || q.effect) && unify(param, base, subst)
+            // [once-fn] D6 (user decision 2026-09-12): `once` drops on a
+            // *data* type — a plain-typed holder consumes at most once
+            // anyway — and never on a fn type, whose plain form is
+            // callable repeatedly.
+            let once_blocked =
+                quals.iter().any(|q| q.name == "once") && matches!(**base, Ty::Fn { .. });
+            !once_blocked && !quals.iter().any(|q| q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
             pn == an && pa.len() == aa.len() && pa.iter().zip(aa).all(|(p, a)| unify(p, a, subst))
@@ -12399,7 +12818,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // A local holding a callable (lambda parameter etc.).
             if let Some(var) = self.lookup(&id.name) {
                 let vty = var.narrowed.clone();
-                // A consumed callable (e.g. a `Once` fn already called
+                // A consumed callable (e.g. a `once` fn already called
                 // [once-fn]) reports the standard consumed-use error.
                 if matches!(vty, Ty::Nothing) {
                     self.check_expr(callee, None);
@@ -12408,7 +12827,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     return Ty::Unknown;
                 }
-                let once = vty.quals().iter().any(|q| q.name == "Once");
+                let once = vty.quals().iter().any(|q| q.name == "once");
                 if let Ty::Fn {
                     params,
                     ret,
@@ -12427,7 +12846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.apply_fn_value_contract(&arg_refs, &params, contract.as_deref(), span);
                     // [proj-infer] A fn value has no body to read: its result
                     // holds a borrow of the arguments its type declares
-                    // (`[p: Proj]`), or conservatively of every kept one.
+                    // (`[p: proj]`), or conservatively of every kept one.
                     if self.ty_holds_proj(&ret) {
                         let declared: Vec<usize> = contract
                             .as_deref()
@@ -12455,7 +12874,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.out.lending_calls.insert(self.key(span), lent);
                         }
                     }
-                    // [once-fn] Calling a `Once` fn consumes it: the
+                    // [once-fn] Calling a `once` fn consumes it: the
                     // existing consumption machinery then enforces the
                     // multiplicity (second call, loop back edge, branch
                     // merges) for free.
@@ -12479,7 +12898,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 if let Some(var) = self.lookup_mut(&id.name) {
                                     var.narrowed = Ty::Nothing;
                                     var.consumed_by = Some(
-                                        "a call (a `Once` function is callable \
+                                        "a call (a `once` function is callable \
                                          at most once)",
                                     );
                                 }
@@ -12520,7 +12939,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
 
-        // Computed callee (a `Once`-typed temporary is called at most
+        // Computed callee (a `once`-typed temporary is called at most
         // once by construction [once-fn]).
         let cty = self.check_expr(callee, None);
         if let Ty::Fn {
@@ -12870,7 +13289,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let msg = match why {
                     ProjBlock::Mutates => format!(
                         "{what} is a projection (`{arg_shown}`), which can only be read — a \
-                         `Proj` value never satisfies a `Mut` position; `{callee}` mutates \
+                         `proj` value never satisfies a `Mut` position; `{callee}` mutates \
                          `{pname}`. Use `copy(...)` for a value of your own"
                     ),
                     ProjBlock::Consumes => format!(
@@ -12882,7 +13301,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "{what} holds a borrowed value (`{arg_shown}`) where `{callee}` \
                          expects an owned one for `{pname}`: the two are the same on the \
                          JVM and different in Rust. Write the parameter's type with the \
-                         `Proj` (as the argument has it), or pass `copy(...)`"
+                         `proj` (as the argument has it), or pass `copy(...)`"
                     ),
                 };
                 self.error(span, msg);
@@ -12914,23 +13333,33 @@ impl<'p, 'r> Checker<'p, 'r> {
             let repr = self.repr_of(args[i], &logical);
             self.maybe_coerce(args[i].span(), &logical, &repr, &pt);
         }
-        // [linear-discard] `discard` no longer discharges a linear
-        // obligation: dropping a handle is precisely the leak the obligation
-        // exists to prevent, so a linear value's discharge is its own `close`
-        // [linear-group] (user decision 2026-09-08). Keyed on core's
-        // `intrinsic fn discard` rather than on the bare name — only std may
-        // write `intrinsic` [intrinsic-std-only].
+        // [linear-discard] `discard` is the obligation's **terminal**, and
+        // it is legal only inside a *discharger* of the value's type — a fn
+        // declared in the type's own file that consumes a parameter of it
+        // (user decision 2026-09-12; before, discard refused linear values
+        // outright and the designated `close` parameter was silently
+        // exempt). Anywhere else, dropping a handle is precisely the leak
+        // the obligation exists to prevent. Keyed on core's `intrinsic fn
+        // discard` rather than on the bare name [intrinsic-std-only].
         if best.decl.name.name == "discard" && best.decl.intrinsic && args.len() == 1 {
             let arg_ty = arg_tys[0].clone();
             if self.ty_own_linear(&arg_ty) {
-                self.error(
-                    span,
-                    format!(
-                        "`discard` cannot drop a linear value (`{arg_ty}`): that is the \
-                         leak the obligation exists to prevent — call its `close`, \
-                         which is what discharges it"
-                    ),
-                );
+                let allowed = match arg_ty.strip_quals() {
+                    Ty::Named { name, .. } => self.own_discharges.contains(name.as_str()),
+                    _ => false,
+                };
+                if !allowed {
+                    let set = self.linear_discharge_hint(&arg_ty);
+                    self.error(
+                        span,
+                        format!(
+                            "`discard` cannot drop a linear value (`{arg_ty}`) here: \
+                             that is the leak the obligation exists to prevent — \
+                             discharge it with {set}, or `discard` it inside one of \
+                             those (a fn in the type's own file that consumes it)"
+                        ),
+                    );
+                }
             }
         }
         // [iter-mut-param] The callback half of the rule: a callee that
@@ -13023,7 +13452,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let opted: HashSet<&str> = decl
                 .generic_canbe
                 .iter()
-                .filter(|(_, q)| q.name.name == "Linear")
+                .filter(|(_, q)| q.name.name == "linear")
                 .map(|(id, _)| id.name.as_str())
                 .collect();
             // Sorted, so which of several offending type arguments is
@@ -13070,7 +13499,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     break;
                 }
-                // [linear-generics] `<T canbe Linear>` admits linear
+                // [linear-generics] `<T canbe linear>` admits linear
                 // instantiation: the callee's body honors the obligation
                 // (for an `intrinsic fn`, the backend's lowering does).
                 if opted.contains(var_name.as_str()) {
@@ -13091,7 +13520,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "cannot instantiate generic parameter `{var_name}` \
                              of `{name}` with linear type `{ty}`: `{name}` does \
-                             not declare `<{var_name} canbe Linear>`, so it does \
+                             not declare `<{var_name} canbe linear>`, so it does \
                              not honor the use obligation"
                         ),
                     );
@@ -13183,7 +13612,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let Some(d) = contract.iter().find(|d| d.param == param.name.name) else {
                     continue;
                 };
-                // [proj-anywhere] A constructor lending into a `Proj` arm
+                // [proj-anywhere] A constructor lending into a `proj` arm
                 // keeps its argument: the caller receives a borrow of it,
                 // so nothing is moved here. Only a real constructive
                 // qualifier call (`-> T as Q`) lends — anything else keeps
@@ -13223,14 +13652,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 };
-                // [once-fn] A `Once` fn value escapes when passed as an
+                // [once-fn] A `once` fn value escapes when passed as an
                 // argument: fn-value ownership is otherwise untracked,
                 // so the pass consumes it regardless of the callee's
                 // contract (conservative; relaxable with fn-type
                 // contracts).
                 let arg_once = self
                     .lookup(&id.name)
-                    .map(|v| v.narrowed.quals().iter().any(|q| q.name == "Once"))
+                    .map(|v| v.narrowed.quals().iter().any(|q| q.name == "once"))
                     .unwrap_or(false);
                 if !d.kept || arg_once {
                     // Moved. A fate-linked (derived) variable cannot be
@@ -13308,8 +13737,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // borrows the annotated argument — the caller links the result
         // to it, and the Rust backend renders the result as a borrow.
         if decl.derived_return.is_some() {
-            // Every source of the *first* wholesale `Proj` in the return type
-            // (`Proj[from: a, b] T`: a projection joined across branches is
+            // Every source of the *first* wholesale `proj` in the return type
+            // (`proj[from: a, b] T`: a projection joined across branches is
             // of both) [proj-anywhere].
             let sources: Vec<usize> = decl
                 .return_type
@@ -13345,8 +13774,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.derived_calls.insert(self.key(span), sources);
             }
         }
-        // [deduce-syntax] Re-pointing entries — `v.items: Proj[from: other]`
-        // or `v: Proj[from: other]` — say the call makes the argument at `v`
+        // [deduce-syntax] Re-pointing entries — `v.items: proj[from: other]`
+        // or `v: proj[from: other]` — say the call makes the argument at `v`
         // hold a borrow of the argument at `other`: the variable passed as
         // `v` gains a held link to `other`'s roots. (The body is trusted for
         // these today; see ROADMAP.)
@@ -13392,7 +13821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [proj-infer] A result that *holds* borrows (a struct with `Proj`
+        // [proj-infer] A result that *holds* borrows (a struct with `proj`
         // fields) ties itself to the lent arguments; the caller links the
         // result to them, held. A lent temporary is as dangling as a
         // projected one.
@@ -13400,7 +13829,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut lent = self.infer_lends(decl);
             // [proj-type] Instantiation can make a result hold borrows the
             // declaration could not see: `keep_all<It, T>(…) -> Mut List<T>`
-            // with `T = Proj Str` (a `?Yield` filled from a borrowing pass)
+            // with `T = proj Str` (a `?Yield` filled from a borrowing pass)
             // returns a view. With nothing inferable from the body about
             // *which* argument, the result is linked to every kept one —
             // conservative, exact for the one-source case, and nothing for a
@@ -13844,6 +14273,41 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [linear-generics] The instantiation ban reaches effect members'
+        // *own* generics too (the hole closed 2026-09-12): a member
+        // `log<T>(x: T)` binding `T` to a linear type would swallow the
+        // obligation — no handler body is checked under a worst-case
+        // linear `T` unless the member opts in with `<T canbe linear>`.
+        if self.inferred.is_some() {
+            let opted: HashSet<&str> = member
+                .generic_canbe
+                .iter()
+                .filter(|(_, q)| q.name.name == "linear")
+                .map(|(id, _)| id.name.as_str())
+                .collect();
+            let mut names: Vec<&String> = member.generics.iter().map(|g| &g.name).collect();
+            names.sort();
+            for var_name in names {
+                if opted.contains(var_name.as_str()) {
+                    continue;
+                }
+                if let Some(bound) = subst.get(var_name) {
+                    if self.ty_own_linear(bound) {
+                        self.error(
+                            span,
+                            format!(
+                                "cannot instantiate generic parameter `{var_name}` of \
+                                 effect member `{}` with linear type `{bound}`: the \
+                                 member does not declare `<{var_name} canbe linear>`, \
+                                 so its handlers do not honor the use obligation",
+                                member.name.name
+                            ),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
         // [effect-member-call] A member call is checked against its declared
         // parameters like any other call — arity and types. It used to be
         // checked against *neither*: the member's type only flowed in as an
@@ -13930,7 +14394,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.apply_call_contract(args, &member_params, Some(&contract), span);
         }
         // [proj-infer] An effect member has no body: its result holds a
-        // borrow of what its list declares (`[p: Proj]`), else of every
+        // borrow of what its list declares (`[p: proj]`), else of every
         // kept parameter.
         if member.derived_return.is_none()
             && member
@@ -14034,11 +14498,11 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     }
 }
 
-/// [proj-anywhere] The span of the first `Proj` qualifier in a type, if any —
+/// [proj-anywhere] The span of the first `proj` qualifier in a type, if any —
 /// searching arms, arguments and elements in order.
 fn first_proj_span(ty: &ast::Type) -> Option<Span> {
     fn in_ref(r: &TypeRef) -> Option<Span> {
-        if r.name.name == "Proj" {
+        if r.name.name == "proj" {
             return Some(r.span);
         }
         r.args.iter().find_map(first_proj_span)
@@ -14063,14 +14527,14 @@ fn first_proj_span(ty: &ast::Type) -> Option<Span> {
     }
 }
 
-/// [proj-anywhere] Every `Proj` qualifier reference in a type, in order.
-/// [proj-infer] The `Proj` references that sit inside a type *argument*
-/// (`List<Proj T>`, `Map<K, Proj V>`): borrows the value holds, as opposed
+/// [proj-anywhere] Every `proj` qualifier reference in a type, in order.
+/// [proj-infer] The `proj` references that sit inside a type *argument*
+/// (`List<proj T>`, `Map<K, proj V>`): borrows the value holds, as opposed
 /// to wholesale ones on the value itself.
 fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
     fn walk<'a>(ty: &'a ast::Type, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
         fn in_ref<'a>(r: &'a TypeRef, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
-            if r.name.name == "Proj" && inside_arg {
+            if r.name.name == "proj" && inside_arg {
                 out.push(r);
             }
             for a in &r.args {
@@ -14120,13 +14584,13 @@ enum ProjBlock {
     Nested,
 }
 
-/// [proj-type] The type with every `Proj` removed, at every depth — the
+/// [proj-type] The type with every `proj` removed, at every depth — the
 /// "same type on the JVM" reading, for diagnostics.
 fn strip_all_proj(ty: &Ty) -> Ty {
     match ty {
         Ty::Qualified { quals, base } => {
             let inner = strip_all_proj(base);
-            let kept: Vec<Qual> = quals.iter().filter(|q| q.name != "Proj").cloned().collect();
+            let kept: Vec<Qual> = quals.iter().filter(|q| q.name != "proj").cloned().collect();
             if kept.is_empty() {
                 inner
             } else {
@@ -14147,7 +14611,7 @@ fn strip_all_proj(ty: &Ty) -> Ty {
 fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {
     fn walk<'a>(ty: &'a ast::Type, out: &mut Vec<&'a TypeRef>) {
         fn in_ref<'a>(r: &'a TypeRef, out: &mut Vec<&'a TypeRef>) {
-            if r.name.name == "Proj" {
+            if r.name.name == "proj" {
                 out.push(r);
             }
             for a in &r.args {
@@ -14186,7 +14650,7 @@ fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {
 }
 
 /// [proj-anywhere] The qualifier names of the union arms that carry a
-/// `Proj`, for a union return type; empty for a non-union.
+/// `proj`, for a union return type; empty for a non-union.
 fn proj_arm_qualifiers(ty: &ast::Type) -> Vec<String> {
     let ast::Type::Union { arms, .. } = ty else {
         return Vec::new();
@@ -14197,7 +14661,7 @@ fn proj_arm_qualifiers(ty: &ast::Type) -> Vec<String> {
             ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => {
                 qualifiers
                     .iter()
-                    .find(|q| q.name.name != "Proj")
+                    .find(|q| q.name.name != "proj")
                     .map(|q| q.name.name.clone())
             }
             _ => None,
@@ -14205,7 +14669,7 @@ fn proj_arm_qualifiers(ty: &ast::Type) -> Vec<String> {
         .collect()
 }
 
-/// [proj-anywhere] The indices of a union type's arms that carry `Proj`;
+/// [proj-anywhere] The indices of a union type's arms that carry `proj`;
 /// empty for a non-union.
 fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
     let ast::Type::Union { arms, .. } = ty else {

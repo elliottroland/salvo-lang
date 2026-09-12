@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 783 tests, complete: the toolchain tests are
+cargo test                  # 806 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,12 +121,121 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Phase 3 built (2026-09-12, same day as decided).** Every step of the
+plan landed green, and the phase is closed. What it took, by step:
+**(1) Keywords**: `proj`/`once`/`linear` reserved in the lexer;
+`type_ref_name`, the type-atom loop, `parse_is_check`, deduction entries
+and `canbe` lists accept them; internal qualifier strings lowercased
+repo-wide; six std parser snapshots re-accepted; the VS Code grammar
+regenerated. **(2) O-C2**: the union/nullable composite refusals deleted;
+`owes_linear` made flow-sensitive with a `linear_settled` flow flag
+(set where a narrow lands a linear union on a non-linear arm, surviving
+the branch narrow-restore like consumption, joined across paths, applied
+to the if-without-else fall-through from the else-narrows); the
+fallible-open shape e2e on both backends. **(3+4) The discharge model**:
+`linear struct` in the AST/parser; `has_auto_linear` reads the modifier;
+`discharge_set` scans the declaring file (a new `struct_files` map in
+resolve); `own_discharges` replaces the `close` designation and its
+silent exemption — a discharger terminates on every path, `discard`
+gated to dischargers as the terminal, forwarding legal; the
+no-discharger error at the declaration; leak diagnostics enumerate the
+set (`stop`/`join`); the `params Linear` group deleted from std;
+**no implicit discharge sites** — the loop close-splice deleted from the
+checker and both emitters (`PassDriver.close` gone), `drives_in_place`
+extended to every named place (driving an exhausted pass again is now
+legal, zero iterations), linear temporaries refused as loop subjects,
+and the consuming-callback pattern (`drain(h, close)` / `drain(c,
+drop)`) replacing `?Linear<It>`, with std's `drop` in `core.seq` (in
+`basic` it made every `Int` user import the module — the multi-module
+golden caught it). **(5) Conditional containers**: struct generics take
+`canbe` (`StructDecl.generic_canbe`); `ty_own_linear` computes
+containment per instantiation (depth-guarded); concrete linear fields
+require the marker with the error naming it; the literal-store,
+type-argument and `var_in_composite` refusals all learned the opt-in;
+`linear_capable` gates dischargers and the declaration check;
+**settle-by-decomposition** (all linear-reaching fields moved out — the
+`projection_move` gate widened so linear projections are real moves
+regardless of mutability, since the immutable-free latitude would
+duplicate obligations); the wrapper pass (lazy `take` over a linear
+source) e2e on both backends. **(6) D6**: the position gate deleted;
+`once T <: T` on non-fn bases in both `is_subtype` and `unify` (fn types
+keep never-drop — the `run_plain` refusal stands). **(7) The smuggling
+hole**: `check_effect_call` applies the instantiation ban to members'
+own generics, opt-in respected. **(8) Generic fn values instantiate**
+(the close-out the user asked for): `fn_value_by_name` unifies a generic
+candidate against the position's expected fn type and substitutes, with
+the linear ban applied there too — `drain(c, drop)` works, `drain(h,
+drop)` is refused, e2e on both backends. Tests: +23 checker/parse tests,
+4 new e2e cases per backend pair, and every rewritten expectation.
+Leftovers in ROADMAP ("Linear types"): the generic wrapper-pass loop
+emission gap, bare generic struct literal inference, intrinsic
+containers. OBLIGATIONS.md deleted per its charter.
+
+**Phase 3 decided: obligations, lowercase (user decisions 2026-09-12,
+evening).** The full OBLIGATIONS.md option space was walked and every call
+made — the recommendations accepted, with the user's own respelling and a
+simpler discharge model replacing §1-1/§3-1/§3-2:
+
+- **Obligations are lowercase keywords**: `proj`, `once`, `linear` —
+  reserved words, written in qualifier position but visually distinct from
+  qualifiers (`proj NonEmpty List<T>`), signalling compiler-owned behavior
+  the way `provenance` does. `proj[from: p]` keeps its source list. Bounds
+  follow: `T canbe linear`, `q canbe once` stays available for the future
+  multiplicity-polymorphism reserve; `canbe Mut` (a permission) stays
+  uppercase.
+- **`linear struct FileHandle`** replaces `: Linear<self>`, and the
+  `params Linear<It>` group loses its designated meaning (deleted — no
+  compiler-known group, no designated `close`). Hover shows linearity from
+  the declaration and, for containers, from the instantiation.
+- **Discharge = same-file consumption + `discard`.** Any fn declared in
+  the same file as a linear type that consumes a parameter of it is a
+  discharger; at least one must exist (checked at the declaration — "no
+  legal death" otherwise). `discard(x)` on a linear value is legal *only*
+  inside such fns, and inside them the obligation must terminate on all
+  paths — `discard` as the terminal, or forwarding into another consuming
+  fn (`shutdown(t) { stop(t) }`). This subsumes O-D1's `by stop, join`
+  lists (alternatives are just two same-file consuming fns), the cache's
+  context parameters (ordinary parameters), and generic discharges, with
+  zero new syntax at the type.
+- **No implicit discharge sites anywhere.** The `for`-loop's close
+  splicing is removed: a linear pass must be let-bound, the loop drives
+  it kept/in-place, and the ordinary all-paths analysis forces the
+  explicit discharge after the loop and before early exits; an inline
+  linear-pass subject (`for l in open_lines(…)`) is refused like any
+  view of a temporary. Generic combinators that consume a pass take a
+  consuming-callback parameter; std gains
+  `fn drop<T>(value: T) -> None => !value` so non-linear callers have a
+  uniform thing to pass (`close` for a handle, `drop` for a `Str`); a
+  linear argument to `drop` is refused by the existing instantiation ban
+  (no `canbe linear` bound).
+- **O-C2 accepted**: written linear union arms are legal; a value of
+  `Ok InputStream | Err Str` owes while un-narrowed; narrowing to a
+  non-linear arm discharges; `T?` falls out. Unblocks phase 4's
+  fallible-open shape.
+- **Conditional containers**: `struct Box<T canbe linear>` with `T`
+  reaching a field is conditionally linear — the written bound is the
+  declaration, no extra marker — and needs a same-file discharger generic
+  over the same bound. A **concrete** linear field
+  (`struct Session { file: InputStream }`) requires the `linear struct`
+  marker; unmarked stays refused. Intrinsic containers (`List<linear T>`)
+  stay deferred.
+- **D6 yes** (`once` on any type; position gates removed), **D7 no
+  surface** (covered by conditional containers; revisit on a customer),
+  **O-C4 skipped** (unforced), typestate/session-types boundary kept.
+
+Build order: keyword/rename sweep → O-C2 → same-file discharge model →
+splice removal + `drop` → conditional containers → D6 → the
+effect-member-generics smuggling hole → spec sweep, with OBLIGATIONS.md §6's
+acceptance shapes (plus a lambda-view-of-linear sibling) as tests on both
+backends before the phase closes. OBLIGATIONS.md is scaffolding and is
+deleted when the phase lands.
+
 **Capturing lambdas are views; written lend entries win (user decision
 2026-09-12, evening).** Walking the projection leftovers surfaced two
 gaps, decided and closed together. (1) *Written-entry precedence*
-([proj-infer]): a bodied generic's `=> Proj[from: it]` was consulted only
+([proj-infer]): a bodied generic's `=> proj[from: it]` was consulted only
 behind a written-return-type gate that an instantiation-borne projection
-(`-> Mut List<T>`, `T = Proj Str`) never passed, so the every-kept-argument
+(`-> Mut List<T>`, `T = proj Str`) never passed, so the every-kept-argument
 fallback linked the result to arguments the author had excluded — the fix
 is one reorder in `lends.rs::lends_of` (declared entries before the
 `holds_proj` gate), and the entry now narrows the link while still flowing
@@ -138,14 +247,14 @@ and naming the lambda (`let f = i -> get(words, i)!`) evaded fate
 entirely — `eat(words)` was accepted with the view live (the Rust emitter
 masked it with a silent clone, and then failed on an unrelated cast bug).
 The decision: a lambda holds borrows of every non-Copy *read* capture,
-like a struct holds its `Proj` fields — binding links it (held, borrowed,
+like a struct holds its `proj` fields — binding links it (held, borrowed,
 transitively through the capture's own links), results link through it, a
 capture-free lambda holds nothing (`map(p, w -> w)` binds freely), a
 lambda expression is never a "temporary" a view could dangle from, a
-consumed capture stays owned (the `Once` case — the first cut of the
+consumed capture stays owned (the `once` case — the first cut of the
 implementation wrongly linked those and broke `run_once(g)`), and Copy
 scalars link nothing. Emitter halves, closing both open defects: an
-unwrap whose checker type is `Proj` stays the reference (no clone — the
+unwrap whose checker type is `proj` stays the reference (no clone — the
 lambda tail returns `&String` into a `Vec<&String>`, and as a bonus an
 interpolated `first(names)!` stopped cloning in the demo golden), and a
 Ref-bound Copy scalar renders as a value (`*i`) in intrinsic arguments,
@@ -157,40 +266,40 @@ byte-identical output. The map-links-to-every-container over-linking
 remains, softened by the entry precedence; the type-mention-tracing
 refinement is recorded in ROADMAP.
 
-**`Proj` in the type (option A, user decision 2026-09-12).** Two phase-2b
-cuts had one cause: `Proj` lived only on fate links and was stripped from
+**`proj` in the type (option A, user decision 2026-09-12).** Two phase-2b
+cuts had one cause: `proj` lived only on fate links and was stripped from
 the lowered `Ty`, so two values of one Salvo type could have two Rust
 representations — a borrowed non-Copy union arm handed to a position
 written as the owned union (Rust codegen error, Kotlin ran it), and a
 generic body storing an element of an opaque pass (`Vec<&String>` under a
 `List<Str>` type; rustc loud, Kotlin silently permissive). Chosen over a
 call-site borrowness check and over a body-only rule: the projection is
-part of the type. **Rules** ([proj-type]): `X <: Proj X`, never the
-reverse; `Proj` is never-drop (passing a projection to an owned position
+part of the type. **Rules** ([proj-type]): `X <: proj X`, never the
+reverse; `proj` is never-drop (passing a projection to an owned position
 is an error naming the type and both remedies — annotate or `copy`, with
 the blocker distinguished: `ProjBlock::{Mutates, Consumes, Nested}`);
-`Proj` on a Copy scalar erases; unification treats a pattern's `Proj` as
-optional and binds the base minus the matched qualifiers (`Proj T` vs
+`proj` on a Copy scalar erases; unification treats a pattern's `proj` as
+optional and binds the base minus the matched qualifiers (`proj T` vs
 `Mut Str` gives `T = Mut Str`); overload assignability is kept-aware, and
 an owned position **outranks** a projected one as its own inverted
-specificity dimension (replacing "`Proj` never affects overloading");
+specificity dimension (replacing "`proj` never affects overloading");
 generic bindings show it (`map` over a container pass is a
-`Mut List<Proj Str>`), with instantiation-driven linking: a substituted
-return holding `Proj` with no inferable lend links the result to every
-kept argument, held. std: `copy<T>(value: Proj T) -> T` (un-projects one
-level, keeps the rest — `copy` of a `Proj Mut Str` is a `Mut Str`);
-`ArrayYield.items: Proj (T[])`. **Rust emitter**: one rendering rule —
-`Proj X` is `&X` at any depth, under the named lifetime when one is in
+`Mut List<proj Str>`), with instantiation-driven linking: a substituted
+return holding `proj` with no inferable lend links the result to every
+kept argument, held. std: `copy<T>(value: proj T) -> T` (un-projects one
+level, keeps the rest — `copy` of a `proj Mut Str` is a `Mut Str`);
+`ArrayYield.items: proj (T[])`. **Rust emitter**: one rendering rule —
+`proj X` is `&X` at any depth, under the named lifetime when one is in
 scope (`'s` in borrowing structs and their `next`, `'a` on tied returns)
-— with one carve-out found by the e2e suite: `Proj T` over a *bare
+— with one carve-out found by the e2e suite: `proj T` over a *bare
 generic at its definition site* renders owned `T` (the generic body is
 uniform; the instantiation carries the borrow via the turbofish retag,
-which now defers to types already carrying `Proj`). The old AST-based
+which now defers to types already carrying `proj`). The old AST-based
 `&`-adding sites (`Option<&T>`, union arms, `&T` returns) now just render
 the written type under the lifetime. **What closed**: both cuts are
 regression tests on both backends (`proj-arm-param` e2e cases; the
 checker halves in `analyze_tests` — an owned parameter refusing a
-borrowed union arm, and the combinator-view set: `Mut List<Proj Str>`
+borrowed union arm, and the combinator-view set: `Mut List<proj Str>`
 named in the consume refusal, fate poisoning through the temporary pass
 to the container, a generator instantiation staying free, and `copy`'s
 un-projection observed through a type mismatch), plus the `spec_cmp`
@@ -254,9 +363,9 @@ code-signing) rejecting a stale kernel signature cache — see gotchas.
 2026-09-11, late).** The bracket list after `->` is gone; a signature ends in
 `-> T => entries`, on the same line or the next. Entries: `p` (kept), `!p`
 (consumed; `p: Nothing` says the same), `p: Qual` (exhaustive), `p: None`
-(strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: Proj[from: a]`
-(the result's field projects `a`), `v.f: Proj[from: a]` (a parameter's field is
-re-pointed), bare `Proj[from: a, b]` (opaque: the result holds a borrow of
+(strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: proj[from: a]`
+(the result's field projects `a`), `v.f: proj[from: a]` (a parameter's field is
+re-pointed), bare `proj[from: a, b]` (opaque: the result holds a borrow of
 both), and `=>[f] …` groups scoping entries to a fn-typed parameter (its own
 parameters named in its type; inline lists inside a parameter list are a parse
 error — ambiguous with the next parameter, user chose the one clean option).
@@ -265,21 +374,21 @@ a bodiless declaration (effect member, platform member, intrinsic) must
 mention every parameter except Copy scalars [copy-scalar-free]; fn types keep
 today's default. The contract-stability cost — a body edit can change what
 callers may do with no signature change — was raised, accepted, and recorded
-in ROADMAP as a revisit. `Proj[from: a, b]` names several sources at once
+in ROADMAP as a revisit. `proj[from: a, b]` names several sources at once
 and is what a projection joined across branches reads as. **What it took:**
 a `FatArrow` token; `Deduction { target: Param{name, path} | Result{path} |
-Opaque, kind: … | Proj(sources) }` with `TypeRef.from: Vec<Ident>`;
+Opaque, kind: … | proj(sources) }` with `TypeRef.from: Vec<Ident>`;
 `parse_deduction_clause`/`parse_deduction_entry` (fn-type groups attach to
 the parameter's `Type::Fn`); `deduce.rs` running the fixpoint for *every*
 bodied fn and overlaying the written entries (`ParamDeduction.written`),
 validating only what was written, and treating `return x` under a wholesale
-`Proj[from: x]` as a borrow; `check.rs` preferring the effective table
+`proj[from: x]` as a borrow; `check.rs` preferring the effective table
 (`effective_contract`), per-parameter `own_written` for move-mode claims,
 `require_full_clause` replacing the whole-list requirement, multi-source
 `derived_calls`, and re-pointing entries adding held links at the call; the
-LSP hover rendering the effective clause (`!p`, `p: Q`, `Proj[from: …]`,
+LSP hover rendering the effective clause (`!p`, `p: Q`, `proj[from: …]`,
 `=>[f] …`; Copy scalars and keep-all entries omitted); the Rust emitter
-tagging every source with `'a`, borrowing the RHS of a `Proj`-field
+tagging every source with `'a`, borrowing the RHS of a `proj`-field
 assignment, and tying `'r` for re-pointing. The sweep was mechanical
 (a throwaway script, then a pass restoring the consumptions the old
 exhaustive lists implied on bodied test helpers — `consume(x) {}` infers
@@ -292,31 +401,31 @@ failure left" can hide others — check with `--no-fail-fast`.
 
 **Phase 2b "copies only by opt-in" — built, and the view model settled (user
 decisions 2026-09-11).** The five steps from ROADMAP landed: `[rs-opt-borrow]`
-(the `Option<&T>` local), `get → (Proj[from: list] T)?` and std's `next →
-Emitted (Proj[from: p] T) | Finished` [yield-proj], `filter → Mut List<Proj
+(the `Option<&T>` local), `get → (proj[from: list] T)?` and std's `next →
+Emitted (proj[from: p] T) | Finished` [yield-proj], `filter → Mut List<proj
 T>` as a view, `?copy` as a general implicit on `filter_to` and on handler
 constructors [copy-implicit] (the former [implicit-fn-only] restriction on
 constructors lifted), and the std audit (no element-storing combinator clones
 silently; `Str` operations produce new strings by nature). Along the way
-three questions were settled by the user: (1) **`Proj Mut X` is legal but
-read-only** [proj-readonly] — `Mut X <: Proj Mut X`, never the reverse, `copy`
+three questions were settled by the user: (1) **`proj Mut X` is legal but
+read-only** [proj-readonly] — `Mut X <: proj Mut X`, never the reverse, `copy`
 the way out — which is what refuses `take(s, 2)` on `s = get(ps, 0)!` while
 `take(p, 2)` on a constructed `p = iter(xs)` advances; a view is an **owned
 object holding borrows**, so `iter` returns a plain `Mut ListYield<T>`, no
-`Proj` on the whole; (2) **which parameters a result holds borrows of is
+`proj` on the whole; (2) **which parameters a result holds borrows of is
 inferred** [proj-infer] (`lends.rs`: per field, through calls, locals, `!`,
 branches; conservative fallback to every kept parameter where there is no
 body), with the explicit form for fn types and effect members — the
 principle the user stated for the language: "infer as much as it can for
 free, and let the user state what inference cannot reach"; (3) **any struct
-may hold `Proj` fields** [proj-field], written without a source, replacing
+may hold `proj` fields** [proj-field], written without a source, replacing
 the pass-only exemption that first landed (the option-(2) review item is
 closed by it). Two soundness rules came from rustc catching what the checker
 had not: **a view of a temporary** may be used within its statement but not
 bound, returned or stored [proj-anywhere] (`let p = slice(list(1, 2))` is
-E0716), and a `Yield<self, Proj T>` obligation must agree with its `next`.
-**`iter fn` passes borrow their subject** (user decision): `__subject: Proj
-Subject`, `Proj` snapshot fields, nothing copied at the mint, a snapshot
+E0716), and a `Yield<self, proj T>` obligation must agree with its `next`.
+**`iter fn` passes borrow their subject** (user decision): `__subject: proj
+Subject`, `proj` snapshot fields, nothing copied at the mint, a snapshot
 written with `copy(...)` in a `state` initializer — which fixed the
 self-referential generated struct rustc had refused and **lifted the Kotlin
 generic-`iter fn` cut** (nothing copies a `T` any more; e2e on both backends).
@@ -330,24 +439,24 @@ as the required spelling — the user preferred inference with the clause as
 fallback; the form is reserved in ROADMAP for per-field precision on
 bodiless callees. **Documented gap**: a generic body cannot see that an
 element of an opaque pass is borrowed (`filter`'s `add(out, x)`), so the
-signature says it (`=> Proj[from: it]`); a user fn storing such an element
+signature says it (`=> proj[from: it]`); a user fn storing such an element
 without writing so is caught by rustc, not the checker.
 
-**`ReadOnly` is renamed `Proj`, and copying becomes opt-in-only (user decisions
+**`ReadOnly` is renamed `proj`, and copying becomes opt-in-only (user decisions
 2026-09-11).** Found while making `get` return a borrow: std hides two copies
 the language would never let user code make silently — `filter` on a list
 clones every kept element, `get` clones every read — and the attempt exposed
 that fixing them needs a design, not a patch (the first try failed 41 tests;
 what it took is in ROADMAP "Copies only by opt-in"). The decisions: the
-provenance qualifier `ReadOnly` becomes **`Proj`** everywhere and
+provenance qualifier `ReadOnly` becomes **`proj`** everywhere and
 **user-writable** in any type position except a struct field; `[from: p]` stays
 **attached** to each occurrence (a detached form was rejected — a tuple
 borrowing from two sources has no single "the return borrows from p");
-`List<Proj T>` is a *view* and `(Proj T)?` an optional borrow, each spelling
+`List<proj T>` is a *view* and `(proj T)?` an optional borrow, each spelling
 being exactly its Rust representation; and **`?copy: (T) -> T`** becomes a
 general implicit, the `?to_str` mechanism reused, which is what lifts Kotlin's
 generic-`copy` refusal. The rename landed at once (17 files, no compatibility
-form); the internal place-step enum also called `Proj` became `Step`. A live
+form); the internal place-step enum also called `proj` became `Step`. A live
 emitter bug was found on the way — `narrow_unwrap` clones an `Option<&T>` as
 `&&T` — and is step one of the plan. Only the sequencing relative to phase 3 is
 still open.
@@ -472,7 +581,7 @@ was free.
 name the same storage: the same projection, a prefix in either direction
 (mutating `o.inner.tags` still poisons a value from `o.inner`), the whole
 variable (a `Mut` argument, a reassignment, `++` — `[]` is a prefix of
-everything), and a computed index, since `Proj::Element` may-aliases any
+everything), and a computed index, since `proj::Element` may-aliases any
 element. An unknown path overlaps everything. All four are tested as *reject*
 cases alongside the three accept cases, because the risk in a precision change
 is silently losing a rule.
@@ -585,9 +694,9 @@ iterators"; no language-design calls, all under decisions already made.
 - **The stale `Iter<T>` comments are gone** — more than the roadmap's three:
   check.rs ([iter-protocol] table doc, the [implicit-infer] example now
   spelled with `Yield`/`next`, both [fn-effects] claim docs), types.rs (the
-  `Qual.effect` doc, the `Once`-widen example, and `once_position`, where the
+  `Qual.effect` doc, the `once`-widen example, and `once_position`, where the
   sweep found **live dead code**: a `name == "Iter"` arm that would have given
-  a user struct named `Iter` the `Once` position without opt-in — removed),
+  a user struct named `Iter` the `once` position without opt-in — removed),
   the Rust emitter (an orphaned `[rs-iter-pass]` flag comment), and
   BACKEND_SPEC.rust.md, whose output-layout section still promised the
   deleted `iter.rs` runtime.
@@ -1137,8 +1246,8 @@ What the ranking exercise found, all of it now in ROADMAP.md:
 - **Phase 3 is three questions, not one.** L8 (obligations through containers) is
   the same machinery question as D7 (linearity conditioned on a use-site
   qualifier) along a different axis, and an earlier decision (2026-09-07) already
-  binds D7 to D6 (`Once` on any type). D7's *stated* motivation is stale — it was
-  written for `Once Iter<T>` versus plain `Iter<T>`, and `Iter<T>` no longer
+  binds D7 to D6 (`once` on any type). D7's *stated* motivation is stale — it was
+  written for `once Iter<T>` versus plain `Iter<T>`, and `Iter<T>` no longer
   exists — so the case has to be re-derived from L8. Also folded in: the linear
   instantiation ban does not cover an **effect member's own generics**, which is a
   hole in what already shipped.
@@ -1324,7 +1433,7 @@ at the struct, the declaring type written `self` in the argument list, and *no
 value may have a group as its type* — the rule that keeps this a where-clause,
 not a trait);
 **R2**, `Yield<T>` designated in std and `for` reading the declaration —
-the `Once`-on-passes requirement is gone, a matching `next` without the
+the `once`-on-passes requirement is gone, a matching `next` without the
 clause gets a remedy hint, and driving still consumes (drive-in-place waits
 for R5); **R3**, the origin-struct sugar [yield-fn-origin] on both
 backends — `yield fn next(c: Counter) [Console] -> Int` discharges the
@@ -1338,7 +1447,7 @@ linear value — refused at the store, which also turned two diagnostics per
 mistake into one); and **R5**, the flip itself — `iter` returns a pass
 [iter-pass], std's combinators take a pass through a `?Yield<It, T>` spread
 [seq-pass], and the whole `Iter<T>` apparatus is deleted: the intrinsic type,
-`SalvoIter`/`Iterable` as its representation, `Once` on producers, the
+`SalvoIter`/`Iterable` as its representation, `once` on producers, the
 effect-claim-on-a-type ([iter-effects] is now a *deleted* rule), the variance
 adapter, the per-effect-set traits, `params Iterable`, and the factory tail of
 both generators. Decisions taken along the way, all the user's: a `close`
@@ -1358,7 +1467,7 @@ the flip's own leftovers.** First, **`for` drives a generic pass**
 *is* the declaration the loop needs, so a combinator is written with `for` — and
 std's `map`/`filter`/`reduce`/`map_to`/`filter_to` now are, which is the
 dogfooding the flip left undone. When the fn **owns** a possibly-linear pass
-(`<It canbe Linear>` and no deduction handing it back), it must declare the
+(`<It canbe linear>` and no deduction handing it back), it must declare the
 release it will need — `?Linear<It>`, whose member the loop calls on every exit —
 and a body without one is an error naming that remedy. Second, the **generic
 effect** refusal on a `yield fn` is lifted: `[Random<Int>]` works, because the
@@ -1372,7 +1481,7 @@ built".
 **The iterator design was re-evaluated and reduced (user decisions 2026-09-08);
 the next work is that reduction, not the old roadmap.** `Iter<T>` was a
 structural interface in a language with none — a factory, i.e. a function, which
-is why `Once` and effects both fit on it — and it left two protocols (`next` and
+is why `once` and effects both fit on it — and it left two protocols (`next` and
 `iter`) with `for` arbitrating, plus a combinator surface that could not see a
 hand-written pass at all. The replacement: **a pass is a user struct, tied to
 iteration by a `next`, and `for` is sugar for calling it until `Finished`.** The
@@ -1380,7 +1489,7 @@ ties between functions and structs are declared with **compiler-known `params`
 obligation groups** (`: Yield<Str>`, `: Linear`), which also gives linearity a
 named discharge (`close`). See "Roadmap: iterators — **the reduction to
 `next`**" for the decisions, the six-phase plan, the unknowns to settle first,
-and what it deletes (most of I4, the boxing question, `Once` on producers).
+and what it deletes (most of I4, the boxing question, `once` on producers).
 Everything below this line is the design it supersedes, kept because its
 prototypes and defect findings are what the reduction stands on.
 
@@ -1438,7 +1547,7 @@ by the same `Mut`-at-any-depth test [fate-move-mode] uses, with a diagnostic
 naming the two remedies that work everywhere (yield the values and let the
 consumer collect them, or reach the outside through an effect). Nothing in
 `std/` or the corpus did this, so it landed without a sweep. Two follow-ons
-recorded rather than decided: **`Once Iter<T>`** may be able to take one after
+recorded rather than decided: **`once Iter<T>`** may be able to take one after
 all — one pass exists, so what remains is shared fate ([fate-link]), which
 needs I2c's representation split — and **sharing it properly on both backends**
 is queued as the sharpest customer of the `Cell` roadmap ("Producers: the
@@ -1467,8 +1576,8 @@ position** (user decision: a type with no arrow has nowhere to put a `[…]`
 list, and a prefixed one reads as a deduction list in return position), on the
 **return type** rather than in the `yield` fn's own list (none of its body runs
 when it is called, so a list there would demand a handler at every call site
-for something calling it never does), and legal exactly where `Once` is legal
-(`Iter<T>` and a `canbe Once` type of one's own). Every other rule came free
+for something calling it never does), and legal exactly where `once` is legal
+(`Iter<T>` and a `canbe once` type of one's own). Every other rule came free
 from [fn-effects]: a fn **inherits** a producer parameter's claim, *fewer*
 effects fit where more are expected, the claim never drops, and **holding** a
 producer needs nothing — only driving it does. [iter-effect-free] is gone as a
@@ -2325,18 +2434,18 @@ deductions, uniform across types, branch- and loop-aware). The
 shared-fate arc (S1, L2, S2, L3, L4, S3) **and L6 must-use linearity**
 are complete: move-mode bindings emit real moves, borrow-mode bindings
 and loops emit real borrows, read-only pipelines over kept parameters
-are clone-free — and `canbe Linear` types carry a use obligation
+are clone-free — and `canbe linear` types carry a use obligation
 (forgetting to close/commit is a compile error, `discard` is the
 explicit escape hatch, enforcement is purely static and identical on
 both backends). This document is the handoff point for continuing
 development: it records what is built, the key design decisions, known
 limitations, and the plan for what's next. **The L7 milestone is
-complete** — L7a (`<T canbe Linear>`), L7b (`Once` fn types), L7c
+complete** — L7a (`<T canbe linear>`), L7b (`once` fn types), L7c
 (derived returns `ReadOnly[from: p]`), and L7d (fn-type contracts:
 named fn-type parameters with standard deduction lists, applied at
 fn-value calls, inherited by lambdas, carried by named fns, emitted as
 real Rust modes). Small recorded remainders: fn-type *effect* lists
-parse but are not yet enforced, `Once` inference, the internal
+parse but are not yet enforced, `once` inference, the internal
 qualifier unification (nothing forces it), and L5 field precision only
 if whole-variable granularity proves too coarse. (It did: L5's poison half
 landed 2026-09-10 — see the decision log.)
@@ -2416,7 +2525,7 @@ Decisions taken with it (all user, 2026-09-05): nothing to remove is an
 **sequences** are allowed, there is **no binding form** (the subject itself
 reads widened), and droppability comes from **one exclusion list** —
 `types::qual_drop_block`, which `Qual T <: T` now reads as well, so the two
-cannot drift as intrinsics are added. That list is `Once` (restricts rather
+cannot drift as intrinsics are added. That list is `once` (restricts rather
 than refines), `Linear` (carries a use obligation) and `ReadOnly` (the value
 is derived from another); `ReadOnly` cannot be *written* in source today, so
 it is unreachable from a `^` and the list carries it for the day that
@@ -2589,7 +2698,7 @@ parameter `f` to `twice` so that it can call it"). So
 `fn run_it(f: (s: Str) [Logger] -> Str)` needs no list of its own — while its
 *callers* must still supply `Logger`, which is mechanically necessary, since
 that is where the value comes from at run time. Inheritance reaches through
-qualifiers (`Once () [Logger] -> None`), optionals and unions, and it is part
+qualifiers (`once () [Logger] -> None`), optionals and unions, and it is part
 of the callee's contract at call sites, so it had to be added to
 `check_callee_effects` as well as to the fn's own environment.
 
@@ -3051,7 +3160,7 @@ render).
 **Tuple indexing added 2026-09-03 (user decision).** `t.0` reads a tuple
 element by constant position ([expr-tuple-index]) — the projection P1a had
 asked to narrow but which the language could not express. It is a
-`Proj::Index` place, so it narrows, invalidates and merges exactly like a
+`proj::Index` place, so it narrows, invalidates and merges exactly like a
 field, in any combination (`p.pair.0`, `t.1.0`). Decisions inside it:
 elements are **read-only** (qualifiers, `Mut` among them, cannot apply to a
 tuple [qual-union-arm], so there is nothing to assign through — the error
@@ -3164,7 +3273,7 @@ tag to a logger that takes `Mut`. Provenance is mint-only (no body, so no
 `qualifies` and no field overrides), droppable, survives storage, and
 composes without `with`. It erases like every qualifier, so no backend
 changed; the visible consequence is which overload the checker picks. The
-compiler's own capability qualifiers (`Mut`, `Linear`, `Once`,
+compiler's own capability qualifiers (`Mut`, `Linear`, `once`,
 `ReadOnly`) stay intrinsic — each needs a representation choice, a flow
 rule, a subtyping direction or a restricted position that no user
 declaration could supply.
@@ -3185,8 +3294,8 @@ existing Salvo source violated the casing rule.
 **`canbe` replaces `with` at opt-in sites (user decision 2026-09-03).**
 Auto-qualifiers on struct and type declarations and the per-type-parameter
 linear opt-in are now spelled `canbe` (`struct Person canbe Mut`,
-`external type List<T> canbe Mut`, `struct FileHandle canbe Linear`,
-`fn hold<T canbe Linear>`), which states the optionality the clause
+`external type List<T> canbe Mut`, `struct FileHandle canbe linear`,
+`fn hold<T canbe linear>`), which states the optionality the clause
 actually carries [canbe-optin]. `with` keeps exactly one job: qualifier
 *compatibility* (`qualifier Old of Person with Surname` [qual-with]) —
 co-application of two qualifiers, which `canbe` would misdescribe; no
@@ -3307,7 +3416,7 @@ that still shape the code, and where to look for the mechanics.
   writes the caller expected) and sharing on both (what the author expects, and
   on Rust it *is* the `Cell` work — queued there as that roadmap's sharpest
   customer). Raised by the user alongside it and recorded rather than decided:
-  a producer returning `Once Iter<T>` may be able to take one after all, since
+  a producer returning `once Iter<T>` may be able to take one after all, since
   exactly one pass exists and the rest is shared fate `[fate-link]` — which
   wants I2c's representation split first.
 - **The same rule covers a producer's *callbacks* (2026-09-08)** — a lambda
@@ -3469,7 +3578,7 @@ that still shape the code, and where to look for the mechanics.
   `T[]`) did not compile. New `core.array` module mirrors `core.list`
   minus construction (literals are the constructor) and mutation
   (fixed size): `size`, `get`, `first`, `iter`, with the same
-  `<T canbe Linear>` opt-in pattern (measuring/iterating a linear array
+  `<T canbe linear>` opt-in pattern (measuring/iterating a linear array
   is fine; taking an element out is not). The example now compiles and
   runs verbatim on both backends.
 
@@ -3790,7 +3899,7 @@ All five decisions (L6a–e) approved by the user as recommended; rules
 [linear-canbe] [linear-obligation] [linear-discard] [linear-composite]
 [linear-generics] [linear-lambda] [linear-static]. What landed:
 
-- **`canbe Linear`** on type declarations (the auto-qualifier clause
+- **`canbe linear`** on type declarations (the auto-qualifier clause
   already parsed arbitrary auto-qualifiers; `has_auto_linear` mirrors
   `has_auto_mut`); `Linear` in a use-site type is an error — linearity
   is declared, not applied. `ty_transitively_linear` /
@@ -3829,10 +3938,10 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   have no body to check. `List<FileHandle>` is expressible but not
   constructible until a generic opt-in exists (L7).
 
-### L7a — generic linear opt-in `<T canbe Linear>` (completed 2026-09-02)
+### L7a — generic linear opt-in `<T canbe linear>` (completed 2026-09-02)
 
 Syntax decision (user, 2026-09-02, option C of the explored set): the
-opt-in reuses the `canbe Linear` phrase on *type parameters* — one
+opt-in reuses the `canbe linear` phrase on *type parameters* — one
 qualifier per `canbe`, comma separates parameters; struct-side syntax
 deferred. (Both sites were spelled `with` until the 2026-09-03 rename
 [canbe-optin].) What landed (rule [linear-generics] rewritten):
@@ -3856,14 +3965,14 @@ deferred. (Both sites were spelled `with` until the 2026-09-03 rename
   Empty construction + `add` is the supported pattern.
 - **std audit**: `add`, `list`, `mutable_list`, `size` opted in;
   `discard` re-declared as
-  `intrinsic fn discard<T canbe Linear>(value: T) -> None`; `get` => !value
+  `intrinsic fn discard<T canbe linear>(value: T) -> None`; `get` => !value
   deliberately *not* opted (returns an alias of an element — a clone of
   a linear value would duplicate the obligation); `copy` refused.
 - Verified end to end: the `List<FileHandle>` workflow (construct
   empty, `add` individually, `size`, `discard`) compiles and prints
   identically on both backends.
 
-### L7b — `Once` fn types (completed 2026-09-02)
+### L7b — `once` fn types (completed 2026-09-02)
 
 The call-multiplicity qualifier, landed as a *fn-type qualifier* rather
 than the originally-sketched deduction-list surface (user decision
@@ -3871,7 +3980,7 @@ than the originally-sketched deduction-list surface (user decision
 entry's kept-ness; the type-qualifier form rides the existing
 machinery). Rule [once-fn]:
 
-- **Enforcement is consumption**: calling a `Once` value consumes it —
+- **Enforcement is consumption**: calling a `once` value consumes it —
   double calls, loop back-edge calls, and call-after-escape are the
   ordinary consumed-use errors; maybe-calls are conservative; zero
   calls fine. One fix en route: the Ident-callable path in `check_call`
@@ -3879,25 +3988,25 @@ machinery). Rule [once-fn]:
   callee ident), so calling an already-consumed callable reported
   nothing — it now routes through the standard error.
 - **Inverted subtyping, flagged for future review** (user request):
-  plain fn <: `Once` fn, and `Once` may never be dropped — the
+  plain fn <: `once` fn, and `once` may never be dropped — the
   opposite direction of every other qualifier, special-cased in
   `is_subtype` and `unify` with loud comments.
 - **Consuming-capture lambdas legalized**: [fate-lambda]'s always-error
-  became "legal but `Once`-typed" — the capture is consumed at
-  creation, the closure fits only `Once` positions (boundary error
+  became "legal but `once`-typed" — the capture is consumed at
+  creation, the closure fits only `once` positions (boundary error
   otherwise), and every *enclosing* lambda is marked too (an outer
   closure re-creating an inner consuming one re-consumes per run).
   Linear captures still refuse (exactly-once closures are future
-  work). The escape rule consumes a `Once` value passed as any
+  work). The escape rule consumes a `once` value passed as any
   argument (fn-value ownership is otherwise untracked).
-- **Emission nearly free**: Rust emits `impl FnOnce(…)` for `Once`
+- **Emission nearly free**: Rust emits `impl FnOnce(…)` for `once`
   params (`QualifiedGroup` over `Fn` in `emit_type` + the
   fn-param-Owned mode extended to qualified groups); lambda emission
   unchanged (rustc's capture inference produces `FnOnce` closures
-  itself). Kotlin erases `Once` entirely. Verified end to end with
+  itself). Kotlin erases `once` entirely. Verified end to end with
   identical stdout.
-- No inference in v1 (written `Once` only); the parser needed nothing —
-  `Once () -> None` already parsed as a qualified group over a fn type.
+- No inference in v1 (written `once` only); the parser needed nothing —
+  `once () -> None` already parsed as a qualified group over a fn type.
 
 ### L7c — derived returns `ReadOnly[from: p]` (completed 2026-09-02)
 
@@ -3970,7 +4079,7 @@ by faithful emission. Rule [fn-contract]:
   propagate interprocedurally (`caller_loses` sees its argument die).
 - **Rust emission**: fn params render `&mut impl FnMut(…)` (closure
   double-use fixed by faithful emission; `FnMut` accepts
-  handler-mutating closures; `Once` stays `impl FnOnce`), argument
+  handler-mutating closures; `once` stays `impl FnOnce`), argument
   types per contract, call-site arguments per
   `Checked::fn_value_calls`, lambda bindings/annotations per
   `Checked::lambda_contracts`, and named fns wrap in mechanical
@@ -3979,7 +4088,7 @@ by faithful emission. Rule [fn-contract]:
   Kotlin too — `count` bare emitted a call-less identifier kotlinc
   rejects).
 - Deferred, recorded: fn-type *effect* lists (parse, lexical env
-  meanwhile), `Once` inference, per-parameter written contracts
+  meanwhile), `once` inference, per-parameter written contracts
   beyond kept/moved/quals.
 
 ### Current architectural facts worth knowing
@@ -4578,7 +4687,7 @@ field-disjoint precision.
 (See the L6 section in the decision log above; rules [linear-*].) All
 five decisions approved by the user as recommended on 2026-09-02:
 
-- **L6a**: `canbe Linear` on the type declaration; `Linear` is not
+- **L6a**: `canbe linear` on the type declaration; `Linear` is not
   writable at use sites (every value of the type is linear, always).
 - **L6b**: consumption = any move, as the deduction system defines it;
   moves transfer the obligation (compositional across calls, returns,
@@ -4648,7 +4757,7 @@ practice, independent returns may be the permanently right answer.
   parameters (recommended: yes — strictly more informative, revival
   unchanged).
 - **L7a delivered 2026-09-02**: the generic linear opt-in
-  `<T canbe Linear>` (see the decision-log section; syntax option C —
+  `<T canbe linear>` (see the decision-log section; syntax option C —
   `where` clauses and qualifier-prefix forms were explored and
   declined; body-inference recorded as a possible later complement,
   mirroring the deduction precedent: written validates, unwritten
@@ -4658,12 +4767,12 @@ practice, independent returns may be the permanently right answer.
   idea matured into the parameterized square-bracket surface; the
   internal qualifier unification was *not* needed (links carry the
   fact across the one boundary it crosses).
-- **L7b delivered 2026-09-02**: the `Once` call-multiplicity qualifier
+- **L7b delivered 2026-09-02**: the `once` call-multiplicity qualifier
   (see the decision-log section) — landed on *fn types* rather than in
   deduction lists (the surface originally sketched here; user approved
-  the change): `fn run(f: Once () -> None)`, enforcement by
+  the change): `fn run(f: once () -> None)`, enforcement by
   consumption, inverted subtyping (flagged for review),
-  consuming-capture lambdas legal and `Once`-typed, Rust `impl FnOnce`.
+  consuming-capture lambdas legal and `once`-typed, Rust `impl FnOnce`.
   Inference (a callee auto-promoting a once-called fn param) remains
   open for the fn-type-contracts sub-phase.
 
@@ -4917,7 +5026,7 @@ and the fourth ruled out.
 
 **Multi-shot is closed on principle, not for want of a mechanism**:
 resuming twice duplicates a use obligation, so it cannot coexist with
-`canbe Linear`. (It is also unavailable on both targets: a Kotlin
+`canbe linear`. (It is also unavailable on both targets: a Kotlin
 `Continuation` throws on a second resume, and a Rust `Future` cannot be
 cloned.)
 
@@ -5104,7 +5213,7 @@ Two alternatives were considered and rejected (user discussion
 - **A dedicated "check and unwrap" keyword.** Two objections. It conflates
   a test with a *static* strip (inside `is Ok` the type is already known,
   so nothing needs checking), and — decisively — the exclusions it would
-  need already exist: `Qual T <: T` is written "except `Once`", and
+  need already exist: `Qual T <: T` is written "except `once`", and
   `Linear` is never a use-site qualifier, so the annotation path gets the
   intrinsic-qualifier cases right for free. A keyword would re-implement
   that list and have to keep it in sync as intrinsics are added (`Cell` is
@@ -5240,14 +5349,14 @@ evaluation of the whole iterator design rather than the next increment, and the
 outcome is a simplification that deletes most of it. The complaint was precise:
 there were multiple ways to define an iterator (`next` or `iter`, with `for`
 arbitrating), and `Iter<T>` had become "effectively a function in its own
-right" — which is why `Once` and effects both fit on it.
+right" — which is why `once` and effects both fit on it.
 
 **The diagnosis, confirmed.** `Iter<T>` *is* a factory:
 `Rc<dyn Fn() -> Box<dyn SalvoPass<T>>>` on Rust, `Iterable<T>` on Kotlin. So
 
 ```
-Once Iter<T>  ≅  a pass  ≅  (state St, next: (Mut St) -> Emitted T | Finished)
-Iter<T>       ≅  () -> Once Iter<T>
+once Iter<T>  ≅  a pass  ≅  (state St, next: (Mut St) -> Emitted T | Finished)
+Iter<T>       ≅  () -> once Iter<T>
 ```
 
 `Iter<T>` was a structural interface in a language with none — and, as the user
@@ -5257,12 +5366,12 @@ already the un-smuggled version of the same thing; keeping both was the mistake.
 
 **Two costs of the old design, found by probing rather than by report:**
 
-- A hand-written pass (struct + `next`) and a `Once Iter<T>` are drivable by
+- A hand-written pass (struct + `next`) and a `once Iter<T>` are drivable by
   `for` but **invisible to every combinator**: `for` speaks `next` while
   `map`/`filter`/`map_lazy` speak `?Iterable` → `iter` → `Iter<T>`. So the
   manual form that exists to express `zip`/`merge` cannot be mapped over.
   Verified: `map_lazy(Countdown {at: 3}, double)` fails with "no `iter` fits".
-- `Once Iter<T>` was written as a factory type, reasoned about as a position,
+- `once Iter<T>` was written as a factory type, reasoned about as a position,
   and *represented* as a factory — the mismatch I2c's remaining half existed to
   fix.
 
@@ -5294,7 +5403,7 @@ already the un-smuggled version of the same thing; keeping both was the mistake.
 **What this deletes**: `[iter-effects]` and the whole claim-on-the-type
 apparatus (`producer_effects`, `pass_effect_sets`, the generated
 trait/interface per effect set, the variance adapter — effects go on `next`,
-where `[fn-effects]` already handles them); `Once` on producers (driving
+where `[fn-effects]` already handles them); `once` on producers (driving
 mutates, so `Mut` carries it, and a second drive continues rather than
 restarting); `SalvoIter`/`Iterable` as `Iter<T>`'s representation, with the
 boxing and the whole un-boxing question; and `[iter-mut-param]` as an
@@ -5319,11 +5428,11 @@ answers:
   abandonment write-up above already predicted this ("the injection is a
   *convenience* … it can be relaxed to a plain obligation whenever we want the
   user to see it") and left one thing undecided — *whether a hand-written
-  iterator's state must be `canbe Linear` by rule*. Under the reduction every
+  iterator's state must be `canbe linear` by rule*. Under the reduction every
   pass is a named struct, so that is now the only question, and it is
   **decided (user, 2026-09-08): a `close` does not make a pass linear.** Only
   `: Linear` on the type does, and generic code that may carry one opts in with
-  `<T canbe Linear>`; R0's finding 4 is why (the alternative made most
+  `<T canbe linear>`; R0's finding 4 is why (the alternative made most
   generated passes uncomposable). So `for` calls a `close` when one exists,
   while a hand-written `while` around `next` may abandon a non-linear pass
   unchecked — accepted, since `for` covers the path people write.
@@ -5366,7 +5475,7 @@ recording: it made the group unusable with a `?` spread, since nothing binds
 unknown 2 settled on. One group now serves both, so a designated group puts the
 **state first, element second**. Also open:
 whether obligations may ever be conditional (`Wrapper<T> : Yield<T>` only when
-`T` yields) — recommended: unconditional only, to start; and `canbe Linear`
+`T` yields) — recommended: unconditional only, to start; and `canbe linear`
 stays the *type-parameter* opt-in beside `: Linear` as the *declaration*
 clause, which is what makes the change additive.
 
@@ -5397,20 +5506,20 @@ params Linear {
   declaration-site error.
 - **Linearity is therefore non-optional per type** — every `Linear` type has a
   `close` — and the user accepted that trade explicitly. **Conditional
-  linearity is deferred**, and it is where `<T canbe Linear>` reappears.
+  linearity is deferred**, and it is where `<T canbe linear>` reappears.
 
 **Rules this rewrites** (none of them shipped to anyone — no compatibility
 concern, user note 2026-09-08 "no-one is using this language yet"):
 
-- `[linear-group]` (was `[linear-canbe]`) — the spelling moves from `canbe Linear` to `: Linear<self>`, which
+- `[linear-group]` (was `[linear-canbe]`) — the spelling moves from `canbe linear` to `: Linear<self>`, which
   also tidies `canbe`: it goes back to meaning only "may be qualified thus"
-  (`canbe Mut`, `canbe Once`), while `:` means "must provide these".
+  (`canbe Mut`, `canbe once`), while `:` means "must provide these".
 - `[linear-discard]` — `discard` stays for non-linear values; for a linear one it
   becomes a refusal naming `close`.
-- `[linear-generics]` — `<T canbe Linear>` **keeps its spelling** (user
+- `[linear-generics]` — `<T canbe linear>` **keeps its spelling** (user
   decision 2026-09-08, superseding this plan's earlier `<T: Linear>`
   suggestion). The two clauses say different things and should not be spelled
-  alike: `canbe Linear` on a *type parameter* is permission — "this generic may
+  alike: `canbe linear` on a *type parameter* is permission — "this generic may
   be instantiated with a linear type, and its body is checked under that worst
   case" — while `: Linear` on a *type declaration* is obligation — "this type
   provides a `close`". A bound is still not an interface: there is no value
@@ -5426,13 +5535,13 @@ unmappable. The rule instead:
 - **`: Linear` on the type is the only thing that makes a value linear.** A
   bare `close` function is an ordinary function; the `for` sugar still calls it
   as the release path, and nothing is obliged.
-- **Generic code opts in with `<T canbe Linear>`**, as it does today, and
+- **Generic code opts in with `<T canbe linear>`**, as it does today, and
   **the concrete type must say `: Linear`** for the obligation to exist at all.
   So both halves are explicit: the function admits it may carry a linear value,
   and the type admits it is one. Neither is inferred from a member's presence —
   attaching an obligation on the strength of a function name is what [qual-*]
   keeps the compiler from doing, and it is the same argument that made
-  hand-written passes declare `Once` rather than have it inferred from `next`.
+  hand-written passes declare `once` rather than have it inferred from `next`.
 - **What it costs**: a pass with a `defer` (so, most generated ones) is *not*
   linear, so a hand-written `while` driver may abandon one without closing it
   and the checker will not complain. Accepted — the `for` sugar covers the
@@ -5545,7 +5654,7 @@ shape proves; the findings, in the order they matter:
    `yield` fn with a `defer` would be unmappable. **Decided (user,
    2026-09-08): the two are independent** — `: Linear` on the type is the only
    thing that makes a value linear, generic code opts in with
-   `<T canbe Linear>`, and a `close` implies nothing. `Chatty` has a `close`
+   `<T canbe linear>`, and a `close` implies nothing. `Chatty` has a `close`
    and is not `Linear`; `Lines` declares `: Linear`. Accepted cost and
    casualty are recorded under the `Linear`-group decision and as roadmap L8.
 5. **Smaller, all verified.** `Mut` on a user struct is only reachable through
@@ -5642,12 +5751,12 @@ Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
   identity) and was extracted as `find_next_driver` so the not-iterable
   error can use it for a remedy hint: a subject with a matching `next` and
   no clause gets "declare `: Yield<Int>` on it to make it a pass".
-- **The `Once` requirement on hand-written passes is gone** (the I2b error
+- **The `once` requirement on hand-written passes is gone** (the I2b error
   and its remedy), replaced by the clause; the *consume* behavior stays —
-  a declared-pass subject is `fate_move`d exactly as `Once` subjects were,
+  a declared-pass subject is `fate_move`d exactly as `once` subjects were,
   so driving twice is still the ordinary consumed-use error. Drive-in-place
   ("a second drive continues", `Mut` carrying single-use-ness) is recorded
-  as the eventual semantics and deferred to R5 with `Once`-on-producers'
+  as the eventual semantics and deferred to R5 with `once`-on-producers'
   deletion — it changes deductions and emission, and nothing needs it yet.
 - **Unsatisfied-but-declared stays lenient**: the obligation error already
   landed at the struct [group-obligation], so the loop answers the
@@ -5657,8 +5766,8 @@ Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
   five failing tests: both backends' `PASS_DEMO`/`FALLIBLE_PASS_DEMO`
   (structs gain the clause — including `Yield<Ok Str | Err Str>`, pinning
   that a union element matches through the obligation checker — and
-  builders drop `Once`) and `once_tests`' hand-written-pass trio, plus a
-  new `Mut`-built-pass test. `iter_effect_tests`' `canbe Once` fixtures
+  builders drop `once`) and `once_tests`' hand-written-pass trio, plus a
+  new `Mut`-built-pass test. `iter_effect_tests`' `canbe once` fixtures
   are [iter-effects] position tests, untouched until R5 deletes that
   apparatus.
 - LANGUAGE.md's hand-written-iterator section and [iter-resolve]/
@@ -5822,7 +5931,7 @@ R5's std rewrite rather than in front of R4.
 
 **R4 — designate `Linear`.** `: Linear` with its `close`; `discard` refused for a
 linear value, naming `close`; storing a linear value in a composite refused
-(interim). `<T canbe Linear>` keeps its spelling (user decision 2026-09-08):
+(interim). `<T canbe linear>` keeps its spelling (user decision 2026-09-08):
 permission on a parameter is not obligation on a declaration, and a `close`
 alone implies neither.
 
@@ -5835,8 +5944,8 @@ a type declares `: Linear<self>`.
 - **The mandatory `close` came free** from [group-obligation]: declaring
   `: Linear<self>` without one is already an error at the struct, naming the
   signature. That is R1 paying for itself.
-- **`has_auto_linear` reads the obligation** instead of `canbe Linear`, so
-  linearity is one fact from one place. `canbe Linear` on a *declaration* is now
+- **`has_auto_linear` reads the obligation** instead of `canbe linear`, so
+  linearity is one fact from one place. `canbe linear` on a *declaration* is now
   an error naming `: Linear<self>`; on a **type parameter** it keeps its
   spelling [linear-generics], as decided.
 - **`discard` no longer discharges** [linear-discard]: refused for a linear
@@ -5889,13 +5998,13 @@ and every way of putting one into a container is an error where it is written.
   and puts a `T` in a composite.
 - **The call-site rule is what took the thinking.** The first cut refused any
   call whose signature mentions `T` inside a composite — and broke the
-  refinement demo, where `count<T canbe Linear>(list: List<T>)` calls
+  refinement demo, where `count<T canbe linear>(list: List<T>)` calls
   `size(list)`. Reading a container of `T` is not storing one. The rule that
   holds: the callee must take a **bare** `T` parameter *and* mention `T` inside
   a composite (`add(list: Mut List<T>, elem: T)`). `size`, `iter` and `get`
   read; `add` and a `-> List<T>` return store. Variadic `list(...elems: T[])`
   is already covered by the older variadic refusal.
-- **Std needed no change**: an opted `<T canbe Linear>` signature is not a
+- **Std needed no change**: an opted `<T canbe linear>` signature is not a
   store, so `add`'s declaration stays legal and the refusal lands on the *call*
   that instantiates it. That is why the declaration-site predicate is
   deliberately blind to type parameters while the call-site one is not.
@@ -5919,7 +6028,7 @@ predicate did not survive — it became unnecessary).
 
 **R5 — demolish `Iter<T>`. ✅ Built 2026-09-09** (see "R5 part 2 as built").
 Remove the type and everything that existed to
-support it: the `SalvoIter`/`Iterable` representations, `Once` on producers, the
+support it: the `SalvoIter`/`Iterable` representations, `once` on producers, the
 effect claim with `producer_effects`/`pass_effect_sets`/the per-effect-set
 traits/the variance adapter, and `params Iterable`. Rewrite std: a pass struct
 plus `next` per intrinsic container, `iter` returning a fresh pass, `seq.sv`'s
@@ -6068,7 +6177,7 @@ Two user decisions, one afternoon, and a defect found on the way.
 parameter* when the enclosing fn declares a protocol-shaped `?Yield<It, T>`
 spread for it: the position says "this call supplies a `next` for `It`", which is
 as much of a declaration as a struct's `: Yield<self, T>` clause. And when the fn
-**owns** a pass whose parameter says `canbe Linear`, it must declare the release
+**owns** a pass whose parameter says `canbe linear`, it must declare the release
 it will need (`?Linear<It>`, or a `?close` by hand), which the loop then calls on
 every exit.
 
@@ -6413,7 +6522,7 @@ prints `n 2 / n 1 / closed / after drain`, one that `break`s prints
   — which is what keeps generated machines composable.
 - **A combinator keeps its pass**, so the obligation stays with the caller and
   the existing [linear-obligation] rule does the rest; a generic one admits it
-  may carry a resource with `<It canbe Linear>`. Verified: the opt-in is
+  may carry a resource with `<It canbe linear>`. Verified: the opt-in is
   required, the leak is reported without a `close`, and the whole thing is
   clean with it.
 - **Diagnostic fixed on the way**: the return-while-owing message still said
@@ -6738,7 +6847,7 @@ brings the capture question back.
 ## Roadmap: iterators — Salvo-level pull iterators (built 2026-09-07/08, **largely superseded 2026-09-08**)
 
 **Read the section above first.** What follows is the design that was decided
-and built on 2026-09-07/08 — the protocol, `Once Iter<T>`, the `yield`
+and built on 2026-09-07/08 — the protocol, `once Iter<T>`, the `yield`
 lowering, the effect claim on producer types, and the combinator surface. The
 reduction to `next` supersedes the *type* half of it and keeps the machine half;
 the record stays because the reasoning, the prototypes and the defects found are
@@ -6838,7 +6947,7 @@ turns out to need it; nothing in this design forecloses it.
 8. **Consumer side lowers to `while let`**; a `for` over an obvious
    backend iterable (list, array, `Str`) keeps emitting a native loop, so
    the common case pays nothing.
-9. **Factory and pass are distinguished at the type level, by `Once`** —
+9. **Factory and pass are distinguished at the type level, by `once`** —
    see the next subsection. This retired the open DECISION rather than
    answering it: both exist, and the author of an iterator function picks.
 
@@ -6864,7 +6973,7 @@ could not take the effect parameters a deferred block may need.
 later be removed): must-use linearity is already *built* — L6, done
 2026-09-02, rules [linear-obligation] / [linear-discard] / [linear-canbe].
 So the obligation is expressible today: declare the pass type
-`canbe Linear` and draining-or-closing becomes the ordinary all-paths
+`canbe linear` and draining-or-closing becomes the ordinary all-paths
 obligation check, with `close` as its `discard`. The injection is
 therefore a *convenience* (the `for` lowering is the one place the
 compiler always knows every exit path) rather than a workaround for a
@@ -6873,9 +6982,9 @@ want the user to see it. The umbrella roadmap already exists — "Roadmap:
 toward full linear types" above, remaining phases L5 (places and partial
 moves) and L7 (derived-return annotations) — so no new roadmap item was
 added; what is *not* yet decided is whether a hand-written iterator's
-state must be `canbe Linear` by rule.
+state must be `canbe linear` by rule.
 
-### Factory and pass: `Iter<T>` vs `Once Iter<T>` (user decision 2026-09-07)
+### Factory and pass: `Iter<T>` vs `once Iter<T>` (user decision 2026-09-07)
 
 The 2026-09-05 costing deferred a second question — whether a lazy `Iter`
 is **one-shot** — and a state-struct materialisation brings it back, now
@@ -6886,37 +6995,37 @@ consumption error, and re-reading means calling the producer again, where
 the cost is visible).
 
 Neither branch was taken. **The distinction moves into the type**, and
-`Once` already means exactly what a pass needs — with no new rule to
+`once` already means exactly what a pass needs — with no new rule to
 write:
 
 ```
 Iter<T>        // factory: replayable; a fresh pass is minted per use
-Once Iter<T>   // pass: a position in a sequence, consumed by driving it
+once Iter<T>   // pass: a position in a sequence, consumed by driving it
 ```
 
-Why `Once` fits with nothing invented:
+Why `once` fits with nothing invented:
 
 - It is already specified as **never droppable** ("it restricts rather
   than refines", LANGUAGE.md; [qual-*]: the compiler owns permissions,
   which drop, and obligations, which do not). A pass must never be
   forgettable into a replayable recipe, and it cannot be.
 - Its **variance is already inverted and already the direction needed**:
-  "any ordinary function value can be used where a `Once` one is
+  "any ordinary function value can be used where a `once` one is
   expected — never the reverse" generalizes to "a factory fits where a
   pass is wanted, never the reverse".
 - The **conversion in the permitted direction is already a call**: the
   implicit `iter()` that `[iter-resolve]` inserts *is* factory → pass.
 - **Enforcement is the existing consumption machinery**
   [deduce-consume] / [once-fn]; no new analysis.
-- The backend mapping follows the existing pattern (`Once` fn params
-  already compile to `FnOnce`): `Once Iter<T>` is the owned state struct,
+- The backend mapping follows the existing pattern (`once` fn params
+  already compile to `FnOnce`): `once Iter<T>` is the owned state struct,
   plain `Iter<T>` the argument bundle it re-mints from. Boxing at the
   meeting point (decision 5) applies to each form independently.
 
 Rejected alternative: a second nominal type (`Pass<T>` / `Cursor<T>`). It
 would need its own variance rule, its own never-drop rule and its own
-name in every signature — three things `Once` already has written down.
-The one objection to `Once` is that a qualifier would gate the *operation
+name in every signature — three things `once` already has written down.
+The one objection to `once` is that a qualifier would gate the *operation
 set* (`iter` versus `next`), and `Mut` is the precedent for exactly that
 (it gates the mutators, overloads select on qualifiers, and a backend may
 render `Mut T` as a different type with the compiler inserting the
@@ -6924,7 +7033,7 @@ conversion).
 
 Consequences recorded with it:
 
-- **`Once` generalizes from call-multiplicity to use-multiplicity**
+- **`once` generalizes from call-multiplicity to use-multiplicity**
   (user, 2026-09-07), with the fn case as the instance where using means
   calling. Valid positions stay explicit — fn types and `Iter<T>` — and
   whether it applies to *any* type is roadmap **D6**.
@@ -6934,14 +7043,14 @@ Consequences recorded with it:
   type carries the warning. Forbidding it would outlaw the legitimate
   read-a-file-twice case. Each minted pass is closed at its own loop
   exit, so nothing leaks either way.
-- **The close obligation stays injected, not declared.** `Once` covers
+- **The close obligation stays injected, not declared.** `once` covers
   no-replay; the injected `close` covers no-leak. Making the obligation
   visible in the language needs linearity conditioned on a use-site
   qualifier — roadmap **D7**, which records the relation to this change.
 
 ### Still open
 
-**See ROADMAP.md** for the I4-era leftovers and refusals, and for the `Once`- and
+**See ROADMAP.md** for the I4-era leftovers and refusals, and for the `once`- and
 linearity-shaped questions (D6, D7) this section forwarded to.
 
 ### Producer parameters: `Mut` refused (user decision 2026-09-08)
@@ -6973,7 +7082,7 @@ sweep: three tests in `fn_effect_tests.rs` (direct, transitive through a struct
 field, and a control that an *immutable* parameter of the same shape is fine —
 and that a `Mut` parameter on an ordinary fn is untouched).
 
-**Open, raised by the user with the decision: should `Once Iter<T>` be allowed
+**Open, raised by the user with the decision: should `once Iter<T>` be allowed
 one after all?** A pass is minted once and driven once, so the ambiguity that
 sank the factory case — do two passes share the collection or each get their
 own — does not arise. What remains is that the caller must not touch the
@@ -6994,13 +7103,13 @@ the user's:
    (`[FileSystem] Iter<T>`) was ruled out because it reads as a deduction list
    in return position; postfix was viable but disliked; the qualifier form
    costs no new grammar (a type is already a sequence of qualifier names
-   before a base) and lands on `Once`'s precedents for every rule it needs.
+   before a base) and lands on `once`'s precedents for every rule it needs.
 2. **A `yield` fn declares them on its return type**, not in its own effect
    list — because none of its body runs when it is called, so a list on the
    function would make [fn-effects] demand a handler at every call site for
    something calling it never does. Its body is checked against the claim.
-3. **Position rule 2**: the claim may be written where `Once` may — `Iter<T>`
-   and a `canbe Once` type of one's own — with fn types excluded, since they
+3. **Position rule 2**: the claim may be written where `once` may — `Iter<T>`
+   and a `canbe once` type of one's own — with fn types excluded, since they
    have the bracket spelling. One predicate for both qualifiers, which is what
    I2b's collision argued for.
 
@@ -7039,7 +7148,7 @@ producer nested inside another producer is a **field** of the outer pass, so
 its concrete type (and therefore its handler list) is known at both.
 
 What is not decided is the **indirect** case. A position whose *declared* type
-is `Iter<T>` or `Once Iter<T>` can hold either of two producers, so the value
+is `Iter<T>` or `once Iter<T>` can hold either of two producers, so the value
 there is behind a trait object (Rust) or an interface (Kotlin) — and an
 indirect call has **one fixed signature**. Which handlers does it take? The
 positions that force the question: an `Iter<T>` **parameter**
@@ -7107,7 +7216,7 @@ driving the field will perform, so the loop that drives it must sit somewhere a
 What is left to decide under B is the **spelling** (a type with no arrow has
 nowhere obvious to put the list — `Iter<Str> [FileSystem]`,
 `[FileSystem] Iter<Str>`, …) and whether the annotation is valid on any type or
-only where a *driving* operation exists, which is the same question `Once`'s
+only where a *driving* operation exists, which is the same question `once`'s
 position rule answers (`types::once_position`), and is best answered the same
 way.
 
@@ -7156,7 +7265,7 @@ Consequences of the decision, whichever way it goes:
   *(It landed with I4's emission half the same day — the `for` over a claiming
   producer is its caller, and the abandoned-consumer `close` prints.)*
 - **I2c's representation split follows from the same choice**: what
-  `Once Iter<T>` renders as (a concrete pass, a boxed one, or a generic
+  `once Iter<T>` renders as (a concrete pass, a boxed one, or a generic
   parameter) is exactly what D8 decides.
 - **I5 (lazy `map`/`filter` in std) follows too**: a lazy combinator calls its
   callback *inside* a producer, so a callback that performs effects is legal
@@ -7184,7 +7293,7 @@ Built and verified so far:
 - **`pass_elem_ty`** resolves `next` *before* `iter` in `iter_elem_ty` (a
   type with both is already a position in a sequence, so minting a second
   pass from it would be wrong), matching on the bare types since a
-  subject's own `Once`/`Mut` say nothing about which `next` fits, and
+  subject's own `once`/`Mut` say nothing about which `next` fits, and
   accepting only the exact `Emitted T | Finished` shape — anything else is
   some other `next`, not a driver.
 - **The "not a pass" error** fires and reads well:
@@ -7193,26 +7302,26 @@ Built and verified so far:
   function that builds it ```
 
 **The collision, and how it was resolved.** The error's remedy was at first
-impossible: I2a restricted `Once` to function types and `Iter<T>`
+impossible: I2a restricted `once` to function types and `Iter<T>`
 deliberately, to keep a general affine qualifier as roadmap D6 — but a
 hand-written pass is a *user type*, so "hand-written iterators must say
-`Once`" requires `Once` on user types. Three ways out were costed (`canbe
-Once`; take D6 now; or make `Once` valid on any type that has a `next`,
+`once`" requires `once` on user types. Three ways out were costed (`canbe
+Once`; take D6 now; or make `once` valid on any type that has a `next`,
 which would make a *type*'s legality depend on which functions are in
-scope). **User decision 2026-09-07: `canbe Once`**, with the note that D6
+scope). **User decision 2026-09-07: `canbe once`**, with the note that D6
 and D7 should be designed together rather than piecemeal.
 
-- **`canbe Once`** joins `canbe Mut` and `canbe Linear` [canbe-optin]: a
+- **`canbe once`** joins `canbe Mut` and `canbe linear` [canbe-optin]: a
   type opts into being a pass the way it opts into mutability and
-  linearity, and `Once` stays inapplicable to types that never asked. The
+  linearity, and `once` stays inapplicable to types that never asked. The
   author declaring it is the same argument the "not a pass" error rests on
   — an obligation should not attach on the strength of a method name.
 - The position rule is now in **two halves, on purpose**:
   `types::once_position` (fn types, `Iter<T>`) and the checker's
   `has_auto_once` (the opt-in, which needs the declaration).
-  `is_subtype`'s inverted `Once` rule checks *neither* — where a qualifier
+  `is_subtype`'s inverted `once` rule checks *neither* — where a qualifier
   may be **written** is a different question from what it means once
-  present, and an unauthorized `Once` has already been reported, so
+  present, and an unauthorized `once` has already been reported, so
   accepting it in the weakening direction keeps one mistake to one
   diagnostic. That is a deliberate reversal of I2a's "one predicate, no
   drift" arrangement, which stopped being possible once the answer depended
@@ -7248,7 +7357,7 @@ no state machine, no compiler support beyond the loop.
   with a non-`Mut` state gets a diagnostic saying so, rather than falling
   through to a puzzling "not iterable".
 - **An effectful `next` is a codegen error** on both backends. This is the
-  *hand-written* pass path (a `Once` type with its own `next` fn, I2b), which is
+  *hand-written* pass path (a `once` type with its own `next` fn, I2b), which is
   a different mechanism from a generated producer's claim: I4's emission half
   threads handlers into a machine the compiler wrote, and has nothing to say
   about a `next` the author wrote. Threading them into every turn of a
@@ -7542,7 +7651,7 @@ a `close` running pending defers latest-first. Rust and Kotlin differ only
 where they already differ (`while let` vs a guard, `Option<Box<…>>` for a
 recursive pass slot).
 
-**4. The representation split.** `Once Iter<T>` *is* the state struct; plain
+**4. The representation split.** `once Iter<T>` *is* the state struct; plain
 `Iter<T>` is the arguments plus a mint operation, so a second `for` re-runs
 the producer. Boxing appears only at a meeting point (decision 5).
 
@@ -7705,12 +7814,12 @@ Recommendation: emit the flat machine always. **Accepted by the user
 2026-09-07**, superseding decision 7's second bullet: there is one lowering,
 and the "simple-generator fast path" is not to be built.
 
-### Hand-written iterators must say `Once` (user decision 2026-09-07)
+### Hand-written iterators must say `once` (user decision 2026-09-07)
 
 A hand-written state type — the point of decision 2, since `zip`/`merge`
 read two sources and `yield` cannot express them — has to be drivable by
 `for` like a generated one. It is **not** inferred: a value whose type has
-a `next` but no `Once` qualifier is an **error** at the driving site, and
+a `next` but no `once` qualifier is an **error** at the driving site, and
 the diagnostic names the remedy — annotate the return type `Once X`.
 
 ```
@@ -7723,9 +7832,9 @@ for pair in zip(as, bs) { ... }   // ERROR: `Zip<A, B>` has a `next` but is
 ```
 
 Why an error rather than an inference: a struct with a `next` is not
-self-evidently single-use — `next` says it can be advanced, `Once` says
+self-evidently single-use — `next` says it can be advanced, `once` says
 advancing it uses it up, and only the author knows whether the second is
-true. Inferring `Once` from the presence of `next` would attach an
+true. Inferring `once` from the presence of `next` would attach an
 obligation to someone's type on the strength of a name, and attaching
 obligations silently is what [qual-*] keeps the compiler from doing. The
 error is also the cheap half of the feature: it is a check at the driving
@@ -7740,25 +7849,25 @@ site plus a diagnostic, with the LSP surfacing the same message.
   `for` lowering to `while let`, simple-generator lowering. Effect-free
   producers only: pure simplification, `SalvoGen`/`SalvoYield`/`SalvoIter`
   deleted.
-  - **I2a** ✅ Done 2026-09-07 — `Once Iter<T>` is a real type and the
+  - **I2a** ✅ Done 2026-09-07 — `once Iter<T>` is a real type and the
     factory/pass distinction is checked. See "I2a as built" below.
   - **I2b** ✅ Done 2026-09-07 — the protocol in std (`Emitted`/`Finished`,
     `params Iterator<St, T>`, `next`), `for` resolving `next` before `iter`,
-    the "has a `next` but is not `Once`" error, and `canbe Once`. Emission
+    the "has a `next` but is not `once`" error, and `canbe once`. Emission
     is not part of it: both backends reject a `for` over a pass for now.
     See "I2b as built" below.
   - **I2c** — ✅ *two of three parts done*. The driving-loop emission
     (2026-09-07), so hand-written passes (`zip`, `merge`) run on both backends;
     the async machinery gone with I3; and **the release path plumbed**
     (2026-09-08) — see "I2c: the release path, everywhere" below. Remaining:
-    the **un-boxing** half of the representation split — `Once Iter<T>` *being*
+    the **un-boxing** half of the representation split — `once Iter<T>` *being*
     the generated struct and a factory keeping the arguments it re-mints from,
     so a `for` drives the machine directly instead of through a
     `Box<dyn SalvoPass<T>>`. With it go `SalvoIter` itself, the `'static` +
     `Clone` bounds, and the `Fn`-not-`FnMut` convention exception.
     **What it is actually worth is written up under "The un-boxing question,
     costed" — it is smaller than it looks, and it needs a decision.**
-    Also unlocked by it: whether a producer returning `Once Iter<T>`
+    Also unlocked by it: whether a producer returning `once Iter<T>`
     may take a **mutable parameter** after all. One pass exists, so the
     factory case's ambiguity is gone and what remains — the caller may not
     touch the collection while the pass lives — is what shared fate
@@ -8035,12 +8144,12 @@ everywhere the value crosses a declaration a user wrote. It is not a
 correctness change: nothing about it is observable except allocation counts.
 
 **What is genuinely gated behind it** is the other half: a pass that *is* a
-struct can hold a **borrow**, which is what would let a `Once Iter<T>` take a
+struct can hold a **borrow**, which is what would let a `once Iter<T>` take a
 mutable parameter under shared fate [fate-link] — the question raised with the
 [iter-mut-param] decision. That is a language capability, not an optimisation,
 and it is the reason to do the work.
 
-**Recommendation**: treat the un-boxing as a *means* to the `Once`-borrowing
+**Recommendation**: treat the un-boxing as a *means* to the `once`-borrowing
 feature rather than as a performance item, and decide the parameter question
 (generic vs boxed) before starting — because the answer decides whether the
 cascade exists at all.
@@ -8104,34 +8213,34 @@ one, because driving a producer costs a fresh loop name for the pass.
 ### I2a as built (2026-09-07): the factory/pass distinction ships first
 
 
-`Once Iter<T>` is now a type the compiler accepts, and the one-shot rule is
+`once Iter<T>` is now a type the compiler accepts, and the one-shot rule is
 enforced — *before* the representation splits. That order is deliberate:
 the semantics are the part the user decided, they are checkable today, and
 landing them first makes I2c's representation change a non-event
 semantically (nothing legal before it becomes illegal after).
 
-What it took was small, because `Once` was already the right shape:
+What it took was small, because `once` was already the right shape:
 
-- **`types::once_position`** is the single predicate for where `Once` may
+- **`types::once_position`** is the single predicate for where `once` may
   be written — `Ty::Fn` or `Iter<T>` — read by *both* the checker's
   position check and `is_subtype`'s inverted rule, so the two cannot drift
   as D6 widens the list.
-- **The position check** (check.rs, `Once` branch of the qualifier
+- **The position check** (check.rs, `once` branch of the qualifier
   validation) now consults it, and its message names both positions:
-  ``` `Once` applies to function types and `Iter<T>`, not `Int` ```.
+  ``` `once` applies to function types and `Iter<T>`, not `Int` ```.
 - **The inverted subtyping rule** lost its `Ty::Fn` gate: `(_, Qualified
   { Once, base })` with `once_position(base)`, so plain `Iter<T>` <:
-  `Once Iter<T>` exactly as plain `(A) -> B` <: `Once (A) -> B`. The
+  `once Iter<T>` exactly as plain `(A) -> B` <: `once (A) -> B`. The
   never-drop direction needed nothing — `qual_drop_block` was already
   type-agnostic.
-- **The one new rule**: a `for` whose subject type carries `Once` calls
+- **The one new rule**: a `for` whose subject type carries `once` calls
   `fate_move(iterable, "iterate", "a `for` loop", …)` and gives the loop
   binding *no* links — the elements are owned by the loop rather than
   derived from a subject that is still alive [fate-link]. A factory keeps
   the existing behaviour (links, no consumption). The diagnostic falls out
   of the existing machinery: "`p` cannot be used here: it was consumed
   (moved) by a `for` loop".
-- **The emitters needed no change at all**: `Once` erases
+- **The emitters needed no change at all**: `once` erases
   [qual-erasure], and `iter_elem_ty` already went through `strip_quals`.
   Both backends compile and run a pass-returning producer, verified with
   one shared program and one shared expected stdout
@@ -8146,11 +8255,11 @@ two passes; plus the two e2e tests above.
 **Two diagnostic leftovers**, both quality rather than correctness:
 
 - A pass in a factory position reports "no matching overload for
-  `twice(Once Iter<Int>)`" rather than saying `Once` never drops. The
+  `twice(Once Iter<Int>)`" rather than saying `once` never drops. The
   `qual_drop_block` message exists and is used for `^` widening; the
   overload-failure path does not reach for it. This will be a common
   mistake, so it is worth a near-miss hint.
-- An invalid `Once` position cascades: `let bad: Once Int = 3` reports the
+- An invalid `once` position cascades: `let bad: Once Int = 3` reports the
   position error *and* "expected `Once Int`, found `Int`", because the
   rejected qualifier stays on the lowered type. One mistake should be one
   diagnostic — the fix is to fall back to the base type when the position
@@ -8190,7 +8299,7 @@ an event on a root reaches everything below it.
 `is` narrows places, so a checked field or tuple element reads at its
 narrowed type ([flow-place]), and invalidation ([flow-place-invalidate])
 rides on the event set the fate analysis already watches. Landed:
-`place.rs` (the `Place`/`Proj` types and the prefix/overlap relations),
+`place.rs` (the `Place`/`proj` types and the prefix/overlap relations),
 place-keyed narrowing through the branch machinery, narrowed-read
 unwrapping in both emitters, tuple element access as new syntax
 ([expr-tuple-index]), and — from the Kotlin parity bug it surfaced —
@@ -8201,7 +8310,7 @@ so they are tested and bound but never narrowed) and `when` on field
 subjects (P2, decided against — `when` stays variable-only).
 
 **Tuple element access** ([expr-tuple-index]) was added in the same
-session to close P1a: `t.0` is a `Proj::Index` place, so it narrows,
+session to close P1a: `t.0` is a `proj::Index` place, so it narrows,
 invalidates and merges like a field.
 
 ### L5 — field-disjoint ownership
@@ -8262,7 +8371,7 @@ The plain (exhaustive) form is what closes the hole: `clear`'s
   * **State predicates** (`NonEmpty`, `Sorted`, `Validated`): claims
     about content. Mutation may falsify them.
   * **Capabilities** (`Mut`, and the usage disciplines `Linear`,
-    `Once`): claims about what the *holder* may do. Mutation cannot
+    `once`): claims about what the *holder* may do. Mutation cannot
     falsify "you may mutate this".
   Only state predicates need dropping when a body mutates; capabilities
   survive trivially. Today this distinction is **degenerate**: every
@@ -8373,7 +8482,7 @@ Rules: [qual-refn], [qual-refn-match], [qual-refn-scope],
 ### D2, D4, D6, D7
 
 **Open** — see ROADMAP.md: qualifier asserts (`+Q`), predicate `is` on union
-subjects, `Once` on any type, and qualifier-conditional linearity.
+subjects, `once` on any type, and qualifier-conditional linearity.
 
 ## Roadmap: names and namespacing
 
@@ -8686,7 +8795,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 783)
+## Test inventory (all green: 806)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8962,7 +9071,7 @@ cache, with per-test timings.
   `: Linear<self>` with its `close` clean and without one an error at the
   struct; `discard` refused for a linear value and still dropping a plain
   one; the leak diagnostic naming `close`; a `close` alone *not* making a
-  type linear; `canbe Linear` refused on a declaration and kept on a type
+  type linear; `canbe linear` refused on a declaration and kept on a type
   parameter; and the ten composite-refusal cases — a struct field, a field
   of composite type, handler state, the five written positions (array,
   tuple, union, `T?`, type argument), array and tuple literals, a generic
@@ -9099,9 +9208,9 @@ cache, with per-test timings.
   `T` linear, unopted forwarding rejected, non-`Linear` clauses
   rejected, variadic positions refusing linear values with their
   follow-on leak),
-  the L7b `Once` matrix ([once-fn]: double call and loop back-edge
-  call consumed, `Once` lambdas rejected at plain-fn boundaries,
-  escape-then-call rejected, `Once` on non-fn types rejected, with
+  the L7b `once` matrix ([once-fn]: double call and loop back-edge
+  call consumed, `once` lambdas rejected at plain-fn boundaries,
+  escape-then-call rejected, `once` on non-fn types rejected, with
   maybe-call and both subtyping directions' positives clean),
   the L7c derived-return matrix ([readonly-return]: independent
   returns rejected, moved/unknown parameters rejected, argument
@@ -9232,7 +9341,7 @@ cache, with per-test timings.
   floats where an index cannot appear, a tuple element as a dot-call
   receiver, and numeric suffixes rejected),
   3 `canbe` opt-in tests ([canbe-optin]: `canbe Mut` on a struct and
-  on an `external type`, `<T canbe Linear>` on a fn, and `canbe` on a
+  on an `external type`, `<T canbe linear>` on a fn, and `canbe` on a
   non-fn type parameter rejected [linear-generics]), and 5 name tests
   ([name-dot] [name-casing]: dot-names in declarations and type
   positions, a dot-name struct literal distinguished from a field read
@@ -9320,7 +9429,7 @@ cache, with per-test timings.
   with exact stdout assertions (including the M7 multi-module program
   with packages, generated imports, and a companion file, the S1
   copy demo, the S2/S3 move-mode and borrow demos, the L6 linear
-  resource demo, and the L7a–L7d linear-generics, `Once`,
+  resource demo, and the L7a–L7d linear-generics, `once`,
   derived-returns, and fn-contracts demos —
   emission aliases throughout, stdout identical to the Rust runs
   [fate-move-mode] [fate-link] [linear-static] [once-fn];
@@ -9469,7 +9578,7 @@ cache, with per-test timings.
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
   resource demo, the L7a linear-generics workflow demo, the L7b
-  `Once` demo — with `once_fn_params_emit_fnonce` asserting the
+  `once` demo — with `once_fn_params_emit_fnonce` asserting the
   `impl FnOnce` rendering [once-fn] — the L7c derived-returns demo,
   with `derived_returns_emit_borrows` asserting the elided and
   generated-lifetime signatures and the borrow returns
@@ -9660,15 +9769,15 @@ snapshot diffs.
   source (`items: &'s Vec<T>`) so elements are `&'s T` — which is why
   [proj-field] exists and why an `iter fn` pass borrows its subject. Found by
   writing the Rust by hand and compiling it before touching the emitter.
-- **"Proj stripped at lowering" has a price.** Keeping `Proj` out of `Ty`
-  keeps generics from binding `T = Proj Int`, but two Salvo values of the same
+- **"proj stripped at lowering" has a price.** Keeping `proj` out of `Ty`
+  keeps generics from binding `T = proj Int`, but two Salvo values of the same
   type can then have different Rust types (`Union2<&T, F>` vs `Union2<T, F>`).
   Every place a borrowed value flows into an owned-typed position needs an
   adapter or a refusal [rs-proj-arm]; the fate link's `held`/`borrowed` flags
   are the checker's only record of the difference.
 - **A generic body cannot see that an element it stores is borrowed**, because
   the pass is opaque (`it: Mut It`). Std says it in the signature
-  (`=> Proj[from: it]`); a user fn that does not is caught by rustc, not the
+  (`=> proj[from: it]`); a user fn that does not is caught by rustc, not the
   checker. Recorded in ROADMAP.
 - **Inference changes what a migration means.** Converting `-> [] T` (consume
   everything) to a clause that mentions nothing turns a `consume(x) {}` test
@@ -9841,7 +9950,7 @@ snapshot diffs.
 
 - **(R4 part 2) "Refuse the store" needs two different predicates, and mixing
   them up breaks std.** A declaration-site check must be *blind* to
-  `<T canbe Linear>` type parameters — `add(list: Mut List<T>, elem: T)` is a
+  `<T canbe linear>` type parameters — `add(list: Mut List<T>, elem: T)` is a
   legal signature, generic over a `T` that may be linear — while the call-site
   check must not be, since instantiating that `T` with a linear type *is* the
   store. Treating an opted `T` as linear at declaration sites made std itself
@@ -9850,7 +9959,7 @@ snapshot diffs.
   place.
 - **(R4 part 2) Reading a composite is not storing into one.** The first
   call-site rule refused any callee mentioning `T` inside a composite, and it
-  rejected `size(list)` inside `count<T canbe Linear>(list: List<T>)` — a
+  rejected `size(list)` inside `count<T canbe linear>(list: List<T>)` — a
   read. The rule that holds needs *both* halves: the callee takes a **bare**
   `T` parameter and mentions `T` inside a composite. Signature shape is the
   only evidence available at a call site, so distinguish "hands a value in"
@@ -10683,8 +10792,8 @@ snapshot diffs.
   path got an explicit `Ty::Nothing` branch. When adding a consumption
   rule, audit every place an identifier is *used* without going
   through the standard read path.
-- (L7b) `Once` is the first qualifier with *inverted* subtyping (a
-  restriction, not a refinement): plain fn <: `Once` fn and `Once` may
+- (L7b) `once` is the first qualifier with *inverted* subtyping (a
+  restriction, not a refinement): plain fn <: `once` fn and `once` may
   never drop. Both `is_subtype` and `unify` carry special cases —
   flagged for review; if a second restricting qualifier ever appears,
   generalize direction into the qualifier model instead of a third

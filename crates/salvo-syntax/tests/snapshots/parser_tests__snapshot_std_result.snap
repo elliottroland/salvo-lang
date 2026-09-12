@@ -109,7 +109,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 1090..1096,
                             },
                             args: [],
@@ -219,7 +219,7 @@ Module {
                         },
                         TypeRef {
                             name: Ident {
-                                name: "Linear",
+                                name: "linear",
                                 span: 1228..1234,
                             },
                             args: [],

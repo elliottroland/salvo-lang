@@ -21,7 +21,7 @@
 //!
 //! ```text
 //! struct __Pass_Countdown : Yield<self, Int> canbe Mut {
-//!     __subject: Proj Countdown,
+//!     __subject: proj Countdown,
 //!     at: Int
 //! }
 //!
@@ -417,7 +417,7 @@ fn expand(
                 name: SUBJECT.to_string(),
                 span: subject_field_span,
             },
-            // [proj-field] `Proj Subject`: the pass projects the subject.
+            // [proj-field] `proj Subject`: the pass projects the subject.
             ty: proj_of(&subject.ty, subject_field_span),
             default: None,
             span: subject_field_span,
@@ -454,6 +454,7 @@ fn expand(
             base.name.name
         )],
         name: pass_name.clone(),
+        generic_canbe: Vec::new(),
         generics: f.generics.clone(),
         obligations: vec![TypeRef {
             name: Ident {
@@ -472,6 +473,9 @@ fn expand(
         }],
         auto_qualifiers: vec![type_ref("Mut", struct_span)],
         fields,
+        // A generated pass is never itself declared linear; whether it owes
+        // follows its subject (conditional containers, phase 3 step 6).
+        linear: false,
         span: struct_span,
     };
 
@@ -498,7 +502,7 @@ fn expand(
             span: subject_field_span,
         });
     }
-    // A snapshot reads the field once, here at the mint, into a `Proj` field:
+    // A snapshot reads the field once, here at the mint, into a `proj` field:
     // a borrow of the subject's field, costing nothing.
     for (field_name, pass_name) in &snapshots {
         // Distinct spans again: two nodes per snapshot field, and they must not
@@ -598,9 +602,9 @@ fn expand(
     };
     rewrite.block(&mut next_body);
     // [yield-proj] An `iter fn` emitting borrowed elements names the
-    // *subject* as their source (`Emitted (Proj[from: b] T)`); in the
+    // *subject* as their source (`Emitted (proj[from: b] T)`); in the
     // generated `next` the subject is reached through the pass, so the
-    // source is the pass parameter — the borrow chains through its `Proj`
+    // source is the pass parameter — the borrow chains through its `proj`
     // field to the subject the caller holds.
     let next_return = f.return_type.clone().map(|mut t| {
         rename_proj_source(&mut t, &subject.name.name, PASS);
@@ -1151,17 +1155,17 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
     walk_block(body, reserved, out);
 }
 
-/// [proj-field] `ty` under a `Proj` qualifier: the pass struct's borrowed
+/// [proj-field] `ty` under a `proj` qualifier: the pass struct's borrowed
 /// field type.
 fn proj_of(ty: &Type, span: Span) -> Type {
     match ty {
         Type::Named { qualifiers, base } => {
-            let mut qs = vec![type_ref("Proj", span)];
+            let mut qs = vec![type_ref("proj", span)];
             qs.extend(qualifiers.iter().cloned());
             Type::Named { qualifiers: qs, base: base.clone() }
         }
         other => Type::QualifiedGroup {
-            qualifiers: vec![type_ref("Proj", span)],
+            qualifiers: vec![type_ref("proj", span)],
             base: Box::new(other.clone()),
             span,
         },
@@ -1182,11 +1186,11 @@ fn is_copy_scalar(ty: &Type) -> bool {
     )
 }
 
-/// [yield-proj] Renames the source of every `Proj[from: old]` in `ty` to
+/// [yield-proj] Renames the source of every `proj[from: old]` in `ty` to
 /// `new`, in place.
 fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
     fn in_ref(r: &mut TypeRef, old: &str, new: &str) {
-        if r.name.name == "Proj" {
+        if r.name.name == "proj" {
             for from in &mut r.from {
                 if from.name == old {
                     from.name = new.to_string();

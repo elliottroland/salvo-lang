@@ -363,10 +363,10 @@ derives them mechanically:
 
 ### Projections [rs-proj]
 
-The `Proj` rules of LANGUAGE_SPEC.md ([proj-type] [readonly-return]
+The `proj` rules of LANGUAGE_SPEC.md ([proj-type] [readonly-return]
 [proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [yield-proj])
 are the one place Salvo's source states a borrow, and this backend has
-**one rendering rule**: `Proj X` *is* `&X` (2026-09-12, following
+**one rendering rule**: `proj X` *is* `&X` (2026-09-12, following
 [proj-type]) — at whatever depth the projection sits: a union arm
 (`Union2<&String, Finished>`), a type argument (`Vec<&String>`), a struct
 field, a parameter, a return. Under a named lifetime context it is
@@ -374,12 +374,12 @@ field, a parameter, a return. Under a named lifetime context it is
 lifetimes and adapts call sites; nothing here clones. Two exceptions to
 the blanket rule:
 
-* A Copy scalar's `Proj` never reaches the emitter — the checker erases
+* A Copy scalar's `proj` never reaches the emitter — the checker erases
   it ([proj-type], [copy-scalar-free]).
-* `Proj T` over a **bare generic parameter at its definition site**, with
+* `proj T` over a **bare generic parameter at its definition site**, with
   no lifetime context, renders owned `T`: a generic body treats `T`
   uniformly, and whether a use borrows is the instantiation's fact — the
-  caller substitutes `T = Proj Str` (rendering `&String`) and the
+  caller substitutes `T = proj Str` (rendering `&String`) and the
   turbofish retag spells it [rs-proj-arm]. Rendering `&T` at the
   definition would borrow for every instantiation, owned ones included.
   (Inside a borrowing struct or its `next`, where `'s` is in scope, a
@@ -387,7 +387,7 @@ the blanket rule:
 
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
-  `'a` is generated onto **every** source parameter (`Proj[from: a, b]`)
+  `'a` is generated onto **every** source parameter (`proj[from: a, b]`)
   and the return. A returned projection of a `&mut` pass parameter that is
   itself a borrowing struct names the *struct's* source lifetime instead
   (`next(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished>`
@@ -401,7 +401,7 @@ the blanket rule:
   .clone()`, a clone of the *reference* (`&&T → &T`).
   * [proj-type] [lambda-view] An unwrap whose own checker type is a
     projection stays the reference — no clone, no deref: a lambda tail
-    `get(all, i)!` typed `Proj Str` yields `&String` into the closure's
+    `get(all, i)!` typed `proj Str` yields `&String` into the closure's
     return (`Vec<&String>` at the call), and an interpolated
     `first(names)!` displays through the reference. Any position that
     truly needs ownership was checker-refused without `copy` before
@@ -412,28 +412,28 @@ the blanket rule:
     as a *value* in intrinsic argument positions (`*i`): lowerings use
     scalars in casts (`(i) as usize`), which a `&i32` place fails
     (E0606; found live 2026-09-12).
-* [rs-proj-struct] A struct with a `Proj` field — or an owned field whose
+* [rs-proj-struct] A struct with a `proj` field — or an owned field whose
   type has one, transitively — is a **borrowing struct**: `struct
   ListYield<'s, T> { items: &'s Vec<T>, at: i32 }`, with `<'s>` on owned
   view-typed fields; every mention elides (`ListYield<'_, T>`); a struct
-  literal borrows into its `Proj` fields (`&list`); it is returned *by
+  literal borrows into its `proj` fields (`&list`); it is returned *by
   value* (the struct carries the lifetime, no `&` wraps it).
 * [rs-proj-lends] The lifetime a view carries reaches the parameters it
   borrows [proj-infer]: with one reference parameter elision ties them;
   with more, `'a` is named on every lent parameter (`Checked::fn_lends`)
   and the return. A **lent implicit position** (`?iter: (c: C) -> Mut It`
-  with `=>[iter] Proj[from: c]`) renders `&'c C` under a lifetime `'c`
+  with `=>[iter] proj[from: c]`) renders `&'c C` under a lifetime `'c`
   named on the enclosing fn's kept parameter `c` — the result's type
   (`It`) is fixed at the call site, so the borrow it holds cannot be a
   fresh per-call one; the enclosing fn must keep `c` (a consumed one has
   nothing a view could outlive — reported). Re-pointing entries
-  (`v.items: Proj[from: other]`) tie `'r` on the target struct and the
+  (`v.items: proj[from: other]`) tie `'r` on the target struct and the
   source parameters, and the assignment renders as a borrow.
-* [rs-proj-arm] A union with a `Proj` arm is an ordinary instantiation of
+* [rs-proj-arm] A union with a `proj` arm is an ordinary instantiation of
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
   call filling `?Yield<It, T>` from a borrowing `next`, the element generic
   is **retagged** to `&T` in the turbofish — unless the checker's
-  substituted type already carries the projection (`T = Proj Str` renders
+  substituted type already carries the projection (`T = proj Str` renders
   `&String` on its own [proj-type]), in which case the retag defers; user callbacks at a retagged
   position arrive one reference deeper and peel it (`let n = *n;` at the
   top of a lambda, `let __a0 = *__a0;` in a by-name adapter; an annotated
@@ -441,7 +441,7 @@ the blanket rule:
   retagged position out where the callee owns it (`push`), and `copy` at
   a retagged position is the identity. A concrete Copy element
   (`?Yield<It, Int>`) is copied out by a match adapter instead. A local
-  bound from a `Proj`-arm call remembers its borrowed arms
+  bound from a `proj`-arm call remembers its borrowed arms
   (`borrowed_arm_locals`): a payload read of one derefs twice for a Copy
   scalar and binds as `Ref` otherwise; such a value flowing into a
   position written as the owned union is adapted arm by arm for Copy
@@ -1052,7 +1052,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   value wraps in a mechanical adapter closure
   (`&mut |__a0, …| name(&__a0, …)`) bridging the contract's calling
   convention to the declaration's actual modes.
-* [once-fn] `Once` fn parameters emit `impl FnOnce(…)`; consuming
+* [once-fn] `once` fn parameters emit `impl FnOnce(…)`; consuming
   closures are `FnOnce` by rustc's own capture inference, so lambda
   emission is unchanged. Calling the parameter is a plain call (the
   by-value `call_once` is implicit).
