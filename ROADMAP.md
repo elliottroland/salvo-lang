@@ -121,9 +121,10 @@ next.
   the whole machine apparatus went — `generator.rs`, both backends' renderers,
   the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
   COMPLETED.md.
-**2b — Copies only by opt-in** ("Copies only by opt-in", below; user decision
-2026-09-11 to run it before phase 3): `Proj` everywhere, views, `?copy`, and
-the std audit that removes std's hidden clones.
+**2b — Copies only by opt-in.** **✅ Complete 2026-09-11** — `Proj` everywhere,
+views, `?copy`, the std audit, `iter fn` passes borrowing their subject, and
+the `=>` deduction respelling; leftovers under "Projections and copies —
+leftovers". Phase 3 is next.
 
 **2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
 **✅ Complete 2026-09-10** — both halves: field-disjoint poison
@@ -400,15 +401,6 @@ wrong output [backend-never-wrong]:
 - **A callback handed *onward*** to another storing fn stays borrowed on Rust —
   the "does this fn store its callback?" predicate is deliberately
   non-transitive — and rustc reports the lifetime.
-- **An `iter fn` with a *generic* subject is refused on Kotlin** [iter-fn], and
-  only when it reaches the whole-subject tier: the mint copies the subject, and
-  the Kotlin `copy` lowering [kt-copy] cannot decide whether a value typed by a
-  type variable holds mutable data. A body that only reads plain fields of it
-  avoids the copy entirely — but the per-field snapshot needs the field types,
-  which means a non-generic subject (the snapshot itself is program-wide since
-  2026-09-10: a declaration in another file works). Lifting the generic limit
-  means a structural copy Kotlin can generate for a generic struct, or making
-  the snapshot substitute type arguments into field types [iter-fn].
 - **A *generic* `next` that performs effects** cannot be driven by `for` on
   either backend: its effects live on a fn value the caller supplied, so the
   handlers would have to reach through the implicit rather than being threaded
@@ -981,141 +973,70 @@ This keeps `x!.field`, `x!)`, `x!,` legal (the following token cannot
 start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
 (assert then test) and `x !is T` (negated test) as the two spellings.
 
-## Copies only by opt-in: `Proj` everywhere, and `?copy` (user decisions 2026-09-11)
+## Projections and copies — leftovers (phase 2b complete 2026-09-11)
 
-**The principle** (user): *a copy never happens without the user opting in* —
-by calling `copy` themselves, or by calling a function whose name says it
-copies (`filter_to`, with the copy made explicit as an implicit parameter).
-User code already obeys this; **std violates it in two hidden places**, both
-found 2026-09-11 while making `get` return a borrow:
+Phase 2b — `Proj` everywhere, views, `?copy`, the std audit, the `iter fn`
+borrow, and the `=>` deduction respelling — is **built**; the design, the
+options rejected and what it took are in COMPLETED.md's decision log (entries
+"Deductions respelled" and "Phase 2b"), the rules in LANGUAGE_SPEC.md
+([proj-anywhere] [proj-readonly] [proj-field] [proj-infer] [yield-proj]
+[copy-implicit] [copy-scalar-free] [deduce-syntax]) and BACKEND_SPEC.rust.md
+([rs-proj]). What stays open:
 
-- `filter(list, keep)` on a list is `.cloned().collect()` in the Rust runtime
-  — every kept element cloned, invisibly, because the result is a fresh
-  `Mut List<T>` that must own its elements. (`map` and `reduce` are clean: they
-  only *read* elements.)
-- `get(list, i)` is `.get(i).cloned()` — every indexed read clones, even one
-  that only tests for `None`.
-
-Both are the same divergence: Kotlin aliases where Rust clones, hidden inside
-an intrinsic's lowering rather than visible in a signature.
-
-### The decisions
-
-- **`ReadOnly` is renamed `Proj`** ("projection"), in every position — done
-  2026-09-11 as a plain rename (17 files; no compatibility form, per the
-  invariant). The internal place-step enum that was also called `Proj` became
-  `Step` so the two never share a name in the checker.
-- **`Proj` becomes user-writable**, and writable **anywhere a type appears** —
-  bare, as a type argument (`List<Proj T>`), as a union arm (`(Proj T)?`) —
-  not only in return position as v1 [readonly-return] had it. `Proj` keeps one
-  meaning everywhere: *this value is a borrow*. Parameters and returns yes;
-  **struct fields no** — a struct holding borrows is a struct with a lifetime,
-  which Salvo has said it will not put on user data.
-- **`[from: p]` stays attached to each `Proj` occurrence.** A detached form
-  was considered and rejected by the user with the deciding example: a tuple
-  borrowing from two sources,
-  `-> [list1, list2] ((Proj[from: list1] T)?, (Proj[from: list2] S)?)`,
-  where no single "the return borrows from p" exists. Attached scales; the
-  Rust side generates one lifetime per source, mechanically, as
-  [readonly-return] already does for one.
-- **`List<Proj T>` is a *view*: a fresh list of borrowed elements.** That
-  spelling is exactly the representation (`Vec<&'a T>`), distinct from
-  `Proj List<T>` (`&Vec<T>`) — the position of the qualifier is meaningful, as
-  it already is for `Mut`. This dissolves the "which of two representations"
-  problem the earlier `ReadOnly List<T>` sketch had.
-- **`(Proj T)?`** puts the qualifier where the borrow actually is — `None` is
-  borrowed from nothing — and is an ordinary union with a provenance-qualified
-  arm, the shape `Ok T | Err E` already has. `Option<&T>` in Rust.
-- **`?copy: (T) -> T` as a general implicit.** A generic fn that must copy a
-  value it cannot see through declares the implicit; the *call site*, where
-  `T` is concrete, fills it with the backend's monomorphic copy. This is the
-  `?to_str` mechanism reused, and it is what lifts the Kotlin generic-`copy`
-  refusal [kt-copy] — which also blocks generic-subject `iter fn`s on Kotlin.
-
-### Decided along the way: passes may hold a borrow (user, 2026-09-11)
-
-Building step 2b found the constraint empirically (hand-written Rust, checked
-with rustc): if a pass **owns** its list, `next(&mut p) -> &T` ties the element
-to the `&mut` of the pass, and *storing* an element — which a view must do —
-is E0499, the lending-iterator wall. If the pass **borrows** its source
-(`ListYield<'s, T> { items: &'s Vec<T>, at }`), elements are `&'s T`, a view
-stores them, and the source stays usable. So the pass struct needs a `Proj`
-*field*, which [proj-no-field] forbids.
-
-**Option (1), chosen: a struct declared `: Yield<self, T>` may have `Proj`
-fields** [proj-pass-field]. A pass is a position in someone else's data, not
-data of its own; its `Proj` field is set once at mint and never reassigned,
-and the one lifetime it carries stays inside std's (and `iter fn`-generated)
-pass structs. User structs keep the ban. Rust renders `ListYield<'s, T>`;
-Kotlin is unchanged.
-
-**Option (2), to review later — lifting the field ban for every struct.** Its
-consequences, so the review starts from them rather than rediscovering them:
-1. *Lifetimes become viral in generated Rust*: `View<'a>` spreads to every
-   containing struct, list, fn signature and union arm. Mechanical, but "no
-   lifetimes on user data" stops being true.
-2. *`from` has no meaning at a struct declaration* (no parameters): the
-   source is fixed per value at construction, and returning such a struct
-   needs `-> Proj[from: xs] View` — a struct-typed borrow, a small extension.
-3. *Mutable structs need per-field fate links*: `v.first = get(ys, 0)`
-   changes what the struct borrows from, so links must be keyed by field with
-   replacement semantics and branch merging — the place lattice L5 did not
-   need. Without it the only sound rule is "a `Proj` field cannot be
-   reassigned", which is what a pass already is.
-(1) is a subset of (2): nothing in it is undone by going further. The hole to
-close either way: `[proj-anywhere]` allows `Proj` in type-argument position,
-so a *user* generic struct instantiated as `Box<Proj Person>` would hold a
-borrow through the back door — under (1) a `Proj` type argument is allowed
-only for intrinsic containers (`List`, arrays) [proj-type-arg].
-
-### The std shape this produces
-
-| | ownership | copies |
-|---|---|---|
-| `get(xs, i) -> [from: xs] (Proj T)?` | a borrow | none |
-| `filter(xs, keep) -> [from: xs] List<Proj T>` | a view fate-linked to `xs` | none |
-| `filter_to(dest, xs, keep, ?copy)` | the caller's `dest` | one per kept element, named in the signature |
-| `copy(filter(xs, keep))` | independent | explicit |
-
-No `filter_new`: the `_to` family already exists and says the same thing.
-std's passes emit borrowed elements — `next(p) -> Emitted (Proj T) | Finished`
-— borrowing the **source list**, not the pass, which is why this is *not* the
-lending-iterator problem (Rust's GAT case): advancing the pass while an element
-is alive is fine, and the lifetime is the source's, generated onto the pass
-struct (`ListYield<'a, T>` over `&'a [T]`). `Union2<&'a T, Finished>` is an
-ordinary instantiation of the shared enum, which needs no change.
-
-### The order, each step leaving the tree green
-
-1. **Fix `narrow_unwrap` for an optional borrow** — a live emitter bug found
-   2026-09-11: unwrapping an `Option<&T>` local emits `.as_ref().unwrap().clone()`,
-   which clones the *reference* (`&&T → &T`). Needs an emitter fact "this
-   local holds an optional borrow" that nothing tracks yet. Independent of
-   every decision above.
-2. **`get` → `(Proj T)?` and std's `next` → `Emitted (Proj T)`**: the borrow
-   reaches the consumer, and the copy question moves to whoever *stores* the
-   element — where the principle says it belongs. Needs `Proj` in union-arm
-   position and the pass-struct lifetime.
-3. **`filter` → `List<Proj T>`**: the view representation, type-argument
-   position for `Proj`, and the fate link from a derived return generalised to
-   a container of borrows.
-4. **`?copy` on the `_to` family**, proved on `filter_to` first. Lifts
-   [kt-copy]'s generic refusal as a side effect; the Kotlin generic-`iter fn`
-   cut goes with it.
-5. **The std audit**: every combinator that stores an element is either a view
-   or a `_to`.
-
-### Costs accepted (user, 2026-09-11)
-
-Generated lifetimes on std's pass structs and view lists (the second and
-third deliberate exceptions to the no-lifetimes invariant, after
-[readonly-return]); a std-wide audit; and an interaction with phase 3's L8 —
-a *view* of a list of linear values is a new shape for "an obligation through
-a container". **Sequenced before phase 3** (user decision 2026-09-11): phase 4's streams
-hit "does this read copy?" on every operation, so it is answered once, first.
-
-Preserved from the attempt: `tmp/list.sv.borrow-attempt`,
-`tmp/array.sv.borrow-attempt`, `tmp/get-borrow-lowering.patch`.
+- **Contract stability (revisit).** With unmentioned parameters inferred
+  [deduce-syntax], editing a body to consume or lend a parameter changes what
+  callers may do with no signature change; the old exhaustive list made moves
+  visible at a glance. Accepted for now (the hover shows the effective clause;
+  the diagnostics name the cause). If it bites, the remedy is an opt-in
+  "exhaustive" marker or a lint that asks for `!p` to be written.
+- **Re-pointing entries are declared, not verified.** `=> v.items: Proj[from:
+  other]` links the caller's `v` to `other` at the call, and the emitter ties
+  the lifetimes; the *body* is trusted to perform the re-pointing. The
+  inference in `lends.rs` is return-centric — extending it to assignments
+  into a parameter's `Proj` fields is the verification.
+- **Generic bodies do not see element borrows.** Inside `filter<It, T>(it: Mut
+  It, …)` the element `x` of the opaque pass carries no link, so a body that
+  stores it without saying so (`add(dest, x)` and no `=> Proj[from: it]`) is
+  caught by rustc (`Vec<&T>` where `Vec<T>` is wanted), not by the checker.
+  Sound by the Rust backend being loud; a checker rule would treat a
+  `?Yield<It, T>` element as possibly borrowed (`Proj T`), which then needs
+  `Proj` in the lowered `Ty` to tell "stored into a `Proj` slot" apart —
+  the same thread as the next item.
+- **A borrowed non-Copy union arm flowing into an owned position** (`show(step:
+  Emitted Str | Finished)` fed `next(p)`'s `Emitted (Proj Str)`) is a Rust
+  codegen error [rs-proj-arm]: the Salvo types agree (`Proj` is not a type),
+  the Rust ones do not, and the only adaptation is a hidden clone. Copy
+  payloads are adapted. Either `Proj` becomes visible to the type checker at
+  union arms (so the position must say `Emitted (Proj Str)`), or the position
+  is generic over the arm. Decide with the item above.
+- **Binding a view of a temporary (user, 2026-09-11 — refuse for now).** A
+  derived-return or lending call whose borrowed argument is a temporary may be
+  used within its statement — `map(iter(list(4, 5)), f)`, `for x in
+  iter(list(1, 2))` — but binding, returning or storing the view is an error
+  ("cannot bind a view of a temporary … bind that argument with `let`
+  first"). Rust exposed it (E0716); Kotlin would have run it. **Possible later
+  automation**: hoist the temporary into a fresh local that lives as long as
+  the view (`let __src = list(1, 2); let p = slice(__src)`) — exactly what the
+  user writes today. Not free of judgement: the temporary then lives to the
+  end of the block (observable only through destructors/regions, which Salvo
+  does not yet have), and a hoist inside a loop or lambda changes how often
+  it is built. Revisit once regions land.
+- **Reserved extension — link parameters (user sketch, 2026-09-11).** If the
+  conservative fallback of [proj-infer] ever bites (two sources, read
+  separately, through a fn value or effect member), the per-field explicit
+  form is a lowercase name in the generics list — `[name-casing]` already
+  makes it parse:
+  ```
+  struct Pair<T, U, a, b> { first: Proj[from: a] T, second: Proj[from: b] U }
+  fn get_pair<T, U>(ts: List<T>, us: List<U>, i: Int) -> Pair<T, U, ts, us> => ts, us
+  ```
+  with Rust emitting one lifetime per link parameter (today every `Proj`
+  field shares one `'s`, which rustc unifies to the shortest source — sound,
+  less flexible). Elision would follow Rust's. Not built; the `.f:
+  Proj[from: a]` entries cover per-field precision wherever there is a body.
+- **Accumulator bodies** (`best = person; …; return best` under a projected
+  return) are out of scope: reassignable borrowed locals are a recorded
+  refinement of [readonly-return].
 
 ## Standard library surface
 
@@ -1316,7 +1237,7 @@ construction rather than by rule.
   region context (lexically inside `region { }`, or in the body of a fn
   declaring `[Region]`) is `Reg`. `reg(v)` moves an outside value in — a
   consuming deduction, no copy. `unreg(v)` takes a copy out:
-  `fn unreg<T>(value: Reg T) [Region] -> [value] T` — the copy is built into
+  `fn unreg<T>(value: Reg T) [Region] -> T` — the copy is built into => value
   the function, since duplicable handles mean exclusivity can never be
   proven; it **elides when the argument is a fresh construction**, which is
   also the opt-out-at-construction spelling (`unreg(Summary { … })`). `copy`

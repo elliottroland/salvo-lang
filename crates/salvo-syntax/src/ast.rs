@@ -376,17 +376,61 @@ pub enum EffectRef {
     Effect(TypeRef),
 }
 
-/// An entry in a function's deduction list [deduce-syntax]:
-/// `[person]` (bare — every qualifier the argument has survives),
-/// `[list: Mut]` (*exhaustive* — afterwards only `Mut` applies),
-/// `[list:]` (exhaustive and empty — every qualifier stripped),
-/// `[list: -NonEmpty]` (*delta* — drop `NonEmpty`, keep the rest), and
-/// `[list: Nothing]` (moved, like omitting the entry).
+/// An entry in a function's deduction clause [deduce-syntax], written after
+/// the return type behind `=>`:
+/// `=> person` (bare — every qualifier the argument has survives),
+/// `=> list: Mut` (*exhaustive* — afterwards only `Mut` applies),
+/// `=> list: None` (exhaustive and empty — every qualifier stripped),
+/// `=> list: -NonEmpty` (*delta* — drop `NonEmpty`, keep the rest),
+/// `=> !list` (moved; `list: Nothing` says the same),
+/// `=> .items: Proj[from: list]` (the result's field projects `list`),
+/// `=> v.items: Proj[from: other]` (a parameter's field is re-pointed), and
+/// `=> Proj[from: c]` (opaque: the result holds a borrow of `c`)
+/// [proj-infer]. A parameter the clause does not mention is *inferred*
+/// from the body; a bodiless declaration must mention every parameter
+/// except Copy scalars.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Deduction {
-    pub param: Ident,
+    pub target: DeductionTarget,
     pub kind: DeductionKind,
     pub span: Span,
+}
+
+impl Deduction {
+    /// The parameter a *plain* entry is about — `elem`, `!elem`,
+    /// `elem: Qual` — an entry that decides a parameter's keptness and
+    /// afterwards-qualifiers. `None` for a projection entry, a result path,
+    /// or a parameter *field* path.
+    pub fn param_name(&self) -> Option<&Ident> {
+        match (&self.target, &self.kind) {
+            (DeductionTarget::Param { name, path }, kind)
+                if path.is_empty() && !matches!(kind, DeductionKind::Proj(_)) =>
+            {
+                Some(name)
+            }
+            _ => None,
+        }
+    }
+
+    /// The sources of a projection entry, if it is one.
+    pub fn proj_sources(&self) -> Option<&[Ident]> {
+        match &self.kind {
+            DeductionKind::Proj(sources) => Some(sources),
+            _ => None,
+        }
+    }
+}
+
+/// The subject of a deduction entry [deduce-syntax].
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeductionTarget {
+    /// A parameter (`elem`), or a field path under one (`v.items`).
+    Param { name: Ident, path: Vec<Ident> },
+    /// A field path of the result (`.items`).
+    Result { path: Vec<Ident> },
+    /// The result as a whole, opaquely: a bare `Proj[from: c]` says the
+    /// result *holds* a borrow of `c` somewhere inside [proj-infer].
+    Opaque,
 }
 
 /// The polarity of one deduction entry [deduce-syntax]. A written entry is
@@ -394,14 +438,18 @@ pub struct Deduction {
 /// names); mixing them in one entry is an error.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DeductionKind {
-    /// Bare `[list]`: the parameter is kept and *nothing* is stripped.
+    /// Bare `=> list`: the parameter is kept and *nothing* is stripped.
     KeepAll,
-    /// `[list: A B]` / `[list:]`: afterwards exactly these apply.
+    /// `=> list: A B` / `=> list: None`: afterwards exactly these apply.
     Exhaustive(Vec<TypeRef>),
-    /// `[list: -A -B]`: these are dropped, everything else survives.
+    /// `=> list: -A -B`: these are dropped, everything else survives.
     Remove(Vec<TypeRef>),
-    /// `[list: Nothing]`: moved (the caller loses access).
+    /// `=> !list` / `=> list: Nothing`: moved (the caller loses access).
     Moved,
+    /// `Proj[from: a, b]`: a projection of the named parameters — of the
+    /// entry's target (a result path, a parameter, a parameter's field) or,
+    /// with no target, held somewhere inside the result [proj-infer].
+    Proj(Vec<Ident>),
 }
 
 // --- Types ---
@@ -470,11 +518,12 @@ impl Type {
 pub struct TypeRef {
     pub name: Ident,
     pub args: Vec<Type>,
-    /// [proj-anywhere] `Proj[from: param]`: for the `Proj` qualifier, the
-    /// kept parameter the value borrows from. Only `Proj` carries one, and
-    /// it may appear wherever a type does — a return, a union arm
-    /// (`(Proj[from: xs] T)?`), a type argument (`List<Proj[from: xs] T>`).
-    pub from: Option<Ident>,
+    /// [proj-anywhere] `Proj[from: a, b]`: for the `Proj` qualifier, the
+    /// kept parameters the value borrows from (several when a projection is
+    /// joined across branches). Only `Proj` carries them, wherever a type
+    /// does — a return, a union arm (`(Proj[from: xs] T)?`). Empty on a
+    /// field or parameter (the source is the value's, not the type's).
+    pub from: Vec<Ident>,
     pub span: Span,
 }
 
@@ -483,8 +532,9 @@ pub struct TypeRef {
 impl fmt::Display for TypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name.name)?;
-        if let Some(from) = &self.from {
-            write!(f, "[from: {}]", from.name)?;
+        if !self.from.is_empty() {
+            let names: Vec<&str> = self.from.iter().map(|i| i.name.as_str()).collect();
+            write!(f, "[from: {}]", names.join(", "))?;
         }
         if !self.args.is_empty() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();

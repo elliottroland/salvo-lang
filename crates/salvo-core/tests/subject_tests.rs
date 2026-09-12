@@ -74,7 +74,7 @@ fn authenticate<T>(s: Store<T>) -> Store<T> as Authenticated {
     return s
 }
 
-fn touch<T>(s: Mut Store<T>) [] -> [s: Mut] None {}
+fn touch<T>(s: Mut Store<T>) [] -> None => s: Mut {}
 
 fn needs_nonempty<T>(s: NonEmpty Store<T>) -> None {
 }

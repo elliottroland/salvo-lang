@@ -78,8 +78,8 @@ fn src(body: &str) -> String {
 fn a_platform_effect_is_performed_like_any_other() {
     let errs = messages(&src(
         "platform effect Telemetry {\n    \
-             fn record(name: Str, value: Int) [] -> [name, value] None\n}\n\n\
-         fn work(n: Int) [Telemetry] -> [] Int {\n    \
+             fn record(name: Str, value: Int) [] -> None => name, value\n}\n\n\
+         fn work(n: Int) [Telemetry] -> Int {\n    \
              record(\"work\", n)\n    return n\n}\n\n\
          fn main() [Telemetry] {\n    work(1)\n}\n",
     ));
@@ -94,10 +94,10 @@ fn a_platform_effect_is_performed_like_any_other() {
 fn a_handler_may_depend_on_a_platform_effect() {
     let errs = messages(&src(
         "platform effect Telemetry {\n    \
-             fn record(name: Str) [] -> [name] None\n}\n\n\
-         effect Logger {\n    fn log(message: Str) -> [message] None\n}\n\n\
+             fn record(name: Str) [] -> None => name\n}\n\n\
+         effect Logger {\n    fn log(message: Str) -> None => message\n}\n\n\
          handler AuditLogger(telemetry: Telemetry) of Logger {\n    \
-             fn log(message: Str) -> [message] None {\n        \
+             fn log(message: Str) -> None => message {\n        \
                  record(message)\n    }\n}\n\n\
          fn main() [use, Telemetry] {\n    use AuditLogger()\n}\n",
     ));
@@ -113,9 +113,9 @@ fn a_handler_may_depend_on_a_platform_effect() {
 #[test]
 fn a_salvo_handler_for_a_platform_effect_is_rejected() {
     let errs = messages(&src(
-        "platform effect Telemetry {\n    fn record(name: Str) [] -> [name] None\n}\n\n\
+        "platform effect Telemetry {\n    fn record(name: Str) [] -> None => name\n}\n\n\
          handler MyTelemetry of Telemetry {\n    \
-             fn record(name: Str) [] -> [name] None {\n    }\n}\n",
+             fn record(name: Str) [] -> None => name {\n    }\n}\n",
     ));
     assert!(
         errs.iter().any(|m| m.contains("is a platform effect")
@@ -132,7 +132,7 @@ fn a_salvo_handler_for_a_platform_effect_is_rejected() {
 #[test]
 fn a_generic_platform_effect_is_rejected() {
     let errs = messages(&src(
-        "platform effect Store<T> {\n    fn put(value: T) [] -> [] None\n}\n",
+        "platform effect Store<T> {\n    fn put(value: T) [] -> None => !value\n}\n",
     ));
     assert!(
         errs.iter()
@@ -147,7 +147,7 @@ fn a_generic_platform_effect_is_rejected() {
 #[test]
 fn a_generic_platform_member_is_rejected() {
     let errs = messages(&src(
-        "platform effect Store {\n    fn put<T>(value: T) [] -> [] None\n}\n",
+        "platform effect Store {\n    fn put<T>(value: T) [] -> None => !value\n}\n",
     ));
     assert!(
         errs.iter().any(|m| m
@@ -162,8 +162,8 @@ fn a_generic_platform_member_is_rejected() {
 fn duplicate_member_names_in_one_effect_are_rejected() {
     let errs = messages(&src(
         "platform effect Store {\n    \
-             fn put(value: Int) [] -> [] None\n    \
-             fn put(value: Str) [] -> [] None\n}\n",
+             fn put(value: Int) [] -> None\n    \
+             fn put(value: Str) [] -> None => !value\n}\n",
     ));
     assert!(
         errs.iter().any(|m| m
@@ -180,8 +180,8 @@ fn duplicate_member_names_in_one_effect_are_rejected() {
 #[test]
 fn a_member_name_shared_by_two_effects_is_rejected() {
     let errs = messages(&src(
-        "platform effect A {\n    fn ping() [] -> [] None\n}\n\n\
-         effect B {\n    fn ping() [] -> [] None\n}\n",
+        "platform effect A {\n    fn ping() [] -> None\n}\n\n\
+         effect B {\n    fn ping() [] -> None\n}\n",
     ));
     assert!(
         errs.iter().any(|m| m.contains("effect `A` already declares a member named `ping`")
@@ -196,8 +196,8 @@ fn a_member_name_shared_by_two_effects_is_rejected() {
 #[test]
 fn a_shared_member_name_is_reported_once() {
     let errs: Vec<String> = messages(&src(
-        "platform effect A {\n    fn ping() [] -> [] None\n}\n\n\
-         effect B {\n    fn ping() [] -> [] None\n}\n",
+        "platform effect A {\n    fn ping() [] -> None\n}\n\n\
+         effect B {\n    fn ping() [] -> None\n}\n",
     ))
     .into_iter()
     .filter(|m| m.contains("already declares a member named `ping`"))
@@ -210,8 +210,8 @@ fn a_shared_member_name_is_reported_once() {
 #[test]
 fn distinct_member_names_across_effects_are_fine() {
     let errs = messages(&src(
-        "platform effect A {\n    fn ping() [] -> [] None\n}\n\n\
-         effect B {\n    fn pong() [] -> [] None\n}\n",
+        "platform effect A {\n    fn ping() [] -> None\n}\n\n\
+         effect B {\n    fn pong() [] -> None\n}\n",
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

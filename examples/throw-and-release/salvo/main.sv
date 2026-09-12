@@ -22,20 +22,20 @@ struct FileHandle : Linear<self> {
     name: Str
 }
 
-fn open_file(name: Str) [Console] -> [] FileHandle {
+fn open_file(name: Str) [Console] -> FileHandle {
     println("1. open ${name}")
     return FileHandle { name: name }
 }
 
-// The discharge. `close` consumes its parameter — the empty deduction list
-// moves it — which is what makes it the release rather than a convention.
-fn close(handle: FileHandle) [Console] -> [] None {
+// The discharge. `close` consumes its parameter — `=> !handle` moves it —
+// which is what makes it the release rather than a convention.
+fn close(handle: FileHandle) [Console] -> None => !handle {
     println("1. close ${handle.name}")
 }
 
 // Two exits, two releases. Leave one out and the compiler says which path
 // leaks: "`handle` still owns a linear value when it goes out of scope".
-fn read_size(name: Str, want: Int) [Console] -> [] Int {
+fn read_size(name: Str, want: Int) [Console] -> Int {
     let there_is = size(name)
     let handle = open_file(name)
     if want > there_is {
@@ -53,7 +53,7 @@ fn read_size(name: Str, want: Int) [Console] -> [] Int {
 // return type — `throw` returns `Nothing`, the bottom type, so the frames in
 // between say nothing about it. There is no handler and no `catch`: the
 // delimiter is `try`.
-fn parse_port(text: Str) [Throw<Str>] -> [text] Int {
+fn parse_port(text: Str) [Throw<Str>] -> Int => text {
     let n = parse_int(text)
     if n is None {
         throw("not a number: ${text}")
@@ -67,7 +67,7 @@ fn parse_port(text: Str) [Throw<Str>] -> [text] Int {
 // An intermediate frame only *inherits* the effect: nothing here mentions the
 // outcome, and nothing here is a `?`-style forward — the call is an ordinary
 // call.
-fn port_of(config: Str) [Throw<Str>] -> [config] Int {
+fn port_of(config: Str) [Throw<Str>] -> Int => config {
     let port = parse_port(config)
     return port * 1
 }
@@ -77,7 +77,7 @@ fn port_of(config: Str) [Throw<Str>] -> [config] Int {
 // holding the handle across it is rejected — the release has to come first.
 // `copy` is what lets the name outlive the handle: a plain binding would share
 // its fate and die with it.
-fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> [text] Int {
+fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> Int => text {
     let handle = open_file(name)
     let from = copy(handle.name)
     close(handle)
@@ -87,7 +87,7 @@ fn port_from_file(name: Str, text: Str) [Console, Throw<Str>] -> [text] Int {
 
 // Messages need not be strings, and two message types meeting at one
 // delimiter make the thrown arm their union.
-fn strict_port(text: Str) [Throw<Str | Int>] -> [text] Int {
+fn strict_port(text: Str) [Throw<Str | Int>] -> Int => text {
     if size(text) == 0 {
         throw("empty")
     }
@@ -103,7 +103,7 @@ fn strict_port(text: Str) [Throw<Str | Int>] -> [text] Int {
 // `try { ... }` is a compiler intrinsic rather than an effect — there is no
 // `Try` to declare and no handler to register. Its value is `Ok T | Thrown M`,
 // an ordinary union, so `when` reads it like a result.
-fn report(label: Str, config: Str) [Console] -> [label, config] None {
+fn report(label: Str, config: Str) [Console] -> None => label, config {
     let outcome = try {
         port_of(config)
     }

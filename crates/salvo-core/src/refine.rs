@@ -622,8 +622,10 @@ fn check_refined_qual(
 /// Whether a written deduction list gives `param` back to the caller
 /// [deduce-syntax].
 fn kept_in(list: &[Deduction], param: &str) -> bool {
-    list.iter()
-        .any(|d| d.param.name == param && !matches!(d.kind, DeductionKind::Moved))
+    // [deduce-syntax] Unmentioned is kept; only a written move consumes.
+    !list.iter().any(|d| {
+        d.param_name().is_some_and(|n| n.name == param) && matches!(d.kind, DeductionKind::Moved)
+    })
 }
 
 /// Every *base* type name a written type mentions (qualifier positions

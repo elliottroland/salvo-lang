@@ -14,17 +14,17 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
      intrinsic type List<T> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> [value] T\n\
-     intrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\n\
-     intrinsic fn mutable_list<T canbe Linear>(...elems: T[]) [] -> [] Mut List<T>\n\
-     intrinsic fn add<T canbe Linear>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
-     intrinsic fn size<T canbe Linear>(list: List<T>) [] -> [list] Int\n\
-     params Linear<It> {\n    fn close(it: It) -> [] None\n}\n\
+     intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     intrinsic fn discard<T canbe Linear>(value: T) [] -> None => !value\n\
+     intrinsic fn mutable_list<T canbe Linear>(...elems: T[]) [] -> Mut List<T>\n\
+     intrinsic fn add<T canbe Linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+     intrinsic fn size<T canbe Linear>(list: List<T>) [] -> Int => list\n\
+     params Linear<It> {\n    fn close(it: It) -> None => !it\n}\n\
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
-     fn emitted<T canbe Linear>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
-     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
+     fn emitted<T canbe Linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -73,9 +73,9 @@ struct Lines : Linear<self> {
     name: Str
 }
 
-fn close(l: Lines) -> [] None {}
+fn close(l: Lines) -> None => !l {}
 
-fn open_lines(n: Str) -> [] Lines {
+fn open_lines(n: Str) -> Lines => !n {
     return Lines { name: n }
 }
 "#;
@@ -85,7 +85,7 @@ fn open_lines(n: Str) -> [] Lines {
 #[test]
 fn declaring_the_obligation_with_its_close_is_clean() {
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let l = open_lines(\"a\")\n    close(l)\n}}\n"
+        "{LINES}\nfn go() -> None {{\n    let l = open_lines(\"a\")\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -110,7 +110,7 @@ fn declaring_it_without_a_close_errors_at_the_struct() {
 #[test]
 fn discard_cannot_drop_a_linear_value() {
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let l = open_lines(\"a\")\n    discard(l)\n}}\n"
+        "{LINES}\nfn go() -> None {{\n    let l = open_lines(\"a\")\n    discard(l)\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("`discard` cannot drop a linear value")
@@ -122,7 +122,7 @@ fn discard_cannot_drop_a_linear_value() {
 /// It still drops a non-linear one: that is what it is for now.
 #[test]
 fn discard_still_drops_a_plain_value() {
-    let errs = errors("fn go() -> [] None {\n    discard(\"note\")\n}\n");
+    let errs = errors("fn go() -> None {\n    discard(\"note\")\n}\n");
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
@@ -130,7 +130,7 @@ fn discard_still_drops_a_plain_value() {
 #[test]
 fn a_leak_names_close_as_the_discharge() {
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let l = open_lines(\"a\")\n}}\n"
+        "{LINES}\nfn go() -> None {{\n    let l = open_lines(\"a\")\n}}\n"
     ));
     assert!(
         errs.iter()
@@ -147,9 +147,9 @@ fn a_leak_names_close_as_the_discharge() {
 fn a_close_alone_does_not_make_a_type_linear() {
     let errs = errors(
         "struct Plain {\n    fd: Int\n}\n\
-         fn close(p: Plain) -> [] None {}\n\
-         fn make() -> [] Plain {\n    return Plain { fd: 1 }\n}\n\
-         fn go() -> [] None {\n    let p = make()\n}\n",
+         fn close(p: Plain) -> None => !p {}\n\
+         fn make() -> Plain {\n    return Plain { fd: 1 }\n}\n\
+         fn go() -> None {\n    let p = make()\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -173,7 +173,7 @@ fn canbe_linear_on_a_type_parameter_still_works() {
     let errs = errors(&format!(
         "{LINES}\n\
          fn hold<T canbe Linear>(value: T) -> T {{\n    return value\n}}\n\
-         fn go() -> [] None {{\n    let l = hold(open_lines(\"a\"))\n    close(l)\n}}\n"
+         fn go() -> None {{\n    let l = hold(open_lines(\"a\"))\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -249,7 +249,7 @@ fn written_composite_positions_are_refused() {
         ("List<Lines>", "a type argument of `List`"),
     ] {
         let errs = errors(&format!(
-            "{LINES}\nfn take(x: {ty}) -> [] None {{}}\n"
+            "{LINES}\nfn take(x: {ty}) -> None => !x {{}}\n"
         ));
         assert!(
             errs.iter().any(|e| e.contains("`Lines` is linear")
@@ -264,7 +264,7 @@ fn written_composite_positions_are_refused() {
 #[test]
 fn a_nested_composite_reports_once() {
     let errs = errors(&format!(
-        "{LINES}\nfn take(x: List<List<Lines>>) -> [] None {{}}\n"
+        "{LINES}\nfn take(x: List<List<Lines>>) -> None => !x {{}}\n"
     ));
     assert_eq!(errs.len(), 1, "got {errs:?}");
 }
@@ -274,7 +274,7 @@ fn a_nested_composite_reports_once() {
 #[test]
 fn literal_composites_are_refused() {
     let arr = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let xs = [open_lines(\"a\")]\n}}\n"
+        "{LINES}\nfn go() -> None {{\n    let xs = [open_lines(\"a\")]\n}}\n"
     ));
     assert!(
         arr.iter()
@@ -282,7 +282,7 @@ fn literal_composites_are_refused() {
         "got {arr:?}"
     );
     let tup = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let t = (open_lines(\"a\"), 1)\n}}\n"
+        "{LINES}\nfn go() -> None {{\n    let t = (open_lines(\"a\"), 1)\n}}\n"
     ));
     assert!(
         tup.iter()
@@ -297,7 +297,7 @@ fn literal_composites_are_refused() {
 fn a_generic_struct_cannot_be_instantiated_with_a_linear_type() {
     let errs = errors(&format!(
         "{LINES}\nstruct Box<T> {{\n    item: T\n}}\n\
-         fn go() -> [] None {{\n    let b = Box {{ item: open_lines(\"a\") }}\n}}\n"
+         fn go() -> None {{\n    let b = Box {{ item: open_lines(\"a\") }}\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("`Lines` is linear")
@@ -313,7 +313,7 @@ fn a_generic_struct_cannot_be_instantiated_with_a_linear_type() {
 #[test]
 fn storing_through_a_generic_call_is_refused() {
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> [] None {{\n    let xs = mutable_list()\n    \
+        "{LINES}\nfn go() -> None {{\n    let xs = mutable_list()\n    \
          add(xs, open_lines(\"a\"))\n}}\n"
     ));
     assert!(
@@ -329,7 +329,7 @@ fn storing_through_a_generic_call_is_refused() {
 #[test]
 fn reading_a_composite_of_a_type_parameter_is_not_a_store() {
     let errs = errors(
-        "fn count<T canbe Linear>(list: List<T>) -> [list] Int {\n    return size(list)\n}\n",
+        "fn count<T canbe Linear>(list: List<T>) -> Int => list {\n    return size(list)\n}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -340,7 +340,7 @@ fn reading_a_composite_of_a_type_parameter_is_not_a_store() {
 fn a_composite_of_plain_values_is_unaffected() {
     let errs = errors(&format!(
         "{LINES}\nstruct Holder {{\n    names: Mut List<Str>\n}}\n\
-         fn go() -> [] None {{\n    let l = open_lines(\"a\")\n    \
+         fn go() -> None {{\n    let l = open_lines(\"a\")\n    \
          let h = Holder {{ names: mutable_list(\"x\") }}\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -355,11 +355,11 @@ struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn open_handle(from: Int) -> [] Mut Handle {
+fn open_handle(from: Int) -> Mut Handle {
     return Mut Handle { at: from }
 }
 
-fn next(h: Mut Handle) [] -> [h: Mut] Emitted Int | Finished {
+fn next(h: Mut Handle) [] -> Emitted Int | Finished => h: Mut {
     if h.at <= 0 {
         return finished()
     }
@@ -368,7 +368,7 @@ fn next(h: Mut Handle) [] -> [h: Mut] Emitted Int | Finished {
     return emitted(v)
 }
 
-fn close(h: Handle) [] -> [] None {}
+fn close(h: Handle) [] -> None => !h {}
 ";
 
 /// [linear-generics] A generic pass the fn **owns** — `<It canbe Linear>`, and
@@ -380,7 +380,7 @@ fn close(h: Handle) [] -> [] None {}
 fn owning_a_possibly_linear_pass_needs_a_close() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> [] Int {{\n\
+         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -401,7 +401,7 @@ fn owning_a_possibly_linear_pass_needs_a_close() {
 fn the_linear_spread_supplies_the_release() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) [] -> [] Int {{\n\
+         fn drain<It canbe Linear>(it: Mut It, ?Yield<It, Int>, ?Linear<It>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -419,7 +419,7 @@ fn the_linear_spread_supplies_the_release() {
 fn keeping_the_pass_leaves_the_release_to_the_caller() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn peek<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> [it: Mut] Int {{\n\
+         fn peek<It canbe Linear>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\
@@ -437,7 +437,7 @@ fn keeping_the_pass_leaves_the_release_to_the_caller() {
 fn a_plain_generic_pass_needs_no_release() {
     let errs = errors(&format!(
         "{HANDLE}\n\
-         fn drain<It>(it: Mut It, ?Yield<It, Int>) [] -> [] Int {{\n\
+         fn drain<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => !it {{\n\
          \x20   let sum = 0\n\
          \x20   for n in it {{\n\
          \x20       sum = sum + n\n\

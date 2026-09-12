@@ -82,10 +82,10 @@ fn times(a: Int, b: Int) -> Int { return 0 }
 fn a_group_resolves_its_members_from_the_visible_overloads() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return total(1)\n\
          }}\n"
     ));
@@ -97,10 +97,10 @@ fn a_group_resolves_its_members_from_the_visible_overloads() {
 fn a_written_implicit_resolves_the_same_way() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {{\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {{\n\
          return cmp(a, b)\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return pick(1, 2)\n\
          }}\n"
     ));
@@ -113,10 +113,10 @@ fn a_written_implicit_resolves_the_same_way() {
 fn an_unresolvable_implicit_names_both_remedies() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {{\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {{\n\
          return cmp(a, b)\n\
          }}\n\
-         fn probe(s: Str) -> [] Int {{\n\
+         fn probe(s: Str) -> Int => !s {{\n\
          return pick(s, s)\n\
          }}\n"
     ));
@@ -141,10 +141,10 @@ fn an_unresolvable_implicit_names_both_remedies() {
 fn a_call_can_override_one_member_by_name() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return total(1, add = times)\n\
          }}\n"
     ));
@@ -156,10 +156,10 @@ fn a_call_can_override_one_member_by_name() {
 fn an_override_can_be_a_lambda() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {{\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {{\n\
          return cmp(a, b)\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return pick(1, 2, cmp = (x: Int, y: Int) -> x)\n\
          }}\n"
     ));
@@ -171,10 +171,10 @@ fn an_override_can_be_a_lambda() {
 fn a_named_argument_matching_nothing_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {{\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {{\n\
          return cmp(a, b)\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return pick(1, 2, order = times)\n\
          }}\n"
     ));
@@ -190,10 +190,10 @@ fn a_named_argument_matching_nothing_is_rejected() {
 fn an_override_of_the_wrong_type_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {{\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {{\n\
          return cmp(a, b)\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return pick(1, 2, cmp = (x: Int) -> x)\n\
          }}\n"
     ));
@@ -209,10 +209,10 @@ fn an_override_of_the_wrong_type_is_rejected() {
 fn a_generic_fn_forwards_its_own_implicits() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\
-         fn total_twice<T>(a: T, b: T, ?Field<T>) -> [] T {{\n\
+         fn total_twice<T>(a: T, b: T, ?Field<T>) -> T => !a, !b {{\n\
          return add(total(a), total(b))\n\
          }}\n"
     ));
@@ -225,10 +225,10 @@ fn a_generic_fn_forwards_its_own_implicits() {
 fn forwarding_ignores_how_the_parameters_were_grouped() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> [] T {{\n\
+         fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T => !a, !b {{\n\
          return add(a, b)\n\
          }}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return sum_pair(a, zero())\n\
          }}\n"
     ));
@@ -242,10 +242,10 @@ fn forwarding_ignores_how_the_parameters_were_grouped() {
 fn a_generic_fn_without_the_implicit_cannot_call_one_that_needs_it() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\
-         fn careless<T>(a: T) -> [] T {{\n\
+         fn careless<T>(a: T) -> T => !a {{\n\
          return total(a)\n\
          }}\n"
     ));
@@ -263,7 +263,7 @@ fn a_generic_fn_without_the_implicit_cannot_call_one_that_needs_it() {
 fn an_implicit_of_non_fn_type_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(a: Int, ?limit: Int) -> [] Int {{\n\
+         fn f(a: Int, ?limit: Int) -> Int {{\n\
          return a\n\
          }}\n"
     ));
@@ -279,7 +279,7 @@ fn an_implicit_of_non_fn_type_is_rejected() {
 fn an_unknown_group_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f<T>(a: T, ?Ring<T>) -> [] T {{\n\
+         fn f<T>(a: T, ?Ring<T>) -> T => !a {{\n\
          return a\n\
          }}\n"
     ));
@@ -297,7 +297,7 @@ fn an_unknown_group_is_rejected() {
 fn two_implicits_of_the_same_name_are_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f<A, B>(a: A, b: B, ?Field<A>, ?Field<B>) -> [] A {{\n\
+         fn f<A, B>(a: A, b: B, ?Field<A>, ?Field<B>) -> A => !a, !b {{\n\
          return a\n\
          }}\n"
     ));
@@ -315,7 +315,7 @@ fn two_implicits_of_the_same_name_are_rejected() {
 fn a_group_spread_with_the_wrong_arity_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f<A, B>(a: A, ?Field<A, B>) -> [] A {{\n\
+         fn f<A, B>(a: A, ?Field<A, B>) -> A => !a {{\n\
          return a\n\
          }}\n"
     ));
@@ -332,14 +332,14 @@ fn a_group_spread_with_the_wrong_arity_is_rejected() {
 #[test]
 fn an_effect_member_may_take_implicits() {
     let errs = errors(
-        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
+        "fn fmt(n: Int) -> Str => n { return \"\" }\n\
          effect Show {\n\
-         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v\n\
          }\n\
          handler Angle of Show {\n\
-         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str { return fmt(v) }\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v { return fmt(v) }\n\
          }\n\
-         fn probe() [use] -> [] Str {\n\
+         fn probe() [use] -> Str {\n\
          use Angle()\n\
          return show(7)\n\
          }\n",
@@ -351,15 +351,15 @@ fn an_effect_member_may_take_implicits() {
 #[test]
 fn an_effect_member_call_can_override_an_implicit() {
     let errs = errors(
-        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
-         fn loud(n: Int) -> [n] Str { return \"\" }\n\
+        "fn fmt(n: Int) -> Str => n { return \"\" }\n\
+         fn loud(n: Int) -> Str => n { return \"\" }\n\
          effect Show {\n\
-         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v\n\
          }\n\
          handler Angle of Show {\n\
-         fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str { return fmt(v) }\n\
+         fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v { return fmt(v) }\n\
          }\n\
-         fn probe() [use] -> [] Str {\n\
+         fn probe() [use] -> Str {\n\
          use Angle()\n\
          return show(7, fmt = loud)\n\
          }\n",
@@ -367,24 +367,26 @@ fn an_effect_member_call_can_override_an_implicit() {
     assert!(errs.is_empty(), "{errs:?}");
 }
 
-/// [implicit-fn-only] A handler *constructor* still may not: its instance is
-/// built by `use`, which resolves nothing.
+/// [copy-implicit] A handler *constructor* may take implicit parameters
+/// (lifted 2026-09-11): the `use` site is where the handler's type arguments
+/// are known, so it resolves them as a call resolves a fn's. The forcing case
+/// is a generic handler that must `copy` a `T` it cannot see through.
 #[test]
-fn a_handler_constructor_cannot_take_implicits() {
+fn a_handler_constructor_resolves_implicits_at_use() {
     let errs = errors(
-        "fn fmt(n: Int) -> [n] Str { return \"\" }\n\
+        "fn fmt(n: Int) -> Str => n { return \"\" }\n\
          effect Show {\n\
-         fn show(v: Int) -> [v] Str\n\
+         fn show(v: Int) -> Str => v\n\
          }\n\
-         handler Angle(?fmt: (Int) -> Str) of Show {\n\
-         fn show(v: Int) -> [v] Str { return \"\" }\n\
+         handler Angle(?fmt: (n: Int) -> Str) of Show {\n\
+         fn show(v: Int) -> Str => v { return fmt(v) }\n\
+         }\n\
+         fn main() [use] {\n\
+         \x20   use Angle()\n\
+         \x20   let _s = show(1)\n\
          }\n",
     );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("a handler constructor cannot take implicit parameters")),
-        "expected the handler-constructor rejection, got: {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected `?fmt` to resolve at `use`, got: {errs:?}");
 }
 
 /// A `params` group member is a signature for a parameter; the default comes
@@ -417,12 +419,12 @@ fn a_contract_mismatch_is_explained_rather_than_printed() {
          fn add(a: T, b: T) -> T\n\
          fn zero() -> T\n\
          }\n\
-         fn add(a: Int, b: Int) -> [] Int { return a }\n\
+         fn add(a: Int, b: Int) -> Int { return a }\n\
          fn zero() -> Int { return 0 }\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {\n\
          return add(a, zero())\n\
          }\n\
-         fn probe() -> [] Int {\n\
+         fn probe() -> Int {\n\
          return total(1)\n\
          }\n",
     );
@@ -430,7 +432,7 @@ fn a_contract_mismatch_is_explained_rather_than_printed() {
         errs.iter().any(|e| {
             e.contains("*consumes* `a` while this position keeps it")
                 && e.contains("the types match, the contracts do not")
-                && e.contains("-> []")
+                && e.contains("=>[")
         }),
         "expected the contract explanation with both fixes, got: {errs:?}"
     );
@@ -442,11 +444,11 @@ fn a_contract_mismatch_is_explained_rather_than_printed() {
 fn an_override_with_the_wrong_contract_is_explained() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn eats(a: Int, b: Int) -> [] Int {{ return a }}\n\
-         fn total<T>(a: T, ?Field<T>) -> [] T {{\n\
+         fn eats(a: Int, b: Int) -> Int {{ return a }}\n\
+         fn total<T>(a: T, ?Field<T>) -> T => !a {{\n\
          return add(a, zero())\n\
          }}\n\
-         fn probe() -> [] Int {{\n\
+         fn probe() -> Int {{\n\
          return total(1, add = eats)\n\
          }}\n"
     ));
@@ -466,10 +468,10 @@ fn an_ambiguous_implicit_says_so() {
     let errs = errors(
         "fn cmp<T>(a: T, b: T) -> Int { return 0 }\n\
          fn cmp(a: Int, b: Int) -> Int { return 0 }\n\
-         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> [] Int {\n\
+         fn pick<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Int => !a, !b {\n\
          return cmp(a, b)\n\
          }\n\
-         fn probe() -> [] Int {\n\
+         fn probe() -> Int {\n\
          return pick(1, 2)\n\
          }\n",
     );
@@ -489,15 +491,15 @@ fn an_ambiguous_implicit_says_so() {
 
 const HANDLER_PRELUDE: &str = r#"
 effect Show<T> {
-    fn show(v: T) -> [v] Str
+    fn show(v: T) -> Str => v
 }
 
 handler Plain<T> of Show<T> {
-    fn show(v: T) -> [v] Str { return "plain" }
+    fn show(v: T) -> Str => v { return "plain" }
 }
 
 handler Prefixed<T>(prefix: Str) of Show<T> {
-    fn show(v: T) -> [v] Str { return prefix }
+    fn show(v: T) -> Str => v { return prefix }
 }
 "#;
 
@@ -507,7 +509,7 @@ handler Prefixed<T>(prefix: Str) of Show<T> {
 fn a_use_can_write_its_handlers_type_arguments() {
     let errs = errors(&format!(
         "{HANDLER_PRELUDE}\n\
-         fn probe() [use] -> [] Str {{\n\
+         fn probe() [use] -> Str {{\n\
          use Plain<Int>()\n\
          return show(1)\n\
          }}\n"
@@ -520,7 +522,7 @@ fn a_use_can_write_its_handlers_type_arguments() {
 fn a_constructor_argument_still_binds_them() {
     let errs = errors(&format!(
         "{HANDLER_PRELUDE}\n\
-         fn probe() [use] -> [] Str {{\n\
+         fn probe() [use] -> Str {{\n\
          use Prefixed<Int>(\"p\")\n\
          return show(1)\n\
          }}\n"
@@ -535,9 +537,9 @@ fn written_type_arguments_must_agree_with_the_constructor() {
     let errs = errors(&format!(
         "{HANDLER_PRELUDE}\n\
          handler Echo<T>(seed: T) of Show<T> {{\n\
-         fn show(v: T) -> [v] Str {{ return \"e\" }}\n\
+         fn show(v: T) -> Str => v {{ return \"e\" }}\n\
          }}\n\
-         fn probe() [use] -> [] Str {{\n\
+         fn probe() [use] -> Str {{\n\
          use Echo<Str>(1)\n\
          return show(\"x\")\n\
          }}\n"
@@ -553,7 +555,7 @@ fn written_type_arguments_must_agree_with_the_constructor() {
 fn the_wrong_number_of_type_arguments_is_rejected() {
     let errs = errors(&format!(
         "{HANDLER_PRELUDE}\n\
-         fn probe() [use] -> [] Str {{\n\
+         fn probe() [use] -> Str {{\n\
          use Plain<Int, Str>()\n\
          return show(1)\n\
          }}\n"

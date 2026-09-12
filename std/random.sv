@@ -3,7 +3,7 @@
 
 effect Random {
     // A uniformly distributed double in [0, 1).
-    fn random() -> [] Double
+    fn random() -> Double
 }
 
 intrinsic handler DefaultRandom of Random

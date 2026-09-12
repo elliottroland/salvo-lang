@@ -1,4 +1,4 @@
-fn full_name(person: Person) -> [person] Str {
+fn full_name(person: Person) -> Str => person {
     if (person.surname is Str) {
         return "${person.name} ${person.surname}"
     }
@@ -67,13 +67,13 @@ fn last_number(numbers: Int[]) -> Int {
     return last
 }
 
-fn count(person: Person) [Console] -> [person] None {
+fn count(person: Person) [Console] -> None => person {
     for i in range(0, person.age) {
         println("Person is older than ${i}...")
     }
 }
 
-fn full_name_expr(person: Person) -> [person] Str? {
+fn full_name_expr(person: Person) -> Str? => person {
     let full_name = if person.surname is Str {
         "${person.name} ${person.surname}"
     }

@@ -80,19 +80,19 @@ struct Person canbe Mut {
 // Opaque observers. Deduction lists are *written*, which is what these
 // tests turn on [decl-explicit]: the declared contract is authoritative, so
 // the body only has to exist.
-fn touch(p: Mut Person) [] -> [p: Mut] None {
+fn touch(p: Mut Person) [] -> None => p: Mut {
     p.name = p.name
 }
 
-fn read(p: Person) [] -> [p] None {}
+fn read(p: Person) [] -> None => p {}
 
-fn touch_address(a: Mut Address) [] -> [a: Mut] None {
+fn touch_address(a: Mut Address) [] -> None => a: Mut {
     a.city = a.city
 }
 "#;
 
 fn check(body: &str) -> Vec<String> {
-    errors(&format!("{PRELUDE}\nfn probe(p: Mut Person) -> [p: Mut] Str {{\n{body}\n}}\n"))
+    errors(&format!("{PRELUDE}\nfn probe(p: Mut Person) -> Str => p: Mut {{\n{body}\n}}\n"))
 }
 
 fn interp_errors(body: &str) -> Vec<String> {

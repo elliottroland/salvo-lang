@@ -3,7 +3,7 @@
 pub struct Finished {
 }
 
-pub fn emitted<T: Clone + 'static>(value: T) -> T {
+pub fn emitted<T: Clone>(value: T) -> T {
     return value;
 }
 

@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// loaded as a *std* file since only std may write `intrinsic`.
 const STD_PRELUDE: &str =
     "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic fn copy<T>(value: T) [] -> [value] T\n";
+     intrinsic fn copy<T>(value: T) [] -> T => value\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -64,7 +64,7 @@ fn errors(src: &str) -> Vec<String> {
 
 #[test]
 fn once_on_a_plain_type_is_an_error_naming_the_positions() {
-    let errs = errors("fn f(x: Once Int) -> [] None {}\n");
+    let errs = errors("fn f(x: Once Int) -> None => !x {}\n");
     assert!(
         errs.iter()
             .any(|e| e.contains("`Once` applies to function types")
@@ -82,7 +82,7 @@ fn once_on_a_plain_type_is_an_error_naming_the_positions() {
 fn canbe_once_makes_a_user_type_a_valid_position() {
     let errs = errors(
         "struct Ticket canbe Once {\n    id: Int\n}\n\
-         fn f(t: Once Ticket) -> [] None {}\n",
+         fn f(t: Once Ticket) -> None => !t {}\n",
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -100,7 +100,7 @@ fn canbe_rejects_a_qualifier_that_is_not_an_opt_in() {
 
 #[test]
 fn once_on_a_fn_type_still_works() {
-    let errs = errors("fn run(f: Once () -> None) -> [] None { f() }\n");
+    let errs = errors("fn run(f: Once () -> None) -> None => !f { f() }\n");
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
@@ -111,18 +111,18 @@ fn once_on_a_fn_type_still_works() {
 const PROTOCOL: &str = r#"
 qualifier Emitted<T> of T
 struct Finished {}
-fn emitted<T>(value: T) [] -> [] T as Emitted { return value }
-fn finished() [] -> [] Finished { return Finished {} }
+fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }
+fn finished() [] -> Finished { return Finished {} }
 
 params Yield<It, T> {
-    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
+    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 
 struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
     if c.at <= 0 {
         return finished()
     }
@@ -145,7 +145,7 @@ fn a_hand_written_pass_drives_a_for_loop() {
     let errs = errors(&format!(
         "{PROTOCOL}\n\
          fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
-         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
+         fn go() -> None {{ for n in build(3) {{}} }}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -157,7 +157,7 @@ fn a_mut_built_pass_drives_a_for_loop() {
     let errs = errors(&format!(
         "{PROTOCOL}\n\
          fn build(from: Int) -> Mut Countdown {{ return Mut Countdown {{ at: from }} }}\n\
-         fn go() -> [] None {{ for n in build(3) {{}} }}\n"
+         fn go() -> None {{ for n in build(3) {{}} }}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -169,7 +169,7 @@ fn driving_a_hand_written_pass_twice_is_an_error() {
     let errs = errors(&format!(
         "{PROTOCOL}\n\
          fn build(from: Int) -> Countdown {{ return Countdown {{ at: from }} }}\n\
-         fn go() -> [] None {{\n\
+         fn go() -> None {{\n\
          let p = build(3)\n\
          for n in p {{}}\n\
          for n in p {{}}\n\
@@ -190,15 +190,15 @@ fn a_next_without_a_yield_declaration_is_not_a_pass() {
     let errs = errors(
         "qualifier Emitted<T> of T\n\
          struct Finished {}\n\
-         fn emitted<T>(value: T) [] -> [] T as Emitted { return value }\n\
-         fn finished() [] -> [] Finished { return Finished {} }\n\
-         params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n\
+         fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
+         fn finished() [] -> Finished { return Finished {} }\n\
+         params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
          struct Countdown canbe Mut {\n    at: Int\n}\n\
-         fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {\n\
+         fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {\n\
              return finished()\n\
          }\n\
          fn build(from: Int) -> Countdown { return Countdown { at: from } }\n\
-         fn go() -> [] None { for n in build(3) {} }\n",
+         fn go() -> None { for n in build(3) {} }\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("is not iterable")

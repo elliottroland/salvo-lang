@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, Sour
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `core.prelude`:
 /// `core.*` is implicitly imported, so the test source sees these names.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mutable_str(...parts: Str[]) [] -> [parts] Mut Str\nintrinsic fn size(str: Str) [] -> [str] Int\nintrinsic fn append(str: Mut Str, text: Str) [] -> [str: Mut, text] None\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mutable_str(...parts: Str[]) [] -> Mut Str => parts\nintrinsic fn size(str: Str) [] -> Int => str\nintrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
@@ -101,7 +101,7 @@ fn drop_continuations(src: &str) -> Vec<String> {
 }
 
 fn body(stmts: &str) -> String {
-    format!("fn takes(text: Str) -> [text] Int {{\n    return size(text)\n}}\n\nfn probe() -> [] None {{\n{stmts}\n}}\n")
+    format!("fn takes(text: Str) -> Int => text {{\n    return size(text)\n}}\n\nfn probe() -> None {{\n{stmts}\n}}\n")
 }
 
 // ===== the type =====
@@ -151,14 +151,14 @@ fn annotations_and_returns_drop_mut() {
         drops(&body("    let plain: Str = mutable_str()")),
         vec!["Mut Str"]
     );
-    let src = "fn made() -> [] Str {\n    return mutable_str()\n}\n";
+    let src = "fn made() -> Str {\n    return mutable_str()\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
 }
 
 /// A struct field.
 #[test]
 fn a_struct_field_drops_mut() {
-    let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> [] None {\n    \
+    let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> None {\n    \
                let l = Label {text: mutable_str()}\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
 }
@@ -168,7 +168,7 @@ fn a_struct_field_drops_mut() {
 /// carries a continuation.
 #[test]
 fn a_union_arm_drops_mut_and_keeps_the_wrap() {
-    let src = "fn probe() -> [] None {\n    let u: Str | Int = mutable_str()\n}\n";
+    let src = "fn probe() -> None {\n    let u: Str | Int = mutable_str()\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
     let carried = drop_continuations(src);
     assert_eq!(carried.len(), 1, "{carried:?}");
@@ -214,7 +214,7 @@ fn a_mut_position_keeps_mut() {
 /// expected type means the value may stay a builder.
 #[test]
 fn an_optional_mut_position_keeps_mut() {
-    let src = "fn probe() -> [] None {\n    let maybe: Mut Str? = mutable_str()\n}\n";
+    let src = "fn probe() -> None {\n    let maybe: Mut Str? = mutable_str()\n}\n";
     assert!(drops(src).is_empty(), "{:?}", drops(src));
 }
 
@@ -224,7 +224,7 @@ fn an_optional_mut_position_keeps_mut() {
 #[test]
 fn a_generic_position_keeps_mut() {
     let src = format!(
-        "fn keep<T>(value: T) [] -> [value] None {{}}\n\n{}",
+        "fn keep<T>(value: T) [] -> None => value {{}}\n\n{}",
         body("    let b = mutable_str()\n    keep(b)")
     );
     assert!(drops(&src).is_empty(), "{:?}", drops(&src));
@@ -245,7 +245,7 @@ fn a_plain_str_records_nothing() {
 #[test]
 fn interpolating_a_type_with_no_text_form_is_an_error() {
     let src = "struct Opaque { inner: Opaque? }\n\
-               fn probe(o: Opaque) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+               fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
     let msgs = messages(src);
     assert!(
         msgs.iter().any(|m| m.contains("has no text form")),
@@ -258,8 +258,8 @@ fn interpolating_a_type_with_no_text_form_is_an_error() {
 #[test]
 fn a_to_str_in_scope_makes_a_type_interpolable() {
     let src = "struct Opaque { inner: Opaque? }\n\
-               fn to_str(o: Opaque) [] -> [o] Str { return \"op\" }\n\
-               fn probe(o: Opaque) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+               fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\
+               fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
     let msgs = messages(src);
     assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
 }
@@ -269,7 +269,7 @@ fn a_to_str_in_scope_makes_a_type_interpolable() {
 #[test]
 fn a_struct_of_native_fields_interpolates_by_default() {
     let src = "struct Person { name: Str, age: Int }\n\
-               fn probe(p: Person) -> [p] None {\n    let _s = \"${p}\"\n}\n";
+               fn probe(p: Person) -> None => p {\n    let _s = \"${p}\"\n}\n";
     let msgs = messages(src);
     assert!(msgs.is_empty(), "expected a clean check, got {msgs:?}");
 }
@@ -280,7 +280,7 @@ fn a_struct_of_native_fields_interpolates_by_default() {
 fn a_struct_with_a_non_native_field_needs_its_own_to_str() {
     let src = "struct Inner { a: Int }\n\
                struct Outer { inner: Inner }\n\
-               fn probe(o: Outer) -> [o] None {\n    let _s = \"${o}\"\n}\n";
+               fn probe(o: Outer) -> None => o {\n    let _s = \"${o}\"\n}\n";
     let msgs = messages(src);
     assert!(
         msgs.iter().any(|m| m.contains("has no text form")),

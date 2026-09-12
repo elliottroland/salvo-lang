@@ -144,13 +144,15 @@ pub trait Random<T> {
 
 pub struct CyclicRandom<T: Clone + 'static> {
     values: Vec<T>,
+    copy: Box<dyn FnMut(&T) -> T>,
     i: i32,
 }
 
 impl<T: Clone + 'static> CyclicRandom<T> {
-    pub fn new(values: Vec<T>) -> Self {
+    pub fn new(values: Vec<T>, copy: impl FnMut(&T) -> T + 'static) -> Self {
         Self {
             values,
+            copy: Box::new(copy),
             i: 0,
         }
     }
@@ -161,7 +163,7 @@ impl<T: Clone + 'static> Random<T> for CyclicRandom<T> {
     fn next_random(&mut self) -> T {
         let mut value = self.values.get((self.i % (self.values.len() as i32)) as usize).unwrap();
         self.i = self.i + 1;
-        return value;
+        return (self.copy)(value);
     }
 }
 
@@ -177,8 +179,8 @@ pub fn lucky_number(random_i32: &mut dyn Random<i32>) -> i32 {
 
 pub fn main() {
     let mut console = StdOutConsole::new();
-    let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30]);
-    let mut random_string = CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()]);
+    let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone());
+    let mut random_string = CyclicRandom::<String>::new(vec!["a".to_string(), "b".to_string()], move |__i0| __i0.clone());
     draw(&mut random_i32, &mut random_string, &mut console);
     draw(&mut random_i32, &mut random_string, &mut console);
     println(&mut console, &(format!("lucky: {}", random_i32.next_random())));

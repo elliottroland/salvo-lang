@@ -123,13 +123,13 @@ interface Random<T> {
     fun next_random(): T
 }
 
-class CyclicRandom<T>(private val values: List<T>) : Random<T> {
+class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) : Random<T> {
     private var i: Int = 0
 
     override fun next_random(): T {
         val value = values.getOrNull(i % values.size)!!
         i = i + 1
-        return value
+        return copy(value)
     }
 }
 
@@ -145,8 +145,8 @@ fun lucky_number(random_int: Random<Int>): Int {
 
 fun main() {
     val console: Console = StdOutConsole()
-    val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(10, 20, 30))
-    val random_string: Random<String> = CyclicRandom<String>(listOf<String>("a", "b"))
+    val random_int: Random<Int> = CyclicRandom<Int>(listOf<Int>(10, 20, 30), { __i0 -> __i0 })
+    val random_string: Random<String> = CyclicRandom<String>(listOf<String>("a", "b"), { __i0 -> __i0 })
     draw(random_int, random_string, console)
     draw(random_int, random_string, console)
     println(console, "lucky: ${random_int.next_random()}")

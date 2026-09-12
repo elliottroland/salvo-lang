@@ -40,6 +40,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{
+    DeductionTarget, Ident,
     Block, Deduction, DeductionKind, EffectDecl, Expr, FnDecl, Item, LambdaBody, Param,
     QualSubject, Stmt, StrExprPart, StructLitFieldKind, Type,
 };
@@ -61,6 +62,13 @@ pub struct ParamDeduction {
     /// What a call does to the *argument's* known qualifiers. Only
     /// meaningful when `kept`.
     pub effect: QualEffect,
+    /// [proj-infer] A `Proj[from: p]` entry names this parameter: the
+    /// result holds a borrow of it. Only ever `true` from a written clause.
+    pub lent: bool,
+    /// [deduce-syntax] The entry was *written* (`=> p …`), as opposed to
+    /// inferred from the body or defaulted: written entries are fixed points
+    /// of inference and are validated against the body; the rest follow it.
+    pub written: bool,
 }
 
 /// One function participating in inference.
@@ -135,7 +143,7 @@ pub(crate) fn infer(
         })
         .collect();
     let effect_calls = checked.effect_calls.clone();
-    // [proj-pass-field] Which struct fields are borrows: storing into one
+    // [proj-field] Which struct fields are borrows: storing into one
     // lends the value, so the parameter it came from stays kept.
     let proj_fields: HashMap<String, HashSet<String>> = program
         .modules
@@ -156,36 +164,35 @@ pub(crate) fn infer(
         .collect();
     let expr_ty = checked.expr_ty.clone();
 
-    // Initial state: written lists as declared (validating their shape),
-    // unwritten lists optimistic (everything kept with declared quals).
+    // Initial state: written entries as declared (validating their shape),
+    // everything unwritten optimistic (kept with its declared quals).
+    // [deduce-syntax] A clause is *partial*: the parameters it does not
+    // mention are inferred exactly as an unwritten clause's are, so every
+    // bodied fn joins the fixpoint and the written entries are overlaid on
+    // each round's result.
     let mut errors: Vec<FileDiagnostic> = Vec::new();
     let mut states: HashMap<FnKey, Vec<ParamDeduction>> = HashMap::new();
     for f in &fns {
         let mutated = mutations.get(&f.key).unwrap_or(&no_mutations);
-        let state = match &f.decl.deductions {
+        let mut state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, mutated, |span, msg| {
                 errors.push(FileDiagnostic::error(f.key.file, span, msg));
             }),
-            None => {
-                let mut state = optimistic(f.decl);
-                // [deduce-syntax] A mutated parameter cannot keep
-                // everything: state its declared set exhaustively.
-                exhaustive_for_mutated(f.decl, &mut state, mutated);
-                apply_claims(&mut state, claims.get(&f.key));
-                state
-            }
+            None => optimistic(f.decl),
         };
+        // A mutated parameter cannot keep everything: state its declared
+        // set exhaustively. Written entries stay as written (their own
+        // validation reports the mutation).
+        exhaustive_for_mutated_unwritten(f.decl, &mut state, mutated);
+        apply_claims(&mut state, claims.get(&f.key));
         states.insert(f.key, state);
     }
 
-    // Fixpoint over the call graph for the inferred (unwritten) lists.
-    // Constraints are monotone (facts only disappear), so this terminates.
+    // Fixpoint over the call graph for the inferred entries. Constraints
+    // are monotone (facts only disappear), so this terminates.
     loop {
         let mut changed = false;
         for f in &fns {
-            if f.decl.deductions.is_some() {
-                continue;
-            }
             let Some(body) = &f.decl.body else { continue };
             let mut new = infer_body(
                 f,
@@ -209,6 +216,16 @@ pub(crate) fn infer(
                 mutations.get(&f.key).unwrap_or(&no_mutations),
             );
             apply_claims(&mut new, claims.get(&f.key));
+            // Overlay the written entries: they are the contract, fixed.
+            if let Some(current) = states.get(&f.key) {
+                for (n, c) in new.iter_mut().zip(current) {
+                    if c.written {
+                        *n = c.clone();
+                    } else {
+                        n.lent = c.lent;
+                    }
+                }
+            }
             if states.get(&f.key) != Some(&new) {
                 states.insert(f.key, new);
                 changed = true;
@@ -296,6 +313,23 @@ pub(crate) fn infer(
     checked.deductions = states;
 }
 
+/// `exhaustive_for_mutated` for the *unwritten* entries only: a written
+/// entry is validated on its own terms [deduce-syntax].
+fn exhaustive_for_mutated_unwritten(
+    decl: &FnDecl,
+    state: &mut [ParamDeduction],
+    mutated: &HashSet<String>,
+) {
+    let written: Vec<bool> = state.iter().map(|d| d.written).collect();
+    let saved: Vec<ParamDeduction> = state.to_vec();
+    exhaustive_for_mutated(decl, state, mutated);
+    for (i, w) in written.iter().enumerate() {
+        if *w {
+            state[i] = saved[i].clone();
+        }
+    }
+}
+
 /// [deduce-syntax] Forces the exhaustive form on every parameter the body
 /// invalidates: keeping "everything else" is exactly the unsound claim,
 /// because mutation can falsify qualifiers the caller has and this
@@ -341,6 +375,8 @@ pub(crate) fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
             param: p.name.name.clone(),
             kept: true,
             effect: QualEffect::KeepAll,
+            lent: false,
+            written: false,
         })
         .collect()
 }
@@ -357,29 +393,56 @@ pub(crate) fn from_written(
     mut error: impl FnMut(Span, String),
 ) -> Vec<ParamDeduction> {
     for (i, d) in list.iter().enumerate() {
-        if !decl.params.iter().any(|p| p.name.name == d.param.name) {
-            error(
-                d.span,
-                format!("deduction names unknown parameter `{}`", d.param.name),
-            );
+        // Every parameter an entry names — plainly, as a field path's root,
+        // or as a projection source — must exist.
+        let mut named: Vec<&Ident> = Vec::new();
+        if let DeductionTarget::Param { name, .. } = &d.target {
+            named.push(name);
         }
-        if list[..i].iter().any(|prev| prev.param.name == d.param.name) {
-            error(
-                d.span,
-                format!("duplicate deduction for parameter `{}`", d.param.name),
-            );
+        if let Some(sources) = d.proj_sources() {
+            named.extend(sources.iter());
+        }
+        for n in named {
+            if !decl.params.iter().any(|p| p.name.name == n.name) {
+                error(
+                    n.span,
+                    format!("deduction names unknown parameter `{}`", n.name),
+                );
+            }
+        }
+        if let Some(pn) = d.param_name() {
+            if list[..i].iter().any(|prev| prev.param_name().is_some_and(|q| q.name == pn.name)) {
+                error(
+                    d.span,
+                    format!("duplicate deduction for parameter `{}`", pn.name),
+                );
+            }
         }
     }
+    // [proj-infer] The parameters some `Proj[from: …]` entry names.
+    let lent_names: HashSet<&str> = list
+        .iter()
+        .filter_map(|d| d.proj_sources())
+        .flatten()
+        .map(|i| i.name.as_str())
+        .collect();
     decl.params
         .iter()
         .map(|p| {
             let declared = declared_quals(&p.ty);
             let name = p.name.name.clone();
-            let Some(d) = list.iter().find(|d| d.param.name == name) else {
+            let lent = lent_names.contains(name.as_str());
+            let Some(d) = list.iter().find(|d| d.param_name().is_some_and(|n| n.name == name)) else {
+                // [deduce-syntax] Unmentioned: inferred from the body (the
+                // fixpoint replaces this optimistic start), or, without a
+                // body, kept — the bodiless-declaration rule requires the
+                // entry to be written, so this is only ever a placeholder.
                 return ParamDeduction {
                     param: name,
-                    kept: false,
-                    effect: QualEffect::Exhaustive(Vec::new()),
+                    kept: true,
+                    effect: QualEffect::KeepAll,
+                    lent,
+                    written: false,
                 };
             };
             let invalidates = mutated.contains(&name);
@@ -389,8 +452,13 @@ pub(crate) fn from_written(
                         param: name,
                         kept: false,
                         effect: QualEffect::Exhaustive(Vec::new()),
+                        lent: false,
+                        written: true,
                     };
                 }
+                // A projection kind never reaches here (`param_name` is
+                // `None` for it); the exhaustive default is unreachable.
+                DeductionKind::Proj(_) => QualEffect::KeepAll,
                 DeductionKind::KeepAll => {
                     if invalidates {
                         error(
@@ -472,6 +540,8 @@ pub(crate) fn from_written(
                 param: name,
                 kept: true,
                 effect,
+                lent,
+                written: true,
             }
         })
         .collect()
@@ -526,7 +596,7 @@ fn validate_written(
     errors: &mut Vec<FileDiagnostic>,
 ) {
     for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
-        let Some(entry) = list.iter().find(|d| d.param.name == w.param) else {
+        let Some(entry) = list.iter().find(|d| d.param_name().is_some_and(|n| n.name == w.param)) else {
             continue;
         };
         if w.kept && !i.kept {
@@ -593,7 +663,7 @@ struct Walk<'a, 'p> {
     /// the signature then promises. Removals are unaffected — applying one
     /// unconditionally is the conservative direction.
     cond_depth: usize,
-    /// [proj-pass-field] Struct name → its `Proj` field names. Storing into
+    /// [proj-field] Struct name → its `Proj` field names. Storing into
     /// such a field *lends* the value rather than moving it.
     proj_fields: &'a HashMap<String, HashSet<String>>,
     /// Checker expression types by span, for a bare `{…}` literal whose
@@ -810,9 +880,18 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(value);
                 }
             }
-            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
-                self.moving_expr(v)
+            Stmt::Return { value: Some(v), .. } => {
+                // [readonly-return] A fn returning `Proj[from: p, …] T` hands
+                // its result out *borrowed*: returning a source (or a
+                // projection of one) keeps it. Everything else returned is
+                // moved.
+                if self.returns_projection_of(v) {
+                    self.expr(v);
+                } else {
+                    self.moving_expr(v);
+                }
             }
+            Stmt::Break { value: Some(v), .. } => self.moving_expr(v),
             Stmt::Use { handler, .. } => {
                 // Handler constructor arguments are stored in the handler.
                 if let Expr::Call { args, .. } = handler {
@@ -830,6 +909,30 @@ impl<'p> Walk<'_, 'p> {
             // one does not reach the contract [qual-refn-infer].
             _ => {}
         }
+    }
+
+    /// Whether `e`, returned, is a projection the signature declares: its
+    /// provenance root is a `from` source of a wholesale `Proj` in the
+    /// return type [readonly-return].
+    fn returns_projection_of(&self, e: &Expr) -> bool {
+        let Some(rt) = &self.decl.return_type else { return false };
+        let sources: Vec<String> = proj_sources_of(rt);
+        if sources.is_empty() {
+            return false;
+        }
+        fn root(e: &Expr) -> Option<&str> {
+            match e {
+                Expr::Ident(id) => Some(&id.name),
+                Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
+                    root(base)
+                }
+                Expr::NonNull { operand, .. } => root(operand),
+                // A constructor around the borrow (`emitted(e)`): its argument.
+                Expr::Call { args, .. } if args.len() == 1 => root(&args[0]),
+                _ => None,
+            }
+        }
+        root(e).is_some_and(|r| sources.iter().any(|s| s == r))
     }
 
     /// An expression whose value flows somewhere the caller keeps:
@@ -859,7 +962,7 @@ impl<'p> Walk<'_, 'p> {
             }
             // Struct/array/tuple construction stores the value.
             Expr::StructLit { ty, fields, span } => {
-                // [proj-pass-field] A `Proj` field lends: the value is read,
+                // [proj-field] A `Proj` field lends: the value is read,
                 // not stored, so its parameter stays kept.
                 let struct_name: Option<String> = match ty {
                     Some(Type::Named { base, .. }) => Some(base.name.name.clone()),
@@ -1049,10 +1152,17 @@ impl<'p> Walk<'_, 'p> {
                             self.expr(a);
                             continue;
                         };
+                        // [deduce-syntax] A fn type's unmentioned parameter is
+                        // kept (the default); only `!x` / `x: Nothing` moves.
                         let kept = param_names
                             .get(i)
                             .and_then(|n| n.as_ref())
-                            .map(|n| list.iter().any(|d| d.param.name == n.name))
+                            .map(|n| {
+                                !list.iter().any(|d| {
+                                    d.param_name().is_some_and(|q| q.name == n.name)
+                                        && matches!(d.kind, DeductionKind::Moved)
+                                })
+                            })
                             .unwrap_or(true);
                         if !kept {
                             let name = name.to_string();
@@ -1147,8 +1257,46 @@ impl<'p> Walk<'_, 'p> {
     }
 }
 
-/// [proj-pass-field] Whether a written type carries a `Proj` qualifier
+/// [proj-field] Whether a written type carries a `Proj` qualifier
 /// anywhere.
+/// [proj-anywhere] The `from` sources of every wholesale `Proj` in a type.
+fn proj_sources_of(ty: &Type) -> Vec<String> {
+    fn in_ref(r: &salvo_syntax::ast::TypeRef, out: &mut Vec<String>) {
+        if r.name.name == "Proj" {
+            out.extend(r.from.iter().map(|i| i.name.clone()));
+        }
+        for a in &r.args {
+            walk(a, out);
+        }
+    }
+    fn walk(ty: &Type, out: &mut Vec<String>) {
+        match ty {
+            Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                in_ref(base, out);
+            }
+            Type::QualifiedGroup { qualifiers, base, .. } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                walk(base, out);
+            }
+            Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+                for a in arms {
+                    walk(a, out);
+                }
+            }
+            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => walk(elem, out),
+            Type::Fn { .. } => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, &mut out);
+    out
+}
+
 fn type_has_proj(ty: &Type) -> bool {
     fn in_ref(r: &salvo_syntax::ast::TypeRef) -> bool {
         r.name.name == "Proj" || r.args.iter().any(type_has_proj)

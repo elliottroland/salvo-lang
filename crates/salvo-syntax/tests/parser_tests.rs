@@ -268,7 +268,7 @@ fn canbe_opts_declarations_into_auto_qualifiers() {
 #[test]
 fn a_struct_declares_obligations_before_canbe() {
     let source = "struct Lines : Linear, Yield<Str> canbe Mut {\n    name: Str\n}\n\n\
-                  params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
+                  params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -598,7 +598,7 @@ fn struct_and_field_docs_are_separate() {
 fn docs_survive_declaration_modifiers() {
     let docs = docs_of(
         "// An intrinsic fn.\n\
-         intrinsic fn e(x: Int) [] -> [] Int\n\
+         intrinsic fn e(x: Int) [] -> Int\n\
          \n\
          // A provenance qualifier.\n\
          provenance qualifier P of Int\n\
@@ -766,7 +766,7 @@ fn an_else_in_the_subject_form_names_the_other_form() {
 #[test]
 fn platform_effect_parses_with_the_flag() {
     let source = "platform effect Telemetry {\n    \
-                  fn record(name: Str, value: Int) [] -> [name, value] None\n}\n";
+                  fn record(name: Str, value: Int) [] -> None => name, value\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -785,7 +785,7 @@ fn platform_effect_parses_with_the_flag() {
 /// flag defaults off, so nothing existing changes meaning.
 #[test]
 fn a_plain_effect_is_not_a_platform_effect() {
-    let source = "effect Console {\n    fn print(message: Str) -> [message] None\n}\n";
+    let source = "effect Console {\n    fn print(message: Str) -> None => message\n}\n";
     let (module, _diagnostics) = salvo_syntax::parse_module(source);
     let salvo_syntax::ast::Item::Effect(e) = &module.items[0] else {
         panic!("expected an effect item");
@@ -798,7 +798,7 @@ fn a_plain_effect_is_not_a_platform_effect() {
 /// says so rather than reporting a bare "expected item".
 #[test]
 fn platform_on_a_non_effect_is_an_error_naming_the_form() {
-    for source in ["platform type Handle\n", "platform fn now() [] -> [] Int\n"] {
+    for source in ["platform type Handle\n", "platform fn now() [] -> Int\n"] {
         let (_module, diagnostics) = salvo_syntax::parse_module(source);
         assert!(
             diagnostics.iter().any(|d| d.is_error()
@@ -818,7 +818,7 @@ fn platform_on_a_non_effect_is_an_error_naming_the_form() {
 /// declare it as a member of a `platform effect`.
 #[test]
 fn a_bodiless_top_level_fn_is_an_error_naming_platform_effect() {
-    let errors = errors_of("fn chars(str: Str) [] -> [str] Char[]\n");
+    let errors = errors_of("fn chars(str: Str) [] -> Char[] => str\n");
     assert!(
         errors
             .iter()
@@ -873,7 +873,7 @@ fn alias_and_intrinsic_types_are_not_bodiless_errors() {
 #[test]
 fn external_is_no_longer_a_keyword() {
     for source in [
-        "external fn chars(str: Str) [] -> [str] Char[]\n",
+        "external fn chars(str: Str) [] -> Char[] => str\n",
         "external type LinkedList<T>\n",
         "external handler StdOutConsole of Console\n",
     ] {
@@ -1013,7 +1013,7 @@ fn a_refinement_parses_in_a_qualifier_body() {
                   fn qualifies(list: List<T>) -> Bool {\n        \
                   return true\n    }\n\n    \
                   // Adding an element makes the list non-empty.\n    \
-                  refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty -Sorted]\n}\n";
+                  refn add(list: Mut List<T>, elem: T) => list: +NonEmpty -Sorted\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1053,7 +1053,7 @@ fn a_refinement_parses_in_a_qualifier_body() {
 /// module [qual-refn-reconcile].
 #[test]
 fn a_top_level_refinement_parses_as_an_item() {
-    let source = "refn add<T>(list: Mut List<T>, elem: T) -> [list: +NonEmpty]\n";
+    let source = "refn add<T>(list: Mut List<T>, elem: T) => list: +NonEmpty\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1075,20 +1075,20 @@ fn a_top_level_refinement_parses_as_an_item() {
 fn a_refinement_may_not_declare_effects_a_return_type_or_an_unsigned_qualifier() {
     let cases = [
         (
-            "refn add<T>(list: Mut List<T>) [Console] -> [list: +NonEmpty]\n",
+            "refn add<T>(list: Mut List<T>) [Console] => list: +NonEmpty\n",
             "cannot declare effects",
         ),
         (
-            "refn add<T>(list: Mut List<T>) -> [list: +NonEmpty] Int\n",
+            "refn add<T>(list: Mut List<T>) -> Int => list: +NonEmpty\n",
             "cannot declare a return type",
         ),
         (
-            "refn add<T>(list: Mut List<T>) -> [list: NonEmpty]\n",
+            "refn add<T>(list: Mut List<T>) => list: NonEmpty\n",
             "need a sign",
         ),
         (
-            "refn add<T>(list: Mut List<T>) -> Int\n",
-            "expected a deduction list",
+            "refn add<T>(list: Mut List<T>)\n",
+            "expected a deduction clause",
         ),
     ];
     for (source, expected) in cases {
@@ -1156,12 +1156,12 @@ fn a_rename_takes_no_effects_deductions_or_return_type() {
     for (source, needle) in [
         (
             "rename fn add2 = add(a: Int) [Console]\n",
-            "takes no effect or deduction list",
+            "takes no effect or deduction clause",
         ),
         (
-            // The `->` is reported first here: a deduction list follows it.
-            "rename fn add2 = add(a: Int) -> [a] Int\n",
-            "takes no return type",
+            // The `=>` is reported: a deduction clause is not part of a rename.
+            "rename fn add2 = add(a: Int) => a\n",
+            "takes no effect or deduction",
         ),
         ("rename fn add2 = add(a: Int) -> Int\n", "takes no return type"),
         (
@@ -1271,4 +1271,97 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
         vec!["__subject".to_string(), "at".to_string()],
         "a single-file parse cannot see the declaration, so the whole value rides"
     );
+}
+
+/// [deduce-syntax] The `=>` clause: every entry form, a group scoped to a
+/// fn-typed parameter, and a clause continued on the next line. The bracket
+/// form after `->` is a plain parse error (no compatibility [decision
+/// 2026-09-03]).
+#[test]
+fn the_deduction_clause_parses_every_entry_form() {
+    use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
+    let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> Pair<T, U>\n\
+               =>[keep] !t\n\
+               => !a, b: None, c: Mut, d: -Q, .first: Proj[from: a], .second: Proj[from: a, b], c.items: Proj[from: b], Proj[from: a] {\n\
+               }\n";
+    let (module, diags) = salvo_syntax::parse_module(src);
+    let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
+    assert!(errs.is_empty(), "{errs:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
+    let list = f.deductions.as_ref().expect("own clause");
+    let kinds: Vec<String> = list
+        .iter()
+        .map(|d| match (&d.target, &d.kind) {
+            (DeductionTarget::Param { name, path }, k) if path.is_empty() => {
+                format!("{}:{}", name.name, kind_name(k))
+            }
+            (DeductionTarget::Param { name, path }, DeductionKind::Proj(srcs)) => format!(
+                "{}.{}<-{}",
+                name.name,
+                path.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join("."),
+                srcs.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+            ),
+            (DeductionTarget::Result { path }, DeductionKind::Proj(srcs)) => format!(
+                ".{}<-{}",
+                path.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join("."),
+                srcs.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+            ),
+            (DeductionTarget::Opaque, DeductionKind::Proj(srcs)) => format!(
+                "<-{}",
+                srcs.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(",")
+            ),
+            other => panic!("unexpected entry {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "a:Moved",
+            "b:Exhaustive[]",
+            "c:Exhaustive[Mut]",
+            "d:Remove[Q]",
+            ".first<-a",
+            ".second<-a,b",
+            "c.items<-b",
+            "<-a",
+        ]
+    );
+    // The `=>[keep]` group landed on the fn type.
+    let keep = f.params.iter().find(|p| p.name.name == "keep").unwrap();
+    let Type::Fn { deductions: Some(group), .. } = &keep.ty else { panic!("group") };
+    assert_eq!(group.len(), 1);
+    assert!(matches!(group[0].kind, DeductionKind::Moved));
+
+    fn kind_name(k: &DeductionKind) -> String {
+        match k {
+            DeductionKind::KeepAll => "KeepAll".into(),
+            DeductionKind::Moved => "Moved".into(),
+            DeductionKind::Exhaustive(q) => {
+                format!("Exhaustive[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
+            }
+            DeductionKind::Remove(q) => {
+                format!("Remove[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
+            }
+            DeductionKind::Proj(_) => "Proj".into(),
+        }
+    }
+}
+
+/// [deduce-syntax] The old bracket list is refused with a pointer to `=>`;
+/// a fn type may not carry an inline list; a group must name a fn-typed
+/// parameter; a result path can only project.
+#[test]
+fn the_deduction_clause_rejects_the_old_and_ill_formed_shapes() {
+    let errs = errors_of("fn f(a: Int) -> [a] Int {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("behind `=>`")), "{errs:?}");
+    let errs = errors_of("fn f(g: (v: Int) -> [v] Int) -> Int {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("`=>[name] …`")), "{errs:?}");
+    let errs = errors_of("fn f(a: Int) -> Int =>[b] !a {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("names no parameter")), "{errs:?}");
+    let errs = errors_of("fn f(a: Int) -> Int =>[a] !a {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("is not one")), "{errs:?}");
+    let errs = errors_of("fn f(a: Int) -> Int => .x: Mut {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("can only state a projection")), "{errs:?}");
+    let errs = errors_of("fn f(a: Int) -> Int => a: {\n}\n");
+    assert!(errs.iter().any(|e| e.contains("`None` to strip every")), "{errs:?}");
 }

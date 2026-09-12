@@ -54,13 +54,13 @@ fun<D, It, T, U> map_to(dest: D, it: It, f: (T) -> U, add: (D, U) -> Unit, next:
 }
 
 @Suppress("UNCHECKED_CAST")
-fun<D, It, T> filter_to(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Unit, next: (It) -> Union2<T, Finished>): D {
+fun<D, It, T> filter_to(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Unit, copy: (T) -> T, next: (It) -> Union2<T, Finished>): D {
     while (true) {
         val __loop5_step = next(it)
         if (__loop5_step !is U2_1<*, *>) { break }
         val x = __loop5_step.value as T
         if (keep(x)) {
-            add(dest, x)
+            add(dest, copy(x))
         }
     }
     return dest

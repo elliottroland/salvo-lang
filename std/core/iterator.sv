@@ -26,12 +26,12 @@ struct Finished {}
 // [qual-ctor-fn] Tags a value as the element arm. The value is moved into the
 // result, so nothing is kept ([] deductions); linear values may be tagged,
 // since the obligation travels with them [linear-generics].
-fn emitted<T canbe Linear>(value: T) [] -> [] T as Emitted {
+fn emitted<T canbe Linear>(value: T) [] -> T as Emitted {
     return value
 }
 
 // The end of a sequence.
-fn finished() [] -> [] Finished {
+fn finished() [] -> Finished {
     return Finished {}
 }
 
@@ -58,5 +58,5 @@ fn finished() [] -> [] Finished {
 // `?Yield<It, T>` accepts either. A group emits nothing on any backend
 // [implicit-group].
 params Yield<It, T> {
-    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished
+    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }

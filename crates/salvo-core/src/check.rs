@@ -373,6 +373,20 @@ pub struct Checked {
     /// `to_str` the checker resolved for it at that site. The emitters call
     /// it instead of formatting the value directly.
     pub interp_to_str: HashMap<Key, FnKey>,
+    /// [proj-anywhere] Derived-return calls whose borrowed argument is a
+    /// *temporary*: usable within the statement, but binding, returning or
+    /// storing the view is an error (it would outlive what it borrows).
+    pub temp_views: HashSet<Key>,
+    /// [proj-infer] Calls whose result *holds borrows* of some arguments
+    /// (a fn returning a struct with `Proj` fields), keyed by the call span:
+    /// the indices of the lent arguments (dot-notation receivers are
+    /// argument 0). The checker links the result to them, held; the Rust
+    /// backend ties the result's lifetime to those parameters.
+    pub lending_calls: HashMap<Key, Vec<usize>>,
+    /// [proj-infer] Per fn, the parameters its result holds borrows of
+    /// (declared with `[p: Proj]` or inferred from the body). Read by the
+    /// Rust backend to name the lifetime on lent parameters and the return.
+    pub fn_lends: HashMap<FnKey, Vec<usize>>,
     /// [interp-struct] Interpolations of a **struct** with no `to_str` of its
     /// own, whose every field renders natively: the struct's name, keyed by
     /// the interpolated expression's span. The emitters render it field-wise
@@ -399,7 +413,7 @@ pub struct Checked {
     /// [readonly-return]), keyed by the call span: the index of the
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
-    pub derived_calls: HashMap<Key, usize>,
+    pub derived_calls: HashMap<Key, Vec<usize>>,
     /// Calls *through fn-typed values* [fn-contract], keyed by the call
     /// span: the effective per-argument contract (post-default), for the
     /// Rust backend's argument rendering.
@@ -486,7 +500,14 @@ pub enum ImplicitArg {
     /// is knowable [call-resolve].
     Forwarded { name: String },
     /// Resolved to a declared fn, by name and type [implicit-resolve].
-    Resolved { name: String, key: FnKey },
+    Resolved {
+        name: String,
+        key: FnKey,
+        /// [copy-implicit] The fn type the position wanted, with the call's
+        /// type arguments substituted — the *concrete* type a shape-lowered
+        /// intrinsic (`copy`) needs to render itself as a value.
+        want: Ty,
+    },
     /// [iter-fn] The position wants a pass's `next` and the argument
     /// was an **origin**, so the pass is the hidden machine minted at that
     /// argument (user decision 2026-09-09). There is no declared fn to name:
@@ -697,7 +718,7 @@ fn check_once<'p>(
             own_fn: None,
             own_contract: None,
             own_close_param: None,
-            own_written: false,
+            own_written: Vec::new(),
             lambda_ctx: Vec::new(),
             lambda_links: HashMap::new(),
             assign_target: false,
@@ -705,6 +726,10 @@ fn check_once<'p>(
             is_std: _file.is_std,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
+            own_derived_sources: Vec::new(),
+            lends_memo: HashMap::new(),
+            own_lends: Vec::new(),
+            own_lends_declared: false,
             own_proj_arms: Vec::new(),
             lending_ctor: None,
             own_implicits: Vec::new(),
@@ -953,6 +978,15 @@ struct FateLink {
     /// the value is *physically borrowed*, so move-mode can never take
     /// ownership through it [fate-move-mode].
     borrowed: bool,
+    /// [proj-infer] The borrow is *held by fields*: the variable is an owned
+    /// object of its own (a struct with `Proj` fields — a pass over a list)
+    /// whose fields project the root, rather than the root's data itself.
+    /// Such a variable may be mutated (its own fields are its own) and moved
+    /// (the object travels, the borrow with it); what it may not do is
+    /// outlive the root. `false` for a wholesale projection (`get(xs, i)`,
+    /// a `for` element of a view), which *is* the root's data
+    /// [proj-readonly].
+    held: bool,
 }
 
 impl FateLink {
@@ -1108,7 +1142,10 @@ struct Checker<'p, 'r> {
     /// Whether the current fn has a *written* deduction list: written
     /// contracts never gain claims — a kept parameter stays kept and
     /// derived moves stay errors [fate-derived-readonly].
-    own_written: bool,
+    /// [deduce-syntax] The parameters the current fn's clause *mentions*
+    /// (plain entries): their contract is written, fixed; every other
+    /// parameter's is inferred.
+    own_written: Vec<String>,
     /// Enclosing lambdas of the code being checked [fate-lambda]: the
     /// scope-frame boundary of each (locals below it are *captures*)
     /// plus the captures recorded so far. Innermost last.
@@ -1140,6 +1177,9 @@ struct Checker<'p, 'r> {
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
+    /// [proj-anywhere] Every source of the fn's wholesale `Proj` return
+    /// (`Proj[from: a, b] T`): a returned value may derive from any of them.
+    own_derived_sources: Vec<String>,
     /// [proj-anywhere] When the return type is a union, the *qualifier
     /// names* of the arms that carry `Proj` (`Emitted` for
     /// `Emitted (Proj[from: p] T) | Finished`). A returned value whose
@@ -1147,6 +1187,13 @@ struct Checker<'p, 'r> {
     /// source; a value into any other arm is an ordinary move. Empty when
     /// the whole return type is the borrow (the pre-2b shape).
     own_proj_arms: Vec<String>,
+    /// [proj-infer] Memo for `lends::lends_of`, keyed by declaration address.
+    lends_memo: HashMap<usize, Vec<usize>>,
+    /// [proj-infer] The current fn's lent parameter *names*: what a returned
+    /// held view may be rooted in.
+    own_lends: Vec<String>,
+    /// [proj-infer] The current fn wrote `[p: Proj]` entries.
+    own_lends_declared: bool,
     /// [proj-anywhere] The span of a constructor call whose result is being
     /// returned into a `Proj` arm: its argument is *lent* into the arm, not
     /// moved (the caller receives a borrow of it), so the call contract's
@@ -1302,21 +1349,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                     }
-                    self.own_written = f.deductions.is_some();
-                    self.own_contract = match &f.deductions {
-                        Some(list) => {
-                            // Shape errors are reported by the deduce
-                            // pass; the mapping here is silent.
-                            Some(crate::deduce::from_written(f, list, &HashSet::new(), |_, _| {}))
-                        }
-                        None => self
-                            .inferred
-                            .and_then(|table| table.get(&key).cloned()),
-                    };
+                    self.own_written = f
+                        .deductions
+                        .as_ref()
+                        .map(|l| l.iter().filter_map(|d| d.param_name().map(|n| n.name.clone())).collect())
+                        .unwrap_or_default();
+                    self.own_contract = self.effective_contract(Some(key), f);
                     self.check_fn(f, &[], &[]);
                     self.own_fn = None;
                     self.own_close_param = None;
-                    self.own_written = false;
+                    self.own_written.clear();
                     self.own_contract = None;
                 }
                 // [implicit-group] A group's members are signatures for
@@ -1348,11 +1390,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
+                    // [copy-implicit] A handler constructor may take implicit
+                    // parameters (lifted 2026-09-11): the `use` site is where
+                    // the handler's type arguments are known, so it resolves
+                    // them exactly as a call resolves a fn's. The case that
+                    // forced it: a generic handler that must `copy` a `T` —
+                    // `?copy: (v: T) -> T` is filled at `use Cyclic([1, 2])`
+                    // with the copy of `Int`, which the Kotlin backend can
+                    // lower where a bare `copy` of `T` it cannot [kt-copy].
                     for p in &h.params {
-                        if p.implicit {
+                        if p.implicit && !matches!(p.ty, ast::Type::Fn { .. }) {
                             self.error(
                                 p.span,
-                                "a handler constructor cannot take implicit parameters:                                  the instance is built by `use`, which resolves nothing                                  [implicit-fn-only]"
+                                "an implicit parameter must have a function type: what \
+                                 fills it is resolved as a function of that name"
                                     .to_string(),
                             );
                         }
@@ -1455,6 +1506,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
                         self.require_explicit_member(f);
+                        self.require_full_clause(f, "an effect member");
                         // Member signatures are declaration sites like any
                         // other, but no body is checked, so validate them
                         // here [name-resolve].
@@ -1496,13 +1548,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
-                        // [proj-pass-field] A pass (`: Yield<self, T>`) may
-                        // hold a borrow of the data it walks; every other
-                        // struct owns its fields [proj-no-field].
-                        let is_pass = s.obligations.iter().any(|o| o.name.name == "Yield");
-                        if !is_pass {
-                            self.check_proj_field(&s.name.name, field);
-                        }
+                        // [proj-field] Any struct may hold a borrow through a
+                        // `Proj` field; it is then a *view*, tied to whatever
+                        // its literal stored there [proj-infer].
+                        self.check_proj_field(&s.name.name, field);
                         self.check_linear_field(&s.name.name, field);
                         if let Some(default) = &field.default {
                             let expected = self.lower_type(&field.ty);
@@ -1646,6 +1695,41 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let mut fwd = HashMap::new();
                         let mut rev = HashMap::new();
                         if tys_match_renamed(&expected, &candidate, &mut fwd, &mut rev) {
+                            // [yield-proj] `Proj` strips from types, so the
+                            // shapes match either way; the *borrowness* has to
+                            // agree separately. An obligation at `Proj T`
+                            // promises borrowed elements, which the member's
+                            // written return must deliver — and vice versa:
+                            // a `next` emitting `Proj` under a plain
+                            // `Yield<self, T>` would hand a borrow to callers
+                            // expecting to own it.
+                            let ob_proj = ob.args.iter().any(|a| first_proj_span(a).is_some());
+                            let member_proj = e
+                                .decl
+                                .return_type
+                                .as_ref()
+                                .is_some_and(|t| !proj_arm_indices(t).is_empty());
+                            if ob_proj != member_proj {
+                                self.error(
+                                    ob.span,
+                                    if ob_proj {
+                                        format!(
+                                            "`{}` declares `: {}<self, Proj …>`, but its `{}` \
+                                             returns an owned element: write \
+                                             `Emitted (Proj[from: p] T) | Finished`, or drop \
+                                             the `Proj` from the obligation",
+                                            s.name.name, ob.name.name, member.name.name
+                                        )
+                                    } else {
+                                        format!(
+                                            "`{}`'s `{}` returns a borrowed element \
+                                             (`Proj`), so its obligation must say so: \
+                                             `: {}<self, Proj T>`",
+                                            s.name.name, member.name.name, ob.name.name
+                                        )
+                                    },
+                                );
+                            }
                             found = true;
                             break;
                         }
@@ -1819,17 +1903,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        if f.deductions.is_none() {
-            self.error(
-                f.name.span,
-                format!(
-                    "{kind} `{name}` must declare its deduction list (write \
-                     `[]` to move every parameter, or list what it gives \
-                     back): with no body to infer from, the signature is the \
-                     whole contract"
-                ),
-            );
-        }
+        // The deduction clause: per parameter, in `require_full_clause`
+        // [deduce-syntax] — a declaration with nothing to deduce (only Copy
+        // scalars, variadics, implicits) needs no clause at all.
     }
 
     /// Checks one function body. `extra_params`/`state` provide handler
@@ -1892,9 +1968,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Some(format!(
                     "`{got_name}` *consumes* {which} while this position keeps it: \
                      the types match, the contracts do not. Either give \
-                     `{got_name}` a deduction list that gives it back \
-                     (`-> [{}] ...`), or declare the position as consuming \
-                     (`-> []` on the parameter's own signature)",
+                     `{got_name}` a deduction clause that gives it back \
+                     (`=> {}`), or declare the position as consuming \
+                     (`=>[param] !{}` on the enclosing declaration)",
+                    which.trim_matches('`'),
                     which.trim_matches('`')
                 ));
             }
@@ -2110,10 +2187,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
         self.generics = saved;
-        let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
-            Some(list) => Some(crate::deduce::from_written(decl, list, &HashSet::new(), |_, _| {})),
-            None => self.inferred.and_then(|table| table.get(&key).cloned()),
-        };
+        let facts: Option<Vec<crate::deduce::ParamDeduction>> =
+            self.effective_contract(Some(key), decl);
         let contract = facts.map(|facts| {
             decl.params
                 .iter()
@@ -2127,6 +2202,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.effect.clone())
                             .unwrap_or(QualEffect::KeepAll),
                         mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                        lent: entry.is_some_and(|d| d.lent),
                     }
                 })
                 .collect()
@@ -2174,6 +2250,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.effect.clone())
                             .unwrap_or(QualEffect::KeepAll),
                         mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                        lent: entry.is_some_and(|d| d.lent),
                     }
                 })
                 .collect()
@@ -2285,6 +2362,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ok(found) => filled.push(ImplicitArg::Resolved {
                     name: imp.name.clone(),
                     key: found,
+                    want: want.clone(),
                 }),
                 Err(why) => {
                     let remedy = format!(
@@ -2579,12 +2657,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // real modes — a consuming fn no longer masquerades as
         // keeps-everything.
         let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
-            Some(list) => Some(crate::deduce::from_written(
-                decl,
-                list,
-                &HashSet::new(),
-                |_, _| {},
-            )),
+            Some(_) => self.effective_contract(Some(entry.key), decl),
             None => self.inferred.and_then(|table| table.get(&entry.key).cloned()),
         };
         let contract = facts.map(|facts| {
@@ -2600,6 +2673,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.effect.clone())
                             .unwrap_or(QualEffect::KeepAll),
                         mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                        lent: entry.is_some_and(|d| d.lent),
                     }
                 })
                 .collect()
@@ -3133,6 +3207,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
         self.require_explicit_decl(f);
+        if f.body.is_none() {
+            self.require_full_clause(f, "an `intrinsic fn`");
+        }
         for p in &f.params {
             self.validate_type(&p.ty);
         }
@@ -3151,25 +3228,138 @@ impl<'p, 'r> Checker<'p, 'r> {
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
         self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
+        self.own_derived_sources = f
+            .return_type
+            .as_ref()
+            .and_then(|rt| proj_refs(rt).into_iter().find(|r| !r.from.is_empty()))
+            .map(|r| r.from.iter().map(|i| i.name.clone()).collect())
+            .unwrap_or_default();
+        // [proj-infer] What this fn's result holds borrows of: declared with
+        // `[p: Proj]`, else inferred from the body, else (no body) every kept
+        // parameter. A written list is checked against the body exactly, so
+        // it cannot go stale in either direction.
+        {
+            let lent = self.infer_lends(f);
+            self.own_lends_declared = crate::lends::declared_lends(f).is_some();
+            self.own_lends = lent
+                .iter()
+                .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
+                .collect();
+            if let Some(key) = self.fn_key_of_decl(f) {
+                self.out.fn_lends.insert(key, lent.clone());
+            }
+            if let (Some(declared), Some(body)) = (crate::lends::declared_lends(f), &f.body) {
+                let scope_fns = &self.scope.fns;
+                let lookup = |name: &str| -> Vec<&'p FnDecl> {
+                    scope_fns
+                        .get(name)
+                        .map(|v| v.iter().map(|e| e.decl).collect())
+                        .unwrap_or_default()
+                };
+                let mut env = crate::lends::LendsEnv {
+                    structs: &self.scope.structs,
+                    fns: &lookup,
+                    memo: &mut self.lends_memo,
+                };
+                let inferred: Option<Vec<usize>> =
+                    crate::lends::infer_from_body(f, body, &mut env).map(|set| {
+                        let mut v: Vec<usize> = set.into_iter().collect();
+                        v.sort_unstable();
+                        v
+                    });
+                if let Some(inferred) = inferred {
+                    // Declared must cover inferred: a lend the body visibly
+                    // performs cannot go unwritten. The reverse is allowed —
+                    // a generic body (`add(out, x)` with `x` an element of an
+                    // opaque pass) lends through opacity the analysis cannot
+                    // see, and the written entry is how it says so.
+                    if inferred.iter().any(|i| !declared.contains(i)) {
+                        let show = |v: &[usize]| -> String {
+                            let names: Vec<String> = v
+                                .iter()
+                                .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
+                                .collect();
+                            if names.is_empty() { "nothing".to_string() } else { format!("`{}`", names.join("`, `")) }
+                        };
+                        let span = f
+                            .deductions
+                            .as_ref()
+                            .and_then(|l| l.iter().find(|d| d.proj_sources().is_some()).map(|d| d.span))
+                            .unwrap_or(f.name.span);
+                        self.error(
+                            span,
+                            format!(
+                                "the deduction list says the result projects {}, but the \
+                                 body returns a value that projects {}: every lend the body \
+                                 performs must be written (or omit the `Proj` entries and \
+                                 let them be inferred)",
+                                show(&declared),
+                                show(&inferred)
+                            ),
+                        );
+                    }
+                }
+            }
+            if let Some(list) = &f.deductions {
+                // A parameter both consumed (`!p`) and named as a projection
+                // source: a borrow needs the caller to keep the value.
+                let moved: Vec<String> = list
+                    .iter()
+                    .filter(|d| matches!(d.kind, ast::DeductionKind::Moved))
+                    .filter_map(|d| d.param_name().map(|n| n.name.clone()))
+                    .collect();
+                for d in list.iter() {
+                    if let Some(sources) = d.proj_sources() {
+                        for src in sources.iter().filter(|s| moved.contains(&s.name)) {
+                            self.error(
+                                src.span,
+                                format!(
+                                    "`{}` cannot be both consumed (`!{}`) and projected by the \
+                                     result: a borrow needs the caller to keep the value",
+                                    src.name, src.name
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         self.own_proj_arms = f
             .return_type
             .as_ref()
             .map(proj_arm_qualifiers)
             .unwrap_or_default();
-        // [proj-anywhere] Every `Proj` in the return type — in an arm, a type
-        // argument, a tuple element — must say what it borrows from: without
-        // `[from: p]` there is nothing to link the result to, and the caller
-        // could not know which argument it depends on. Parameters may write a
-        // bare `Proj` (it names the *kind* of value expected, not a source).
+        // [proj-anywhere] Every *wholesale* `Proj` in the return type — on the
+        // result, an arm, a tuple element — must say what it borrows from:
+        // without `[from: p]` there is nothing to link the result to, and the
+        // caller could not know which argument it depends on. A `Proj` inside
+        // a type argument (`List<Proj T>`) is a borrow the result *holds*:
+        // it names no source, the lend does [proj-infer]. Parameters may write
+        // a bare `Proj` (it names the *kind* of value expected, not a source).
         if let Some(rt) = &f.return_type {
+            let held: Vec<Span> = proj_refs_in_type_args(rt).iter().map(|r| r.span).collect();
             for r in proj_refs(rt) {
-                if r.from.is_none() {
+                let is_held = held.contains(&r.span);
+                if is_held {
+                    if let Some(from) = r.from.first() {
+                        self.error(
+                            from.span,
+                            "a `Proj` element names no source: the list holds the borrow, \
+                             and which parameter it is of is inferred from the body (or \
+                             written as `=> Proj[from: p]` in the deduction clause)"
+                                .to_string(),
+                        );
+                    }
+                    continue;
+                }
+                if r.from.is_empty() {
                     self.error(
                         r.span,
                         "`Proj` in a return type must name its source: `Proj[from: param]`"
                             .to_string(),
                     );
-                } else if let Some(from) = &r.from {
+                }
+                for from in &r.from {
                     let is_param = f.params.iter().any(|p| p.name.name == from.name)
                         || extra_params.iter().any(|p| p.name.name == from.name);
                     if !is_param {
@@ -3555,7 +3745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .params
             .iter()
             .enumerate()
-            .filter(|(i, _)| !deps.iter().any(|(d, _)| d == i))
+            .filter(|(i, p)| !deps.iter().any(|(d, _)| d == i) && !p.implicit)
             .map(|(_, p)| p)
             .collect();
         let param_tys: Vec<Ty> =
@@ -3658,6 +3848,28 @@ impl<'p, 'r> Checker<'p, 'r> {
             let logical = arg_tys[i].clone();
             let repr = self.repr_of(&args[i], &logical);
             self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+        }
+        // [copy-implicit] The constructor's implicit parameters are filled
+        // here, at the handler's now-known type arguments — recorded under
+        // the `use` span, where the emitters build the instance.
+        let ctor_implicits: Vec<ImplicitParam> = {
+            let saved = self.enter_generics(&decl.generics);
+            let list = decl
+                .params
+                .iter()
+                .filter(|p| p.implicit)
+                .map(|p| ImplicitParam {
+                    name: p.name.name.clone(),
+                    ty: self.lower_type(&p.ty),
+                    span: p.span,
+                    borrowed_arms: Vec::new(),
+                })
+                .collect();
+            self.generics = saved;
+            list
+        };
+        if !ctor_implicits.is_empty() {
+            self.fill_implicits(&ctor_implicits, &id.name, &subst, &generic_set, &[], span);
         }
         let concrete = substitute_vars(&of_ty, &subst, &generic_set);
         if self.effect_env.contains(&concrete) {
@@ -3875,20 +4087,49 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// lets move-mode candidates cover every binding of a consuming
     /// chain even after intermediate variables die [fate-move-mode].
     fn links_for_value(&self, value: &Expr, bind_span: Span) -> Vec<FateLink> {
-        // [proj-pass-field] A struct literal with `Proj` fields is derived
+        // [proj-field] A struct literal with `Proj` fields is derived
         // from the values stored in them: a pass minted over `list` shares
         // fate with `list`. Other fields are moved in and carry no link.
         if let Expr::StructLit { fields, span, .. } = value {
             if let Some(struct_ty) = self.out.ty_of(self.file_idx, *span) {
                 let proj_fields = self.proj_fields_of(struct_ty);
-                if !proj_fields.is_empty() {
+                let holds = self.ty_holds_proj(struct_ty);
+                if !proj_fields.is_empty() || holds {
                     let mut links: Vec<FateLink> = Vec::new();
+                    let push = |l: FateLink, links: &mut Vec<FateLink>| {
+                        if !links.iter().any(|e| e.root_id == l.root_id) {
+                            links.push(l);
+                        }
+                    };
                     for f in fields {
-                        if let StructLitFieldKind::Named { name, value } = &f.kind {
-                            if proj_fields.contains(&name.name) {
-                                for l in self.links_for_value(value, bind_span) {
-                                    if !links.iter().any(|e| e.root_id == l.root_id) {
-                                        links.push(l);
+                        match &f.kind {
+                            StructLitFieldKind::Named { name, value } => {
+                                if proj_fields.contains(&name.name) {
+                                    // [proj-infer] A `Proj` field projects
+                                    // what is stored in it: the literal holds
+                                    // a borrow of that value's roots.
+                                    for mut l in self.links_for_value(value, bind_span) {
+                                        l.borrowed = true;
+                                        l.held = true;
+                                        push(l, &mut links);
+                                    }
+                                } else {
+                                    // An owned field storing a *view* makes
+                                    // the literal a view of the same roots;
+                                    // an owned field storing owned data (or
+                                    // a plain alias, which is a move) adds
+                                    // nothing.
+                                    for l in self.links_for_value(value, bind_span) {
+                                        if l.held {
+                                            push(l, &mut links);
+                                        }
+                                    }
+                                }
+                            }
+                            StructLitFieldKind::Spread(inner) => {
+                                for l in self.links_for_value(inner, bind_span) {
+                                    if l.held {
+                                        push(l, &mut links);
                                     }
                                 }
                             }
@@ -3909,28 +4150,55 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the annotated argument: it carries that argument's links
         // (dot-notation receivers are argument 0).
         if let Expr::Call { callee, args, span, .. } = value {
-            if let Some(&idx) = self.out.derived_calls.get(&(self.file_idx, *span)) {
-                let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref()
-                {
-                    if idx == 0 {
-                        Some(base)
+            // [proj-infer] The result of a lending call holds borrows of the
+            // lent arguments: an owned value (a pass) tied to them.
+            if let Some(lent) = self.out.lending_calls.get(&(self.file_idx, *span)).cloned() {
+                let mut links: Vec<FateLink> = Vec::new();
+                for idx in lent {
+                    let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
+                        if idx == 0 {
+                            Some(base)
+                        } else {
+                            args.get(idx - 1)
+                        }
                     } else {
-                        args.get(idx - 1)
+                        args.get(idx)
+                    };
+                    let Some(arg) = arg else { continue };
+                    for mut l in self.links_for_value(arg, bind_span) {
+                        l.borrowed = true;
+                        l.held = true;
+                        if !links.iter().any(|e| e.root_id == l.root_id) {
+                            links.push(l);
+                        }
                     }
-                } else {
-                    args.get(idx)
-                };
-                if let Some(arg) = arg {
-                    return self
-                        .links_for_value(arg, bind_span)
-                        .into_iter()
-                        .map(|mut l| {
-                            l.borrowed = true;
-                            l
-                        })
-                        .collect();
                 }
-                return Vec::new();
+                return links;
+            }
+            if let Some(sources) = self.out.derived_calls.get(&(self.file_idx, *span)).cloned() {
+                // [proj-readonly] A wholesale projection: the result *is* the
+                // argument's data — of every named source.
+                let mut links: Vec<FateLink> = Vec::new();
+                for idx in sources {
+                    let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
+                        if idx == 0 {
+                            Some(base)
+                        } else {
+                            args.get(idx - 1)
+                        }
+                    } else {
+                        args.get(idx)
+                    };
+                    let Some(arg) = arg else { continue };
+                    for mut l in self.links_for_value(arg, bind_span) {
+                        l.borrowed = true;
+                        l.held = false;
+                        if !links.iter().any(|e| e.root_id == l.root_id) {
+                            links.push(l);
+                        }
+                    }
+                }
+                return links;
             }
         }
         // A lambda value is derived from its transitively-mutable read
@@ -3948,6 +4216,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             bind_span,
                             path: l.path.clone(),
                             borrowed: l.borrowed,
+                            held: l.held,
                         })
                         .collect()
                 })
@@ -3978,6 +4247,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     bind_span,
                     path: extra.clone(),
                     borrowed: src_borrowed,
+                    held: false,
                 },
                 &mut links,
             );
@@ -4243,6 +4513,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_move_candidates(links);
         self.record_param_claims(links);
         let root = &links[0].root_name;
+        // [proj-readonly] A wholesale projection is the root's own data seen
+        // through `Proj`: read-only whatever its `Mut` says, and `copy` is
+        // the way to a value of one's own.
+        if links.iter().any(|l| l.borrowed && !l.held) {
+            let why = if action == "mutate" {
+                " — a `Proj` value never satisfies a `Mut` position"
+            } else {
+                ""
+            };
+            self.error(
+                span,
+                format!(
+                    "cannot {action} `{name}`: it is a projection (`Proj`) of `{root}`, \
+                     which can only be read{why}; use `copy({name})` for a value of your own"
+                ),
+            );
+            return;
+        }
         self.error(
             span,
             format!(
@@ -4286,17 +4574,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Claims every parameter root among `links` as moved by the current
-    /// fn [fate-move-mode] — only when the fn's contract is *inferable*
-    /// (no written deduction list): a binding or projection that takes
-    /// ownership of data reached through a parameter makes the fn demand
-    /// ownership from its callers. Claims are seeded into deduction
+    /// fn [fate-move-mode] — only for parameters whose contract is
+    /// *inferable* (not written in the clause): a binding or projection that
+    /// takes ownership of data reached through a parameter makes the fn
+    /// demand ownership from its callers. Claims are seeded into deduction
     /// inference between the checking rounds.
     fn record_param_claims(&mut self, links: &[FateLink]) {
         let Some(key) = self.own_fn else { return };
-        if self.own_written {
-            return;
-        }
         for l in links {
+            if self.own_written.contains(&l.root_name) {
+                continue;
+            }
             let is_param = self
                 .var_by_id(l.root_id)
                 .is_some_and(|var| var.is_param);
@@ -4570,7 +4858,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [proj-pass-field] The names of a struct type's `Proj` fields (empty
+    /// [proj-field] The names of a struct type's `Proj` fields (empty
     /// for anything that is not a struct with one).
     fn proj_fields_of(&self, ty: &Ty) -> Vec<String> {
         let Ty::Named { name, .. } = ty.strip_quals() else {
@@ -4586,6 +4874,212 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect()
     }
 
+    /// [proj-infer] Whether a value of this (lowered) type can hold a
+    /// borrow: it is, or contains, a struct with a `Proj` field, directly or
+    /// through an owned field whose type does.
+    fn ty_holds_proj(&self, ty: &Ty) -> bool {
+        fn names(ty: &Ty, out: &mut Vec<String>) {
+            match ty {
+                Ty::Named { name, .. } => out.push(name.clone()),
+                Ty::Qualified { base, .. } => names(base, out),
+                Ty::Union(arms) | Ty::Tuple(arms) => arms.iter().for_each(|a| names(a, out)),
+                Ty::Array(elem) => names(elem, out),
+                _ => {}
+            }
+        }
+        let mut ns = Vec::new();
+        names(ty, &mut ns);
+        ns.into_iter().any(|n| {
+            self.scope.structs.get(n.as_str()).is_some_and(|d| {
+                d.fields.iter().any(|f| {
+                    crate::lends::type_has_proj(&f.ty)
+                        || crate::lends::holds_proj(&f.ty, &self.scope.structs)
+                })
+            })
+        })
+    }
+
+    /// [deduce-syntax] A declaration without a body has nothing to infer
+    /// from, so its clause must say what happens to every parameter — kept
+    /// (`=> p`), consumed (`=> !p`), or qualified (`=> p: Mut`). Copy
+    /// scalars are exempt: an `Int`'s fate is nothing to deduce
+    /// [copy-scalar-free]. Implicit and variadic parameters are exempt too
+    /// (an implicit is a fn value the call fills; a variadic tail is owned).
+    fn require_full_clause(&mut self, f: &FnDecl, what: &str) {
+        let mentioned: Vec<String> = f
+            .deductions
+            .as_ref()
+            .map(|l| l.iter().filter_map(|d| d.param_name().map(|n| n.name.clone())).collect())
+            .unwrap_or_default();
+        for p in f.params.iter().filter(|p| !p.implicit && !p.variadic) {
+            if mentioned.contains(&p.name.name) {
+                continue;
+            }
+            let scalar = matches!(
+                &p.ty,
+                ast::Type::Named { qualifiers, base }
+                    if qualifiers.is_empty()
+                        && base.args.is_empty()
+                        && matches!(
+                            base.name.name.as_str(),
+                            "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                        )
+            );
+            if scalar {
+                continue;
+            }
+            self.error(
+                p.name.span,
+                format!(
+                    "{what} has no body to infer from, so its deduction clause must say \
+                     what happens to `{}`: `=> {}` to keep it, `=> !{}` to consume it",
+                    p.name.name, p.name.name, p.name.name
+                ),
+            );
+        }
+    }
+
+    /// [deduce-syntax] A fn's *effective* contract: the whole-program table's
+    /// entry when the deduce pass has produced one (written entries fixed,
+    /// the rest inferred), else the written clause with its unmentioned
+    /// parameters optimistic — round one, or a declaration with no key.
+    fn effective_contract(
+        &self,
+        key: Option<FnKey>,
+        decl: &FnDecl,
+    ) -> Option<Vec<crate::deduce::ParamDeduction>> {
+        if let Some(k) = key {
+            if let Some(found) = self.inferred.and_then(|table| table.get(&k).cloned()) {
+                return Some(found);
+            }
+        }
+        decl.deductions
+            .as_ref()
+            .map(|list| crate::deduce::from_written(decl, list, &HashSet::new(), |_, _| {}))
+    }
+
+    /// The resolver's key for a declaration, by identity.
+    fn fn_key_of_decl(&self, f: &FnDecl) -> Option<FnKey> {
+        self.scope
+            .fns
+            .get(f.name.name.as_str())
+            .and_then(|v| v.iter().find(|e| std::ptr::eq(e.decl, f)).map(|e| e.key))
+    }
+
+    /// [proj-infer] The parameters `decl`'s result holds borrows of —
+    /// declared (`[p: Proj]`), inferred from its body, or every kept
+    /// parameter when there is no body. Memoised per declaration.
+    fn infer_lends(&mut self, decl: &'p FnDecl) -> Vec<usize> {
+        let scope_fns = &self.scope.fns;
+        let lookup = |name: &str| -> Vec<&'p FnDecl> {
+            scope_fns
+                .get(name)
+                .map(|v| v.iter().map(|e| e.decl).collect())
+                .unwrap_or_default()
+        };
+        let mut env = crate::lends::LendsEnv {
+            structs: &self.scope.structs,
+            fns: &lookup,
+            memo: &mut self.lends_memo,
+        };
+        crate::lends::lends_of(decl, &mut env)
+    }
+
+    /// [proj-infer] A returned held view may be rooted only in the fn's own
+    /// lent parameters (declared or inferred); a root that is a local dies
+    /// with this call, and a root that is a parameter the signature does
+    /// not lend would tie the caller's result to something it was told is
+    /// free.
+    fn check_returned_view_roots(&mut self, links: &[FateLink], span: Span) {
+        for l in links {
+            // Only *ultimate* roots are reported: a derived intermediate
+            // (`let a = get(ts, i)`) is in the list alongside what it
+            // derives from, and naming both would say one thing twice.
+            if self.var_by_id(l.root_id).is_some_and(|v| !v.links.is_empty()) {
+                continue;
+            }
+            let is_param_root = self.var_by_id(l.root_id).is_some_and(|v| v.is_param)
+                || self.var_by_id(l.root_id).is_some_and(|v| {
+                    v.links
+                        .iter()
+                        .any(|x| self.var_by_id(x.root_id).is_some_and(|r| r.is_param))
+                });
+            let root = l.root_name.clone();
+            if !is_param_root {
+                self.error(
+                    span,
+                    format!(
+                        "cannot return this value: it holds a borrow of `{root}`, a local \
+                         that dies with this call; return a `copy`, or borrow from a \
+                         parameter instead"
+                    ),
+                );
+                continue;
+            }
+            let lent = self.own_lends.iter().any(|n| n == &root)
+                || self.var_by_id(l.root_id).is_some_and(|v| {
+                    v.links.iter().any(|x| self.own_lends.iter().any(|n| n == &x.root_name))
+                });
+            // A written `[p: Proj]` list is checked against the body as a
+            // whole (in `check_fn`); the per-return report would repeat it.
+            if !lent && !self.own_lends_declared {
+                self.error(
+                    span,
+                    format!(
+                        "cannot return this value: it holds a borrow of `{root}`, which \
+                         this function's signature does not lend; declare it with \
+                         `[{root}: Proj]`, or keep `{root}` so the borrow can be inferred"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// [proj-anywhere] Whether an argument is a *temporary* — not a variable
+    /// or a projection of one, and not a call that forwards a view of one.
+    fn is_temporary(&self, arg: &Expr) -> bool {
+        let mut sources = Vec::new();
+        Self::provenance(arg, &mut sources);
+        if !sources.is_empty() {
+            return false;
+        }
+        let inner = match arg {
+            Expr::NonNull { operand, .. } => operand.as_ref(),
+            other => other,
+        };
+        let forwards_view = matches!(inner, Expr::Call { .. } | Expr::StructLit { .. })
+            && !self.links_for_value(inner, inner.span()).is_empty();
+        !forwards_view
+    }
+
+    /// [proj-anywhere] Errors when `value` is a view of a temporary being
+    /// bound, returned or stored: the temporary dies at the end of the
+    /// statement, and the view would outlive it. Sees through a `!` and
+    /// through a call that *forwards* such a view.
+    fn reject_temp_view(&mut self, value: &Expr, what: &str) {
+        let inner = match value {
+            Expr::NonNull { operand, .. } => operand.as_ref(),
+            other => other,
+        };
+        let Expr::Call { span, callee, .. } = inner else { return };
+        if !self.out.temp_views.contains(&self.key(*span)) {
+            return;
+        }
+        let name = match callee.as_ref() {
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Field { field, .. } => field.name.clone(),
+            _ => "this call".to_string(),
+        };
+        self.error(
+            value.span(),
+            format!(
+                "cannot {what} a view of a temporary: `{name}` borrows an argument \
+                 that dies at the end of this statement; bind that argument with \
+                 `let` first, so the view has something to borrow from"
+            ),
+        );
+    }
+
     /// Validates a returned value against the fn's derived-return
     /// annotation [readonly-return]: `None` is fine (no borrow), and
     /// everything else must be derived from the annotated parameter —
@@ -4594,25 +5088,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         if matches!(value, Expr::Ident(id) if id.name == "None") {
             return;
         }
-        let from_id = match self.lookup(from) {
-            Some(var) => var.id,
-            None => return,
+        // Any of the declared sources will do (`Proj[from: a, b]`).
+        let sources: Vec<String> = if self.own_derived_sources.is_empty() {
+            vec![from.to_string()]
+        } else {
+            self.own_derived_sources.clone()
         };
+        let source_ids: Vec<u32> = sources.iter().filter_map(|n| self.lookup(n).map(|v| v.id)).collect();
+        if source_ids.is_empty() {
+            return;
+        }
         let links = self.links_for_value(value, value.span());
         let ok = !links.is_empty()
             && links.iter().all(|l| {
-                l.root_id == from_id
+                source_ids.contains(&l.root_id)
                     || self
                         .var_by_id(l.root_id)
-                        .is_some_and(|v| v.links.iter().any(|x| x.root_id == from_id))
+                        .is_some_and(|v| v.links.iter().any(|x| source_ids.contains(&x.root_id)))
             });
         if !ok {
+            let shown = sources.join(", ");
             self.error(
                 value.span(),
                 format!(
-                    "this function returns `Proj[from: {from}]`, so every \
-                     returned value must be derived from `{from}` (a projection, \
-                     element, or alias of it) or be `None`"
+                    "this function returns `Proj[from: {shown}]`, so every \
+                     returned value must be derived from `{shown}` (a projection, \
+                     element, or alias) or be `None`"
                 ),
             );
         }
@@ -4648,6 +5149,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         kept: true,
                         effect: QualEffect::KeepAll,
                         mutable: declared_q.iter().any(|q| q == "Mut"),
+                        lent: false,
                     },
                 }
             })
@@ -5866,6 +6368,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(var) = self.lookup(name) else { return };
         let (id, links) = (var.id, var.links.clone());
         if !links.is_empty() {
+            // [proj-infer] A variable whose every link is *held* is an owned
+            // object that merely projects its roots (a pass over a list):
+            // its own fields are its own, and its `Proj` fields cannot be
+            // written through, so mutating it cannot reach a root. It may be
+            // advanced. A wholesale projection or a plain alias cannot
+            // [proj-readonly].
+            if links.iter().all(|l| l.held) {
+                self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
+                return;
+            }
             self.error_derived(span, "mutate", name, &links);
             return;
         }
@@ -6420,9 +6932,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 let (kept, effect) = match (name, deductions) {
                     (Some(id), Some(list)) => {
-                        match list.iter().find(|d| d.param.name == id.name) {
+                        match list.iter().find(|d| d.param_name().is_some_and(|n| n.name == id.name)) {
                             Some(d) => match &d.kind {
-                                ast::DeductionKind::KeepAll => {
+                                ast::DeductionKind::KeepAll | ast::DeductionKind::Proj(_) => {
                                     (true, QualEffect::KeepAll)
                                 }
                                 ast::DeductionKind::Exhaustive(items) => {
@@ -6435,36 +6947,55 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     (false, QualEffect::Exhaustive(Vec::new()))
                                 }
                             },
-                            None => (false, QualEffect::Exhaustive(Vec::new())),
+                            // [deduce-syntax] Unmentioned in a fn type's
+                            // group: kept, the default.
+                            None => (true, QualEffect::KeepAll),
                         }
                     }
-                    // Named but no list, or unnamed: keeps everything.
+                    // Named but no group, or unnamed: keeps everything.
                     _ => (true, QualEffect::KeepAll),
+                };
+                // [proj-infer] `=>[f] Proj[from: c]` on a fn type: the only
+                // way to say what a bodiless value's result holds.
+                let lent = match (name, deductions) {
+                    (Some(id), Some(list)) => list
+                        .iter()
+                        .filter_map(|d| d.proj_sources())
+                        .flatten()
+                        .any(|src| src.name == id.name),
+                    _ => false,
                 };
                 FnParamContract {
                     name: name.as_ref().map(|id| id.name.clone()),
                     kept,
                     effect,
                     mutable,
+                    lent,
                 }
             })
             .collect();
-        // Validate the deduction list references named parameters.
+        // Validate the group's entries name the fn type's parameters.
         if let Some(list) = deductions {
             for d in list {
-                let known = param_names
-                    .iter()
-                    .flatten()
-                    .any(|n| n.name == d.param.name);
-                if !known {
-                    self.error(
-                        d.param.span,
-                        format!(
-                            "`{}` names no parameter of this function type \
-                             (name the parameter: `({}: ...) -> [...] ...`)",
-                            d.param.name, d.param.name
-                        ),
-                    );
+                let mut named: Vec<&ast::Ident> = Vec::new();
+                if let ast::DeductionTarget::Param { name, .. } = &d.target {
+                    named.push(name);
+                }
+                if let Some(sources) = d.proj_sources() {
+                    named.extend(sources.iter());
+                }
+                for n in named {
+                    let known = param_names.iter().flatten().any(|p| p.name == n.name);
+                    if !known {
+                        self.error(
+                            n.span,
+                            format!(
+                                "`{}` names no parameter of this function type \
+                                 (name the parameter in the type: `({}: ...) -> ...`)",
+                                n.name, n.name
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -6535,7 +7066,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // borrows* (`List<Proj T>` is a view, `Vec<&T>`). That is only
         // meaningful for the intrinsic containers the backends render that
         // way; on a user struct it would smuggle a borrow into a field
-        // through the back door of generics, which [proj-no-field] forbids.
+        // through the back door of generics, unseen by [proj-infer]'s
+        // field-driven inference.
         if !matches!(name, "List") && self.scope.structs.contains_key(name) {
             for arg in &base.args {
                 if let Some(span) = first_proj_span(arg) {
@@ -6814,21 +7346,23 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// message can name the field. (Composite field *types* —
     /// `xs: List<Lines>` — are refused by `validate_type`; this catches
     /// the bare `h: Lines`.)
-    /// [proj-no-field] A struct field may not be `Proj`: a struct holding a
-    /// borrow is a struct with a lifetime, which Salvo does not put on user
-    /// data. Every other type position (parameter, return, union arm, type
-    /// argument) is allowed [proj-anywhere].
+    /// [proj-field] A `Proj` field is written without a source: the struct
+    /// declares *that* it projects, and each literal says *what* — the
+    /// source is a property of the value, not the type, and is tracked by
+    /// the fate links of whoever holds the struct [proj-infer].
     fn check_proj_field(&mut self, owner: &str, field: &ast::FieldDecl) {
-        if let Some(span) = first_proj_span(&field.ty) {
-            self.error(
-                span,
-                format!(
-                    "field `{owner}.{}` cannot be `Proj`: a struct that holds a borrow \
-                     would carry a lifetime, so a field must own its value — store a \
-                     `copy`, or keep the borrow in a local",
-                    field.name.name
-                ),
-            );
+        for r in proj_refs(&field.ty) {
+            if let Some(from) = r.from.first() {
+                self.error(
+                    from.span,
+                    format!(
+                        "field `{owner}.{}`: a `Proj` field names no source — the value \
+                         stored in it at each literal decides what it projects; write \
+                         `Proj` alone",
+                        field.name.name
+                    ),
+                );
+            }
         }
     }
 
@@ -7921,6 +8455,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
                     value_ty.clone()
                 });
+                // [proj-anywhere] A view of a temporary cannot be kept.
+                self.reject_temp_view(value, "bind");
                 // Binding from a bare identifier or projection links the
                 // new variable(s) to the source: they share fate
                 // [fate-link].
@@ -8324,6 +8860,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// poisons its derived variables [fate-poison], exactly like a
     /// call-site move.
     fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
+        // [proj-anywhere] Returning or storing a view of a temporary. Driving
+        // one (`for x in iter(list(1, 2))`) is fine: the temporary lives for
+        // the whole loop statement on both backends.
+        if action != "iterate" {
+            self.reject_temp_view(value, action);
+        }
         let inner = match value {
             Expr::Spread { operand, .. } => operand.as_ref(),
             _ => value,
@@ -8337,12 +8879,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             // is the same as for a derived variable: `copy`.
             if matches!(inner, Expr::Call { .. } | Expr::StructLit { .. }) {
                 let links = self.links_for_value(inner, span);
+                // [proj-infer] A value that *holds* borrows (a pass minted
+                // here) is an owned object and may travel — into a caller,
+                // a field, a consuming parameter — as long as it does not
+                // outlive its roots: returned, it may be rooted only in the
+                // parameters this fn lends.
+                if !links.is_empty() && links.iter().all(|l| l.held) {
+                    if action == "return" {
+                        self.check_returned_view_roots(&links, inner.span());
+                    }
+                    return;
+                }
                 if let Some(l) = links.first() {
                     let root = l.root_name.clone();
                     // Inside a fn that *itself* returns a borrow of that root,
                     // returning the view is the declared contract — the
                     // derived-return validation covers it.
-                    if action == "return" && self.own_derived_return.as_deref() == Some(root.as_str()) {
+                    if action == "return" && self.own_derived_sources.iter().any(|s| s == &root) {
                         return;
                     }
                     self.error(
@@ -8366,8 +8919,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (var_id, links) = (var.id, var.links.clone());
         let name = id.name.clone();
         if !links.is_empty() {
-            self.error_derived(id.span, action, &name, &links);
-            return;
+            // [proj-infer] A held view travels as an owned object (see the
+            // value case above); a wholesale projection or alias cannot.
+            if links.iter().all(|l| l.held) {
+                if action == "return" {
+                    self.check_returned_view_roots(&links, id.span);
+                }
+            } else {
+                self.error_derived(id.span, action, &name, &links);
+                return;
+            }
         }
         // A lambda cannot consume a capture [fate-lambda].
         if let Some(frame) = self.frame_of_id(var_id) {
@@ -8879,7 +9440,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let proj_fields = self.proj_fields_of(&struct_ty);
                 for f in fields {
                     match &f.kind {
-                        // [proj-pass-field] A `Proj` field *borrows* what is
+                        // [proj-field] A `Proj` field *borrows* what is
                         // stored in it: the literal becomes derived from the
                         // value (see `links_for_value`), and nothing moves.
                         StructLitFieldKind::Named { name, .. }
@@ -10047,7 +10608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .var_by_id(cap.var_id)
                     .is_some_and(|v| v.is_param)
                     && !self.param_owned(&cap.name);
-                if is_kept_param && self.own_written {
+                if is_kept_param && self.own_written.contains(&cap.name) {
                     if self.inferred.is_some() {
                         self.error(
                             span,
@@ -10066,7 +10627,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .is_some_and(|v| v.is_param)
                 {
                     if let Some(key) = self.own_fn {
-                        if !self.own_written {
+                        if !self.own_written.contains(&cap.name) {
                             self.param_claims
                                 .entry(key)
                                 .or_default()
@@ -10091,6 +10652,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // link it (transitively through the capture's own links).
                 if !links.iter().any(|l| l.root_id == cap.var_id) {
                     links.push(FateLink {
+                        held: false,
                         root_id: cap.var_id,
                         root_name: cap.name.clone(),
                         bind_span: span,
@@ -11739,6 +12301,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                         contract.as_deref(),
                         span,
                     );
+                    // [proj-infer] A fn value has no body to read: its result
+                    // holds a borrow of the arguments its type declares
+                    // (`[p: Proj]`), or conservatively of every kept one.
+                    if self.ty_holds_proj(&ret) {
+                        let declared: Vec<usize> = contract
+                            .as_deref()
+                            .map(|c| {
+                                c.iter().enumerate().filter(|(_, e)| e.lent).map(|(i, _)| i).collect()
+                            })
+                            .unwrap_or_default();
+                        let lent: Vec<usize> = if !declared.is_empty() {
+                            declared
+                        } else {
+                            (0..params.len())
+                                .filter(|&i| {
+                                    contract.as_deref().and_then(|c| c.get(i)).is_none_or(|e| e.kept)
+                                })
+                                .collect()
+                        };
+                        if !lent.is_empty() {
+                            self.out.lending_calls.insert(self.key(span), lent);
+                        }
+                    }
                     // [once-fn] Calling a `Once` fn consumes it: the
                     // existing consumption machinery then enforces the
                     // multiplicity (second call, loop back edge, branch
@@ -12156,13 +12741,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // producer factory, so "held past the call" is exactly "moved into the
         // callee" — which is what a composed combinator's `-> []` says.
         if self.inferred.is_some() {
-            let facts: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
-                Some(list) => {
-                    Some(crate::deduce::from_written(decl, list, &HashSet::new(), |_, _| {}))
-                }
-                None => best_key
-                    .and_then(|key| self.inferred.and_then(|table| table.get(&key).cloned())),
-            };
+            let facts: Option<Vec<crate::deduce::ParamDeduction>> =
+                self.effective_contract(best_key, decl);
             for (i, arg) in args.iter().enumerate() {
                 if !matches!(arg, Expr::Lambda { .. }) {
                     continue;
@@ -12325,12 +12905,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let contract: Option<Vec<crate::deduce::ParamDeduction>> = match &decl.deductions {
             // Shape errors on written lists are reported by the deduce
             // pass; the mapping here is silent.
-            Some(list) => Some(crate::deduce::from_written(
-                                    decl,
-                                    list,
-                                    &HashSet::new(),
-                                    |_, _| {},
-                                )),
+            Some(_) => self.effective_contract(best.key, decl),
             None => match self.inferred {
                 Some(table) => best.key.and_then(|key| table.get(&key).cloned()),
                 // Round one has no inferred facts yet: fall back to the
@@ -12529,13 +13104,106 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [readonly-return] Record derived-return calls: the result
         // borrows the annotated argument — the caller links the result
         // to it, and the Rust backend renders the result as a borrow.
-        if let Some(from) = &decl.derived_return {
-            if let Some(idx) = decl
-                .params
+        if decl.derived_return.is_some() {
+            // Every source of the *first* wholesale `Proj` in the return type
+            // (`Proj[from: a, b] T`: a projection joined across branches is
+            // of both) [proj-anywhere].
+            let sources: Vec<usize> = decl
+                .return_type
+                .as_ref()
+                .map(|rt| {
+                    proj_refs(rt)
+                        .into_iter()
+                        .find(|r| !r.from.is_empty())
+                        .map(|r| {
+                            r.from
+                                .iter()
+                                .filter_map(|f| decl.params.iter().position(|p| p.name.name == f.name))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            if !sources.is_empty() {
+                // Whether a borrowed argument is a *temporary* (a call result
+                // or literal, not a place): a view of one dies with the
+                // statement, so it may be *used* there (`map(iter(list(1,
+                // 2)), f)`) but not bound, returned or stored — those sites
+                // consult this table.
+                for &idx in &sources {
+                    if let Some(arg) = args.get(idx).copied() {
+                        if self.is_temporary(arg) {
+                            self.out.temp_views.insert(self.key(span));
+                        }
+                    }
+                }
+                self.out.derived_calls.insert(self.key(span), sources);
+            }
+        }
+        // [deduce-syntax] Re-pointing entries — `v.items: Proj[from: other]`
+        // or `v: Proj[from: other]` — say the call makes the argument at `v`
+        // hold a borrow of the argument at `other`: the variable passed as
+        // `v` gains a held link to `other`'s roots. (The body is trusted for
+        // these today; see ROADMAP.)
+        if let Some(list) = &decl.deductions {
+            let repoints: Vec<(usize, Vec<usize>)> = list
                 .iter()
-                .position(|p| p.name.name == from.name)
-            {
-                self.out.derived_calls.insert(self.key(span), idx);
+                .filter_map(|d| match (&d.target, &d.kind) {
+                    (ast::DeductionTarget::Param { name, .. }, ast::DeductionKind::Proj(srcs)) => {
+                        let target = decl.params.iter().position(|p| p.name.name == name.name)?;
+                        let sources: Vec<usize> = srcs
+                            .iter()
+                            .filter_map(|sname| decl.params.iter().position(|p| p.name.name == sname.name))
+                            .collect();
+                        Some((target, sources))
+                    }
+                    _ => None,
+                })
+                .collect();
+            for (target, sources) in repoints {
+                let Some(Expr::Ident(target_id)) = args.get(target).copied() else { continue };
+                let mut new_links: Vec<FateLink> = Vec::new();
+                for si in sources {
+                    let Some(src_arg) = args.get(si).copied() else { continue };
+                    for mut l in self.links_for_value(src_arg, span) {
+                        l.borrowed = true;
+                        l.held = true;
+                        new_links.push(l);
+                    }
+                }
+                let target_name = target_id.name.clone();
+                if let Some(var) = self.lookup_mut(&target_name) {
+                    for l in new_links {
+                        if !var.links.iter().any(|e| e.root_id == l.root_id) {
+                            var.links.push(l);
+                        }
+                    }
+                }
+            }
+        }
+        // [proj-infer] A result that *holds* borrows (a struct with `Proj`
+        // fields) ties itself to the lent arguments; the caller links the
+        // result to them, held. A lent temporary is as dangling as a
+        // projected one.
+        if decl.derived_return.is_none() {
+            let lent = self.infer_lends(decl);
+            if !lent.is_empty() {
+                let positional: Vec<usize> = lent
+                    .iter()
+                    .filter_map(|&pi| {
+                        // Implicit params are not positional arguments.
+                        let before = decl.params[..pi].iter().filter(|p| p.implicit).count();
+                        if decl.params[pi].implicit { None } else { Some(pi - before) }
+                    })
+                    .collect();
+                for &i in &positional {
+                    if let Some(arg) = args.get(i).copied() {
+                        if self.is_temporary(arg) {
+                            self.out.temp_views.insert(self.key(span));
+                        }
+                    }
+                }
+                self.out.lending_calls.insert(self.key(span), positional);
             }
         }
         // The callee's declared effect dependencies must be satisfiable
@@ -13022,10 +13690,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.effect.clone())
                             .unwrap_or(QualEffect::KeepAll),
                         mutable: pty.quals().iter().any(|q| q.name == "Mut"),
+                        lent: entry.is_some_and(|d| d.lent),
                     }
                 })
                 .collect();
             self.apply_call_contract(args, &member_params, Some(&contract), span);
+        }
+        // [proj-infer] An effect member has no body: its result holds a
+        // borrow of what its list declares (`[p: Proj]`), else of every
+        // kept parameter.
+        if member.derived_return.is_none() && member.return_type.as_ref().is_some_and(|t| {
+            crate::lends::holds_proj(t, &self.scope.structs)
+        }) {
+            let lent = crate::lends::declared_lends(member)
+                .unwrap_or_else(|| crate::lends::kept_params(member));
+            if !lent.is_empty() {
+                self.out.lending_calls.insert(self.key(span), lent);
+            }
         }
         if let Some(instance) = &resolved {
             // [fn-effects] Feeds an enclosing lambda's inferred set.
@@ -13149,6 +13830,48 @@ fn first_proj_span(ty: &ast::Type) -> Option<Span> {
 }
 
 /// [proj-anywhere] Every `Proj` qualifier reference in a type, in order.
+/// [proj-infer] The `Proj` references that sit inside a type *argument*
+/// (`List<Proj T>`, `Map<K, Proj V>`): borrows the value holds, as opposed
+/// to wholesale ones on the value itself.
+fn proj_refs_in_type_args(ty: &ast::Type) -> Vec<&TypeRef> {
+    fn walk<'a>(ty: &'a ast::Type, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
+        fn in_ref<'a>(r: &'a TypeRef, inside_arg: bool, out: &mut Vec<&'a TypeRef>) {
+            if r.name.name == "Proj" && inside_arg {
+                out.push(r);
+            }
+            for a in &r.args {
+                walk(a, true, out);
+            }
+        }
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    in_ref(q, inside_arg, out);
+                }
+                in_ref(base, inside_arg, out);
+            }
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                for q in qualifiers {
+                    in_ref(q, inside_arg, out);
+                }
+                walk(base, inside_arg, out);
+            }
+            ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
+                for a in arms {
+                    walk(a, inside_arg, out);
+                }
+            }
+            ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => {
+                walk(inner, inside_arg, out)
+            }
+            ast::Type::Fn { .. } => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, false, &mut out);
+    out
+}
+
 fn proj_refs(ty: &ast::Type) -> Vec<&TypeRef> {
     fn walk<'a>(ty: &'a ast::Type, out: &mut Vec<&'a TypeRef>) {
         fn in_ref<'a>(r: &'a TypeRef, out: &mut Vec<&'a TypeRef>) {

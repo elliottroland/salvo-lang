@@ -18,7 +18,7 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn empty_list<T>() [] -> [] Mut List<T>\nintrinsic fn of_list<T>(...elems: T[]) [] -> [] Mut List<T>\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn empty_list<T>() [] -> Mut List<T>\nintrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\n";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
@@ -71,15 +71,15 @@ fn messages(src: &str) -> Vec<String> {
 const PRELUDE: &str = r#"
 
 
-fn size<T>(list: List<T>) [] -> [list] Int { return 0 }
-fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None {}
-fn ignore<T>(value: T) [] -> [] None {}
-fn apply<T, U>(value: T, f: (T) -> U) [] -> [] U { return f(value) }
-fn apply_late<T, U>(f: (T) -> U, value: T) [] -> [] U { return f(value) }
+fn size<T>(list: List<T>) [] -> Int => list { return 0 }
+fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem {}
+fn ignore<T>(value: T) [] -> None => !value {}
+fn apply<T, U>(value: T, f: (T) -> U) [] -> U => !value, !f { return f(value) }
+fn apply_late<T, U>(f: (T) -> U, value: T) [] -> U => !f, !value { return f(value) }
 "#;
 
 fn src(body: &str) -> String {
-    format!("{PRELUDE}\nfn probe() -> [] Int {{\n{body}\n    return 1\n}}\n")
+    format!("{PRELUDE}\nfn probe() -> Int {{\n{body}\n    return 1\n}}\n")
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn a_let_annotation_determines_it() {
 #[test]
 fn a_return_type_determines_it() {
     let program = format!(
-        "{PRELUDE}\nfn fresh() -> [] Mut List<Int> {{\n    return empty_list()\n}}\n"
+        "{PRELUDE}\nfn fresh() -> Mut List<Int> {{\n    return empty_list()\n}}\n"
     );
     assert!(messages(&program).is_empty(), "{:?}", messages(&program));
 }
@@ -124,8 +124,8 @@ fn a_return_type_determines_it() {
 #[test]
 fn a_concrete_parameter_determines_it() {
     let program = format!(
-        "{PRELUDE}\nfn takes(xs: Mut List<Int>) -> [xs: Mut] None {{\n    \
-         add(xs, 1)\n}}\n\nfn probe() -> [] Int {{\n    takes(empty_list())\n    \
+        "{PRELUDE}\nfn takes(xs: Mut List<Int>) -> None => xs: Mut {{\n    \
+         add(xs, 1)\n}}\n\nfn probe() -> Int {{\n    takes(empty_list())\n    \
          return 1\n}}\n"
     );
     assert!(messages(&program).is_empty(), "{:?}", messages(&program));

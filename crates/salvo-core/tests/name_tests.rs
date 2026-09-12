@@ -192,7 +192,7 @@ fn uppercase_module_path_is_an_error() {
 fn unknown_name_in_an_is_check_is_reported_once() {
     let src = format!(
         "qualifier Ok<T> of T\n\n\
-         fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
+         fn ok<T>(value: T) [] -> T as Ok => !value {{\n    return value\n}}\n\n\
          fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
          fn g() -> Int {{\n    let v = f()\n    if v is Err {{\n    }}\n    return 1\n}}\n"
     );
@@ -227,7 +227,7 @@ fn unknown_name_in_an_is_check_is_reported_once() {
 fn unknown_name_in_a_when_branch_does_not_cascade() {
     let src = format!(
         "qualifier Ok<T> of T\nqualifier Err<T> of T\n\n\
-         fn ok<T>(value: T) [] -> [] T as Ok {{\n    return value\n}}\n\n\
+         fn ok<T>(value: T) [] -> T as Ok => !value {{\n    return value\n}}\n\n\
          fn f() -> Ok Int | Err Str {{\n    return ok(1)\n}}\n\n\
          fn g() -> Int {{\n    let v = f()\n    when v {{\n        \
          is Ok {{\n            1\n        }}\n        \

@@ -117,7 +117,7 @@ fn main() [use] {
   (`provenance qualifier Authenticated of Request`) — only the former can
   be invalidated by mutation. A qualifier can also state what functions it
   does *not* own do to its claim (`refn add(list: Mut List<T>, elem: T)
-  -> [list: +NonEmpty]`), which is how a mutating call keeps a property it
+  => list: +NonEmpty`), which is how a mutating call keeps a property it
   has never heard of. Structs and qualifiers can be namespaced
   under a struct (`Environment.Id`), giving wrapper types without nesting.
 - **Everything is an expression**: `if`/`when` produce values; branch types
@@ -151,8 +151,13 @@ fn main() [use] {
   `Nothing`, so intermediate frames stay silent. The delimiter is
   `try { ... }`, whose value is `Ok T | Thrown M` — an ordinary union, so
   `when` reads it like any result.
-- **Deductions**: `-> [list: Mut] T` annotations describing what a function
-  does to its parameters — the ownership contract for the Rust backend.
+- **Deductions**: a clause after the return type — `-> T => list: Mut` —
+  describing what a function does to its parameters and what its result
+  borrows of them; whatever it leaves unsaid is inferred from the body. The
+  ownership contract for the Rust backend, and the one place Salvo states a
+  borrow: `Proj[from: list] T` returns an element without copying it, a
+  struct with `Proj` fields is a view, and a copy happens only where the
+  program writes `copy`.
 - **Interop**: a `platform effect` declares what the program needs from its
   target language; the compiler generates the interface and
   `salvo platform generate` writes the host implementation skeleton into

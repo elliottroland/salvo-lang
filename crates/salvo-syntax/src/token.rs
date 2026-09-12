@@ -85,6 +85,7 @@ pub enum TokenKind {
     Dot,
     Ellipsis, // ...
     Arrow,    // ->
+    FatArrow, // =>
     Pipe,     // |
     PipePipe, // ||
     AmpAmp,   // &&
@@ -206,6 +207,7 @@ impl TokenKind {
             TokenKind::Dot => ".",
             TokenKind::Ellipsis => "...",
             TokenKind::Arrow => "->",
+            TokenKind::FatArrow => "=>",
             TokenKind::Pipe => "|",
             TokenKind::PipePipe => "||",
             TokenKind::AmpAmp => "&&",

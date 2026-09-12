@@ -31,28 +31,28 @@ intrinsic type Bool\n\
 intrinsic type Char\n\
 intrinsic type Str\n\
 intrinsic type List<T> canbe Mut\n\
-intrinsic fn copy<T>(value: T) [] -> [value] T\n\
-intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n\
-intrinsic fn list<T>(...elems: T[]) [] -> [] List<T>\n\
-intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
-intrinsic fn size<T>(list: List<T>) [] -> [list] Int\n\
-intrinsic fn get<T>(list: List<T>, index: Int) [] -> [list, index] T?\n\
-intrinsic fn char_at(str: Str, index: Int) [] -> [str, index] Char?\n\
+intrinsic fn copy<T>(value: T) [] -> T => value\n\
+intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n\
+intrinsic fn list<T>(...elems: T[]) [] -> List<T>\n\
+intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
+intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
+intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index\n\
 qualifier Emitted<T> of T\n\
 struct Finished {}\n\
-fn emitted<T>(value: T) [] -> [] T as Emitted { return value }\n\
-fn finished() [] -> [] Finished { return Finished {} }\n\
+fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
+fn finished() [] -> Finished { return Finished {} }\n\
 params Yield<It, T> {\n\
-    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n\
+    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n\
 }\n\
 struct ListYield<T> : Yield<self, T> canbe Mut {\n\
     items: List<T>,\n\
     at: Int\n\
 }\n\
-fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T> {\n\
+fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => !list {\n\
     return Mut ListYield<T> { items: list, at: 0 }\n\
 }\n\
-fn next<T>(p: Mut ListYield<T>) [] -> [p: Mut] Emitted T | Finished {\n\
+fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
     let elem = get(p.items, p.at)\n\
     if elem is None {\n\
         return finished()\n\
@@ -64,10 +64,10 @@ struct StrYield : Yield<self, Char> canbe Mut {\n\
     text: Str,\n\
     at: Int\n\
 }\n\
-fn iter(str: Str) [] -> [] Mut StrYield {\n\
+fn iter(str: Str) [] -> Mut StrYield => !str {\n\
     return Mut StrYield { text: str, at: 0 }\n\
 }\n\
-fn next(p: Mut StrYield) [] -> [p: Mut] Emitted Char | Finished {\n\
+fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
     let chr = char_at(p.text, p.at)\n\
     if chr is None {\n\
         return finished()\n\
@@ -75,7 +75,7 @@ fn next(p: Mut StrYield) [] -> [p: Mut] Emitted Char | Finished {\n\
     p.at = p.at + 1\n\
     return emitted(chr)\n\
 }\n\
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {\n\
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
     let out = mutable_list<U>()\n\
     let going = true\n\
     while going {\n\
@@ -91,7 +91,7 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut 
     }\n\
     return out\n\
 }\n\
-fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [it: Mut, f] A {\n\
+fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f, !init {\n\
     let acc = init\n\
     let going = true\n\
     while going {\n\
@@ -107,7 +107,7 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [i
     }\n\
     return acc\n\
 }\n\
-intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>\n\
+intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f\n\
 ";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
@@ -159,7 +159,7 @@ fn messages(src: &str) -> Vec<String> {
 }
 
 fn probe(body: &str) -> String {
-    format!("fn probe() -> [] None {{\n{body}\n}}\n")
+    format!("fn probe() -> None {{\n{body}\n}}\n")
 }
 
 /// Which `map` overload a call resolved to: `true` for the intrinsic `List`
@@ -227,7 +227,7 @@ fn chains_compose_through_iter() {
 fn a_user_type_becomes_iterable_by_declaring_iter() {
     let src = format!(
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
-         fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {{\n    return iter(bag.items)\n}}\n\n{}",
+         fn iter(bag: Bag) -> Mut ListYield<Int> => bag {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
             "    let b = Bag {items: list(1, 2)}\n    \
              let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"
@@ -296,7 +296,7 @@ fn the_lead_narrows_before_the_lambda_is_typed() {
 /// element type comes off its result.
 #[test]
 fn a_generic_pass_is_driven_by_for() {
-    let src = "fn total<It>(it: Mut It, ?Yield<It, Int>) [] -> [it: Mut] Int {\n\
+    let src = "fn total<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {\n\
                \x20   let sum = 0\n\
                \x20   for n in it {\n\
                \x20       sum = sum + n\n\
@@ -311,7 +311,7 @@ fn a_generic_pass_is_driven_by_for() {
 /// which is what lets a combinator move each element into its output.
 #[test]
 fn a_driven_element_is_owned_not_derived() {
-    let src = "fn keep<It, T>(it: Mut It, ?Yield<It, T>) [] -> [it: Mut] Mut List<T> {\n\
+    let src = "fn keep<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<T> => it: Mut {\n\
                \x20   let out = mutable_list<T>()\n\
                \x20   for x in it {\n\
                \x20       add(out, x)\n\
@@ -325,7 +325,7 @@ fn a_driven_element_is_owned_not_derived() {
 /// ordinary not-iterable one [iter-resolve]: a bare type parameter says nothing.
 #[test]
 fn a_type_parameter_without_the_spread_is_not_iterable() {
-    let src = "fn total<It>(it: Mut It) [] -> [it: Mut] Int {\n\
+    let src = "fn total<It>(it: Mut It) [] -> Int => it: Mut {\n\
                \x20   let sum = 0\n\
                \x20   for n in it {\n\
                \x20       sum = sum + 1\n\
@@ -343,7 +343,7 @@ fn a_type_parameter_without_the_spread_is_not_iterable() {
 /// declared `next` does: advancing a pass mutates its position [iter-protocol].
 #[test]
 fn a_non_mut_position_cannot_be_driven() {
-    let src = "fn total<It, T>(it: Mut It, ?next: (It) -> Emitted T | Finished) [] -> [it: Mut] Int {\n\
+    let src = "fn total<It, T>(it: Mut It, ?next: (It) -> Emitted T | Finished) [] -> Int => it: Mut {\n\
                \x20   let sum = 0\n\
                \x20   for n in it {\n\
                \x20       sum = sum + 1\n\
@@ -370,10 +370,10 @@ fn an_own_pass_named_like_stds_resolves_to_the_own_next() {
                \x20   items: List<T>,\n\
                \x20   at: Int\n\
                }\n\
-               fn mine<T>(items: List<T>) [] -> [] Mut ListYield<T> {\n\
+               fn mine<T>(items: List<T>) [] -> Mut ListYield<T> => !items {\n\
                \x20   return Mut ListYield<T> { items: items, at: 0 }\n\
                }\n\
-               fn next<T>(p: Mut ListYield<T>) [] -> [p: Mut] Emitted T | Finished {\n\
+               fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
                \x20   let elem = get(p.items, p.at)\n\
                \x20   if elem is None {\n\
                \x20       return finished()\n\
@@ -381,7 +381,7 @@ fn an_own_pass_named_like_stds_resolves_to_the_own_next() {
                \x20   p.at = p.at + 1\n\
                \x20   return emitted(elem)\n\
                }\n\
-               fn main() [] -> [] None {\n\
+               fn main() [] -> None {\n\
                \x20   let p = mine(list(1, 2))\n\
                \x20   for x in p {\n\
                \x20       let y = x\n\

@@ -73,11 +73,11 @@ struct Person {
     name: Str
 }
 
-fn shout(s: Str) [] -> [s] Str { return "" }
+fn shout(s: Str) [] -> Str => s { return "" }
 "#;
 
 fn body(src: &str) -> String {
-    format!("{PRELUDE}\nfn probe(p: Person) -> [p] Int {{\n{src}\n    return 1\n}}\n")
+    format!("{PRELUDE}\nfn probe(p: Person) -> Int => p {{\n{src}\n    return 1\n}}\n")
 }
 
 // ===== calls [call-resolve] =====
@@ -148,7 +148,7 @@ fn calling_a_non_fn_value_is_an_error() {
 #[test]
 fn calling_a_generic_value_is_an_error() {
     let src = format!(
-        "{PRELUDE}\nfn probe<T>(f: T) -> [f] Int {{\n    f()\n    return 1\n}}\n"
+        "{PRELUDE}\nfn probe<T>(f: T) -> Int => f {{\n    f()\n    return 1\n}}\n"
     );
     let errs = messages(&src);
     let diag = errs
@@ -202,7 +202,7 @@ fn field_on_a_non_struct_is_an_error() {
 #[test]
 fn field_on_an_opaque_type_is_an_error() {
     let src = format!(
-        "{PRELUDE}\nfn probe(o: Opaque) -> [o] Int {{\n    let x = o.member\n    return 1\n}}\n"
+        "{PRELUDE}\nfn probe(o: Opaque) -> Int => o {{\n    let x = o.member\n    return 1\n}}\n"
     );
     let errs = messages(&src);
     assert!(
@@ -216,7 +216,7 @@ fn field_on_an_opaque_type_is_an_error() {
 #[test]
 fn field_on_a_generic_is_an_error() {
     let src = format!(
-        "{PRELUDE}\nfn probe<T>(v: T) -> [v] Int {{\n    let x = v.name\n    return 1\n}}\n"
+        "{PRELUDE}\nfn probe<T>(v: T) -> Int => v {{\n    let x = v.name\n    return 1\n}}\n"
     );
     let errs = messages(&src);
     let diag = errs
@@ -282,13 +282,13 @@ fn iterating_an_array_is_fine() {
 const EFFECT_PRELUDE: &str = r#"
 
 effect Counter {
-    fn bump() -> [] Int
+    fn bump() -> Int
 }
 
 handler MemCounter of Counter {
     n: Int = 0
 
-    fn bump() -> [] Int {
+    fn bump() -> Int {
         n = n + 1
         return n
     }
@@ -308,9 +308,9 @@ fn effect_messages(src: &str) -> Vec<String> {
 fn handler_state_initializers_are_checked() {
     let errs = messages(
         "\n\
-         effect Sink {\n    fn kept() -> [] Int\n}\n\n\
+         effect Sink {\n    fn kept() -> Int\n}\n\n\
          handler Bin of Sink {\n    held: Int = \"not an int\"\n\n    \
-         fn kept() -> [] Int {\n        return held\n    }\n}\n",
+         fn kept() -> Int {\n        return held\n    }\n}\n",
     );
     let diag = errs
         .iter()
@@ -321,7 +321,7 @@ fn handler_state_initializers_are_checked() {
 
 #[test]
 fn a_well_typed_handler_state_initializer_is_accepted() {
-    let errs = effect_messages("fn main() [use] -> [] Int {\n    use MemCounter\n    return bump()\n}\n");
+    let errs = effect_messages("fn main() [use] -> Int {\n    use MemCounter\n    return bump()\n}\n");
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
@@ -332,7 +332,7 @@ fn a_well_typed_handler_state_initializer_is_accepted() {
 fn effect_types_are_rejected_in_data_positions() {
     let cases = [
         ("struct S {\n    c: Counter\n}\n", "struct field"),
-        ("fn f(c: Counter) -> [c] Int {\n    return 1\n}\n", "parameter"),
+        ("fn f(c: Counter) -> Int => c {\n    return 1\n}\n", "parameter"),
         ("fn f() -> Counter {\n    return 1\n}\n", "return type"),
         (
             "fn f() -> Int {\n    let c: Counter = 1\n    return 1\n}\n",
@@ -384,7 +384,7 @@ fn handler_constructors_are_not_values() {
 #[test]
 fn use_still_registers_handlers() {
     let errs = effect_messages(
-        "fn main() [use] -> [] Int {\n    use MemCounter()\n    return bump()\n}\n",
+        "fn main() [use] -> Int {\n    use MemCounter()\n    return bump()\n}\n",
     );
     assert!(errs.is_empty(), "got {errs:?}");
 }
@@ -394,9 +394,9 @@ fn use_still_registers_handlers() {
 /// *dependency*, and the member bodies may use that effect.
 #[test]
 fn handler_dependencies_are_accepted() {
-    let src = "effect Logger {\n    fn log(m: Str) -> [m] None\n}\n\n\
+    let src = "effect Logger {\n    fn log(m: Str) -> None => m\n}\n\n\
                handler CountingLogger(counter: Counter) of Logger {\n    \
-               fn log(m: Str) -> [m] None {\n        let n = bump()\n    }\n}\n";
+               fn log(m: Str) -> None => m {\n        let n = bump()\n    }\n}\n";
     let errs = effect_messages(src);
     assert!(errs.is_empty(), "got {errs:?}");
 }
@@ -407,7 +407,7 @@ fn handler_dependencies_are_accepted() {
 fn handler_cannot_depend_on_its_own_effect() {
     let errs = effect_messages(
         "handler Wrapper(inner: Counter) of Counter {\n    \
-         fn bump() -> [] Int {\n        return 0\n    }\n}\n",
+         fn bump() -> Int {\n        return 0\n    }\n}\n",
     );
     assert!(
         errs.iter().any(|m| m
@@ -423,18 +423,18 @@ fn handler_cannot_depend_on_its_own_effect() {
 #[test]
 fn dependency_cycles_cannot_be_registered() {
     let cyclic = "\n\
-        effect Alpha {\n    fn a(m: Str) -> [m] None\n}\n\n\
-        effect Beta {\n    fn b(m: Str) -> [m] None\n}\n\n\
+        effect Alpha {\n    fn a(m: Str) -> None => m\n}\n\n\
+        effect Beta {\n    fn b(m: Str) -> None => m\n}\n\n\
         handler AlphaViaBeta(beta: Beta) of Alpha {\n    \
-        fn a(m: Str) -> [m] None {\n        b(m)\n    }\n}\n\n\
+        fn a(m: Str) -> None => m {\n        b(m)\n    }\n}\n\n\
         handler BetaViaAlpha(alpha: Alpha) of Beta {\n    \
-        fn b(m: Str) -> [m] None {\n        a(m)\n    }\n}\n";
+        fn b(m: Str) -> None => m {\n        a(m)\n    }\n}\n";
     for (first, second, blamed) in [
         ("AlphaViaBeta", "BetaViaAlpha", "Beta"),
         ("BetaViaAlpha", "AlphaViaBeta", "Alpha"),
     ] {
         let src = format!(
-            "{cyclic}\nfn main() [use] -> [] None {{\n    use {first}()\n    \
+            "{cyclic}\nfn main() [use] -> None {{\n    use {first}()\n    \
              use {second}()\n}}\n"
         );
         let errs = messages(&src);
@@ -452,19 +452,19 @@ fn dependency_cycles_cannot_be_registered() {
 /// be available there.
 #[test]
 fn handler_dependencies_come_from_the_use_scope() {
-    let prelude = "effect Logger {\n    fn log(m: Str) -> [m] None\n}\n\n\
+    let prelude = "effect Logger {\n    fn log(m: Str) -> None => m\n}\n\n\
                    handler CountingLogger(counter: Counter) of Logger {\n    \
-                   fn log(m: Str) -> [m] None {\n        let n = bump()\n    }\n}\n";
+                   fn log(m: Str) -> None => m {\n        let n = bump()\n    }\n}\n";
     // Registered *after* its dependency: fine, and no argument is written.
     let ok = effect_messages(&format!(
-        "{prelude}\nfn main() [use] -> [] None {{\n    use MemCounter()\n    \
+        "{prelude}\nfn main() [use] -> None {{\n    use MemCounter()\n    \
          use CountingLogger()\n    log(\"x\")\n}}\n"
     ));
     assert!(ok.is_empty(), "got {ok:?}");
 
     // Without the dependency in scope: rejected at the registration.
     let missing = effect_messages(&format!(
-        "{prelude}\nfn main() [use] -> [] None {{\n    use CountingLogger()\n    \
+        "{prelude}\nfn main() [use] -> None {{\n    use CountingLogger()\n    \
          log(\"x\")\n}}\n"
     ));
     assert!(
@@ -631,7 +631,7 @@ fn a_variable_that_is_only_assigned_warns() {
 /// one — so the warning would fire where nothing can be done about it.
 #[test]
 fn an_unused_parameter_does_not_warn() {
-    let msgs = all_messages("fn takes(a: Int, b: Int) -> [] Int {\n    return a\n}\n");
+    let msgs = all_messages("fn takes(a: Int, b: Int) -> Int {\n    return a\n}\n");
     assert!(
         !msgs.iter().any(|m| m.contains("never used")),
         "expected no parameter warning: {msgs:?}"

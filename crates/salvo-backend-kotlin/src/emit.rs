@@ -500,6 +500,11 @@ struct Emitter<'p> {
     mutated: HashSet<String>,
     /// Generic parameters in scope (treated as opaque type names).
     generics: HashSet<String>,
+    /// [copy-implicit] The implicit constructor parameters of the handler
+    /// whose members are being emitted: a call to one goes through the
+    /// property (`copy(v)`), shadowing any fn of that name — exactly as a
+    /// fn's own implicit parameter does.
+    ctor_implicits: HashSet<String>,
     /// [kt-suppress-cast] Whether the function body being emitted contains
     /// a cast kotlinc would flag as unchecked (an erased payload read cast
     /// to a generic parameter or a parameterized type). `emit_fn_inner`
@@ -573,6 +578,7 @@ impl<'p> Emitter<'p> {
             effect_env: Vec::new(),
             mutated: HashSet::new(),
             generics: HashSet::new(),
+            ctor_implicits: HashSet::new(),
             unchecked_cast: false,
             loop_results: Vec::new(),
             loop_id: 0,
@@ -1115,9 +1121,17 @@ impl<'p> Emitter<'p> {
         }
         let deps = self.handler_dep_entries(h);
         let saved_deps = std::mem::replace(&mut self.handler_deps, deps);
+        let ctor_implicits: HashSet<String> = h
+            .params
+            .iter()
+            .filter(|p| p.implicit)
+            .map(|p| p.name.name.clone())
+            .collect();
+        let saved_ctor = std::mem::replace(&mut self.ctor_implicits, ctor_implicits);
         for f in &h.fns {
             out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
         }
+        self.ctor_implicits = saved_ctor;
         self.handler_deps = saved_deps;
         out.push_str("}\n");
         self.generics = saved;
@@ -2264,6 +2278,28 @@ impl<'p> Emitter<'p> {
                         // Unchecked context: fall back to the rendered type.
                         let rendered = self.emit_type(&p.ty);
                         ctor_args.push(self.lookup_effect_handler_by_type(&rendered));
+                    }
+                }
+            } else if p.implicit {
+                // [copy-implicit] An implicit constructor parameter arrives
+                // as the adapter the checker resolved at this `use` — the
+                // same rendering a fn call's implicit arguments get.
+                let filled = self.emit_implicit_args(&[], span);
+                let idx = decl
+                    .params
+                    .iter()
+                    .filter(|q| q.implicit)
+                    .position(|q| q.name.name == p.name.name)
+                    .unwrap_or(0);
+                match filled.get(idx) {
+                    Some(code) => ctor_args.push(code.clone()),
+                    None => {
+                        self.error(format!(
+                            "internal: no value resolved for implicit constructor \
+                             parameter `{}`",
+                            p.name.name
+                        ));
+                        ctor_args.push("TODO()".to_string());
                     }
                 }
             } else if let Some(code) = written.next() {
@@ -4052,7 +4088,7 @@ impl<'p> Emitter<'p> {
         // [implicit-param] An implicit parameter shadows the fns of the same
         // name inside the body: it *is* one of them, chosen by the caller, so
         // the call goes through the parameter rather than resolving again.
-        if self.implicits.iter().any(|i| i.name == name) {
+        if self.implicits.iter().any(|i| i.name == name) || self.ctor_implicits.contains(name) {
             let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
             return format!("{}({})", kt_ident(name), arg_code.join(", "));
         }
@@ -4162,9 +4198,26 @@ impl<'p> Emitter<'p> {
             .cloned()
             .unwrap_or(Ty::Unknown);
         let code = self.emit_expr(arg);
+        match self.copy_code(&ty, &code) {
+            Some(copied) => return copied,
+            None => {
+                self.error(format!(
+                    "the kotlin backend cannot `copy` a value of type `{ty}` yet"
+                ));
+                return "TODO()".to_string();
+            }
+        }
+    }
+
+    /// [kt-copy] The copy of a value of type `ty`, given its code, or `None`
+    /// where this backend cannot copy the shape correctly (a shallow copy
+    /// would alias mutable parts). Shared by `copy(x)` calls and by `copy`
+    /// resolved as an implicit *value* at a concrete type [copy-implicit].
+    fn copy_code(&mut self, ty: &Ty, code: &str) -> Option<String> {
+        let code = code.to_string();
         // Identity: no Salvo operation can mutate any part of the value.
-        if self.ty_immutable(&ty, &mut Vec::new()) {
-            return code;
+        if self.ty_immutable(ty, &mut Vec::new()) {
+            return Some(code);
         }
         // Real copies for the mutable shapes Kotlin can copy correctly.
         let has_mut = ty.quals().iter().any(|q| q.name == "Mut");
@@ -4173,11 +4226,11 @@ impl<'p> Emitter<'p> {
             // a new builder over the same characters — identity here would
             // alias the buffer, which is the whole point of [kt-copy].
             Ty::Named { name, .. } if has_mut && name == "Str" => {
-                return format!("StringBuilder({code})");
+                return Some(format!("StringBuilder({code})"));
             }
             Ty::Named { name, args: targs } if has_mut && name == "List" => {
                 if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {
-                    return format!("{code}.toMutableList()");
+                    return Some(format!("{code}.toMutableList()"));
                 }
             }
             Ty::Named { name, args: targs } if has_mut => {
@@ -4198,21 +4251,18 @@ impl<'p> Emitter<'p> {
                         }
                     });
                     if all_immutable {
-                        return format!("{code}.copy()");
+                        return Some(format!("{code}.copy()"));
                     }
                 }
             }
             Ty::Array(elem) => {
                 if self.ty_immutable(elem, &mut Vec::new()) {
-                    return format!("{code}.copyOf()");
+                    return Some(format!("{code}.copyOf()"));
                 }
             }
             _ => {}
         }
-        self.error(format!(
-            "the kotlin backend cannot `copy` a value of type `{ty}` yet"
-        ));
-        "TODO()".to_string()
+        None
     }
 
     /// The rendered arguments of an `intrinsic fn` call, in declaration
@@ -4445,9 +4495,33 @@ impl<'p> Emitter<'p> {
                 salvo_core::ImplicitArg::Forwarded { name } => {
                     out.push(kt_ident(name));
                 }
-                salvo_core::ImplicitArg::Resolved { name, key } => {
+                salvo_core::ImplicitArg::Resolved { name, key, want } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
+                            // [copy-implicit] `copy` lowers by the argument's
+                            // *shape*, which as a value is the position's
+                            // concrete parameter type — known here, where a
+                            // generic body could not know it [kt-copy].
+                            if decl.intrinsic && decl.name.name == "copy" {
+                                let param_ty = match want.strip_quals() {
+                                    Ty::Fn { params, .. } => params.first().cloned(),
+                                    _ => None,
+                                };
+                                let copied = param_ty
+                                    .as_ref()
+                                    .and_then(|t| self.copy_code(t, "__i0"));
+                                match copied {
+                                    Some(body) => out.push(format!("{{ __i0 -> {body} }}")),
+                                    None => {
+                                        self.error(format!(
+                                            "the kotlin backend cannot `copy` a value of type `{}` yet",
+                                            param_ty.map(|t| t.to_string()).unwrap_or_default()
+                                        ));
+                                        out.push("TODO()".to_string());
+                                    }
+                                }
+                                continue;
+                            }
                             // [implicit-intrinsic] An `intrinsic fn` has no
                             // Kotlin name to reference: it *is* a lowering.
                             // So the value passed is an adapter lambda whose
@@ -4945,7 +5019,7 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
                 base: TypeRef {
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),
-                    from: None,
+                    from: base.from.clone(),
                     span: base.span,
                 },
             }

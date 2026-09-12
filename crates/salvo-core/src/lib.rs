@@ -4,6 +4,7 @@
 pub mod check;
 pub mod deduce;
 pub mod diag;
+pub mod lends;
 pub mod place;
 pub mod platform;
 pub mod program;

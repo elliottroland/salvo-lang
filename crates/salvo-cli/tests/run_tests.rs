@@ -64,7 +64,7 @@ fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
 /// Prints three lines, one per branch of a subject-less `when`
 /// [when-condition] — enough to prove the program really ran.
 const HELLO: &str = r#"
-fn classify(n: Int) -> [] Str {
+fn classify(n: Int) -> Str {
     return when {
         n < 0 { "negative" }
         n == 0 { "zero" }
@@ -72,7 +72,7 @@ fn classify(n: Int) -> [] Str {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     println(classify(-5))
     println(classify(0))
@@ -146,7 +146,7 @@ fn main_flag_selects_among_several_entry_points() {
         fs::write(
             dir.join(file),
             format!(
-                "fn main() [use] -> [] None {{\n    use StdOutConsole\n    \
+                "fn main() [use] -> None {{\n    use StdOutConsole\n    \
                  println(\"{text}\")\n}}\n"
             ),
         )
@@ -193,7 +193,7 @@ fn the_programs_exit_code_is_the_commands() {
     let dir = work_dir("exit_code");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdOutConsole\n    \
          let numbers = [1, 2, 3]\n    let i = 10\n    \
          println(\"value ${numbers[i]}\")\n}\n",
     )
@@ -339,13 +339,13 @@ fn src_and_main_together_allow_a_nested_entry_point() {
     fs::create_dir_all(&bin).unwrap();
     fs::write(
         dir.join("helper.sv"),
-        "fn label(n: Int) -> [] Str {\n    return when {\n        \
+        "fn label(n: Int) -> Str {\n    return when {\n        \
          n < 0 { \"neg\" }\n        else { \"nonneg\" }\n    }\n}\n",
     )
     .unwrap();
     fs::write(
         bin.join("tool.sv"),
-        "import helper.label\n\nfn main() [use] -> [] None {\n    \
+        "import helper.label\n\nfn main() [use] -> None {\n    \
          use StdOutConsole\n    println(\"nested ${label(3)}\")\n}\n",
     )
     .unwrap();
@@ -443,7 +443,7 @@ fn a_missing_main_is_an_error() {
     let dir = work_dir("no_main");
     fs::write(
         dir.join("lib.sv"),
-        "fn helper(n: Int) -> [] Int {\n    return n + 1\n}\n",
+        "fn helper(n: Int) -> Int {\n    return n + 1\n}\n",
     )
     .unwrap();
 
@@ -500,7 +500,7 @@ fn a_check_error_stops_the_run() {
     let dir = work_dir("check_error");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdOutConsole\n    \
          let n: Int = \"not an int\"\n    println(\"${n}\")\n}\n",
     )
     .unwrap();
@@ -549,12 +549,12 @@ fn a_target_holding_sources_is_never_deleted() {
 const REFN_CONFLICT: &str = r#"
 qualifier Q1<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) -> [list: +Q1]
+    refn add(list: Mut List<T>, elem: T) => list: +Q1
 }
 
 qualifier Q2<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) -> [list: +Q2]
+    refn add(list: Mut List<T>, elem: T) => list: +Q2
 }
 
 fn main() [use] {

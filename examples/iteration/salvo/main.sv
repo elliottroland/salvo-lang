@@ -10,7 +10,7 @@
 // `for` straight over a `List`, an array or a `Str` is the shape the backends
 // keep a native loop for: no pass is allocated and the container is not
 // consumed, so `xs` is still readable after the loop.
-fn describe_container(xs: List<Int>) [Console] -> [xs] None {
+fn describe_container(xs: List<Int>) [Console] -> None => xs {
     let sum = 0
     for n in xs {
         sum = sum + n
@@ -44,13 +44,13 @@ struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn countdown(from: Int) -> [] Mut Countdown {
+fn countdown(from: Int) -> Mut Countdown {
     return Mut Countdown { at: from }
 }
 
 // Advancing is a mutation of the position, which is why the parameter is
 // `Mut` and is handed back with `[p: Mut]`.
-fn next(p: Mut Countdown) -> [p: Mut] Emitted Int | Finished {
+fn next(p: Mut Countdown) -> Emitted Int | Finished => p: Mut {
     if p.at <= 0 {
         return finished()
     }
@@ -61,7 +61,7 @@ fn next(p: Mut Countdown) -> [p: Mut] Emitted Int | Finished {
 
 // A pass is a value, so it can be driven in stages: this loop leaves the pass
 // where the `break` found it, and the caller carries on from there.
-fn take(p: Mut Countdown, count: Int) [Console] -> [p: Mut] None {
+fn take(p: Mut Countdown, count: Int) [Console] -> None => p: Mut {
     let seen = 0
     for n in p {
         println("2. got ${n}")
@@ -108,7 +108,7 @@ struct Fibs {
     count: Int
 }
 
-fn fibs(count: Int) -> [] Fibs {
+fn fibs(count: Int) -> Fibs {
     return Fibs { count: count }
 }
 
@@ -137,7 +137,7 @@ struct Naturals {
     from: Int
 }
 
-fn naturals(from: Int) -> [] Naturals {
+fn naturals(from: Int) -> Naturals {
     return Naturals { from: from }
 }
 
@@ -156,7 +156,7 @@ iter fn next(n: Naturals) -> Emitted Int | Finished {
 // trait: it asks for the `next` that fits the subject, and the call site fills
 // it. That spread is also the declaration `for` reads, so a generic pass is
 // driven exactly like a named one.
-fn sum_of<It>(it: Mut It, ?Yield<It, Int>) -> [it: Mut] Int {
+fn sum_of<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
     let total = 0
     for n in it {
         total = total + n
@@ -219,7 +219,10 @@ fn main() [use] {
     let lengths = map(iter(words), w -> size(w))
     println("5. lengths: ${reduce(iter(lengths), 0, (acc, n) -> acc + n)}")
 
-    let vowels = filter(iter("iteration"), c -> c == 'i' || c == 'o')
+    // `filter` returns a *view* of the elements it keeps, so what it walks
+    // has to outlive the result: a literal would die at the end of the line.
+    let word = "iteration"
+    let vowels = filter(iter(word), c -> c == 'i' || c == 'o')
     println("5. vowels: ${size(vowels)}")
 
     // A generator is a pass like any other, so it composes with them too.

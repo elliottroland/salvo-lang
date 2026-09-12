@@ -18,12 +18,12 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str =
     "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
      intrinsic type List<T> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> [value] T\n\
-     intrinsic fn get<T>(list: List<T>, index: Int) [] -> [list, index] T?\n\
+     intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
-     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n";
+     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     fn finished() [] -> Finished {\n    return Finished {}\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -73,7 +73,7 @@ fn errors(src: &str) -> Vec<String> {
 /// [group-self].
 const PROTO: &str = r#"
 params Step<It, T> {
-    fn advance(it: Mut It) -> [it: Mut] Emitted T | Finished
+    fn advance(it: Mut It) -> Emitted T | Finished => it: Mut
 }
 "#;
 
@@ -87,7 +87,7 @@ struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
-fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
+fn advance(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{
     if c.at <= 0 {{
         return finished()
     }}
@@ -128,7 +128,7 @@ struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
-fn advance(c: Countdown) -> [c] Emitted Int | Finished {{
+fn advance(c: Countdown) -> Emitted Int | Finished => c {{
     return finished()
 }}
 "
@@ -152,7 +152,7 @@ struct Zip<A, B> : Step<self, (A, B)> canbe Mut {{
     at: Int
 }}
 
-fn advance<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished {{
+fn advance<A, B>(z: Mut Zip<A, B>) -> Emitted (A, B) | Finished => z: Mut {{
     let l = get(z.left, z.at)
     let r = get(z.right, z.at)
     if l is A && r is B {{
@@ -176,7 +176,7 @@ struct Twin<A, B> : Step<self, (A, B)> canbe Mut {{
     xs: List<A>
 }}
 
-fn advance<A>(t: Mut Twin<A, A>) -> [t: Mut] Emitted (A, A) | Finished {{
+fn advance<A>(t: Mut Twin<A, A>) -> Emitted (A, A) | Finished => t: Mut {{
     return finished()
 }}
 "
@@ -245,7 +245,7 @@ struct B : Step<self, Int>, Step<self, Int> canbe Mut {{
     x: Int
 }}
 
-fn advance(b: Mut B) -> [b: Mut] Emitted Int | Finished {{
+fn advance(b: Mut B) -> Emitted Int | Finished => b: Mut {{
     return finished()
 }}
 "
@@ -278,11 +278,11 @@ struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
-fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
+fn advance(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{
     return finished()
 }}
 
-fn drive<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
+fn drive<It>(source: Mut It, ?Step<It, Int>) -> Int => source: Mut {{
     let step = advance(source)
     return 0
 }}
@@ -292,7 +292,7 @@ fn drive<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
 }
 
 /// [implicit-group] [fn-contract] A spread member's **deduction list is part
-/// of the position**: `fn advance(it: Mut It) -> [it: Mut] …` is filled by an
+/// of the position**: `fn advance(it: Mut It) -> …` is filled by an => it: Mut
 /// implementation that mutates its parameter, which is the whole point of a
 /// pass. The member's fn type used to be built without its contract, so
 /// every parameter read as kept-and-immutable and no real `advance` could
@@ -306,7 +306,7 @@ struct Countdown : Step<self, Int> canbe Mut {{
     at: Int
 }}
 
-fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
+fn advance(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {{
     if c.at <= 0 {{
         return finished()
     }}
@@ -315,7 +315,7 @@ fn advance(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {{
     return emitted(v)
 }}
 
-fn drain<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
+fn drain<It>(source: Mut It, ?Step<It, Int>) -> Int => source: Mut {{
     let n = 0
     let going = true
     while going {{
@@ -332,7 +332,7 @@ fn drain<It>(source: Mut It, ?Step<It, Int>) -> [source: Mut] Int {{
     return n
 }}
 
-fn go() -> [] Int {{
+fn go() -> Int {{
     return drain(Mut Countdown {{ at: 3 }})
 }}
 "

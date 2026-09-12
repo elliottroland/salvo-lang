@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn first<T>(list: List<T>) [] -> [list] Proj[from: list] T?\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type List<T> canbe Mut\nintrinsic fn first<T>(list: List<T>) [] -> Proj[from: list] T? => list\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -70,15 +70,15 @@ qualifier Ok<T> of T
 qualifier Err<T> of T
 qualifier Surname of Person
 
-fn note(text: Str) [] -> [text] None {}
-fn read(p: Person) [] -> [p] None {}
-fn touch(p: Mut Person) [] -> [p: Mut] None {}
+fn note(text: Str) [] -> None => text {}
+fn read(p: Person) [] -> None => p {}
+fn touch(p: Mut Person) [] -> None => p: Mut {}
 
-fn ok(value: Int) [] -> [] Int as Ok {
+fn ok(value: Int) [] -> Int as Ok {
     return value
 }
 
-fn err(value: Str) [] -> [] Str as Err {
+fn err(value: Str) [] -> Str as Err => !value {
     return value
 }
 "#;
@@ -90,8 +90,8 @@ fn err(value: Str) [] -> [] Str as Err {
 fn a_widening_branch_opens_a_nested_union() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn outcome() [] -> [] Ok (Ok Int | Err Str) | Err Str {{ return err(\"e\") }}\n\
-         fn probe() [] -> [] None {{\n\
+         fn outcome() [] -> Ok (Ok Int | Err Str) | Err Str {{ return err(\"e\") }}\n\
+         fn probe() [] -> None {{\n\
          let o = outcome()\n\
          when o {{\n\
          ^ Ok {{\n\
@@ -115,7 +115,7 @@ fn a_widening_branch_opens_a_nested_union() {
 fn widening_strips_a_qualifier_in_an_if() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe(p: Mut Person) [] -> [p: Mut] None {{\n\
+         fn probe(p: Mut Person) [] -> None => p: Mut {{\n\
          if p ^ Mut {{\n\
          read(p)\n\
          }}\n\
@@ -130,7 +130,7 @@ fn widening_strips_a_qualifier_in_an_if() {
 fn a_widened_value_loses_what_the_qualifier_granted() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe(p: Mut Person) [] -> [p: Mut] None {{\n\
+         fn probe(p: Mut Person) [] -> None => p: Mut {{\n\
          if p ^ Mut {{\n\
          touch(p)\n\
          }}\n\
@@ -155,7 +155,7 @@ fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
     for (qual, needle) in [("Once", "once-callable"), ("Linear", "use obligation")] {
         let errs = errors(&format!(
             "{PRELUDE}\n\
-             fn probe(p: Person) [] -> [p] None {{\n\
+             fn probe(p: Person) [] -> None => p {{\n\
              if p ^ {qual} {{\n\
              read(p)\n\
              }}\n\
@@ -178,7 +178,7 @@ fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
 fn widening_a_qualifier_the_value_lacks_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe(p: Person) [] -> [p] None {{\n\
+         fn probe(p: Person) [] -> None => p {{\n\
          if p ^ Surname {{\n\
          read(p)\n\
          }}\n\
@@ -197,8 +197,8 @@ fn widening_a_qualifier_the_value_lacks_is_rejected() {
 fn a_type_on_the_right_of_widening_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn outcome() [] -> [] Ok Int | Err Str {{ return err(\"e\") }}\n\
-         fn probe() [] -> [] None {{\n\
+         fn outcome() [] -> Ok Int | Err Str {{ return err(\"e\") }}\n\
+         fn probe() [] -> None {{\n\
          let o = outcome()\n\
          if o ^ Ok Int {{\n\
          note(\"ok\")\n\
@@ -218,8 +218,8 @@ fn a_type_on_the_right_of_widening_is_rejected() {
 fn widening_more_than_one_arm_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn pair() [] -> [] Ok Int | Ok Str {{ return ok(1) }}\n\
-         fn probe() [] -> [] None {{\n\
+         fn pair() [] -> Ok Int | Ok Str {{ return ok(1) }}\n\
+         fn probe() [] -> None {{\n\
          let o = pair()\n\
          if o ^ Ok {{\n\
          note(\"ok\")\n\
@@ -261,8 +261,8 @@ fn a_widening_check_takes_no_binding() {
 fn a_widening_branch_consumes_its_arms() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn outcome() [] -> [] Ok Int | Err Str {{ return err(\"e\") }}\n\
-         fn probe() [] -> [] None {{\n\
+         fn outcome() [] -> Ok Int | Err Str {{ return err(\"e\") }}\n\
+         fn probe() [] -> None {{\n\
          let o = outcome()\n\
          when o {{\n\
          ^ Ok {{ note(\"ok\") }}\n\
@@ -294,7 +294,7 @@ fn a_widening_branch_consumes_its_arms() {
 const GROUP_PRELUDE: &str = r#"
 qualifier Emitted<T> of T
 
-fn emitted<T>(value: T) [] -> [] T as Emitted {
+fn emitted<T>(value: T) [] -> T as Emitted => !value {
     return value
 }
 "#;
@@ -306,7 +306,7 @@ fn emitted<T>(value: T) [] -> [] T as Emitted {
 fn a_qualifier_applied_to_a_qualified_value_reaches_a_group_arm() {
     let errs = errors(&format!(
         "{PRELUDE}{GROUP_PRELUDE}\n\
-         fn step(flag: Bool) [] -> [] Emitted (Ok Int | Err Str) | Err Str {{\n\
+         fn step(flag: Bool) [] -> Emitted (Ok Int | Err Str) | Err Str {{\n\
          if flag {{ return emitted(ok(1)) }}\n\
          return err(\"done\")\n\
          }}\n"
@@ -320,7 +320,7 @@ fn a_qualifier_applied_to_a_qualified_value_reaches_a_group_arm() {
 fn the_remainder_picks_the_inner_arm() {
     let errs = errors(&format!(
         "{PRELUDE}{GROUP_PRELUDE}\n\
-         fn step(flag: Bool) [] -> [] Emitted (Ok Int | Err Str) | Ok Bool {{\n\
+         fn step(flag: Bool) [] -> Emitted (Ok Int | Err Str) | Ok Bool {{\n\
          if flag {{ return emitted(err(\"bad\")) }}\n\
          return emitted(ok(1))\n\
          }}\n"
@@ -337,7 +337,7 @@ fn the_remainder_picks_the_inner_arm() {
 fn a_remainder_that_fits_no_inner_arm_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}{GROUP_PRELUDE}\n\
-         fn step() [] -> [] Emitted (Ok Int | Ok Str) | Ok Bool {{\n\
+         fn step() [] -> Emitted (Ok Int | Ok Str) | Ok Bool {{\n\
          return emitted(err(\"bad\"))\n\
          }}\n"
     ));
@@ -357,7 +357,7 @@ fn a_remainder_that_fits_no_inner_arm_is_rejected() {
 fn the_same_qualifier_twice_deduplicates_and_says_so() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn step() [] -> [] Ok (Ok Int | Err Str) | Err Str {{\n\
+         fn step() [] -> Ok (Ok Int | Err Str) | Err Str {{\n\
          return ok(ok(1))\n\
          }}\n"
     ));
@@ -368,7 +368,7 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
     );
 }
 
-// ===== `Proj` placement [proj-anywhere] [proj-no-field] =====
+// ===== `Proj` placement [proj-anywhere] [proj-field] =====
 
 /// [proj-anywhere] `Proj[from: p]` is an ordinary qualifier now, writable
 /// wherever a type appears: the old return prefix and the union-arm spelling
@@ -377,9 +377,9 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
 fn proj_is_writable_in_arm_and_parameter_positions() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head_a(list: List<Person>) [] -> [list] Proj[from: list] Person? {{\n    return first(list)\n}}\n\
-         fn head_b(list: List<Person>) [] -> [list] (Proj[from: list] Person)? {{\n    return first(list)\n}}\n\
-         fn hold(p: Proj Person) [] -> [p] Int {{\n    return 1\n}}\n"
+         fn head_a(list: List<Person>) [] -> Proj[from: list] Person? => list {{\n    return first(list)\n}}\n\
+         fn head_b(list: List<Person>) [] -> (Proj[from: list] Person)? => list {{\n    return first(list)\n}}\n\
+         fn hold(p: Proj Person) [] -> Int => p {{\n    return 1\n}}\n"
     ));
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
 }
@@ -389,7 +389,7 @@ fn proj_is_writable_in_arm_and_parameter_positions() {
 fn a_proj_return_without_a_source_is_an_error() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head(list: List<Person>) [] -> [list] Proj Person? {{\n    return first(list)\n}}\n"
+         fn head(list: List<Person>) [] -> Proj Person? => list {{\n    return first(list)\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("must name its source")),
@@ -403,7 +403,7 @@ fn a_proj_return_without_a_source_is_an_error() {
 fn a_proj_source_must_be_a_parameter() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head(list: List<Person>) [] -> [list] (Proj[from: nope] Person)? {{\n    return first(list)\n}}\n"
+         fn head(list: List<Person>) [] -> (Proj[from: nope] Person)? => list {{\n    return first(list)\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("`Proj[from: nope]` names no parameter")),
@@ -411,19 +411,6 @@ fn a_proj_source_must_be_a_parameter() {
     );
 }
 
-/// [proj-no-field] A struct field may not be `Proj`: a struct holding a
-/// borrow would carry a lifetime, which Salvo does not put on user data.
-#[test]
-fn a_proj_field_is_an_error() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         struct Holder {{\n    held: Proj Person\n}}\n"
-    ));
-    assert!(
-        errs.iter().any(|e| e.contains("cannot be `Proj`") && e.contains("lifetime")),
-        "got: {errs:?}"
-    );
-}
 
 /// [proj-anywhere] A `Proj` parameter is a kept parameter: the body may read
 /// it and may not move it.
@@ -431,11 +418,116 @@ fn a_proj_field_is_an_error() {
 fn a_proj_parameter_cannot_be_moved() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn eat(p: Person) [] -> [] None {{}}\n\
-         fn hold(p: Proj Person) [] -> [p] Int {{\n    eat(p)\n    return 1\n}}\n"
+         fn eat(p: Person) [] -> None => !p {{}}\n\
+         fn hold(p: Proj Person) [] -> Int => p {{\n    eat(p)\n    return 1\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("promises `p` back") && e.contains("moves it")),
         "got: {errs:?}"
+    );
+}
+
+// ---- [proj-field] [proj-infer] [proj-readonly] (user decisions 2026-09-11) ----
+
+const VIEW_PRELUDE: &str = "struct View<T> canbe Mut {\n    items: Proj List<T>,\n    at: Int\n}\n\
+fn view<T>(items: List<T>) -> Mut View<T> => items {\n    return Mut View<T> { items: items, at: 0 }\n}\n\
+fn advance<T>(v: Mut View<T>) -> Int => v: Mut {\n    v.at = v.at + 1\n    return v.at\n}\n";
+
+/// [proj-field] Any struct may hold a `Proj` field; it is written without a
+/// source — each literal decides what it projects.
+#[test]
+fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
+    let errs = errors(VIEW_PRELUDE);
+    assert!(errs.is_empty(), "{errs:?}");
+    let errs = errors("struct Bad<T> {\n    items: Proj[from: x] List<T>\n}\n");
+    assert!(
+        errs.iter().any(|e| e.contains("a `Proj` field names no source")),
+        "{errs:?}"
+    );
+}
+
+/// [proj-infer] A constructed view is an owned object: it may be advanced
+/// (its `Mut` is real) while it keeps the source alive; a wholesale
+/// projection of a `Mut` value is still read-only [proj-readonly].
+#[test]
+fn a_held_view_may_be_advanced_but_a_projection_may_not() {
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn main() {{\n    let xs = list(1, 2)\n    let v = view(xs)\n    advance(v)\n    advance(v)\n}}\n\
+         fn list<T>(a: T, b: T) -> List<T> {{ return first(items)! }}\n"
+    );
+    let errs = errors(&src);
+    // (the fake `list` body is nonsense but well-typed enough: only the
+    // main body matters here)
+    assert!(
+        !errs.iter().any(|e| e.contains("cannot mutate `v`")),
+        "advancing a held view must be allowed: {errs:?}"
+    );
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("cannot mutate `v`: it is a projection (`Proj`) of `vs`")),
+        "{errs:?}"
+    );
+}
+
+/// [proj-infer] Moving the source while a view of it lives is refused —
+/// the link is inferred from `view`'s body, with nothing written.
+#[test]
+fn a_view_keeps_its_source_alive_through_an_inferred_lend() {
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn eat<T>(xs: List<T>) -> Int => !xs {{ return 0 }}\n\
+         fn main(xs: List<Int>) {{\n    let v = view(xs)\n    eat(xs)\n    advance(v)\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("`v` cannot be used here")),
+        "{errs:?}"
+    );
+}
+
+/// [proj-infer] A written `[p: Proj]` list must match the body exactly; a
+/// returned view rooted in a local is refused.
+#[test]
+fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> => a, Proj[from: a], b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("says the result projects `a`, but the body returns a value that projects `b`")),
+        "{errs:?}"
+    );
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn mk<T>(a: List<T>) -> Mut View<T> => a {{\n    let local = a\n    return Mut View<T> {{ items: local, at: 0 }}\n}}\n"
+    );
+    // `local` aliases `a` (a parameter), so this is fine: the root is `a`.
+    let errs = errors(&src);
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+/// [proj-infer] `[p: Proj]` alone keeps everything (it is not an
+/// afterwards-qualifier), and a bodiless declaration may carry it.
+#[test]
+fn a_written_proj_entry_keeps_and_declares() {
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> => xs, Proj[from: xs], tag\n}}\n\
+         fn eat(xs: List<Int>) -> Int => !xs {{ return 0 }}\n\
+         fn main(xs: List<Int>, tag: Str) [Src] {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
+    );
+    let errs = errors(&src);
+    // The first `advance` is fine (the entry keeps `xs` and lends it); the
+    // second sees the view poisoned by `eat(xs)` — the link came from the
+    // written `Proj`, there being no body to infer it from.
+    assert!(
+        errs.iter().any(|e| e.contains("`v` cannot be used here")),
+        "{errs:?}"
     );
 }

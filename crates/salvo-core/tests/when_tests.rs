@@ -88,7 +88,7 @@ const PRELUDE: &str = r#"
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
-fn note(text: Str) [] -> [text] None {}
+fn note(text: Str) [] -> None => text {}
 "#;
 
 // ===== [when-condition] =====
@@ -98,7 +98,7 @@ fn note(text: Str) [] -> [text] None {}
 fn a_subjectless_when_is_a_condition_chain() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          return when {{\n\
          n < 0 {{ \"negative\" }}\n\
          n == 0 {{ \"zero\" }}\n\
@@ -117,7 +117,7 @@ fn a_subjectless_when_is_a_condition_chain() {
 fn the_mandatory_else_keeps_none_out_of_the_value() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          let label = when {{\n\
          n < 0 {{ \"negative\" }}\n\
          else {{ \"other\" }}\n\
@@ -129,7 +129,7 @@ fn the_mandatory_else_keeps_none_out_of_the_value() {
     // The same chain written as an `if` is `Str?`, and returning it fails.
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          let label = if n < 0 {{\n\
          \"negative\"\n\
          }}\n\
@@ -145,7 +145,7 @@ fn the_mandatory_else_keeps_none_out_of_the_value() {
 fn a_subjectless_when_requires_an_else() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          return when {{\n\
          n < 0 {{ \"negative\" }}\n\
          }}\n\
@@ -159,7 +159,7 @@ fn a_subjectless_when_requires_an_else() {
 fn a_when_with_only_an_else_is_an_error() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          return when {{\n\
          else {{ \"whatever\" }}\n\
          }}\n\
@@ -173,7 +173,7 @@ fn a_when_with_only_an_else_is_an_error() {
 fn else_must_be_the_last_branch() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          return when {{\n\
          n < 0 {{ \"negative\" }}\n\
          else {{ \"other\" }}\n\
@@ -191,9 +191,9 @@ fn else_must_be_the_last_branch() {
 fn the_subject_form_rejects_an_else_and_names_the_other_form() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn make_ok(n: Int) [] -> [] Int as Ok {{ return n }}\n\
-         fn outcome() [] -> [] Ok Int | Err Str {{ return make_ok(0) }}\n\
-         fn probe() [] -> [] Str {{\n\
+         fn make_ok(n: Int) [] -> Int as Ok {{ return n }}\n\
+         fn outcome() [] -> Ok Int | Err Str {{ return make_ok(0) }}\n\
+         fn probe() [] -> Str {{\n\
          let o = outcome()\n\
          return when o {{\n\
          is Ok {{ \"ok\" }}\n\
@@ -212,7 +212,7 @@ fn the_subject_form_rejects_an_else_and_names_the_other_form() {
 fn is_heads_narrow_their_branch_and_the_else() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn describe(value: Str | Int) [] -> [] None {{\n\
+         fn describe(value: Str | Int) [] -> None => !value {{\n\
          when {{\n\
          value is Str {{ note(value) }}\n\
          else {{ note(\"an int\") }}\n\
@@ -224,7 +224,7 @@ fn is_heads_narrow_their_branch_and_the_else() {
     // value is an `Int`.
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn describe(value: Str | Int) [] -> [] None {{\n\
+         fn describe(value: Str | Int) [] -> None => !value {{\n\
          when {{\n\
          value is Str {{ note(\"a str\") }}\n\
          else {{ note(value) }}\n\
@@ -240,7 +240,7 @@ fn is_heads_narrow_their_branch_and_the_else() {
 fn a_subjectless_when_can_be_the_only_return() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn classify(n: Int) [] -> [] Str {{\n\
+         fn classify(n: Int) [] -> Str {{\n\
          when {{\n\
          n < 0 {{ return \"negative\" }}\n\
          else {{ return \"other\" }}\n\
@@ -267,7 +267,7 @@ fn conditions_must_be_bool() {
         ("when", "when {\nn { note(\"x\") }\nelse { note(\"y\") }\n}\n"),
     ] {
         let errs = errors(&format!(
-            "{PRELUDE}\nfn f(n: Int) [] -> [] None {{\n{body}}}\n"
+            "{PRELUDE}\nfn f(n: Int) [] -> None {{\n{body}}}\n"
         ));
         assert!(
             errs.iter()
@@ -283,7 +283,7 @@ fn conditions_must_be_bool() {
 fn each_leaf_of_a_compound_condition_is_checked() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(n: Int) [] -> [] None {{\n\
+         fn f(n: Int) [] -> None {{\n\
          if n > 0 && n {{\n\
          note(\"x\")\n\
          }}\n\
@@ -300,7 +300,7 @@ fn each_leaf_of_a_compound_condition_is_checked() {
 fn an_optional_bool_is_not_a_condition() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(b: Bool?) [] -> [] None {{\n\
+         fn f(b: Bool?) [] -> None => !b {{\n\
          if b {{\n\
          note(\"x\")\n\
          }}\n\
@@ -309,7 +309,7 @@ fn an_optional_bool_is_not_a_condition() {
     assert_has(&errs, "a condition must be a `Bool` (found `Bool?`)");
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(b: Bool?) [] -> [] None {{\n\
+         fn f(b: Bool?) [] -> None => !b {{\n\
          if b! {{\n\
          note(\"x\")\n\
          }}\n\
@@ -324,7 +324,7 @@ fn an_optional_bool_is_not_a_condition() {
 fn an_uninferred_condition_stays_lenient() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f() [] -> [] None {{\n\
+         fn f() [] -> None {{\n\
          if unknown_thing() {{\n\
          note(\"x\")\n\
          }}\n\

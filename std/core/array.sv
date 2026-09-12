@@ -10,16 +10,16 @@
 // `first` stay closed to linear types.
 
 // Returns the number of elements in the array
-intrinsic fn size<T canbe Linear>(array: T[]) [] -> [array] Int
+intrinsic fn size<T canbe Linear>(array: T[]) [] -> Int => array
 
 // Possibly gets the element at the given index if the array is long enough
-intrinsic fn get<T>(array: T[], index: Int) [] -> [array, index] (Proj[from: array] T)?
+intrinsic fn get<T>(array: T[], index: Int) [] -> (Proj[from: array] T)? => array, index
 
-intrinsic fn first<T>(array: T[]) [] -> [array] Proj[from: array] T?
+intrinsic fn first<T>(array: T[]) [] -> Proj[from: array] T? => array
 
 // [iter-pass] A fresh pass over the array — a view of it with a position:
-// the array is borrowed, not moved [proj-pass-field].
-fn iter<T>(array: T[]) [] -> [array] Proj[from: array] Mut ArrayYield<T> {
+// the array is borrowed, not moved [proj-field] [proj-infer].
+fn iter<T>(array: T[]) [] -> Mut ArrayYield<T> => array {
     return Mut ArrayYield<T> { items: array, at: 0 }
 }
 
@@ -27,7 +27,7 @@ fn iter<T>(array: T[]) [] -> [array] Proj[from: array] Mut ArrayYield<T> {
 // with an array inside. The backends keep their native loop for a `for` over
 // an array [iter-for-native]; this shape is what combinators see.
 struct ArrayYield<T> : Yield<self, Proj T> canbe Mut {
-    // The array being walked — borrowed [proj-pass-field].
+    // The array being walked — borrowed [proj-field].
     items: Proj T[],
     // The index of the next element to emit.
     at: Int
@@ -35,7 +35,7 @@ struct ArrayYield<T> : Yield<self, Proj T> canbe Mut {
 
 // Advances the pass, reporting the element at its position or the end of the
 // array.
-fn next<T>(p: Mut ArrayYield<T>) [] -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
+fn next<T>(p: Mut ArrayYield<T>) [] -> Emitted (Proj[from: p] T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

@@ -1,6 +1,6 @@
 effect Console {
     // Prints to the console without emitting a newline
-    fn print(message: Str) -> [message] None
+    fn print(message: Str) -> None => message
 }
 
 intrinsic handler StdOutConsole of Console

@@ -18,12 +18,12 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic fn copy<T>(value: T) [] -> [value] T\n\
+     intrinsic fn copy<T>(value: T) [] -> T => value\n\
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
-     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n";
+     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -72,21 +72,21 @@ fn errors(src: &str) -> Vec<String> {
 const PRELUDE: &str = r#"
 
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 effect Counter {
-    fn bump() -> [] None
+    fn bump() -> None
 }
 
 handler QuietLogger of Logger {
-    fn log(message: Str) -> [message] None {}
+    fn log(message: Str) -> None => message {}
 }
 handler ZeroCounter of Counter {
-    fn bump() -> [] None {}
+    fn bump() -> None {}
 }
 
-fn note(text: Str) [] -> [text] None {}
+fn note(text: Str) [] -> None => text {}
 "#;
 
 // ===== a lambda body performs what its type declares =====
@@ -97,10 +97,10 @@ fn note(text: Str) [] -> [text] None {}
 fn a_declared_effect_is_available_in_the_body() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [Logger] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [Logger] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn probe() [Logger] -> [] None {{\n\
+         fn probe() [Logger] -> None {{\n\
          run(s -> {{\n\
          log(\"in lambda ${{s}}\")\n\
          return \"seen ${{s}}\"\n\
@@ -118,10 +118,10 @@ fn a_declared_effect_is_available_in_the_body() {
 fn an_undeclared_effect_in_a_lambda_body_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn probe() [Logger] -> [] None {{\n\
+         fn probe() [Logger] -> None {{\n\
          run(s -> {{\n\
          log(\"in lambda ${{s}}\")\n\
          return \"seen ${{s}}\"\n\
@@ -142,10 +142,10 @@ fn an_undeclared_effect_in_a_lambda_body_is_rejected() {
 fn a_fn_inherits_its_fn_typed_parameters_effects() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [Logger] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [Logger] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          run(s -> \"${{s}}\")\n\
          }}\n"
     ));
@@ -159,10 +159,10 @@ fn a_fn_inherits_its_fn_typed_parameters_effects() {
 fn a_caller_must_supply_an_inherited_effect() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [Logger] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [Logger] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn caller() [] -> [] None {{\n\
+         fn caller() [] -> None {{\n\
          run(s -> \"${{s}}\")\n\
          }}\n"
     ));
@@ -179,10 +179,10 @@ fn a_caller_must_supply_an_inherited_effect() {
 fn inheritance_reaches_through_a_qualifier() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run_once(f: Once () [Logger] -> None) -> [] None {{\n\
+         fn run_once(f: Once () [Logger] -> None) -> None => !f {{\n\
          f()\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          run_once(() -> {{ log(\"once\") }})\n\
          }}\n"
     ));
@@ -197,13 +197,13 @@ fn inheritance_reaches_through_a_qualifier() {
 fn fewer_effects_fit_where_more_are_expected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [Logger] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [Logger] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn pure_fn(s: Str) [] -> [s] Str {{\n\
+         fn pure_fn(s: Str) [] -> Str => s {{\n\
          return \"plain ${{s}}\"\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          run(pure_fn)\n\
          run(s -> \"${{s}}\")\n\
          }}\n"
@@ -217,14 +217,14 @@ fn fewer_effects_fit_where_more_are_expected() {
 fn more_effects_do_not_fit_where_fewer_are_expected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn shout(s: Str) [Logger] -> [s] Str {{\n\
+         fn shout(s: Str) [Logger] -> Str => s {{\n\
          log(s)\n\
          return \"loud ${{s}}\"\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          run(shout)\n\
          }}\n"
     ));
@@ -245,10 +245,10 @@ fn more_effects_do_not_fit_where_fewer_are_expected() {
 fn an_unannotated_lambdas_effects_are_inferred() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          let f = (s: Str) -> {{\n\
          log(s)\n\
          return \"logged ${{s}}\"\n\
@@ -271,12 +271,12 @@ fn an_unannotated_lambdas_effects_are_inferred() {
 fn calling_is_what_needs_the_effect_not_holding() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe() [Logger] -> [] None {{\n\
+         fn probe() [Logger] -> None {{\n\
          let f = (s: Str) -> {{\n\
          log(s)\n\
          return \"logged ${{s}}\"\n\
          }}\n\
-         let g: (s: Str) -> [s] Str = (s: Str) -> {{\n\
+         let g: (s: Str) -> Str = (s: Str) -> {{\n\
          return f(s)\n\
          }}\n\
          note(g(\"x\"))\n\
@@ -295,10 +295,10 @@ fn calling_is_what_needs_the_effect_not_holding() {
 fn every_declared_effect_must_be_available_at_the_call() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [Logger, Counter] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [Logger, Counter] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n\
-         fn caller() [Logger] -> [] None {{\n\
+         fn caller() [Logger] -> None {{\n\
          run(s -> \"${{s}}\")\n\
          }}\n"
     ));
@@ -317,7 +317,7 @@ fn every_declared_effect_must_be_available_at_the_call() {
 fn use_in_a_fn_type_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn run(f: (s: Str) [use] -> [s] Str) -> [] None {{\n\
+         fn run(f: (s: Str) [use] -> Str) -> None =>[f] s {{\n\
          note(f(\"x\"))\n\
          }}\n"
     ));
@@ -342,7 +342,7 @@ fn use_in_a_fn_type_is_rejected() {
 fn an_effect_in_qualifier_position_is_refused() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(n: Logger Int) -> [] None {{\n\
+         fn f(n: Logger Int) -> None => !n {{\n\
          return None\n\
          }}\n"
     ));
@@ -360,7 +360,7 @@ fn an_effect_in_qualifier_position_is_refused() {
 fn an_effect_on_a_fn_type_names_the_bracket_form() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn f(g: Logger (Int) -> Int) -> [] None {{\n\
+         fn f(g: Logger (Int) -> Int) -> None => !g {{\n\
          return None\n\
          }}\n"
     ));
@@ -377,7 +377,7 @@ fn an_effect_on_a_fn_type_names_the_bracket_form() {
 fn consuming_a_pass_may_perform_effects() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn report(xs: Int[]) [Logger] -> [xs] None {{\n\
+         fn report(xs: Int[]) [Logger] -> None => xs {{\n\
          for v in xs {{\n\
          log(\"one\")\n\
          }}\n\

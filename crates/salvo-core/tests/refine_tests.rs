@@ -74,11 +74,11 @@ struct Store<T> canbe Mut {
     value: T
 }
 
-fn push<T>(s: Mut Store<T>, value: T) [] -> [s: Mut] None {
+fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
     s.value = value
 }
 
-fn needs_nonempty<T>(s: NonEmpty Store<T>) -> [s] Int {
+fn needs_nonempty<T>(s: NonEmpty Store<T>) -> Int => s {
     return 1
 }
 
@@ -92,7 +92,7 @@ qualifier NonEmpty<T> of Store<T> {
     }
 
     // Pushing a value leaves the store non-empty.
-    refn push(s: Mut Store<T>, value: T) -> [s: +NonEmpty]
+    refn push(s: Mut Store<T>, value: T) => s: +NonEmpty
 }
 "#;
 
@@ -138,8 +138,8 @@ fn a_refinement_can_invalidate_a_qualifier() {
         "{PRELUDE}\n\
          qualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn read(s: Store<T>) -> [s: -NonEmpty]\n}}\n\n\
-         fn read<T>(s: Store<T>) [] -> [s] Int {{\n    return 0\n}}\n\n\
+         refn read(s: Store<T>) => s: -NonEmpty\n}}\n\n\
+         fn read<T>(s: Store<T>) [] -> Int => s {{\n    return 0\n}}\n\n\
          fn nonempty<T>(s: Store<T>) -> Store<T> as NonEmpty {{\n    return s\n}}\n\n\
          fn f(s: NonEmpty Store<Int>) -> None {{\n    \
          let a = read(s)\n    \
@@ -166,7 +166,7 @@ fn conflicting_refinements_all_stand_down_with_a_warning() {
         "{PRELUDE}{NONEMPTY}\n\
          qualifier Sorted<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn push(s: Mut Store<T>, value: T) -> [s: +Sorted]\n}}\n\n\
+         refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
          let _n = needs_nonempty(s)\n}}\n"
@@ -196,8 +196,8 @@ fn compatible_refinements_both_apply() {
         "{PRELUDE}{NONEMPTY}\n\
          qualifier Sorted<T> of Store<T> with NonEmpty {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn push(s: Mut Store<T>, value: T) -> [s: +Sorted]\n}}\n\n\
-         fn needs_sorted<T>(s: Sorted Store<T>) -> [s] Int {{\n    return 2\n}}\n\n\
+         refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
+         fn needs_sorted<T>(s: Sorted Store<T>) -> Int => s {{\n    return 2\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
          let _a = needs_nonempty(s)\n    \
@@ -215,8 +215,8 @@ fn a_top_level_refinement_reconciles_a_conflict() {
         "{PRELUDE}{NONEMPTY}\n\
          qualifier Sorted<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn push(s: Mut Store<T>, value: T) -> [s: +Sorted]\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) -> [s: +NonEmpty]\n\n\
+         refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
+         refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
          let _n = needs_nonempty(s)\n}}\n"
@@ -272,7 +272,7 @@ fn a_top_level_refinement_does_not_leave_its_module() {
     let lib = format!(
         "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) -> [s: +NonEmpty]\n"
+         refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n"
     );
     // The same module, second file: module scope, so it applies.
     let same_module = "fn g(s: Mut Store<Int>) -> None {\n    \
@@ -311,22 +311,22 @@ fn a_refinement_must_match_an_overload_exactly() {
     let cases = [
         // Wrong parameter name.
         (
-            "refn push(store: Mut Store<T>, value: T) -> [store: +NonEmpty]",
+            "refn push(store: Mut Store<T>, value: T) => store: +NonEmpty ",
             "matches no `push`",
         ),
         // Wrong type.
         (
-            "refn push(s: Store<T>, value: T) -> [s: +NonEmpty]",
+            "refn push(s: Store<T>, value: T) => s: +NonEmpty ",
             "matches no `push`",
         ),
         // No such function.
         (
-            "refn shove(s: Mut Store<T>, value: T) -> [s: +NonEmpty]",
+            "refn shove(s: Mut Store<T>, value: T) => s: +NonEmpty ",
             "no function `shove` is visible here",
         ),
         // A parameter the function does not have.
         (
-            "refn push(s: Mut Store<T>, value: T) -> [other: +NonEmpty]",
+            "refn push(s: Mut Store<T>, value: T) => other: +NonEmpty",
             "has no parameter `other`",
         ),
     ];
@@ -352,7 +352,7 @@ fn an_unbound_type_parameter_names_the_remedy() {
     let src = format!(
         "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push(s: Mut Store<T>, value: T) -> [s: +NonEmpty]\n"
+         refn push(s: Mut Store<T>, value: T) => s: +NonEmpty\n"
     );
     let diags = errors(&src);
     assert!(
@@ -373,7 +373,7 @@ fn a_qualifier_may_only_refine_its_own_claim() {
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
          qualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn push(s: Mut Store<T>, value: T) -> [s: +Sorted]\n}}\n"
+         refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n"
     );
     let diags = errors(&src);
     assert!(
@@ -394,7 +394,7 @@ fn only_state_qualifiers_can_be_refined() {
         "{PRELUDE}\nprovenance qualifier Trusted<T> of Store<T>\n\n\
          qualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) -> [s: +Trusted]\n"
+         refn push<T>(s: Mut Store<T>, value: T) => s: +Trusted\n"
     );
     assert!(
         errors(&provenance)
@@ -404,7 +404,7 @@ fn only_state_qualifiers_can_be_refined() {
         errors(&provenance)
     );
     let intrinsic = format!(
-        "{PRELUDE}\nrefn push<T>(s: Mut Store<T>, value: T) -> [s: +Mut]\n"
+        "{PRELUDE}\nrefn push<T>(s: Mut Store<T>, value: T) => s: +Mut\n"
     );
     assert!(
         errors(&intrinsic)
@@ -423,7 +423,7 @@ fn refining_a_moved_parameter_is_an_error() {
     let src = format!(
         "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn push(s: Mut Store<T>, value: T) -> [value: +NonEmpty]\n}}\n"
+         refn push(s: Mut Store<T>, value: T) => value: +NonEmpty\n}}\n"
     );
     let diags = errors(&src);
     assert!(
@@ -440,8 +440,8 @@ fn a_refinement_qualifier_must_apply_to_the_parameter() {
     let src = format!(
         "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
-         refn count(text: Str) -> [text: +NonEmpty]\n}}\n\n\
-         fn count(text: Str) [] -> [text] Int {{\n    return 0\n}}\n"
+         refn count(text: Str) => text: +NonEmpty\n}}\n\n\
+         fn count(text: Str) [] -> Int => text {{\n    return 0\n}}\n"
     );
     let diags = errors(&src);
     assert!(
@@ -461,7 +461,7 @@ fn a_refinement_qualifier_must_apply_to_the_parameter() {
 fn a_refinement_reaches_an_inferred_deduction() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None {{\n    \
+         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => !v {{\n    \
          push(s, v)\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
@@ -478,7 +478,7 @@ fn a_refinement_reaches_an_inferred_deduction() {
 fn a_written_list_may_promise_a_refined_qualifier() {
     let with_refn = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> [s: Mut NonEmpty] None {{\n    \
+         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => s: Mut NonEmpty, !v {{\n    \
          push(s, v)\n}}\n"
     );
     assert!(errors(&with_refn).is_empty(), "{:?}", errors(&with_refn));
@@ -487,7 +487,7 @@ fn a_written_list_may_promise_a_refined_qualifier() {
                 fn qualifies(s: Store<T>) -> Bool {\n        return true\n    }\n}\n";
     let without = format!(
         "{PRELUDE}{bare}\n\
-         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> [s: Mut NonEmpty] None {{\n    \
+         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => s: Mut NonEmpty, !v {{\n    \
          push(s, v)\n}}\n"
     );
     assert!(
@@ -508,7 +508,7 @@ fn a_written_list_may_promise_a_refined_qualifier() {
 fn a_conditional_refinement_does_not_reach_the_contract() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         fn maybe<T>(s: Mut NonEmpty Store<T>, v: T, c: Bool) -> [s: Mut NonEmpty] None {{\n    \
+         fn maybe<T>(s: Mut NonEmpty Store<T>, v: T, c: Bool) -> None => s: Mut NonEmpty, !v {{\n    \
          if c {{\n        push(s, v)\n    }}\n}}\n"
     );
     assert!(

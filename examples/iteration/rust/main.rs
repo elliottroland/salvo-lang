@@ -154,7 +154,7 @@ pub fn next__7(__p: &mut __Pass_Naturals) -> Union2<i32, Finished> {
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
-pub fn sum_of<It: Clone + 'static>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<i32, Finished>) -> i32 {
+pub fn sum_of<It: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> Union2<i32, Finished>) -> i32 {
     let mut total = 0;
     while let Union2::U1(mut n) = next(it) {
         total = total + n;
@@ -192,11 +192,12 @@ pub fn main() {
     let mut total = salvo_reduce(&xs[..], 0, |acc, n| *acc + *n);
     println(&mut console, &(format!("5. list: {} doubled, {} odd, total {}", (doubled.len() as i32), (odd.len() as i32), total)));
     let mut words = vec!["ann".to_string(), "bo".to_string(), "carol".to_string()];
-    let mut lengths = map::<ListYield<String>, String, i32>(&mut (iter__2(words)), &mut (|w| (w.chars().count() as i32)), &mut |__i0| next__2(__i0));
-    println(&mut console, &(format!("5. lengths: {}", reduce::<ListYield<i32>, i32, i32>(&mut (iter__2(lengths)), 0, &mut (|acc, n| *acc + *n), &mut |__i0| next__2(__i0)))));
-    let mut vowels = filter::<StrYield, char>(&mut (iter__3("iteration".to_string())), &mut (|c| *c == 'i' || *c == 'o'), &mut |__i0| next__3(__i0));
+    let mut lengths = map::<ListYield<String>, &String, i32>(&mut (iter__2(&words)), &mut (|w| { let w = *w; (w.chars().count() as i32) }), &mut |__i0| next__2(__i0));
+    println(&mut console, &(format!("5. lengths: {}", reduce::<ListYield<i32>, &i32, i32>(&mut (iter__2(&lengths)), &(0), &mut (|acc, n| { let n = *n; *acc + *n }), &mut |__i0| next__2(__i0)))));
+    let mut word = "iteration".to_string();
+    let mut vowels = filter::<StrYield, char>(&mut (iter__3(&word)), &mut (|c| *c == 'i' || *c == 'o'), &mut |__i0| next__3(__i0));
     println(&mut console, &(format!("5. vowels: {}", (vowels.len() as i32))));
-    println(&mut console, &(format!("5. halving total {}", reduce::<__Pass_Halving, i32, i32>(&mut (iter__4(&(Halving { start: 20 }))), 0, &mut (|acc, n| *acc + *n), &mut |__i0| next__5(__i0)))));
+    println(&mut console, &(format!("5. halving total {}", reduce::<__Pass_Halving, i32, i32>(&mut (iter__4(&(Halving { start: 20 }))), &(0), &mut (|acc, n| *acc + *n), &mut |__i0| next__5(__i0)))));
     let mut collected = map_to::<Vec<i32>, Countdown, i32, i32>(vec![], &mut (countdown(3)), &mut (|n: &i32| *n * 10), &mut |__i0, __i1| __i0.push(__i1), &mut |__i0| next__4(__i0));
     println(&mut console, &(format!("6. collected {}", (collected.len() as i32))));
 }

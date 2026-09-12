@@ -61,10 +61,10 @@ fn e2e_stamp(test: &str, tools: &[&str]) -> Option<salvo_testkit::Stamp> {
 /// and the threading are exercised.
 const DEMO: &str = r#"
 platform effect Telemetry {
-    fn record(name: Str, value: Int) [] -> [name, value] None
+    fn record(name: Str, value: Int) [] -> None => name, value
 }
 
-fn work(n: Int) [Telemetry] -> [] Int {
+fn work(n: Int) [Telemetry] -> Int {
     record("work", n)
     return n + 1
 }
@@ -204,7 +204,7 @@ fn a_program_without_platform_effects_generates_nothing() {
     let dir = work_dir("nothing");
     fs::write(
         dir.join("main.sv"),
-        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdOutConsole\n    \
          println(\"hi\")\n}\n",
     )
     .unwrap();
@@ -249,7 +249,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
         fs::write(
             dir.join("telemetry.sv"),
             "platform effect Telemetry {\n    \
-             fn record(name: Str, value: Int) [] -> [name, value] None\n}\n",
+             fn record(name: Str, value: Int) [] -> None => name, value\n}\n",
         )
         .unwrap();
         fs::write(

@@ -123,14 +123,14 @@ struct Person {
     age: Int
 }
 
-fn full_name(person: Person) -> [person] Str {
+fn full_name(person: Person) -> Str => person {
     if (person.surname is Str surname) {
         return "${person.name} ${surname}"
     }
     return person.name
 }
 
-fn greet(person: Person) [Console] -> [person] None {
+fn greet(person: Person) [Console] -> None => person {
     println("Hello, ${full_name(person)}!")
     for i in range(1, 4) {
         println("  ${i}: ${person.age + i}")
@@ -142,7 +142,7 @@ struct Range {
     end: Int
 }
 
-fn range(start: Int, end: Int) -> [] Range {
+fn range(start: Int, end: Int) -> Range {
     return Range {start: start, end: end}
 }
 
@@ -158,7 +158,7 @@ iter fn next(r: Range) -> Emitted Int | Finished {
     return emitted(v)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let person = Person {name: "Roland", surname: "Elliott", age: 36}
     greet(person)
@@ -192,19 +192,19 @@ fn golden_demo_rust() {
 #[test]
 fn deductions_drive_parameter_modes() {
     let src = r#"
-fn read(list: List<Int>) -> [list] Int {
+fn read(list: List<Int>) -> Int => list {
     return list.size()
 }
 
-fn fill(list: Mut List<Int>, n: Int) -> [list: Mut] None {
+fn fill(list: Mut List<Int>, n: Int) -> None => list: Mut {
     add(list, n)
 }
 
-fn consume(list: List<Int>) -> [] Int {
+fn consume(list: List<Int>) -> Int => !list {
     return list.size()
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let items: Mut List<Int> = mutable_list(1, 2)
     fill(items, 3)
@@ -218,9 +218,9 @@ fn main() [use] -> [] None {
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .unwrap();
     // Kept -> `&`; kept+Mut -> `&mut`; omitted -> owned (move).
-    assert!(main.content.contains("pub fn read(list: &Vec<i32>) -> i32"), "{}", main.content);
-    assert!(main.content.contains("pub fn fill(list: &mut Vec<i32>, n: i32)"), "{}", main.content);
-    assert!(main.content.contains("pub fn consume(list: Vec<i32>) -> i32"), "{}", main.content);
+    assert!(main.content.contains("pub fn read(list: &Vec<i32>) -> i32"), " {}", main.content);
+    assert!(main.content.contains("pub fn fill(list: &mut Vec<i32>, n: i32)"), " {}", main.content);
+    assert!(main.content.contains("pub fn consume(list: Vec<i32>) -> i32"), " {}", main.content);
     // Call sites render the matching argument shapes; the moved arg
     // passes by value.
     assert!(main.content.contains("fill(&mut items, 3)"), "{}", main.content);
@@ -263,7 +263,7 @@ fn describe(result: Ok Int | Err Str) -> Str {
     return msg
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let good = parse_age(36)
     println(describe(good))
@@ -470,10 +470,10 @@ fn rustc_compiles_and_runs_qualifiers() {
 
 const EFFECTS_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> [] T
+    fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     i: Int = 0
 
     fn next_random() -> T {
@@ -540,7 +540,7 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     assert!(// [effect-handler-generics] The handler is constructed *at* a type — the
     // turbofish is written even where rustc could have inferred it, since a
     // stateless generic handler gives it nothing to infer from.
-    main.content.contains("let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30]);"));
+    main.content.contains("let mut random_i32 = CyclicRandom::<i32>::new(vec![10, 20, 30], move |__i0| __i0.clone());"));
     // Threading and expected-type disambiguation.
     assert!(main.content.contains("draw(&mut random_i32, &mut random_string, &mut console);"));
     assert!(main.content.contains("let mut n: i32 = random_i32.next_random();"));
@@ -566,7 +566,7 @@ struct Range {
     end: Int
 }
 
-fn range(start: Int, end: Int) -> [] Range {
+fn range(start: Int, end: Int) -> Range {
     return Range {start: start, end: end}
 }
 
@@ -582,7 +582,7 @@ iter fn next(r: Range) -> Emitted Int | Finished {
     return emitted(v)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
 
     let i = 0
@@ -706,7 +706,7 @@ fn build_multi_module() -> Program {
     let main = r#"
 import geometry.area
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     println("area: ${area(3, 4)}")
 }
@@ -774,7 +774,7 @@ fn rustc_compiles_and_runs_multi_module() {
 fn generic_effect_members_are_rejected() {
     let src = r#"
 effect Weird {
-    fn pick<T>(value: T) -> [] T
+    fn pick<T>(value: T) -> T => !value
 }
 
 handler PassThrough of Weird {
@@ -783,7 +783,7 @@ handler PassThrough of Weird {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use PassThrough
 }
 "#;
@@ -802,7 +802,7 @@ fn main() [use] -> [] None {
 fn numeric_literal_suffixes_emit_rust_types() {
     let program = build_program(&[(
         "main.sv",
-        "fn main() [use] -> [] None {\n    use StdOutConsole\n    \
+        "fn main() [use] -> None {\n    use StdOutConsole\n    \
          let big: Long = 5L\n    let ratio: Float = 2.5f\n    let d: Double = 1.5\n    \
          println(\"${big} ${ratio} ${d}\")\n}\n",
     )]);
@@ -842,7 +842,7 @@ fn describe(x: Int) -> Str {
     return "unknown"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     println(describe(make()))
 }
@@ -880,7 +880,7 @@ struct Person canbe Mut {
     age: Int
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let s = "hi"
     let t = copy(s)
@@ -957,10 +957,10 @@ fn longest_name(persons: List<Person>) -> Str {
     return longest
 }
 
-fn consume(text: Str) -> [] None {
+fn consume(text: Str) -> None => !text {
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println(longest_name(people))
@@ -1043,7 +1043,7 @@ struct Person {
     age: Int
 }
 
-fn count_long(persons: List<Person>) -> [persons] Int {
+fn count_long(persons: List<Person>) -> Int => persons {
     let total = 0
     for person in persons {
         let n = person.name
@@ -1062,7 +1062,7 @@ fn poison_guards_the_borrow() -> Int {
     return n + size(xs)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println("${count_long(people)}")
@@ -1136,20 +1136,20 @@ struct FileHandle : Linear<self> {
     fd: Int
 }
 
-fn close(x: FileHandle) -> [] None {}
+fn close(x: FileHandle) -> None => !x {}
 
 
-fn open_file(path: Str) [Console] -> [] FileHandle {
+fn open_file(path: Str) [Console] -> FileHandle => !path {
     println("open ${path}")
     return FileHandle {fd: size(path)}
 }
 
-fn close_file(h: FileHandle) [Console] -> [] None {
+fn close_file(h: FileHandle) [Console] -> None => !h {
     println("close fd=${h.fd}")
     close(h)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let h = open_file("data.txt")
     let n = h.fd
@@ -1200,10 +1200,10 @@ struct FileHandle : Linear<self> {
     fd: Int
 }
 
-fn close(x: FileHandle) -> [] None {}
+fn close(x: FileHandle) -> None => !x {}
 
 
-fn open_file(n: Int) [Console] -> [] FileHandle {
+fn open_file(n: Int) [Console] -> FileHandle {
     println("open ${n}")
     return FileHandle {fd: n}
 }
@@ -1212,7 +1212,7 @@ fn hold<T canbe Linear>(value: T) -> T {
     return value
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let h = hold(open_file(9))
     println("held fd=${h.fd}")
@@ -1242,11 +1242,11 @@ fn run_once(f: Once () [Console] -> None) {
     f()
 }
 
-fn consume_list(v: List<Int>) [Console] -> [] None {
+fn consume_list(v: List<Int>) [Console] -> None => !v {
     println("consumed ${size(v)} items")
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let xs = list(1, 2, 3)
     let g = () -> { consume_list(xs) }
@@ -1297,7 +1297,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> [persons] Proj[from: persons] Person? {
+fn find_adult(persons: List<Person>) -> Proj[from: persons] Person? => persons {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -1306,11 +1306,11 @@ fn find_adult(persons: List<Person>) -> [persons] Proj[from: persons] Person? {
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> [persons, tag] Proj[from: persons] Person? {
+fn head_of(persons: List<Person>, tag: Str) -> Proj[from: persons] Person? => persons, tag {
     return first(persons)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let people = list(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
     let adult = find_adult(people)
@@ -1384,19 +1384,19 @@ struct Person {
     age: Int
 }
 
-fn apply_keeping(f: (v: List<Person>) -> [v] Int, data: List<Person>) -> [data] Int {
+fn apply_keeping(f: (v: List<Person>) -> Int, data: List<Person>) -> Int =>[f] v => data {
     return f(data) + f(data)
 }
 
-fn apply_consuming(f: (v: List<Person>) -> [] Int, data: List<Person>) -> Int {
+fn apply_consuming(f: (v: List<Person>) -> Int, data: List<Person>) -> Int =>[f] !v {
     return f(data)
 }
 
-fn count(people: List<Person>) -> [people] Int {
+fn count(people: List<Person>) -> Int => people {
     return size(people)
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
@@ -1461,7 +1461,7 @@ struct Holder {
     result: Ok Int | Err Str
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let h = Holder {result: ok(1)}
     if h.result is Ok Int r {
@@ -1522,14 +1522,14 @@ struct Holder {
     result: Ok Int | Err Str
 }
 
-fn describe(p: Person) -> [p] Str {
+fn describe(p: Person) -> Str => p {
     if p.surname is Str {
         return "${p.name} ${p.surname}"
     }
     return p.name
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     println(describe(Person {name: "Ann", surname: "Lee", address: Mut Address {city: "Rome"}}))
     println(describe(Person {name: "Bo", address: Mut Address {city: None}}))
@@ -1591,7 +1591,7 @@ struct Reading {
     value: Int? = None
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let r = Reading {label: "temp", value: 21}
     if r.value is Int {
@@ -1637,7 +1637,7 @@ fn rustc_compiles_and_runs_place_operand() {
 // [flow-place], and nesting (`t.1.0`) is two projections.
 
 const TUPLE_INDEX_DEMO: &str = r#"
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let t: (Int, Str, Bool) = (1, "two", true)
     println("${t.0} ${t.1} ${t.2}")
@@ -1695,11 +1695,11 @@ fn rustc_compiles_and_runs_tuple_index() {
 
 const HANDLER_DEPS_DEMO: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 handler ConsoleLogger(console: Console) of Logger {
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
@@ -1708,7 +1708,7 @@ fn work() [Logger] -> None {
     log("from work")
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     work()
@@ -1779,11 +1779,11 @@ fn programs_without_handler_dependencies_do_not_fuse() {
 
 const NO_DEPS_DEMO: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 handler PlainLogger of Logger {
-    fn log(message: Str) -> [message] None { }
+    fn log(message: Str) -> None => message { }
 }
 
 fn work() [Logger, Console] -> None {
@@ -1791,7 +1791,7 @@ fn work() [Logger, Console] -> None {
     println("there")
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use PlainLogger
     work()
@@ -1822,20 +1822,20 @@ fn rustc_compiles_and_runs_handler_dependencies() {
 
 const FUSION_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> [] T
+    fn next_random() -> T
 }
 
 effect Counter {
-    fn bump() -> [] None
-    fn total() -> [] Int
+    fn bump() -> None
+    fn total() -> Int
 }
 
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 effect Audit {
-    fn note(message: Str) -> [message] None
+    fn note(message: Str) -> None => message
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
@@ -1849,41 +1849,41 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
 
 handler MemCounter of Counter {
     n: Int = 0
-    fn bump() -> [] None { n = n + 1 }
-    fn total() -> [] Int { return n }
+    fn bump() -> None { n = n + 1 }
+    fn total() -> Int { return n }
 }
 
 handler ConsoleLogger(console: Console) of Logger {
     seen: Int = 0
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         seen = seen + 1
         println("LOG ${seen}: ${message}")
     }
 }
 
 handler CountingAudit(console: Console, counter: Counter) of Audit {
-    fn note(message: Str) -> [message] None {
+    fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
     }
 }
 
-fn shout(message: Str) [Console] -> [message] None {
+fn shout(message: Str) [Console] -> None => message {
     println("!! ${message}")
 }
 
-fn banner() [Console, Logger] -> [] None {
+fn banner() [Console, Logger] -> None {
     log("banner")
     shout("done")
 }
 
-fn draw() [Console, Random<Int>, use] -> [] None {
+fn draw() [Console, Random<Int>, use] -> None {
     use MemCounter
     bump()
     println("drew ${next_random<Int>()} at ${total()}")
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     banner()
@@ -1965,16 +1965,16 @@ fn rustc_compiles_and_runs_fusion() {
 fn generic_dependent_handler_is_a_codegen_error() {
     const SRC: &str = r#"
 effect Sink<T> {
-    fn accept(value: T) -> [value] None
+    fn accept(value: T) -> None => value
 }
 
 handler Relay<T>(console: Console) of Sink<T> {
-    fn accept(value: T) -> [value] None {
+    fn accept(value: T) -> None => value {
         println("relayed")
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use Relay<Int>()
     accept(1)
@@ -2002,33 +2002,33 @@ fn main() [use] -> [] None {
 
 const FUSION_CHAIN_DEMO: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 effect Audit {
-    fn note(message: Str) -> [message] None
+    fn note(message: Str) -> None => message
 }
 
 effect Tally {
-    fn add_up(n: Int) -> [n] None
-    fn tally() -> [] Int
+    fn add_up(n: Int) -> None => n
+    fn tally() -> Int
 }
 
 handler MemTally of Tally {
     sum: Int = 0
-    fn add_up(n: Int) -> [n] None { sum = sum + n }
-    fn tally() -> [] Int { return sum }
+    fn add_up(n: Int) -> None => n { sum = sum + n }
+    fn tally() -> Int { return sum }
 }
 
 handler ConsoleLogger(console: Console) of Logger {
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
 handler LoggingAudit(logger: Logger) of Audit {
     count: Int = 0
-    fn note(message: Str) -> [message] None {
+    fn note(message: Str) -> None => message {
         count = count + 1
         log("note ${count}: ${message}")
     }
@@ -2041,12 +2041,12 @@ qualifier Loud of Str {
     }
 }
 
-fn label(n: Int) [Console] -> [] Str {
+fn label(n: Int) [Console] -> Str {
     println("labelling ${n}")
     return "n=${n}"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     use LoggingAudit()
@@ -2084,12 +2084,12 @@ fn rustc_compiles_and_runs_fusion_chain() {
 // handler and arrives through the module's glob import [rs-imports].
 const FUSION_LOGGING_MODULE: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 handler ConsoleLogger(console: Console) of Logger {
     tag: Str = "M"
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("${tag}: ${message}")
     }
 }
@@ -2104,7 +2104,7 @@ import logging.work
 import logging.Logger
 import logging.ConsoleLogger
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     work()
@@ -2134,21 +2134,21 @@ fn rustc_compiles_and_runs_cross_module_fusion() {
 
 const FUSION_MIXED_DEMO: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 effect Sink {
-    fn keep(items: Mut List<Int>) -> [] None
-    fn kept() -> [] Int
+    fn keep(items: Mut List<Int>) -> None => !items
+    fn kept() -> Int
 }
 
 effect Counter {
-    fn bump() -> [] None
-    fn total() -> [] Int
+    fn bump() -> None
+    fn total() -> Int
 }
 
 handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("${prefix}[${level}] ${message}")
         tallied(message)
     }
@@ -2156,17 +2156,17 @@ handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
 
 handler MemSink of Sink {
     held: Mut List<Int> = mutable_list()
-    fn keep(items: Mut List<Int>) -> [] None { held = items }
-    fn kept() -> [] Int { return size(held) }
+    fn keep(items: Mut List<Int>) -> None => !items { held = items }
+    fn kept() -> Int { return size(held) }
 }
 
 handler MemCounter of Counter {
     n: Int = 0
-    fn bump() -> [] None { n = n + 1 }
-    fn total() -> [] Int { return n }
+    fn bump() -> None { n = n + 1 }
+    fn total() -> Int { return n }
 }
 
-fn tallied(text: Str) [Console, use] -> [text] None {
+fn tallied(text: Str) [Console, use] -> None => text {
     use MemSink
     let xs: Mut List<Int> = mutable_list()
     add(xs, size(text))
@@ -2174,16 +2174,16 @@ fn tallied(text: Str) [Console, use] -> [text] None {
     println("  tallied ${kept()}")
 }
 
-fn twice(f: (s: Str) [Logger] -> [s] Str) -> [] Str {
+fn twice(f: (s: Str) [Logger] -> Str) -> Str =>[f] s {
     return f("a")
 }
 
-fn report(label: Str) [Console, Logger, Counter] -> [label] None {
+fn report(label: Str) [Console, Logger, Counter] -> None => label {
     bump()
     log("${label} #${total()}")
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use PrefixLogger("L", 3)
     use MemCounter
@@ -2228,27 +2228,27 @@ fn rustc_compiles_and_runs_fusion_mixed() {
 fn rustc_compiles_and_runs_effect_using_fn_value() {
     const SRC: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 handler ConsoleLogger(console: Console) of Logger {
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn run_it(f: (s: Str) [Logger] -> [s] Str) [Console] -> [] None {
+fn run_it(f: (s: Str) [Logger] -> Str) [Console] -> None =>[f] s {
     println(f("x"))
 }
 
-fn demo() [Console, Logger] -> [] None {
+fn demo() [Console, Logger] -> None {
     run_it(s -> {
         log("in lambda ${s}")
         return "done ${s}"
     })
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     demo()
@@ -2299,7 +2299,7 @@ fn describe(r: Result) -> Str {
     return "err ${r}"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let arr: Result[] = [tag_ok(1), tag_err("a")]
     for x in arr {
@@ -2359,7 +2359,7 @@ fn rustc_compiles_and_runs_nested_coercion() {
 fn effect_member_generics_are_rejected_loudly() {
     let src = r#"
 effect Stash {
-    fn pick<T>(a: T, b: T) -> [] T
+    fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
 handler FirstStash of Stash {
@@ -2368,7 +2368,7 @@ handler FirstStash of Stash {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use FirstStash
     println("${pick(7, 2)}")
@@ -2394,10 +2394,10 @@ const ALIASED_EFFECT_DEMO: &str = r#"
 type Count = Int
 
 effect Random<T> {
-    fn next_random() -> [] T
+    fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     i: Int = 0
 
     fn next_random() -> T {
@@ -2411,7 +2411,7 @@ fn roll() [Random<Count>] -> Count {
     return next_random()
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use CyclicRandom(list(7, 8))
     println("${roll()} ${roll()}")
@@ -2450,7 +2450,7 @@ fn rustc_compiles_and_runs_aliased_effects() {
 
 const ARRAY_STD_DEMO: &str = r#"
 effect Random<T> {
-    fn next_random() -> [] T
+    fn next_random() -> T
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
@@ -2462,7 +2462,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use CyclicRandom([1, 2, 3, 4])
     let nums: Int[] = [3, 4, 5]
@@ -2536,7 +2536,7 @@ fn label(t: Environment.Tag Str) -> Str {
     return "tagged ${t}"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole()
     let env = Environment {
         id: Environment.Id {value: "prod"},
@@ -2635,7 +2635,7 @@ fn maybe(t: Environment.Tag Str | None) -> Str {
     return "none"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole()
     println(show(pick(true)))
     println(show(pick(false)))
@@ -2690,7 +2690,7 @@ fn describe(l: Trusted List<Int>) -> Str {
     return "trusted ${l.size()}"
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole()
     let t = trust(mutable_list(1, 2))
     t.add(3)
@@ -2733,20 +2733,20 @@ struct FileHandle : Linear<self> {
     fd: Int
 }
 
-fn close(x: FileHandle) -> [] None {}
+fn close(x: FileHandle) -> None => !x {}
 
 
-fn open_file(n: Int) [Console] -> [] FileHandle {
+fn open_file(n: Int) [Console] -> FileHandle {
     println("open ${n}")
     return FileHandle {fd: n}
 }
 
-fn close_file(h: FileHandle) [Console] -> [] None {
+fn close_file(h: FileHandle) [Console] -> None => !h {
     println("close fd=${h.fd}")
     close(h)
 }
 
-fn parse(line: Str) [Throw<Str>, Console] -> [] Int {
+fn parse(line: Str) [Throw<Str>, Console] -> Int => !line {
     println("parse ${line}")
     if size(line) == 0 {
         throw("empty line")
@@ -2754,14 +2754,14 @@ fn parse(line: Str) [Throw<Str>, Console] -> [] Int {
     return size(line)
 }
 
-fn limit(n: Int) [Throw<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> Int {
     if n > 4 {
         throw(n)
     }
     return n
 }
 
-fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
+fn measure(line: Str) [Throw<Str>, Console] -> Int => !line {
     let h = open_file(1)
     let fd = copy(h.fd)
     close_file(h)
@@ -2769,7 +2769,7 @@ fn measure(line: Str) [Throw<Str>, Console] -> [] Int {
     return n + fd
 }
 
-fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
+fn total(lines: Str[]) [Throw<Str>, Console] -> Int => !lines {
     let sum = 0
     for line in lines {
         let inner = try {
@@ -2788,7 +2788,7 @@ fn total(lines: Str[]) [Throw<Str>, Console] -> [] Int {
     return sum
 }
 
-fn report_text(outcome: Ok Int | Thrown Str) [Console] -> [] None {
+fn report_text(outcome: Ok Int | Thrown Str) [Console] -> None => !outcome {
     when outcome {
         is Ok {
             println("ok ${outcome}")
@@ -2799,7 +2799,7 @@ fn report_text(outcome: Ok Int | Thrown Str) [Console] -> [] None {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     report_text(try { measure("hello") })
     report_text(try { measure("") })
@@ -2939,30 +2939,30 @@ fn rustc_compiles_and_runs_throw() {
 /// Identical stdout on both backends is what parity means here.
 const FN_EFFECTS_DEMO: &str = r#"
 effect Logger {
-    fn log(message: Str) -> [message] None
+    fn log(message: Str) -> None => message
 }
 
 handler ConsoleLogger(console: Console) of Logger {
-    fn log(message: Str) -> [message] None {
+    fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn shout(s: Str) [Logger] -> [s] Str {
+fn shout(s: Str) [Logger] -> Str => s {
     log("shouting ${s}")
     return "${s}!"
 }
 
-fn plain(s: Str) -> [s] Str {
+fn plain(s: Str) -> Str => s {
     return "${s}."
 }
 
 // No effect list of its own: `run_it` *inherits* `[Logger]` from `f`.
-fn run_it(f: (s: Str) [Logger] -> [s] Str, value: Str) -> [value] Str {
+fn run_it(f: (s: Str) [Logger] -> Str, value: Str) -> Str =>[f] s => value {
     return f(value)
 }
 
-fn demo() [Console, Logger] -> [] None {
+fn demo() [Console, Logger] -> None {
     println(run_it(s -> {
         log("in lambda ${s}")
         return "done ${s}"
@@ -2971,7 +2971,7 @@ fn demo() [Console, Logger] -> [] None {
     println(run_it(plain, "two"))
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     demo()
@@ -3032,7 +3032,7 @@ fn rustc_compiles_and_runs_fn_type_effects() {
 // [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
-fn wrapped(n: Int) [Throw<Str>] -> [] Ok Int | Err Str {
+fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
     if n < 0 {
         throw("negative")
     }
@@ -3042,14 +3042,14 @@ fn wrapped(n: Int) [Throw<Str>] -> [] Ok Int | Err Str {
     return ok(n)
 }
 
-fn limit(n: Int) [Throw<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> Int {
     if n > 4 {
         throw(n)
     }
     return n
 }
 
-fn describe(n: Int) [Console] -> [] None {
+fn describe(n: Int) [Console] -> None {
     let nested = try { wrapped(n) }
     when nested {
         ^ Ok {
@@ -3068,7 +3068,7 @@ fn describe(n: Int) [Console] -> [] None {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     describe(7)
     describe(0)
@@ -3144,7 +3144,7 @@ fn rustc_compiles_and_runs_widening() {
 // statement position, with `is` heads that narrow, a chain that returns from
 // every branch, and one nested inside a subject `when`'s arm.
 const WHEN_COND_DEMO: &str = r#"
-fn classify(n: Int) -> [] Str {
+fn classify(n: Int) -> Str {
     return when {
         n < 0 { "negative" }
         n == 0 { "zero" }
@@ -3152,7 +3152,7 @@ fn classify(n: Int) -> [] Str {
     }
 }
 
-fn sign(n: Int) -> [] Int {
+fn sign(n: Int) -> Int {
     when {
         n < 0 { return -1 }
         n > 0 { return 1 }
@@ -3160,14 +3160,14 @@ fn sign(n: Int) -> [] Int {
     }
 }
 
-fn describe(value: Str | Int) [Console] -> [] None {
+fn describe(value: Str | Int) [Console] -> None => !value {
     when {
         value is Str s { println("str ${s}") }
         else { println("int ${value}") }
     }
 }
 
-fn label(n: Int) [Console] -> [] Str {
+fn label(n: Int) [Console] -> Str {
     let tag = when {
         n < 10 { "small" }
         n < 100 {
@@ -3179,7 +3179,7 @@ fn label(n: Int) [Console] -> [] Str {
     return tag
 }
 
-fn nested(o: Ok Int | Err Str) [Console] -> [] None {
+fn nested(o: Ok Int | Err Str) [Console] -> None => !o {
     when o {
         is Ok {
             when {
@@ -3193,7 +3193,7 @@ fn nested(o: Ok Int | Err Str) [Console] -> [] None {
     }
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     println(classify(-5))
     println(classify(0))
@@ -3270,14 +3270,14 @@ fn rustc_compiles_and_runs_when_cond() {
 // `let mut` unconditionally, so the mutability half is latent here rather
 // than fatal; the declaration half is what would collide.
 const TRY_MUTATION_DEMO: &str = r#"
-fn risky(n: Int) [Throw<Str>] -> [] Int {
+fn risky(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
         throw("negative")
     }
     return n
 }
 
-fn main() [use] -> [] None {
+fn main() [use] -> None {
     use StdOutConsole
     let counter = 0
     let outcome = try {
@@ -3305,10 +3305,10 @@ fn rustc_compiles_and_runs_try_mutation() {
 /// parity claim.
 const PLATFORM_DEMO: &str = r#"
 platform effect Telemetry {
-    fn record(name: Str, value: Int) [] -> [name, value] None
+    fn record(name: Str, value: Int) [] -> None => name, value
 }
 
-fn work(n: Int) [Telemetry] -> [] Int {
+fn work(n: Int) [Telemetry] -> Int {
     record("work", n)
     return n + 1
 }
@@ -3518,7 +3518,9 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
         "f: &mut impl FnMut(&T) -> U",
         // The lambda's *inner* convention follows the declaration.
         "|n: &i32|",
-        "|s: &String|",
+        // [yield-proj] The element is a borrow, so the retagged
+        // parameter is one reference deeper than the annotation.
+        "|s: &&String|",
     ] {
         assert!(
             src.contains(expected),
@@ -3567,7 +3569,8 @@ fn main() [use] -> None {
     println("eager ${doubled.size()}")
     let generic = map(iter(copy(xs)), double)
     println("generic ${generic.size()}")
-    let kept = filter(iter(copy(xs)), is_even)
+    let snapshot = copy(xs)
+    let kept = filter(iter(snapshot), is_even)
     println("kept ${kept.size()}")
     let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
@@ -3629,7 +3632,7 @@ struct Naturals {
     from: Int
 }
 
-fn naturals() -> [] Naturals {
+fn naturals() -> Naturals {
     return Naturals {from: 0}
 }
 
@@ -3700,7 +3703,7 @@ struct Lines : Yield<self, Int>, Linear<self> canbe Mut {
     at: Int
 }
 
-fn next(l: Mut Lines) -> [l: Mut] Emitted Int | Finished {
+fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
     if l.at <= 0 {
         return finished()
     }
@@ -3709,11 +3712,11 @@ fn next(l: Mut Lines) -> [l: Mut] Emitted Int | Finished {
     return emitted(v)
 }
 
-fn close(l: Lines) [Console] -> [] None {
+fn close(l: Lines) [Console] -> None => !l {
     println("closed")
 }
 
-fn drained() [Console] -> [] None {
+fn drained() [Console] -> None {
     let lines = Mut Lines { at: 2 }
     for n in lines {
         println("n ${n}")
@@ -3721,7 +3724,7 @@ fn drained() [Console] -> [] None {
     println("after drain")
 }
 
-fn abandoned() [Console] -> [] None {
+fn abandoned() [Console] -> None {
     let lines = Mut Lines { at: 5 }
     for n in lines {
         println("m ${n}")
@@ -3773,16 +3776,16 @@ fn rustc_compiles_and_runs_a_released_raw_pass() {
 ///
 /// Shared with the other backend, byte for byte.
 pub const GENERIC_DRIVE_DEMO: &str = r#"
-struct Slice<T> : Yield<self, T> canbe Mut {
-    items: List<T>,
+struct Slice<T> : Yield<self, Proj T> canbe Mut {
+    items: Proj List<T>,
     at: Int
 }
 
-fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
+fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -3793,7 +3796,7 @@ fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
 
 // The pass is *kept*, so the loop advances it where it lives and the caller may
 // drive it further.
-fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> [it: Mut] Int {
+fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> Int => it: Mut {
     let sum = 0
     let seen = 0
     for n in it {
@@ -3807,13 +3810,13 @@ fn take<It>(it: Mut It, count: Int, ?Yield<It, Int>) [] -> [it: Mut] Int {
 }
 
 effect Random<T> {
-    fn next_random() -> [] T
+    fn next_random() -> T
 }
 
 handler CyclicRandom<T>(values: T[]) of Random<T> {
     i: Int = 0
 
-    fn next_random() -> [] T {
+    fn next_random() -> T {
         i = (i + 1) % size(values)
         return values[i]
     }
@@ -3823,7 +3826,7 @@ struct Rolls {
     count: Int
 }
 
-fn rolls(count: Int) -> [] Rolls {
+fn rolls(count: Int) -> Rolls {
     return Rolls {count: count}
 }
 
@@ -3841,7 +3844,8 @@ iter fn next(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
 fn main() [use] {
     use StdOutConsole()
     use CyclicRandom([7, 8, 9])
-    let p = slice(list(1, 2, 3, 4))
+    let xs = list(1, 2, 3, 4)
+    let p = slice(xs)
     println("first ${take(p, 2)}")
     println("rest ${take(p, 9)}")
     for v in rolls(3) {
@@ -3862,11 +3866,11 @@ struct Handle : Linear<self>, Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn open_handle(from: Int) -> [] Mut Handle {
+fn open_handle(from: Int) -> Mut Handle {
     return Mut Handle { at: from }
 }
 
-fn next(h: Mut Handle) -> [h: Mut] Emitted Int | Finished {
+fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
     if h.at <= 0 {
         return finished()
     }
@@ -3875,10 +3879,10 @@ fn next(h: Mut Handle) -> [h: Mut] Emitted Int | Finished {
     return emitted(v)
 }
 
-fn close(h: Handle) -> [] None {}
+fn close(h: Handle) -> None => !h {}
 
 // Owns the pass: the loop releases it on every exit, `break` included.
-fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> [] Int {
+fn drain<It canbe Linear>(it: Mut It, stop: Int, ?Yield<It, Int>, ?Linear<It>) [] -> Int => !it {
     let sum = 0
     for n in it {
         sum = sum + n
@@ -3899,16 +3903,16 @@ fn main() [use] {
 pub const GENERIC_CLOSE_OUTPUT: &str = "all 10\ncut 7\n";
 
 pub const YIELD_SPREAD_DEMO: &str = r#"
-struct Slice<T> : Yield<self, T> canbe Mut {
-    items: List<T>,
+struct Slice<T> : Yield<self, Proj T> canbe Mut {
+    items: Proj List<T>,
     at: Int
 }
 
-fn slice<T>(items: List<T>) -> [] Mut Slice<T> {
+fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
+fn next<T>(p: Mut Slice<T>) -> Emitted (Proj[from: p] T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -3917,7 +3921,7 @@ fn next<T>(p: Mut Slice<T>) -> [p: Mut] Emitted (Proj[from: p] T) | Finished {
     return emitted(e)
 }
 
-fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U> {
+fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper {
     let out = mutable_list<U>()
     let going = true
     while going {
@@ -3993,7 +3997,7 @@ fn zero() -> Int { return 0 }
 fn times(a: Int, b: Int) -> Int { return a * b }
 fn one() -> Int { return 1 }
 
-fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
     let acc = zero()
     for x in xs {
         acc = add(acc, x)
@@ -4001,7 +4005,7 @@ fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
     return acc
 }
 
-fn total_all<T>(rows: List<List<T>>, ?Field<T>) -> [rows] T {
+fn total_all<T>(rows: List<List<T>>, ?Field<T>) -> T => rows {
     let acc = zero()
     for row in rows {
         acc = add(acc, total(row))
@@ -4080,7 +4084,7 @@ struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
     if c.at <= 0 {
         return finished()
     }
@@ -4094,7 +4098,7 @@ struct Doubling : Yield<self, Int> canbe Mut {
     f: (Int) -> Int
 }
 
-fn next(d: Mut Doubling) -> [d: Mut] Emitted Int | Finished {
+fn next(d: Mut Doubling) -> Emitted Int | Finished => d: Mut {
     let step = next(d.src)
     when step {
         is Emitted {
@@ -4176,7 +4180,7 @@ struct Zip : Yield<self, (Str, Int)> canbe Mut {
     at: Int
 }
 
-fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
+fn next(z: Mut Zip) -> Emitted (Str, Int) | Finished => z: Mut {
     let l = get(z.left, z.at)
     let r = get(z.right, z.at)
     if l is Str && r is Int {
@@ -4186,7 +4190,7 @@ fn next(z: Mut Zip) -> [z: Mut] Emitted (Str, Int) | Finished {
     return finished()
 }
 
-fn zip(left: List<Str>, right: List<Int>) -> [] Zip {
+fn zip(left: List<Str>, right: List<Int>) -> Zip => !left, !right {
     return Zip { left: left, right: right, at: 0 }
 }
 
@@ -4194,7 +4198,7 @@ struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn next(c: Mut Countdown) -> [c: Mut] Emitted Int | Finished {
+fn next(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
     if c.at <= 0 {
         return finished()
     }
@@ -4264,7 +4268,7 @@ struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     at: Int
 }
 
-fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
+fn next(r: Mut Reader) -> Emitted (Ok Str | Err Str) | Finished => r: Mut {
     let line = get(r.lines, r.at)
     if line is Str {
         r.at = r.at + 1
@@ -4276,7 +4280,7 @@ fn next(r: Mut Reader) -> [r: Mut] Emitted (Ok Str | Err Str) | Finished {
     return finished()
 }
 
-fn reader(lines: List<Str>) -> [] Reader {
+fn reader(lines: List<Str>) -> Reader => !lines {
     return Reader { lines: lines, at: 0 }
 }
 
@@ -4435,18 +4439,21 @@ iter fn next(f: Flat) -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let p: Mut ListYield<Int>? = iter(list(1, 2))
+    let base = list(1, 2)
+    let p: Mut ListYield<Int>? = iter(base)
     if p is Mut ListYield<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
-    let q: Mut ListYield<Int> | Int = iter(list(7, 8))
+    let qs = list(7, 8)
+    let q: Mut ListYield<Int> | Int = iter(qs)
     if q is Mut ListYield<Int> {
         show(next(q))
         show(next(q))
     }
-    let r: Mut ListYield<Int>? = iter(list(1, 2, 3))
+    let rs = list(1, 2, 3)
+    let r: Mut ListYield<Int>? = iter(rs)
     if r is Mut ListYield<Int> {
         r.at = 2
         show(next(r))
@@ -4530,20 +4537,20 @@ fn rustc_compiles_and_runs_a_hand_written_pass() {
 /// would cost object safety.
 const MEMBER_IMPLICIT_DEMO: &str = r#"
 effect Show {
-    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str
+    fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v
 }
 
 handler Angle of Show {
-    fn show(v: Int, ?fmt: (Int) -> Str) -> [v] Str {
+    fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v {
         return "<${fmt(v)}>"
     }
 }
 
-fn fmt(n: Int) -> [n] Str {
+fn fmt(n: Int) -> Str => n {
     return "n=${n}"
 }
 
-fn loud(n: Int) -> [n] Str {
+fn loud(n: Int) -> Str => n {
     return "N=${n}!"
 }
 
@@ -4597,24 +4604,24 @@ fn rustc_compiles_and_runs_effect_member_implicits() {
 /// violation, fixed 2026-09-06.
 const HANDLER_GENERICS_DEMO: &str = r#"
 effect Show<T> {
-    fn show(v: T) -> [v] Str
+    fn show(v: T) -> Str => v
 }
 
 // Stateless *and* generic: nothing but the `use` site can say what `T` is.
 handler Plain<T> of Show<T> {
-    fn show(v: T) -> [v] Str {
+    fn show(v: T) -> Str => v {
         return "plain"
     }
 }
 
 effect Tag<T> {
-    fn tagged(v: T) -> [v] Str
+    fn tagged(v: T) -> Str => v
 }
 
 // Generic with state: the constructor argument used to be the only thing
 // that could bind `T`, and still works.
 handler Prefixed<T>(prefix: Str) of Tag<T> {
-    fn tagged(v: T) -> [v] Str {
+    fn tagged(v: T) -> Str => v {
         return "${prefix}!"
     }
 }
@@ -4676,15 +4683,15 @@ qualifier NonEmpty<T> of List<T> {
     }
 
     // Adding an element makes the list non-empty.
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
 }
 
 // Only callable while the compiler still believes the list is non-empty.
-fn count<T canbe Linear>(list: NonEmpty List<T>) -> [list] Int {
+fn count<T canbe Linear>(list: NonEmpty List<T>) -> Int => list {
     return size(list)
 }
 
-fn refill(list: Mut NonEmpty List<Int>, value: Int) -> [list: Mut NonEmpty] None {
+fn refill(list: Mut NonEmpty List<Int>, value: Int) -> None => list: Mut NonEmpty {
     add(list, value)
 }
 
@@ -4733,12 +4740,12 @@ fn rustc_compiles_and_runs_a_refined_program() {
 const REFN_CONFLICT_DEMO: &str = r#"
 qualifier Q1<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
-    refn add(list: Mut List<T>, elem: T) -> [list: +Q1]
+    refn add(list: Mut List<T>, elem: T) => list: +Q1
 }
 
 qualifier Q2<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
-    refn add(list: Mut List<T>, elem: T) -> [list: +Q2]
+    refn add(list: Mut List<T>, elem: T) => list: +Q2
 }
 
 fn main() [use] {
@@ -4957,7 +4964,7 @@ struct Buf canbe Mut {
     text: Mut Str
 }
 
-fn grow(s: Mut Str) -> [s: Mut] None {
+fn grow(s: Mut Str) -> None => s: Mut {
     append(s, "!")
     set(s, 0, 'G')
     clear(s)
@@ -5006,7 +5013,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
+fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
@@ -5018,7 +5025,7 @@ struct Naturals {
     from: Int
 }
 
-fn naturals(from: Int) -> [] Naturals {
+fn naturals(from: Int) -> Naturals {
     return Naturals {from: from}
 }
 
@@ -5047,10 +5054,12 @@ fn main() [use] {
     let arr_sum = reduce(iter(copy(arr)), 0, (a, b) -> a + b)
     let arr_mapped = map(iter(arr), n -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")
-    let letters = filter(iter("hello"), c -> c == 'l')
+    let hello = "hello"
+    let letters = filter(iter(hello), c -> c == 'l')
     println("chars: ${size(letters)}")
     let lazy_sum = reduce(iter(naturals(1)), 0, (a, b) -> a + b)
-    let chained = filter(iter(map(xs, n -> n * 3)), n -> n > 6)
+    let tripled = map(xs, n -> n * 3)
+    let chained = filter(iter(tripled), n -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
     let names = list("ann", "bob", "carol")
     let lens = map(names, n -> size(n))
@@ -5141,15 +5150,15 @@ qualifier Small of Int with Even {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 
-fn size<T>(list: List<T>) -> [list] Str {
+fn size<T>(list: List<T>) -> Str => list {
     return "mine"
 }
 
-fn label(n: Even Int) -> [n] Str {
+fn label(n: Even Int) -> Str => n {
     return "even"
 }
 
-fn label(n: Small Int) -> [n] Str {
+fn label(n: Small Int) -> Str => n {
     return "small"
 }
 
@@ -5354,7 +5363,7 @@ struct Row {
     times: Int
 }
 
-fn describe(r: Row) -> [r] Str {
+fn describe(r: Row) -> Str => r {
     return "${r.label}!"
 }
 
@@ -5442,11 +5451,13 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
         "expected a per-field snapshot:\n{main}"
     );
     // Tier 3 — the body hands the *whole* subject to `describe`, so no snapshot
-    // can stand in for it and the pass holds a copy.
+    // can stand in for it and the pass holds the subject — **borrowed**, as a
+    // `Proj` field [proj-field]: the struct carries a lifetime and the mint
+    // clones nothing [copy-opt-in].
     assert!(
-        main.contains("pub struct __Pass_Row {\n    pub __subject: Row,")
-            && main.contains("__Pass_Row { __subject: r.clone(), left: r.times }"),
-        "expected the whole subject to be kept:\n{main}"
+        main.contains("pub struct __Pass_Row<'s> {\n    pub __subject: &'s Row,")
+            && main.contains("__Pass_Row { __subject: r, left: r.times }"),
+        "expected the whole subject to be borrowed:\n{main}"
     );
     assert!(
         !main.contains("__advance") && !main.contains("__state"),
@@ -5490,11 +5501,11 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> [bag] Proj[from: bag] Mut ListYield<Int> {
+fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, Proj[from: c] => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -5542,7 +5553,7 @@ struct Pair {
     right: Mut List<Str>
 }
 
-fn touch(list: Mut List<Str>) -> [list: Mut] None {
+fn touch(list: Mut List<Str>) -> None => list: Mut {
     add(list, "t")
     return None
 }
@@ -5607,7 +5618,7 @@ struct Person canbe Mut {
     tags: Mut List<Str>
 }
 
-fn eat(list: Mut List<Str>) -> [] None {
+fn eat(list: Mut List<Str>) -> None => !list {
     add(list, "eaten")
     return None
 }
@@ -5700,7 +5711,7 @@ fn rustc_compiles_and_runs_inc_dec() {
 const OPT_BORROW_DEMO: &str = r#"
 struct Person { name: Str }
 
-fn take(p: Person) -> [] Str { return p.name }
+fn take(p: Person) -> Str => !p { return p.name }
 
 fn main() [use] {
     use StdOutConsole()
@@ -5727,4 +5738,91 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
         "expected the reference unwrap, not a clone of the reference, in:\n{main}"
     );
     run_rust_files(&files, "opt-borrow", "ann\nann\n");
+}
+
+/// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
+/// that emits borrowed elements. The generated pass **borrows** its subject
+/// (`__subject: Proj Box<T>`, user decision 2026-09-11) instead of copying it,
+/// so nothing has to `copy` a value of type `T` — which is what used to refuse
+/// generic subjects on the Kotlin backend [kt-copy]. `Proj[from: b]` in the
+/// written return names the subject; the desugar redirects it to the pass.
+const GENERIC_ITER_FN_DEMO: &str = r#"
+struct Box<T> {
+    items: List<T>
+}
+
+iter fn next<T>(b: Box<T>) -> Emitted (Proj[from: b] T) | Finished {
+    state {
+        at: Int = 0
+    }
+    let e = get(b.items, at)
+    if e is None {
+        return finished()
+    }
+    at = at + 1
+    return emitted(e)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = Box<Str> { items: list("a", "b") }
+    for s in iter(b) {
+        println(s)
+    }
+    let n = Box<Int> { items: list(1, 2, 3) }
+    println("${reduce(iter(n), 0, (acc, x) -> acc + x)}")
+}
+"#;
+
+const GENERIC_ITER_FN_OUTPUT: &str = "a\nb\n6\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_subject_iter_fn() {
+    let files = generate(&[("main.sv", GENERIC_ITER_FN_DEMO)]);
+    run_rust_files(&files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT);
+}
+
+/// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
+/// end: a wholesale `Proj[from: a, b]` joined across branches, and a
+/// re-pointing entry `v.items: Proj[from: other]` that makes a view borrow a
+/// different list — Rust ties the struct's lifetime to the new source.
+const DEDUCTION_CLAUSE_DEMO: &str = r#"
+struct View canbe Mut {
+    items: Proj List<Int>,
+    at: Int
+}
+
+fn view(items: List<Int>) -> Mut View {
+    return Mut View { items: items, at: 0 }
+}
+
+fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: Proj[from: other] {
+    v.items = other
+    v.at = 0
+}
+
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> Proj[from: a, b] List<Int> {
+    if flag {
+        return a
+    }
+    return b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a = list(1, 2)
+    let b = list(3, 4, 5)
+    println("${size(either(a, b, true))} ${size(either(a, b, false))}")
+    let v = view(a)
+    repoint(v, b)
+    println("${size(v.items)} at ${v.at}")
+}
+"#;
+
+const DEDUCTION_CLAUSE_OUTPUT: &str = "2 3\n3 at 0\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_deduction_clause_projections() {
+    let files = generate(&[("main.sv", DEDUCTION_CLAUSE_DEMO)]);
+    run_rust_files(&files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT);
 }

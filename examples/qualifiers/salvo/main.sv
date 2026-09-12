@@ -20,12 +20,12 @@ qualifier NonEmpty<T> of List<T> {
     // claim. `add` has never heard of `NonEmpty` — appending an element
     // nevertheless cannot leave a list empty, and the qualifier is the party
     // that knows it, so it says so here [qual-refn].
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
 }
 
 // Only callable while the compiler still believes the list is non-empty, so
 // there is no `None` in the result and no check in the body.
-fn head(list: NonEmpty List<Int>) -> [list] Int {
+fn head(list: NonEmpty List<Int>) -> Int => list {
     let first = get(list, 0)
     return first!
 }
@@ -40,26 +40,27 @@ fn head(list: NonEmpty List<Int>) -> [list] Int {
 // claim is made by going through the constructor [qual-ctor-fn].
 qualifier Celsius of Int
 
-fn celsius(degrees: Int) -> [] Int as Celsius {
+fn celsius(degrees: Int) -> Int as Celsius {
     return degrees
 }
 
 // Overloading by qualifier: the more qualified signature is the more specific
 // one, so the claim decides which of these a call reaches [fn-overload-rank].
-fn describe(temp: Int) -> [temp] Str {
+fn describe(temp: Int) -> Str => temp {
     return "${temp} (no unit)"
 }
 
-fn describe(temp: Celsius Int) -> [temp] Str {
+fn describe(temp: Celsius Int) -> Str => temp {
     return "${temp}°C"
 }
 
 // ===== 3. what the compiler infers =====
 //
-// A deduction list says what a call does to its arguments, and an unwritten
-// one is inferred from the body. `sum` keeps its list and mutates nothing, so
-// a caller's claims survive the call; a function taking `Mut` and listing its
-// survivors exhaustively is how a claim gets dropped.
+// A deduction clause (`=> …` after the return type) says what a call does to
+// its arguments, and whatever it leaves unsaid is inferred from the body.
+// `sum` keeps its list and mutates nothing, so a caller's claims survive the
+// call; a function taking `Mut` and listing its survivors exhaustively
+// (`=> list: Mut`) is how a claim gets dropped.
 fn sum(list: List<Int>) -> Int {
     let total = 0
     for n in list {
@@ -73,7 +74,7 @@ fn sum(list: List<Int>) -> Int {
 // which may empty the list has to declare, and the *contract* is what the
 // caller reads: `core.list` has no removal function yet, so this body has
 // nothing to do.
-fn compact(list: Mut List<Int>) -> [list: Mut] None {
+fn compact(list: Mut List<Int>) -> None => list: Mut {
 }
 
 // ===== 4. provenance: a claim about the handle, not the contents =====
@@ -93,7 +94,7 @@ provenance qualifier Authenticated of Request
 
 // Minting a provenance claim: there is no predicate to satisfy, so the
 // constructor is the only way in [qual-ctor-fn].
-fn authenticate(request: Mut Request) -> [] Mut Request as Authenticated {
+fn authenticate(request: Mut Request) -> Mut Request as Authenticated {
     return request
 }
 
@@ -101,25 +102,25 @@ fn authenticate(request: Mut Request) -> [] Mut Request as Authenticated {
 // contents, so a mutating call takes it away.
 qualifier Fresh of Request
 
-fn freshen(request: Mut Request) -> [] Mut Request as Fresh {
+fn freshen(request: Mut Request) -> Mut Request as Fresh {
     return request
 }
 
 // An ordinary mutating call. It lists `Mut` as the only survivor, and knows
 // nothing about either claim.
-fn touch(request: Mut Request) -> [request: Mut] None {
+fn touch(request: Mut Request) -> None => request: Mut {
     request.touches = request.touches + 1
 }
 
-fn handle(request: Request) -> [request] Str {
+fn handle(request: Request) -> Str => request {
     return "plain ${request.path}"
 }
 
-fn handle(request: Authenticated Request) -> [request] Str {
+fn handle(request: Authenticated Request) -> Str => request {
     return "authenticated ${request.path}"
 }
 
-fn handle(request: Fresh Request) -> [request] Str {
+fn handle(request: Fresh Request) -> Str => request {
     return "fresh ${request.path}"
 }
 

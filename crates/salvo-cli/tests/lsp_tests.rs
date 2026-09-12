@@ -239,7 +239,7 @@ fn diagnostics_hover_and_shutdown() {
         response["result"]["contents"]["value"].as_str(),
         // [lsp-fn-origin] The origin section follows the signature.
         Some(
-            "```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```\n\n---\n\n\
+            "```salvo\nfn scale(x: Int, factor: Int) -> Int\n```\n\n---\n\n\
              Declared in this file.",
         ),
         "unexpected hover: {response}"
@@ -261,7 +261,7 @@ fn diagnostics_hover_and_shutdown() {
         response["result"]["contents"]["value"].as_str(),
         // [lsp-fn-origin] The origin section follows the signature.
         Some(
-            "```salvo\nfn scale(x: Int, factor: Int) -> [factor] Int\n```\n\n---\n\n\
+            "```salvo\nfn scale(x: Int, factor: Int) -> Int\n```\n\n---\n\n\
              Declared in this file.",
         ),
         "unexpected hover: {response}"
@@ -278,7 +278,7 @@ fn diagnostics_hover_and_shutdown() {
             "params": {
                 "textDocument": {"uri": uri, "version": 4},
                 "contentChanges": [{
-                    "text": "fn read(s: Str) -> [s] None {\n}\n\nfn derived() {\n    let xs = \"hello\"\n    let ys = xs\n    read(ys)\n}\n"
+                    "text": "fn read(s: Str) -> None => s {\n}\n\nfn derived() {\n    let xs = \"hello\"\n    let ys = xs\n    read(ys)\n}\n"
                 }]
             }
         }),
@@ -342,7 +342,7 @@ fn diagnostics_hover_and_shutdown() {
             "params": {
                 "textDocument": {"uri": uri, "version": 5},
                 "contentChanges": [{
-                    "text": "struct Person {\n    name: Str\n}\n\nfn derived(p: Person) -> [p] None {\n    let n = p.name\n    let _k = n\n}\n"
+                    "text": "struct Person {\n    name: Str\n}\n\nfn derived(p: Person) -> None => p {\n    let n = p.name\n    let _k = n\n}\n"
                 }]
             }
         }),
@@ -474,7 +474,7 @@ fn goto_definition_resolves_names() {
     // 0 import shapes.Point
     // 1
     // 2 effect Beeper {
-    // 3     fn beep() -> [] Int
+    // 3     fn beep() -> Int
     // 4 }
     // 5
     // 6 handler Loud of Beeper {
@@ -496,7 +496,7 @@ fn goto_definition_resolves_names() {
     let text = "import shapes.Point\n\
                 \n\
                 effect Beeper {\n\
-                \x20   fn beep() -> [] Int\n\
+                \x20   fn beep() -> Int\n\
                 }\n\
                 \n\
                 handler Loud of Beeper {\n\
@@ -719,7 +719,7 @@ fn narrow(value: Int | Str) -> Str {
     // signature stays the code block and the docs follow.
     let value = hover(&mut lsp, 20, &uri, 15, 5);
     assert!(
-        value.starts_with("```salvo\nfn describe(person: Person) -> [person] Str\n```"),
+        value.starts_with("```salvo\nfn describe(person: Person) -> Str\n```"),
         "unexpected fn hover: {value}"
     );
     assert!(value.contains("Describes a"), "unexpected fn hover: {value}");
@@ -822,7 +822,7 @@ effect Log {
     // Writes one line.
     //
     // The [line] is consumed.
-    fn write(line: Str) -> [line] None
+    fn write(line: Str) -> None => line
 }
 
 handler StdLog of Log {
@@ -883,7 +883,7 @@ fn f(p: Person) [Log] {
     // (members have no `FnKey`, so nothing is inferred for them).
     let at_decl = hover(&mut lsp, 33, &uri, 13, 8);
     assert!(
-        at_decl.starts_with("```salvo\nfn write(line: Str) -> [line] None\n```"),
+        at_decl.starts_with("```salvo\nfn write(line: Str) -> None\n```"),
         "unexpected member hover: {at_decl}"
     );
     assert!(
@@ -948,7 +948,7 @@ qualifier NonEmpty<T> of List<T> {
     }
 
     // Adding an element leaves the list non-empty.
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
 }
 
 fn main() [use] {
@@ -1118,7 +1118,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     // 5     face: Str
     // 6 }
     // 7
-    // 8 fn show(c: Card) -> [c] Str {
+    // 8 fn show(c: Card) -> Str => c {
     // 9     return c.face
     // 10 }
     // 11
@@ -1128,7 +1128,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     // 15     }
     // 16 }
     // 17
-    // 18 fn probe(i: Int) -> [i] Int {
+    // 18 fn probe(i: Int) -> Int => i {
     // 19     if i is Positive {
     // 20         return 1
     // 21     }
@@ -1142,7 +1142,7 @@ fn hover_reaches_obligation_and_is_check_names() {
                 \x20   face: Str\n\
                 }\n\
                 \n\
-                fn show(c: Card) -> [c] Str {\n\
+                fn show(c: Card) -> Str => c {\n\
                 \x20   return c.face\n\
                 }\n\
                 \n\
@@ -1152,7 +1152,7 @@ fn hover_reaches_obligation_and_is_check_names() {
                 \x20   }\n\
                 }\n\
                 \n\
-                fn probe(i: Int) -> [i] Int {\n\
+                fn probe(i: Int) -> Int => i {\n\
                 \x20   if i is Positive {\n\
                 \x20       return 1\n\
                 \x20   }\n\

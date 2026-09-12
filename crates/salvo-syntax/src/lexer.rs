@@ -414,6 +414,11 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::EqEq
             }
+            // [deduce-syntax] `=>` introduces a deduction clause.
+            ('=', Some('>')) => {
+                self.bump();
+                TokenKind::FatArrow
+            }
             ('!', Some('=')) => {
                 self.bump();
                 TokenKind::BangEq

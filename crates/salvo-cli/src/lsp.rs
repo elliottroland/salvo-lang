@@ -40,7 +40,7 @@ use lsp_types::{
 use salvo_core::{
     Checked, DefSite, FileDiagnostic, FnKey, ParamDeduction, Program, QualEffect, Ty,
 };
-use salvo_syntax::ast::{DeductionKind, FnDecl, Item, QualSubject};
+use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
@@ -1280,83 +1280,153 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
         sig.push_str(&format!(" [{}]", effects.join(", ")));
     }
 
-    sig.push_str(" ->");
-    // Deductions: the inferred/validated list when the whole-program pass
-    // produced one, else the declared list. Kept params render with their
-    // remaining qualifiers (`name:` when a qualified param keeps none);
-    // moved params are omitted [deduce-syntax].
-    if let Some(deductions) = inferred {
-        sig.push_str(&format!(" {}", render_deductions(deductions, decl)));
-    } else if let Some(declared) = &decl.deductions {
-        let names = |items: &[salvo_syntax::ast::TypeRef]| -> Vec<String> {
-            items.iter().map(|q| q.to_string()).collect()
-        };
-        let entries: Vec<String> = declared
-            .iter()
-            .map(|d| match &d.kind {
-                DeductionKind::KeepAll => d.param.name.clone(),
-                DeductionKind::Moved => format!("{}: Nothing", d.param.name),
-                DeductionKind::Exhaustive(items) if items.is_empty() => {
-                    format!("{}:", d.param.name)
-                }
-                DeductionKind::Exhaustive(items) => {
-                    format!("{}: {}", d.param.name, names(items).join(" "))
-                }
-                DeductionKind::Remove(items) => format!(
-                    "{}: {}",
-                    d.param.name,
-                    names(items)
-                        .iter()
-                        .map(|q| format!("-{q}"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ),
-            })
-            .collect();
-        sig.push_str(&format!(" [{}]", entries.join(", ")));
-    }
-
     match &decl.return_type {
-        Some(ty) => sig.push_str(&format!(" {ty}")),
-        None => sig.push_str(" None"),
+        Some(ty) => sig.push_str(&format!(" -> {ty}")),
+        None => sig.push_str(" -> None"),
     }
     if let Some(cref) = &decl.constructs {
         sig.push_str(&format!(" as {cref}"));
     }
+    // [deduce-syntax] The *effective* contract, in the source spelling: the
+    // whole-program pass's list when there is one (written entries and the
+    // inferred rest, indistinguishable here — which is the point), else the
+    // declared clause alone (effect and handler members have no `FnKey`).
+    let clause = match inferred {
+        Some(deductions) => render_deductions(deductions, decl),
+        None => decl
+            .deductions
+            .as_ref()
+            .map(|list| render_declared(list))
+            .unwrap_or_default(),
+    };
+    if !clause.is_empty() {
+        sig.push_str(&format!(" => {clause}"));
+    }
+    // Fn-typed parameters with a written group render theirs too.
+    for p in &decl.params {
+        if let salvo_syntax::ast::Type::Fn { deductions: Some(list), .. } = &p.ty {
+            if !list.is_empty() {
+                sig.push_str(&format!(" =>[{}] {}", p.name.name, render_declared(list)));
+            }
+        }
+    }
     sig
 }
 
-/// Renders an effective deduction list [deduce-syntax]: moved parameters
-/// are omitted, and each kept parameter renders in the form its effect
-/// has — bare for keep-all, `p: A B` for an exhaustive set (`p:` when it
-/// is empty), `p: -A` for a delta.
+/// Renders an effective deduction clause [deduce-syntax]: `!p` for a moved
+/// parameter, bare for keep-all, `p: A B` for an exhaustive set (`p: None`
+/// when it is empty), `p: -A` for a delta, and `Proj[from: a, b]` for the
+/// parameters the result holds borrows of [proj-infer]. Empty when there is
+/// nothing to say (every parameter kept whole, nothing lent).
 fn render_deductions(
     deductions: &[ParamDeduction],
-    _decl: &salvo_syntax::ast::FnDecl,
+    decl: &salvo_syntax::ast::FnDecl,
 ) -> String {
-    let entries: Vec<String> = deductions
+    // [copy-scalar-free] A Copy scalar's fate is nothing to deduce, so the
+    // hover leaves it out, as the clause may.
+    let scalar = |name: &str| -> bool {
+        decl.params.iter().any(|p| {
+            p.name.name == name
+                && matches!(
+                    &p.ty,
+                    salvo_syntax::ast::Type::Named { qualifiers, base }
+                        if qualifiers.is_empty()
+                            && base.args.is_empty()
+                            && matches!(
+                                base.name.name.as_str(),
+                                "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                            )
+                )
+        })
+    };
+    let mut entries: Vec<String> = deductions
         .iter()
-        .filter(|d| d.kept)
-        .map(|d| match &d.effect {
-            QualEffect::KeepAll => d.param.clone(),
-            QualEffect::Exhaustive(keep) if keep.is_empty() => {
-                format!("{}:", d.param)
+        .filter(|d| !scalar(&d.param))
+        .filter_map(|d| {
+            if !d.kept {
+                return Some(format!("!{}", d.param));
             }
-            QualEffect::Exhaustive(keep) => {
-                format!("{}: {}", d.param, keep.join(" "))
+            match &d.effect {
+                QualEffect::KeepAll => None,
+                QualEffect::Exhaustive(keep) if keep.is_empty() => Some(format!("{}: None", d.param)),
+                QualEffect::Exhaustive(keep) => Some(format!("{}: {}", d.param, keep.join(" "))),
+                QualEffect::Remove(dropped) => Some(format!(
+                    "{}: {}",
+                    d.param,
+                    dropped
+                        .iter()
+                        .map(|q| format!("-{q}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )),
             }
-            QualEffect::Remove(dropped) => format!(
-                "{}: {}",
-                d.param,
-                dropped
-                    .iter()
-                    .map(|q| format!("-{q}"))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
         })
         .collect();
-    format!("[{}]", entries.join(", "))
+    let lent: Vec<&str> = deductions
+        .iter()
+        .filter(|d| d.lent)
+        .map(|d| d.param.as_str())
+        .collect();
+    if !lent.is_empty() {
+        entries.push(format!("Proj[from: {}]", lent.join(", ")));
+    }
+    entries.join(", ")
+}
+
+/// Renders a written clause as written [deduce-syntax].
+fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
+    use salvo_syntax::ast::{DeductionKind, DeductionTarget};
+    let names = |items: &[salvo_syntax::ast::TypeRef]| -> Vec<String> {
+        items.iter().map(|q| q.to_string()).collect()
+    };
+    let target = |d: &salvo_syntax::ast::Deduction| -> String {
+        match &d.target {
+            DeductionTarget::Param { name, path } => {
+                let mut s = name.name.clone();
+                for f in path {
+                    s.push('.');
+                    s.push_str(&f.name);
+                }
+                s
+            }
+            DeductionTarget::Result { path } => {
+                let mut s = String::new();
+                for f in path {
+                    s.push('.');
+                    s.push_str(&f.name);
+                }
+                s
+            }
+            DeductionTarget::Opaque => String::new(),
+        }
+    };
+    let entries: Vec<String> = list
+        .iter()
+        // A bare kept entry says what the default says: nothing to show.
+        .filter(|d| !matches!(d.kind, DeductionKind::KeepAll))
+        .map(|d| {
+            let t = target(d);
+            match &d.kind {
+                DeductionKind::KeepAll => t,
+                DeductionKind::Moved => format!("!{t}"),
+                DeductionKind::Exhaustive(items) if items.is_empty() => format!("{t}: None"),
+                DeductionKind::Exhaustive(items) => format!("{t}: {}", names(items).join(" ")),
+                DeductionKind::Remove(items) => format!(
+                    "{t}: {}",
+                    names(items).iter().map(|q| format!("-{q}")).collect::<Vec<_>>().join(" ")
+                ),
+                DeductionKind::Proj(sources) => {
+                    let srcs: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
+                    if t.is_empty() {
+                        format!("Proj[from: {}]", srcs.join(", "))
+                    } else {
+                        format!("{t}: Proj[from: {}]", srcs.join(", "))
+                    }
+                }
+            }
+        })
+        .collect();
+    entries.join(", ")
 }
 
 /// URI -> canonical absolute path (`None` for non-file URIs, which the

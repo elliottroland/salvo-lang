@@ -155,8 +155,8 @@ Conventions:
   (the type of `return`/`break`/`continue`), subtype of everything.
   * A *written* `Nothing` lowers to the bottom type, not to a nominal type
     that happens to be spelled that way: `throw`'s declared
-    `-> [] Nothing` [throw] means callers see a value that fits everywhere
-    and ends the path.
+    `-> Nothing => !message` [throw] means callers see a value that fits
+    everywhere and ends the path.
   * **A `Nothing`-typed expression statement terminates its path**, which
     both path analyses read from the checker's recorded types rather than
     syntax: a branch ending in `throw(m)` satisfies [fn-must-return], and
@@ -483,7 +483,7 @@ Conventions:
     overloads (see the backend specs).
 * [qual-refn] A **refinement** states what a function *someone else*
   declared does to a qualifier's claim (user design 2026-09-06, roadmap
-  D3): `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`,
+  D3): `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty, !elem `,
   written in the qualifier that owns the claim or as a top-level item.
   It exists because [deduce-syntax] is sound only by forbidding a
   mutating function from promising a qualifier it never declared — and
@@ -496,12 +496,12 @@ Conventions:
     errors: whether a parameter is kept is the function's own deduction to
     make. The AST carries additions and removals as separate lists rather
     than reusing `Deduction`, so the restriction is structural.
-  * **`+Q` is legal only here.** In a *function's* own deduction list it
+  * **`+Q` is legal only here.** In a *function's* own deduction clause it
     stays rejected (roadmap D2): there it would be a claim about the
     body, which needs an establishment rule; in a refinement it is the
     qualifier author's claim about someone else's call.
   * **Applied after the callee's own list** at each call site
-    [deduce-consume]: `add`'s exhaustive `[list: Mut]` drops `NonEmpty`,
+    [deduce-consume]: `add`'s exhaustive `=> list: Mut` drops `NonEmpty`,
     then the refinement puts it back. Only on the *kept* path — nothing is
     known about a moved parameter, and refining one is an error.
   * **Trusted**, like `-> T as Q` [qual-ctor-fn]: no `qualifies` call is
@@ -776,7 +776,7 @@ Conventions:
 
 ## Functions
 
-* [fn-syntax] `fn name<G>(params) [effects] -> [deductions] ReturnType`;
+* [fn-syntax] `fn name<G>(params) [effects] -> ReturnType`; => deductions
   no implicit returns from functions (unlike blocks); omitted return type
   means `None`; omitted effect list means pure (`[]`).
 * [fn-return-none] Functions returning `None` may `return` bare or not
@@ -785,9 +785,10 @@ Conventions:
     [decl-explicit].
 * [decl-explicit] Nothing the compiler cannot see is inferred (user
   decision 2026-09-03). A fn with **no body** — an `intrinsic fn` — must
-  declare its **effect list**, **deduction list**,
-  and **return type**; an *effect member* must declare its deduction list
-  and return type (it may not declare effects at all
+  declare its **effect list**, **deduction clause** (every parameter but
+  Copy scalars [deduce-syntax]) and **return type**; an *effect member*
+  must declare its deduction clause and return type (it may not declare
+  effects at all
   [effect-member-no-effects]). Inference from an absent body is a guess,
   and always the most permissive one: it is how std's `add` came to be
   inferred as *keeping* the element the list had taken ownership of, so
@@ -927,7 +928,7 @@ Conventions:
     names, same types, type parameters positional), matched by the same
     matcher `refn` uses [qual-refn-match] — so a std rename surfaces as a
     diagnostic rather than as a rename that quietly stops applying. Effects,
-    a deduction list, a return type and an implicit-group spread are parse
+    a deduction clause, a return type and an implicit-group spread are parse
     errors naming the reason: none of them takes part in selection.
   * **Scoped**: at module level it applies to the whole module (in every
     file of it), order-independent like any module-level declaration; inside
@@ -1072,7 +1073,7 @@ Conventions:
     nothing, which is [call-resolve]'s rule for generics.
 * [iter-drive-in-place] Who **owns** the pass decides what the loop does with
   it (user decision 2026-09-09):
-  * A pass the fn **keeps** — a `Mut` parameter its deduction list hands back, or
+  * A pass the fn **keeps** — a `Mut` parameter its deduction clause hands back, or
     a projection of one — is advanced *where it lives*: the position the loop
     reaches is what the caller sees next, the loop counts as a **mutation** of it
     rather than a move, and the release stays the caller's (a `close` here would
@@ -1085,19 +1086,22 @@ Conventions:
     did [backend-parity].
   * [linear-generics] A **generic** pass the fn owns, whose type parameter says
     `canbe Linear`, needs a `close` the body can name: the `?Linear<It>` spread,
-    or a `?close: (It) -> [] None` written by hand. Missing, that is an error
+    or a `?close: (it: It) -> None` with `=>[close] !it` written by hand.
+    Missing, that is an error
     naming the remedy — driving a resource-owning pass and dropping it is the
     leak [linear-group] exists to prevent. A pass that is not opted in needs
     nothing (a non-linear pass may be abandoned, the same latitude a hand-written
     `while` has), and neither does one the fn keeps.
 * [iter-pass] `iter` converts a **container** into a fresh pass
-  (`fn iter<T>(list: List<T>) [] -> [] Mut ListYield<T>`), and that is the whole
+  (`fn iter<T>(list: List<T>) [] -> Mut ListYield<T>`), and that is the whole => !list
   of container iteration: std declares a pass struct plus a `next` per
   intrinsic container, so the language has no container protocol of its own
   (user decision 2026-09-08, roadmap R5).
-  * The container is **moved into** the pass, so `iter(xs)` consumes `xs`
-    (`-> []`): walking a container by hand is walking a value that now holds
-    it. Walking the same container twice therefore copies (`iter(copy(xs))`).
+  * The container is **borrowed by** the pass (a `Proj` field
+    [proj-field]; user decision 2026-09-11 — until then it was moved in):
+    `iter(xs)` keeps `xs` usable and links the pass to it, so walking the
+    same container twice is `iter(xs)` twice, and mutating `xs` while a pass
+    over it lives is refused [proj-infer].
   * A `for` over a container is lowered as *mint then drive*: the checker
     records the `iter` to call beside the `next` to drive, and **both emitters
     call it** — until 2026-09-09 the record was read by nobody, so a `for` over a
@@ -1122,7 +1126,7 @@ Conventions:
     `None | None` would have one. `Finished` is a fieldless struct — it has
     nothing to qualify, and `None` would say "absent" where the claim is
     "the sequence ended".
-  * `params Yield<It, T> { fn next(it: Mut It) -> [it: Mut] Emitted T |
+  * `params Yield<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
     Finished }` [group-obligation] [group-self]: a type of your own becomes
     drivable by declaring `: Yield<self, T>` and supplying the `next` — checked at
     the struct, where a misspelled member is caught, rather than surfacing
@@ -1205,7 +1209,7 @@ Conventions:
     * [seq-into] `map_to`/`filter_to` put the results in a collection the
       caller provides, passed **first** because it is what the call is about.
       Appending goes through an `?add` implicit parameter
-      (`(dest: Mut D, elem: U) -> [dest: Mut] None`), so the destination is
+      (`(dest: Mut D, elem: U) -> None` with `=>[add] dest: Mut, !elem`), so the destination is
       anything with an `add` the call site can find rather than a `List` —
       the spread's move, applied to the output. The destination is **moved in
       and returned** (user decision 2026-09-08), which is what lets one nest
@@ -1293,8 +1297,8 @@ Conventions:
     would need a local first, since `h.f(e)` is dot-notation for `f(h, e)`
     [fn-dot]. A group is resolved per call site instead
     [implicit-resolve].
-  * A **member's deduction list is part of the position** [fn-contract]: a
-    member declared `fn next(it: Mut It) -> [it: Mut] …` is filled only by an
+  * A **member's deduction clause is part of the position** [fn-contract]: a
+    member declared `fn next(it: Mut It) -> … => it: Mut` is filled only by an
     implementation that keeps and mutates its parameter, and one that
     consumes it does not fit. (Until 2026-09-09 the member's fn type was
     built without its contract, so every parameter read as
@@ -1376,8 +1380,10 @@ Conventions:
     variables teaches nothing and must not match everything.
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
-    combinator work — `total<C, It>(c: C, ?iter: (c: C) -> [] Mut It,
-    ?Yield<It, Int>)`, where nothing but the chosen `iter` says what `It` is:
+    combinator work — `total<C, It>(c: C, ?iter: (c: C) -> Mut It,
+    ?Yield<It, Int>) -> Int =>[iter] Proj[from: c] => c`, where nothing but
+    the chosen `iter` says what `It` is (and the group says the pass it
+    returns holds a borrow of `c` [proj-infer]):
     `C` is only known after the arguments, so the sweeps between them cannot
     learn `It`, and one implicit determining another needs the sweep repeated.
     Declaration order is therefore not a constraint on the author.
@@ -1420,9 +1426,11 @@ Conventions:
   interface takes them, every handler's implementation of the member takes
   them, and the *call* fills them, resolving with the effect instance's type
   arguments substituted in.
-  * A **handler constructor** may not have them: its instance is built by
-    `use`, which resolves nothing. Nor may a **lambda**: its type has no room
-    to declare one. Both are deliberate cuts.
+  * A **handler constructor** may have *fn-typed* implicits (`?copy: (v: T)
+    -> T`; lifted 2026-09-11 [copy-implicit]): `use` is where the handler's
+    type arguments are known, so it resolves them as a call resolves a fn's.
+    A **lambda** may not: its type has no room to declare one (deliberate
+    cut).
 * [fn-lambda] Lambdas: `x -> expr`, `(a, b) -> expr`, and block bodies
   `{ x: T -> ... }` (blocks require `return`). Lambdas may declare
   effects/deductions.
@@ -1452,11 +1460,13 @@ Conventions:
 
   * **It is a desugaring, done in the syntax crate** (`desugar::expand_pass_fns`,
     inside `parse_module`), into a hidden `struct __Pass_<Subject> :
-    Yield<self, T> canbe Mut { __subject: Subject, <state fields> }`, an
-    `fn iter(s: Subject) [] -> [s] Mut __Pass_<Subject>` whose body is the struct
-    literal, and the author's body as `fn next(__p: Mut __Pass_<Subject>) ->
-    [__p: Mut] Emitted T | Finished` with the subject and the state fields
-    written out as field reads. Nothing downstream knows the form exists, which
+    Yield<self, T> canbe Mut { __subject: Proj Subject, <state fields> }`, an
+    `fn iter(s: Subject) [] -> Mut __Pass_<Subject>` whose body is the struct
+    literal (its lend of `s` inferred [proj-infer]), and the author's body as
+    `fn next(__p: Mut __Pass_<Subject>) -> Emitted T | Finished => __p: Mut`
+    with the subject and the state fields written out as field reads (a
+    `Proj[from: s]` in the written return is redirected to `__p`
+    [yield-proj]). Nothing downstream knows the form exists, which
     is why `for`, the combinators, `let p = iter(c)`, deductions, narrowing and
     both emitters need no new machinery.
   * **The `state` block is declarations only**, each with an annotation and an
@@ -1468,23 +1478,27 @@ Conventions:
     `state` fields — would gain inference together.)
   * **The pass holds as little of the subject as the body needs**, decided by a
     scan of the body in three tiers — all observationally identical, because the
-    mint reads the subject once and the pass can never see a later write to it:
+    pass **borrows** what it holds [proj-field] and the subject cannot be
+    written while a pass over it lives [proj-infer] (user decision 2026-09-11;
+    until then the mint *copied*, the phase's last hidden copy):
     1. the body never reads the subject (a plain counter): the pass holds
        **nothing** of it, and the mint is `__Pass_C { at: c.from }`;
     2. the body only ever reads *plain fields* of it, their types are visible
        (the subject's struct is declared somewhere in the **program** — the
        expansion runs program-wide, local declarations winning a name) and the
-       subject type is non-generic: one **snapshot field per field read**,
-       initialized at the mint (`__Pass_Fibs { count: f.count, … }`), keeping
-       the field's own name unless a `state` field already has it;
+       subject type is non-generic: one **`Proj` field per field read**
+       (a Copy scalar stays owned [copy-scalar-free]), initialized at the mint
+       (`__Pass_Fibs { count: f.count, … }`), keeping the field's own name
+       unless a `state` field already has it;
     3. otherwise — the subject handed on as a value, an assignment through it, a
-       generic subject, a declaration the program cannot see: the **whole subject**
-       is copied in (`copy(s)` in the generated `iter`, whose deduction keeps it).
-  * **Copying rather than sharing** is what makes a second drive start over and
-    what keeps the backends in step: sharing the subject would make a write
-    during one drive visible on one target only. In tier 3 a *generic* subject is
-    therefore refused by the Kotlin `copy` lowering [kt-copy] until it can decide
-    mutability through a type variable — loud, never wrong.
+       generic subject, a declaration the program cannot see: the **whole
+       subject** is borrowed (`__subject: Proj Subject`, minted as
+       `__subject: s`).
+  * **Borrowing rather than copying** is what keeps the backends in step
+    without a copy: a write to the subject during a drive is *refused* rather
+    than differently visible. An `iter fn` that wants a snapshot writes one
+    (`state { rows: List<Int> = copy(c.rows) }`). A *generic* subject therefore
+    needs no `copy` of a `T`, and the former Kotlin refusal [kt-copy] is gone.
   * **The subject is read-only in the body**: it is a field of the pass typed as
     the subject, so writing through it is the standing [struct-mut] refusal.
   * **The generated pass is not nameable.** `__Pass_…` is the compiler's
@@ -1539,8 +1553,8 @@ Conventions:
   locals only *link* ([fate-link]) — the difference matters because a link
   that outlives its call is representable on one backend and not the other.
   * Consequence: a member that promises a parameter back
-  (`-> [list: Mut]`) may not store it; the honest contract for a storing
-  member moves it (`-> []`), and callers then give up ownership.
+  (`=> list: Mut`) may not store it; the honest contract for a storing
+  member moves it (`=> !list`), and callers then give up ownership.
   * Handler member bodies are validated against their written lists like any
     fn's ([deduce-infer]), which is what makes the rule bite. Before both
     halves existed, `held = list` under a keeping contract diverged
@@ -1639,7 +1653,7 @@ Conventions:
 
 * [throw] `throw(message)` leaves the enclosing delimiter instead of
   resuming. It is declared in std (`core.throw`) as the sole member of
-  `effect Throw<M> { fn throw(message: M) -> [] Nothing }` and known to the
+  `effect Throw<M> { fn throw(message: M) -> Nothing }` and known to the => !message
   compiler by name; the message is *moved* into the outcome.
   * Its type is `Nothing`, the bottom type: nothing after it runs, so the
     intermediate frames stay silent. A fn that may throw declares
@@ -1703,21 +1717,36 @@ Conventions:
 
 ## Deductions
 
-* [deduce-syntax] The `-> [param: Quals, ...]` list states what a call
-  does to each parameter: listed = returned to the caller (borrowed) with
-  the stated qualifiers still known; omitted from a specified list =
-  moved (caller loses access).
-  * Entry forms, by polarity (user design 2026-09-02, D1):
+* [deduce-syntax] The **deduction clause** — `=> entry, entry, …` after the
+  return type (or after the effect list when there is no return type), on
+  the same line or the next; the body's `{` follows its last entry — states
+  what a call does to each parameter and what the result holds of them
+  (user design 2026-09-02 D1 for the entries' polarity; respelled from the
+  bracket list by user decision 2026-09-11 — `=>` is implication, brackets
+  after a parameter list now mean effects only).
+  * Entry forms:
 
     | Form | Meaning |
     |---|---|
-    | `[list]` | keep-all: nothing is stripped |
-    | `[list: A B]` | **exhaustive**: afterwards *only* `A B` apply |
-    | `[list:]` | exhaustive and empty: every qualifier stripped |
-    | `[list: -A]` | **delta**: drop `A`, everything else survives |
-    | `[list: Nothing]` | moved (same as omitting the entry) |
-    | `[]` | no promises about any parameter — all moved |
+    | `=> list` | keep-all: kept, nothing stripped |
+    | `=> !list` | consumed (caller loses access); `list: Nothing` says the same |
+    | `=> list: A B` | **exhaustive**: afterwards *only* `A B` apply |
+    | `=> list: None` | exhaustive and empty: every qualifier stripped |
+    | `=> list: -A` | **delta**: drop `A`, everything else survives |
+    | `=> .f: Proj[from: a]` | the result's field `f` projects `a` [proj-infer] |
+    | `=> v.f: Proj[from: a]` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
+    | `=> Proj[from: a, b]` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
+    | `=>[f] entry, …` | a group: entries about the fn-typed parameter `f`, whose own parameters are named in its type [fn-contract] |
 
+  * **Unmentioned means inferred.** A parameter the clause does not mention
+    gets the entry the body implies [deduce-infer] — the clause is partial,
+    and most fns write none. What is written is fixed and validated against
+    the body. A declaration *without a body* (an effect member, a `platform
+    effect` member, an `intrinsic fn`) must mention every parameter except
+    Copy scalars [copy-scalar-free], implicits and variadics; a fn *type*
+    keeps its default (kept) and is written only through `=>[f]`, never
+    inline (`f: (v: T) -> [v] U` is a parse error: ambiguous with the next
+    parameter).
   * The removal set is computed against the qualifiers the *argument*
     actually carries, not against the parameter's declared set. That is
     what makes the exhaustive form sound: it also drops qualifiers the
@@ -1727,7 +1756,7 @@ Conventions:
     a caller's *state* predicates that the signature never mentions
     (provenance claims are exempt from removal entirely
     [qual-subject]; the
-    unsoundness D1 fixed — `clear(list: Mut List<Int>) -> [list]` would
+    unsoundness D1 fixed — `clear(list: Mut List<Int>) => list` would
     silently preserve a caller's `NonEmpty`). Mutation is the only
     invalidating operation on a kept value: reads preserve state and a
     move ends the caller's access.
@@ -1745,19 +1774,30 @@ Conventions:
     hands a parameter to an exhaustive callee can no longer promise its
     own caller's extras either, so its inferred entry becomes exhaustive
     too.
-  * Written lists are shape-checked: entries must name a parameter
+  * Written entries are shape-checked: a plain entry names a parameter
     (once); an exhaustive entry may only keep qualifiers declared on that
     parameter (a deduction preserves or drops, it never *adds* — `+Qual`
-    is rejected in a *function's* list, see D2; it is how a **refinement**
+    is rejected in a *function's* clause, see D2; it is how a **refinement**
     states what a call establishes [qual-refn]); an entry is either
-    exhaustive or a delta, never both; and `Nothing` is the only type form
-    (other type narrowings are D1b).
+    exhaustive or a delta, never both; `Nothing` is the only type form
+    (other type narrowings are D1b); a result path or a parameter's field
+    path can only state a projection; a parameter both consumed and named
+    as a projection source is an error.
   * A delta may name a qualifier the parameter does not declare (a fn that
     knows it invalidates a specific property). It is a convenience — the
     exhaustive form is the sound default, and inference never relies on a
     delta to be correct.
-* [deduce-infer] An unspecified deduction list is inferred as the
-  strictest deduction over all uses of each parameter in the body;
+  * **Revisit (recorded 2026-09-11):** with unmentioned parameters inferred,
+    editing a body to consume a parameter changes what callers may do with
+    no signature change. Accepted (the hover shows the effective clause);
+    the remedy, if it bites, is an opt-in exhaustive marker or a lint
+    asking for `!p` to be written.
+  * `rename fn` takes no clause; `refn` takes only `+`/`-` entries
+    [qual-refn]. The LSP hover renders the *effective* clause — written and
+    inferred entries alike, Copy scalars and keep-all entries omitted —
+    and any `=>[f]` groups.
+* [deduce-infer] A parameter the clause does not mention is inferred as the
+  strictest deduction over all uses of it in the body;
   deductions never depend on the return value. If inference is impossible,
   they must be written.
   * Inference runs as a whole-program fixpoint after checking
@@ -1767,7 +1807,9 @@ Conventions:
     are stored in the typed IR (`Checked::deductions`); Kotlin ignores
     them — they are the Rust backend's ownership/borrow contract.
   * Moves are inferred when a bare parameter is: passed to a call whose
-    deduction omits it, returned, `break`-ed, stored in a
+    contract consumes it, returned *owned* (a return under a wholesale
+    `Proj[from: p]` is a borrow, not a move [readonly-return]), `break`-ed,
+    stored in a
     struct/array/tuple literal, or passed to a `use` handler
     constructor. Binding a bare parameter (or a projection of one) with
     `let`/assignment is *not* a move by itself — it fate-links the new
@@ -1776,24 +1818,26 @@ Conventions:
     ownership through the chain [fate-move-mode]); the claims are
     seeded into the fixpoint between the checking rounds. Effect-member
     calls have no `FnKey` (the handler is chosen at run time) but their
-    *declared* list is the contract: inference reads it through the
+    *declared* clause is the contract: inference reads it through the
     checker's recorded effect instance, so a member that takes ownership
     moves the argument here exactly as it does at the call site. Value flow
     out of a branch/loop tail is not tracked as a move yet.
-  * A written list is validated against the same body facts: it may be
-    *stricter* than the body (drop qualifiers, move parameters the body
+  * A written entry is validated against the same body facts: it may be
+    *stricter* than the body (drop qualifiers, move a parameter the body
     gives back), but promising a parameter back that the body moves, or
-    a qualifier the body may remove, is an error.
+    a qualifier the body may remove, is an error. Unmentioned parameters
+    are not validated (nothing is written to be wrong); every bodied fn
+    joins the fixpoint, and its written entries are overlaid on each round.
     * **Handler members** are validated the same way. They carry no
       `FnKey` (not top-level items), so they are checked outside the
       fixpoint — sound because the dependency runs one way: a member's body
       facts depend on other fns' contracts, and a fn's contract depends on
-      members' *declared* lists, never their bodies.
-* [deduce-consume] Deduction lists are enforced flow-sensitively at call
-  sites on bare identifier arguments — written lists directly, and
-  unannotated fns through their *inferred* facts: checking and inference
-  iterate to a fixpoint [deduce-fixpoint], so `return list` in a callee
-  consumes the caller's argument exactly like an explicit `[]`.
+      members' *declared* clauses, never their bodies.
+* [deduce-consume] Deduction clauses are enforced flow-sensitively at call
+  sites on bare identifier arguments — written entries directly, and
+  unmentioned parameters through their *inferred* facts: checking and
+  inference iterate to a fixpoint [deduce-fixpoint], so `return list` in a
+  callee consumes the caller's argument exactly like an explicit `!list`.
   * A parameter *not kept* is consumed — the variable's type narrows to
     `Nothing`, and any later reference to it is a compile error (a
     `Nothing`-typed value represents an impossibility). Reassigning the
@@ -1821,7 +1865,7 @@ Conventions:
     type loses whatever the entry's effect drops — everything unnamed for
     an exhaustive entry, the named ones for a delta — so a follow-up call
     whose overload requires a removed qualifier fails resolution (e.g. a
-    second `remove_first` after `[list: Mut]` stripped `NonEmpty`).
+    second `remove_first` after `=> list: Mut` stripped `NonEmpty`).
   * Branch-aware merging: each `if`/`when` branch body's consumption and
     qualifier-removal effects are isolated and joined at the construct's
     exit. A branch that always exits (`return`/`break`/`continue` on
@@ -1856,7 +1900,7 @@ Conventions:
   more round, so the diagnostic lands at the true site. A program still
   unstable at the cap gets a deterministic error naming each fn whose
   inferred contract oscillates (overload resolution can flip with
-  narrowing), with the remedy of writing the deduction list explicitly.
+  narrowing), with the remedy of writing the entry explicitly.
 * [deduce-same-call] Arguments are evaluated left to right; within one
   call, an argument may not *mention* (read, project, interpolate, or
   capture) a value that an earlier argument of the same call consumed —
@@ -2070,9 +2114,9 @@ Conventions:
     a call-multiplicity qualifier enabling consuming captures) are the
     L7 parameterized-qualifier work.
 * [fn-contract] Fn types carry *contracts* (L7d, 2026-09-02): parameters
-  may be named, and a standard deduction list may follow the arrow —
-  `(v: List<Int>) -> [] Int` consumes its argument,
-  `(v: List<Int>) -> [v] Int` keeps it, and an unannotated fn type
+  may be named, and the enclosing declaration may write a group for the
+  parameter [deduce-syntax] — `f: (v: List<Int>) -> Int` with `=>[f] !v`
+  consumes its argument, with `=>[f] v` (or no group) keeps it, and an unannotated fn type
   keeps everything (the default, matching the previous lenient
   behavior — no programs changed legality by default).
   * Calling a fn-typed value applies its contract to the arguments
@@ -2198,42 +2242,155 @@ Conventions:
     (rustc's capture inference already makes consuming closures
     `FnOnce`); Kotlin emits the ordinary function type — the
     multiplicity is protocol-only on the JVM.
-* [readonly-return] `-> [p] Proj[from: p] T` marks a *derived
-  return* (L7c, 2026-09-02; square-bracket surface — user decision:
-  angle brackets read as generics, round brackets collide with
-  qualified groups `Ok (A | B)`, and square brackets are already where
-  annotations name parameters). The fn returns a *borrow* of the kept
-  parameter `p` instead of an independent value — the relaxation of
-  S1a's "results are always independent" rule.
-  * Callee: `p` must be a parameter and *kept* (written or inferred);
-    every returned value must be derived from `p` (its link chain
-    terminates at `p`) or be `None`; returns do not consume. A
-    forwarded derived-return call (`return first(persons)`) validates
+* [readonly-return] `-> Proj[from: p] T` marks a **projected return** (L7c,
+  2026-09-02; `Proj[from: p]` as a qualifier on the type, user decision
+  2026-09-11): the fn returns a *borrow* of the kept parameter `p` instead
+  of an independent value — the relaxation of S1a's "results are always
+  independent" rule.
+  * Callee: every source in `from` must be a parameter and *kept* (written
+    or inferred — a return under the projection is a borrow, not a move
+    [deduce-infer]); every returned value must derive from one of the
+    sources (its link chain terminates there) or be `None`; returns do not
+    consume. A forwarded projected call (`return first(persons)`) validates
     through the same links.
-  * Caller: the result fate-links to the argument in `p`'s position —
-    the ordinary discipline follows (mutating the argument poisons the
-    result [fate-poison]; the links carry a *borrowed* flag, so
-    move-mode can never take ownership through them
-    [fate-move-mode] — moving the result or its narrowed binding stays
-    an error with the `copy` remedy). The result's *type* is the plain
-    written type: `Proj` never affects overloading.
-  * v1 scope: fn declarations (incl. `intrinsic fn`s) only; plain `T` and
-    `T?` return shapes; not writable anywhere but return position. **Being
-    widened** (user decisions 2026-09-11, ROADMAP "Copies only by opt-in"):
-    `Proj` in any type position but a struct field, `List<Proj T>` as a view,
-    `(Proj T)?` as an optional borrow, `[from: p]` attached per occurrence.
-    Accumulator bodies (`best = person; ...; return best`) are out of
-    scope — reassignable borrowed locals are a recorded refinement.
+  * Caller: the result fate-links to the arguments in the sources'
+    positions, *wholesale* — the ordinary discipline follows (mutating the
+    argument poisons the result [fate-poison]; the links carry a
+    *borrowed* flag, so move-mode can never take ownership through them
+    [fate-move-mode] — moving the result or its narrowed binding is an
+    error with the `copy` remedy). The result's *type* is the plain written
+    type: `Proj` never affects overloading.
   * Backends: Kotlin unchanged (the result is the alias). Rust returns
-    `&T` / `Option<&T>`: lifetime elision covers a single reference
-    parameter; with more, a `'a` is generated mechanically onto the
-    annotated parameter and return — the first deliberate exception to
-    the no-lifetimes invariant. Return values render as borrows; std's
-    `first` is clone-free.
-* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: T) -> [value] T` —
+    `&T` / `Option<&T>` / `Union2<&T, …>`: lifetime elision covers a single
+    reference parameter; with more, a `'a` is generated onto every source
+    parameter and the return — the first deliberate exception to the
+    no-lifetimes invariant. std's `first`, `get` and `next` are clone-free.
+* [proj-anywhere] `Proj[from: a, b]` is a qualifier writable wherever a
+  type is (user decisions 2026-09-11): the whole result, a union arm
+  (`Emitted (Proj[from: p] T) | Finished`), a nullable, a tuple element, a
+  type argument (`List<Proj T>`) and a struct field. Where it sits decides
+  what it means:
+  * On the value itself (result, arm, tuple element): a **wholesale**
+    projection [readonly-return] — `[from: …]` is required and names kept
+    parameters; several sources are one projection of all of them (a
+    projection joined across branches is "from both").
+  * Inside a type argument (`List<Proj T>`) or on a struct field: a borrow
+    the value **holds** [proj-field] [proj-infer] — `from` is *not*
+    written (the value's, not the type's), and a `Proj` type argument is
+    allowed only on the intrinsic containers the backends render as such
+    (`List`, arrays) [proj-type-arg]; on a user struct it would smuggle a
+    borrow into a field through generics.
+  * On a parameter, bare `Proj T` names the kind of value expected (a
+    projection) and behaves as a kept parameter.
+  * A *view of a temporary* — a projecting or lending call whose borrowed
+    argument is a call result or literal — may be used within its
+    statement (`map(iter(list(1, 2)), f)`, `for x in iter(list(1, 2))`)
+    but not bound, returned or stored (`let p = iter(list(1, 2))`: "cannot
+    bind a view of a temporary"). Rust exposed it (E0716); the rule keeps
+    the backends in agreement. A possible later automation (hoisting the
+    temporary) is recorded in ROADMAP.
+* [proj-readonly] A `Proj` value is **read-only whatever its `Mut` says**
+  (user decision 2026-09-11): `Proj Mut X` is a legal type — the value came
+  out of a mutable slot — but it never satisfies a `Mut` position (`Mut X <:
+  Proj Mut X`, not the reverse); passing it where `Mut` is required, or
+  mutating it, reports "it is a projection (`Proj`) of `xs` … use
+  `copy(s)`". `copy` is the way out and yields an owned `Mut X`. Moving a
+  wholesale projection is refused the same way — except a Copy scalar
+  [copy-scalar-free].
+  * Implementation: `Proj` is never in the lowered `Ty`; the checker carries
+    the fact on the fate link — `FateLink.borrowed && !held` is a wholesale
+    projection, `held` a borrow an owned object carries [proj-infer]. A
+    variable whose every link is held may be mutated (its own fields are its
+    own); one with a wholesale or alias link may not.
+* [proj-field] **Any struct may hold `Proj` fields**, written without a
+  source (`items: Proj List<T>`): the struct declares *that* it projects,
+  each literal decides *what* (user decision 2026-09-11; replaces the
+  pass-only exemption that first landed). Such a struct is an owned object
+  that *holds* borrows — a **view**: its `Mut` is real (a pass is advanced
+  in place), its non-`Proj` fields are its own, and it may be moved, stored
+  or passed on; what it may not do is outlive its roots. A struct holding a
+  view in an owned field is a view too. Writing `Proj[from: x]` on a field
+  is an error ("names no source").
+  * Rust: the struct carries one lifetime, `View<'s>`, with `&'s` fields
+    and `<'s>` on owned view-typed fields; every mention elides (`'_`)
+    except where a lend ties it [rs-proj-lends]. Kotlin: unchanged.
+  * Assigning a `Proj` field re-points the borrow; a fn that does so writes
+    `=> v.items: Proj[from: other]` [proj-infer], and Rust renders the
+    assignment as a borrow with the struct's lifetime tied to `other`.
+* [proj-infer] **Which parameters a result holds borrows of is inferred**
+  (user decision 2026-09-11: "infer what can be inferred; the user writes
+  what inference cannot reach"):
+  * With a body: read off every returned value — a `Proj` field takes the
+    roots of what is stored in it; an owned view-typed field, a forwarding
+    call, a local, a `!`, a branch are followed (`lends.rs`, memoised per
+    declaration, conservative on any shape it cannot follow: every kept
+    parameter). Per field, exact.
+  * Without a body — an effect member, an intrinsic, a fn type — the
+    written entries decide (`=> Proj[from: c]`, `=> .items: Proj[from: c]`,
+    `=>[iter] Proj[from: c]`), else conservatively every kept parameter
+    (exact for `iter(list)`; only ever over-links).
+  * A written projection entry about the result must name every lend the
+    body performs; it may name more (a generic body — `filter`'s
+    `add(out, x)` with `x` an element of an opaque pass — lends through
+    opacity the analysis cannot see, and the entry is how it says so).
+  * The caller links the result to the lent arguments, *held*
+    [proj-readonly]; returning a view rooted in a local is an error ("a
+    local that dies with this call"), and a returned view may be rooted
+    only in the fn's own lent parameters. A re-pointing entry
+    (`v.items: Proj[from: other]`) gives the caller's variable at `v` a
+    held link to `other`'s roots from the call on (the body is trusted for
+    these — see ROADMAP).
+  * Reserved, not built: struct-level **link parameters**
+    (`struct Pair<T, U, a, b> { first: Proj[from: a] T, … }`) as the
+    per-field explicit form, should the conservative fallback ever bite;
+    `[name-casing]` already makes it parse (ROADMAP).
+* [yield-proj] A pass that walks data declares `: Yield<self, Proj T>` and
+  its `next` returns `Emitted (Proj[from: p] T) | Finished` — the element is
+  a projection of the pass, which projects the source; a generator declares
+  `: Yield<self, T>` and emits owned values (user decision 2026-09-11: one
+  `Yield` group, the element type argument carrying `Proj`). The
+  obligation and the member must agree — `Proj` on one and not the other
+  is an error naming the fix. Reading combinators (`?Yield<It, T>`) accept
+  both. std's `ListYield`/`ArrayYield`/`StrYield` borrow (`items: Proj
+  List<T>`; `StrYield` emits owned `Char`); an `iter fn`'s generated pass
+  borrows its subject (`__subject: Proj Subject`, `Proj` snapshot fields,
+  Copy scalars owned) and names the subject as the elements' source
+  (`Emitted (Proj[from: b] T)`), which the desugar redirects to the pass
+  parameter. Rust: the element generic is retagged to `&T` at call sites
+  whose filled `next` borrows [rs-proj-arm].
+* [copy-opt-in] **A copy never happens without the program opting in**
+  (user decision 2026-09-11, the principle behind phase 2b): `copy(x)` where
+  a copy is wanted, a `_to` function that fills a destination the caller
+  provides (with `?copy` for the element type [copy-implicit]), and nothing
+  else. Everything std hands back either owns fresh data (`map`, `split`) or
+  projects what it was given (`get`, `first`, `iter`, `filter`, `next`)
+  [proj-anywhere]; an `iter fn`'s pass borrows its subject [iter-fn]. A
+  backend that would need a hidden clone to be correct reports instead
+  [backend-never-wrong] [rs-proj-arm].
+* [copy-scalar-free] Moving a derived **Copy scalar** (`Int`, `Long`,
+  `Float`, `Double`, `Bool`, `Char`, `Byte` — not `Str`) is a read: the
+  number taken out of a borrow is the value itself on both backends, so no
+  `copy` is owed (user decision 2026-09-11). Poison still applies. The
+  same exemption lets a bodiless declaration leave a scalar parameter out
+  of its clause [deduce-syntax], and the hover omits scalars.
+* [copy-implicit] `?copy: (v: T) -> T` is an ordinary implicit parameter
+  (user decision 2026-09-11): a generic body that must copy a `T` it
+  cannot see through — `filter_to`'s `add(dest, copy(x))`, a handler
+  holding a `List<T>` it hands out — takes it, and the call site (or the
+  `use` site, for a handler constructor) resolves `copy` at the concrete
+  type. Handler constructors may take fn-typed implicits (the former
+  [implicit-fn-only] restriction is lifted; a non-fn implicit there is
+  still an error): `use` fills them, recorded under the `use` span. The
+  `_to` family names its copy twice — in `_to`, and in `?copy`.
+  * Kotlin: the ctor implicit is a property; `copy(v)` in a member
+    dispatches to it; the `use` site passes the type-directed copy
+    (`{ __i0 -> __i0 }` for an immutable type) [kt-copy]. Rust: a `Box<dyn
+    FnMut(&T) -> T>` field, members call `(self.copy)(&v)`, the `use` site
+    passes a `move` adapter; `copy` at a retagged element position is the
+    identity [rs-proj-arm].
+* [copy-fn] `core.copy` — `intrinsic fn copy<T>(value: T) -> T => value` —
   duplicates a value: the argument is kept untouched with all its
-  qualifiers (`[value]`), and the result is a fresh value with no fate
-  links. It is the one-word remedy in every fate diagnostic.
+  qualifiers, and the result is a fresh value with no fate links. It is the one-word remedy in every fate diagnostic.
   * Lowered type-directedly by each backend [intrinsic-fn]; identity
     where no Salvo operation can mutate the value, a real copy where
     one can, and a codegen error where no correct copy exists yet
@@ -2243,12 +2400,12 @@ Conventions:
 
 * [linear-group] A type declares linearity as an **obligation**:
   `struct Lines : Linear<self> { … }` against the designated
-  `params Linear<It> { fn close(it: It) -> [] None }` (user decisions
+  `params Linear<It> { fn close(it: It) -> None }` (user decisions => !it
   2026-09-08, roadmap R4 — replacing `canbe Linear`, decision L6a
   2026-09-02). Declaring it *is* declaring how the obligation is discharged,
   because [group-obligation] requires the member: a type that says
   `: Linear<self>` without a matching `close` is an error at the **struct**.
-  * **`close` consumes** (an empty deduction list moves its parameter), which
+  * **`close` consumes** (`=> !it` moves its parameter), which
     is what makes it the discharge rather than a convention. Inside the
     `close` implementation the parameter owes nothing — that is where the
     value legitimately dies, and without the exemption a `close` would be the
@@ -2292,7 +2449,7 @@ Conventions:
     ownership needs contracts [deduce-fixpoint]); reported variables
     are marked consumed so each obligation errors once.
 * [linear-discard] `core.discard` —
-  `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — deliberately
+  `intrinsic fn discard<T canbe Linear>(value: T) -> None` — deliberately => !value
   drops a value, consuming it. **No longer an escape hatch from linearity**
   (user decision 2026-09-08): `discard` on a linear value is an error naming
   its `close`, since dropping a handle is exactly the leak the obligation
@@ -2349,7 +2506,7 @@ Conventions:
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
     audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
     (whose declaration is now honestly
-    `intrinsic fn discard<T canbe Linear>(value: T) -> [] None` — no
+    `intrinsic fn discard<T canbe Linear>(value: T) -> None` — no => !value
     blessed-by-name special case), while `get` stays out (returns an
     alias of an element) and `copy` refuses with a dedicated message
     (duplicating an obligation is meaningless). The opt-ins are
@@ -2450,7 +2607,7 @@ Conventions:
   `Ns.Name` (N1, user decisions 2026-09-03), giving the Kotlin
   wrapper-type idiom (`Environment.Id`) without nested declarations.
   Dot-names are legal in every type position: annotations, `of` types,
-  `is` checks, `as Q` constructors, `canbe` clauses, deduction lists,
+  `is` checks, `as Q` constructors, `canbe` clauses, deduction clauses,
   struct literals.
   * `Ns` must be a struct declared in the **same file**, and must not be
     generic — Kotlin emits the member as a *nested* class, which cannot
@@ -2534,7 +2691,7 @@ Conventions:
   `intrinsic fn`, `intrinsic type`, `intrinsic handler`, and
   `intrinsic qualifier` alike.
 * [intrinsic-fn] `intrinsic fn` declares a compiler-intrinsic function:
-  the declaration carries the signature and deduction list the checker
+  the declaration carries the signature and deduction clause the checker
   uses (body-less), and each backend lowers calls to it directly, seeing
   the checker's resolved argument type at every call site — type-directed
   lowering a single generic template could not express. An intrinsic fn a
@@ -2703,10 +2860,11 @@ Conventions:
   fn-by-name uses — as `Checked::fn_refs: (file, name span) -> FnKey`.
   The LSP's hover renders the referenced declaration as a full
   source-like signature with an explicit return type (`None` when
-  omitted) and the *effective* deduction list: the inferred/validated
-  one (`Checked::deductions` [deduce-infer]) when available, else as
-  declared. Moved parameters are omitted from the rendered list; an
-  empty list renders as `[]` (moves everything). Effect-member calls
+  omitted) and the *effective* deduction clause in the `=>` spelling: the
+  inferred/validated one (`Checked::deductions` [deduce-infer]) when
+  available, else as declared. Consumed parameters render as `!p`; kept
+  whole ones, and Copy scalars, are omitted; lends render as `Proj[from:
+  …]`; fn-type groups as `=>[f] …`. Effect-member calls
   have no `FnKey` and are not recorded.
 * [diag-import-suggest] Diagnostics for unresolved names carry structured
   import suggestions: the modules elsewhere in the program that declare

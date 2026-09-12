@@ -29,7 +29,7 @@ Module {
                                     span: 29..32,
                                 },
                                 args: [],
-                                from: None,
+                                from: [],
                                 span: 29..32,
                             },
                         },
@@ -65,7 +65,7 @@ Module {
                                         span: 44..48,
                                     },
                                     args: [],
-                                    from: None,
+                                    from: [],
                                     span: 44..48,
                                 },
                             },
@@ -77,12 +77,12 @@ Module {
                                         span: 74..77,
                                     },
                                     args: [],
-                                    from: None,
+                                    from: [],
                                     span: 74..77,
                                 },
                             },
                         ],
-                        from: None,
+                        from: [],
                         span: 44..48,
                     },
                 ],
@@ -93,7 +93,7 @@ Module {
                             span: 41..42,
                         },
                         args: [],
-                        from: None,
+                        from: [],
                         span: 41..42,
                     },
                 ],
@@ -112,7 +112,7 @@ Module {
                                     span: 115..118,
                                 },
                                 args: [],
-                                from: None,
+                                from: [],
                                 span: 115..118,
                             },
                         },
@@ -152,7 +152,7 @@ Module {
                                     span: 52..61,
                                 },
                                 args: [],
-                                from: None,
+                                from: [],
                                 span: 52..61,
                             },
                         },
@@ -168,9 +168,12 @@ Module {
                 deductions: Some(
                     [
                         Deduction {
-                            param: Ident {
-                                name: "c",
-                                span: 49..50,
+                            target: Param {
+                                name: Ident {
+                                    name: "c",
+                                    span: 49..50,
+                                },
+                                path: [],
                             },
                             kind: KeepAll,
                             span: 42..43,
@@ -186,7 +189,7 @@ Module {
                                     span: 44..48,
                                 },
                                 args: [],
-                                from: None,
+                                from: [],
                                 span: 44..48,
                             },
                         ],
@@ -196,7 +199,7 @@ Module {
                                 span: 41..42,
                             },
                             args: [],
-                            from: None,
+                            from: [],
                             span: 44..48,
                         },
                     },
@@ -217,7 +220,7 @@ Module {
                                                             span: 44..48,
                                                         },
                                                         args: [],
-                                                        from: None,
+                                                        from: [],
                                                         span: 44..48,
                                                     },
                                                 ],
@@ -227,7 +230,7 @@ Module {
                                                         span: 41..42,
                                                     },
                                                     args: [],
-                                                    from: None,
+                                                    from: [],
                                                     span: 44..48,
                                                 },
                                             },
@@ -256,10 +259,10 @@ Module {
                                                 span: 111..127,
                                             },
                                         ],
-                                        span: 47..48,
+                                        span: 45..46,
                                     },
                                 ),
-                                span: 48..49,
+                                span: 46..47,
                             },
                         ],
                         span: 42..43,
@@ -295,7 +298,7 @@ Module {
                                         span: 44..48,
                                     },
                                     args: [],
-                                    from: None,
+                                    from: [],
                                     span: 44..48,
                                 },
                             ],
@@ -305,7 +308,7 @@ Module {
                                     span: 41..42,
                                 },
                                 args: [],
-                                from: None,
+                                from: [],
                                 span: 44..48,
                             },
                         },
@@ -319,9 +322,12 @@ Module {
                 deductions: Some(
                     [
                         Deduction {
-                            param: Ident {
-                                name: "__p",
-                                span: 44..48,
+                            target: Param {
+                                name: Ident {
+                                    name: "__p",
+                                    span: 44..48,
+                                },
+                                path: [],
                             },
                             kind: Exhaustive(
                                 [
@@ -331,7 +337,7 @@ Module {
                                             span: 44..48,
                                         },
                                         args: [],
-                                        from: None,
+                                        from: [],
                                         span: 44..48,
                                     },
                                 ],
@@ -351,7 +357,7 @@ Module {
                                             span: 66..73,
                                         },
                                         args: [],
-                                        from: None,
+                                        from: [],
                                         span: 66..73,
                                     },
                                 ],
@@ -361,7 +367,7 @@ Module {
                                         span: 74..77,
                                     },
                                     args: [],
-                                    from: None,
+                                    from: [],
                                     span: 74..77,
                                 },
                             },
@@ -373,7 +379,7 @@ Module {
                                         span: 80..88,
                                     },
                                     args: [],
-                                    from: None,
+                                    from: [],
                                     span: 80..88,
                                 },
                             },
@@ -395,7 +401,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 49..50,
+                                                            span: 47..48,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -444,7 +450,7 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 50..51,
+                                            span: 48..49,
                                         },
                                     ),
                                     field: Ident {
@@ -459,7 +465,7 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 51..52,
+                                                span: 49..50,
                                             },
                                         ),
                                         field: Ident {
@@ -494,7 +500,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 52..53,
+                                                            span: 50..51,
                                                         },
                                                     ),
                                                     field: Ident {

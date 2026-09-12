@@ -709,7 +709,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`
+    /// `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`
     /// [qual-refn].
     ///
     /// Narrower than a `fn` by construction: no body, no effect list, no
@@ -752,12 +752,12 @@ impl<'s> Parser<'s> {
             .last()
             .map(|p| p.span)
             .unwrap_or(target.span);
-        if self.at(&TokenKind::LBracket) && self.same_line() {
+        if (self.at(&TokenKind::LBracket) || self.at(&TokenKind::FatArrow)) && self.same_line() {
             let span = self.peek().span;
             self.error(
                 format!(
                     "`rename fn {}` names an overload by its parameters, so it \
-                     takes no effect or deduction list: neither takes part in \
+                     takes no effect or deduction clause: neither takes part in \
                      choosing an overload",
                     name.name
                 ),
@@ -803,20 +803,33 @@ impl<'s> Parser<'s> {
                 format!(
                     "a refinement cannot declare effects: `refn {}` only states \
                      what is known about the arguments afterwards, so write \
-                     `-> [param: +Qual]` here",
+                     `=> param: +Qual` here",
                     name.name
                 ),
                 span,
             );
             return None;
         }
-        self.expect(&TokenKind::Arrow)?;
-        if !self.at(&TokenKind::LBracket) {
+        if self.at(&TokenKind::Arrow) {
             let span = self.peek().span;
             self.error(
                 format!(
-                    "expected a deduction list after `->` in `refn {}`, e.g. \
-                     `-> [{}: +Qual]`: a refinement exists to state one",
+                    "a refinement cannot declare a return type: `refn {}` \
+                     refines an existing function's deductions, and the \
+                     function decides what it returns; write `=> {}: +Qual`",
+                    name.name,
+                    params.first().map(|p| p.name.name.as_str()).unwrap_or("param")
+                ),
+                span,
+            );
+            return None;
+        }
+        if !self.at(&TokenKind::FatArrow) {
+            let span = self.peek().span;
+            self.error(
+                format!(
+                    "expected a deduction clause in `refn {}`, e.g. \
+                     `=> {}: +Qual`: a refinement exists to state one",
                     name.name,
                     params
                         .first()
@@ -827,6 +840,7 @@ impl<'s> Parser<'s> {
             );
             return None;
         }
+        self.bump();
         let deductions = self.parse_refn_deduction_list()?;
         // A return type would claim the refinement changes what the
         // function produces, which is exactly what it may not do. Only a
@@ -856,19 +870,14 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// `[list: +NonEmpty]`, `[list: -Sorted]`, `[a: +P, b: -Q]`
+    /// `=> list: +NonEmpty`, `=> list: -Sorted`, `=> a: +P, b: -Q`
     /// [qual-refn]: every entry is a set of additions and removals, so a
     /// plain (exhaustive) name or `Nothing` is rejected — a refinement
     /// never decides whether a parameter is kept.
     fn parse_refn_deduction_list(&mut self) -> Option<Vec<RefnDeduction>> {
-        self.expect(&TokenKind::LBracket)?;
-        self.group_depth += 1;
         let mut entries: Vec<RefnDeduction> = Vec::new();
-        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
-            let Some(param) = self.ident() else {
-                self.group_depth -= 1;
-                return None;
-            };
+        loop {
+            let param = self.ident()?;
             let mut end = param.span;
             let mut add: Vec<TypeRef> = Vec::new();
             let mut remove: Vec<TypeRef> = Vec::new();
@@ -928,8 +937,6 @@ impl<'s> Parser<'s> {
                 break;
             }
         }
-        self.group_depth -= 1;
-        self.expect(&TokenKind::RBracket)?;
         Some(entries)
     }
 
@@ -1036,7 +1043,7 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident_value("fn")?;
         let (generics, generic_canbe) = self.parse_generics_canbe();
-        let (params, implicit_groups) = self.parse_params()?;
+        let (mut params, implicit_groups) = self.parse_params()?;
 
         // Effects: `[Random<Int>, Console, use]`
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
@@ -1045,16 +1052,21 @@ impl<'s> Parser<'s> {
             None
         };
 
-        // `-> [deductions] (Proj[from: param])? return_type
-        // (as Qualifier)?`
-        let mut deductions = None;
+        // `-> return_type (as Qualifier)?`, then the deduction clause
+        // `=> entries` [deduce-syntax].
         let mut return_type = None;
         let mut constructs = None;
         let mut derived_return = None;
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
             if self.at(&TokenKind::LBracket) {
-                deductions = Some(self.parse_deduction_list()?);
+                let span = self.peek().span;
+                self.error(
+                    "deductions are written after the return type, behind `=>` \
+                     (`-> Int => list: Mut`), not in brackets after `->`",
+                    span,
+                );
+                return None;
             }
             let ty = self.parse_type()?;
             // [proj-anywhere] The derived-return summary the checker and the
@@ -1069,6 +1081,9 @@ impl<'s> Parser<'s> {
                 constructs = Some(self.parse_type_ref()?);
             }
         }
+        // [deduce-syntax] `=> …` groups: the unnamed ones are the fn's own
+        // clause; `=>[f] …` belongs to the fn-typed parameter `f`.
+        let deductions = self.parse_deduction_clause(&mut params)?;
 
         // [iter-fn] An `iter fn`'s body opens with the pass's own fields. It is
         // parsed here rather than as a statement so the body that follows is an
@@ -1222,29 +1237,134 @@ impl<'s> Parser<'s> {
         Some(effects)
     }
 
-    /// `[person]`, `[list: Mut]`, `[list:]`, `[list: -NonEmpty]`,
-    /// `[list: Nothing]`, `[]` [deduce-syntax]
-    fn parse_deduction_list(&mut self) -> Option<Vec<Deduction>> {
-        self.expect(&TokenKind::LBracket)?;
-        self.group_depth += 1;
-        let mut deductions = Vec::new();
-        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
-            let Some(param) = self.ident() else {
-                self.group_depth -= 1;
-                return None;
+    /// [deduce-syntax] The deduction clause of a declaration: zero or more
+    /// groups, each `=> entry, entry, …` (the fn's own) or `=>[f] entry, …`
+    /// (the contract of the fn-typed parameter `f`, attached to its type).
+    /// A group may start on the line after the return type; the body's `{`
+    /// follows the last entry on its line. Returns the fn's own entries,
+    /// `None` when no unnamed group was written.
+    fn parse_deduction_clause(&mut self, params: &mut [Param]) -> Option<Option<Vec<Deduction>>> {
+        let mut own: Option<Vec<Deduction>> = None;
+        while self.at(&TokenKind::FatArrow) {
+            let arrow = self.bump().span;
+            let group_of: Option<Ident> = if self.at(&TokenKind::LBracket) {
+                self.bump();
+                let name = self.ident()?;
+                self.expect(&TokenKind::RBracket)?;
+                Some(name)
+            } else {
+                None
             };
-            let mut end = param.span;
-            let kind = if self.eat(&TokenKind::Colon).is_some() {
-                // A colon introduces the change list. Plain names are
-                // *exhaustive* (only these survive); `-`-prefixed names
-                // are a delta (drop these, keep the rest). Mixing the two
-                // in one entry is an error [deduce-syntax].
+            let mut entries: Vec<Deduction> = Vec::new();
+            loop {
+                let Some(entry) = self.parse_deduction_entry() else {
+                    return None;
+                };
+                entries.push(entry);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if entries.is_empty() {
+                self.error("expected a deduction entry after `=>`", arrow);
+                return None;
+            }
+            match group_of {
+                None => own.get_or_insert_with(Vec::new).extend(entries),
+                Some(name) => {
+                    let Some(param) = params.iter_mut().find(|p| p.name.name == name.name) else {
+                        self.error(
+                            format!("`=>[{}]` names no parameter of this function", name.name),
+                            name.span,
+                        );
+                        return None;
+                    };
+                    match &mut param.ty {
+                        Type::Fn { deductions, .. } => {
+                            deductions.get_or_insert_with(Vec::new).extend(entries);
+                        }
+                        _ => {
+                            self.error(
+                                format!(
+                                    "`=>[{}]` scopes deductions to a fn-typed parameter, but `{}` \
+                                     is not one",
+                                    name.name, name.name
+                                ),
+                                name.span,
+                            );
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+        Some(own)
+    }
+
+    /// One entry [deduce-syntax]: `!elem`, `elem`, `elem: Qual…`,
+    /// `elem: None`, `elem: Nothing`, `elem: -Qual…`, `elem: +Qual…`,
+    /// `x.f: Proj[from: a]`, `.f: Proj[from: a]`, or a bare `Proj[from: a]`.
+    fn parse_deduction_entry(&mut self) -> Option<Deduction> {
+        let start = self.peek().span;
+        // `!elem`: consumed.
+        if self.at(&TokenKind::Bang) {
+            self.bump();
+            let name = self.ident()?;
+            return Some(Deduction {
+                span: start.to(name.span),
+                target: DeductionTarget::Param { name, path: Vec::new() },
+                kind: DeductionKind::Moved,
+            });
+        }
+        // Bare `Proj[from: …]`: opaque.
+        if matches!(&self.peek().kind, TokenKind::Ident(n) if n == "Proj") {
+            let r = self.parse_type_ref()?;
+            if r.from.is_empty() {
+                self.error("a bare `Proj` deduction needs its sources: `Proj[from: c]`", r.span);
+            }
+            return Some(Deduction {
+                span: start.to(r.span),
+                target: DeductionTarget::Opaque,
+                kind: DeductionKind::Proj(r.from),
+            });
+        }
+        // The target: `.f.g` (result path) or `x` / `x.f` (parameter path).
+        let mut path: Vec<Ident> = Vec::new();
+        let target = if self.at(&TokenKind::Dot) {
+            self.bump();
+            path.push(self.ident()?);
+            while self.at(&TokenKind::Dot) {
+                self.bump();
+                path.push(self.ident()?);
+            }
+            None
+        } else {
+            let name = self.ident()?;
+            while self.at(&TokenKind::Dot) {
+                self.bump();
+                path.push(self.ident()?);
+            }
+            Some(name)
+        };
+        let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
+        let kind = if self.eat(&TokenKind::Colon).is_some() {
+            // `: Proj[from: …]`
+            if matches!(&self.peek().kind, TokenKind::Ident(n) if n == "Proj") {
+                let r = self.parse_type_ref()?;
+                if r.from.is_empty() {
+                    self.error("a projection entry needs its sources: `Proj[from: c]`", r.span);
+                }
+                end = r.span;
+                DeductionKind::Proj(r.from)
+            } else {
+                // Plain names are *exhaustive* (only these survive); `-`-
+                // prefixed names are a delta (drop these, keep the rest).
+                // Mixing the two in one entry is an error [deduce-syntax].
                 let mut plain: Vec<TypeRef> = Vec::new();
                 let mut removed: Vec<TypeRef> = Vec::new();
                 loop {
                     let negated = if self.at(&TokenKind::Minus) {
-                        let span = self.bump().span;
-                        end = span;
+                        end = self.bump().span;
                         true
                     } else if self.at(&TokenKind::Plus) {
                         let span = self.bump().span;
@@ -1254,7 +1374,6 @@ impl<'s> Parser<'s> {
                              drop qualifiers",
                             span,
                         );
-                        // Parse the name anyway to keep going.
                         if self.at_ident() {
                             if let Some(r) = self.parse_type_ref() {
                                 end = r.span;
@@ -1276,15 +1395,22 @@ impl<'s> Parser<'s> {
                     }
                 }
                 match (plain.is_empty(), removed.is_empty()) {
-                    // `[list:]` — exhaustive and empty: strip everything.
-                    (true, true) => DeductionKind::Exhaustive(Vec::new()),
+                    (true, true) => {
+                        self.error(
+                            "expected qualifiers after `:` — `None` to strip every \
+                             qualifier, `Nothing` to consume the value",
+                            end,
+                        );
+                        DeductionKind::Exhaustive(Vec::new())
+                    }
                     (false, true) => {
-                        // A lone `Nothing` means moved [deduce-syntax].
-                        if plain.len() == 1
-                            && plain[0].name.name == "Nothing"
-                            && plain[0].args.is_empty()
-                        {
+                        let lone = |what: &str| {
+                            plain.len() == 1 && plain[0].name.name == what && plain[0].args.is_empty()
+                        };
+                        if lone("Nothing") {
                             DeductionKind::Moved
+                        } else if lone("None") {
+                            DeductionKind::Exhaustive(Vec::new())
                         } else {
                             DeductionKind::Exhaustive(plain)
                         }
@@ -1296,26 +1422,34 @@ impl<'s> Parser<'s> {
                              qualifier names) or a delta (`-Qual`), not both: \
                              an exhaustive list already drops everything it \
                              does not name",
-                            param.span.to(end),
+                            start.to(end),
                         );
                         DeductionKind::Exhaustive(plain)
                     }
                 }
-            } else {
-                DeductionKind::KeepAll
-            };
-            deductions.push(Deduction {
-                span: param.span.to(end),
-                param,
-                kind,
-            });
-            if self.eat(&TokenKind::Comma).is_none() {
-                break;
+            }
+        } else {
+            DeductionKind::KeepAll
+        };
+        let target = match target {
+            Some(name) => DeductionTarget::Param { name, path },
+            None => DeductionTarget::Result { path },
+        };
+        if matches!(target, DeductionTarget::Result { .. }) && !matches!(kind, DeductionKind::Proj(_)) {
+            self.error(
+                "a result path (`.field`) can only state a projection: `.field: Proj[from: p]`",
+                start.to(end),
+            );
+        }
+        if let DeductionTarget::Param { path, .. } = &target {
+            if !path.is_empty() && !matches!(kind, DeductionKind::Proj(_)) {
+                self.error(
+                    "a parameter's field path can only state a projection: `v.field: Proj[from: p]`",
+                    start.to(end),
+                );
             }
         }
-        self.group_depth -= 1;
-        self.expect(&TokenKind::RBracket)?;
-        Some(deductions)
+        Some(Deduction { span: start.to(end), target, kind })
     }
 
     // --- Types ---
@@ -1427,19 +1561,24 @@ impl<'s> Parser<'s> {
         };
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
-            // `-> [deductions] R`: the fn value's contract [fn-contract].
-            let deductions = if self.at(&TokenKind::LBracket) && self.same_line() {
-                Some(self.parse_deduction_list()?)
-            } else {
-                None
-            };
+            if self.at(&TokenKind::LBracket) && self.same_line() {
+                let span = self.peek().span;
+                self.error(
+                    "a fn type's deductions are written on the enclosing declaration as a \
+                     group, `=>[name] …`, not in brackets after its `->`",
+                    span,
+                );
+                return None;
+            }
             let ret = self.parse_type()?;
             let span = start.to(ret.span());
+            // The contract [fn-contract] is filled in by the enclosing fn
+            // declaration's `=>[name]` group, if one is written.
             return Some(Type::Fn {
                 params: elems,
                 param_names: names,
                 effects,
-                deductions,
+                deductions: None,
                 ret: Box::new(ret),
                 span,
             });
@@ -1516,7 +1655,7 @@ impl<'s> Parser<'s> {
         // from two parameters names each. Only `Proj` takes the bracket; a
         // `[` after any other name is the array postfix `T[]`, handled by
         // the caller, so it is only consumed here when followed by an ident.
-        let mut from = None;
+        let mut from = Vec::new();
         if name.name == "Proj"
             && self.at(&TokenKind::LBracket)
             && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
@@ -1527,9 +1666,14 @@ impl<'s> Parser<'s> {
                 self.error("expected `from:` in `Proj[from: param]`", key.span);
             }
             self.expect(&TokenKind::Colon)?;
-            let param = self.ident()?;
+            // `Proj[from: a, b]`: several sources at once [proj-anywhere].
+            loop {
+                from.push(self.ident()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
             end = self.expect(&TokenKind::RBracket)?.span;
-            from = Some(param);
         }
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
@@ -2323,7 +2467,7 @@ impl<'s> Parser<'s> {
                                             elem_type: TypeRef {
                                                 name: name.clone(),
                                                 args: Vec::new(),
-                                                from: None,
+                                                from: Vec::new(),
                                                 span: name.span,
                                             },
                                             size: index,
@@ -3053,13 +3197,17 @@ enum FnFlavor {
 /// [proj-anywhere] The source parameter of the first `Proj[from: p]` in a
 /// type, searching arms, arguments and elements in order.
 pub fn first_proj_source(ty: &Type) -> Option<Ident> {
+    // [proj-infer] Only a *wholesale* `Proj` — on the result itself, an
+    // arm, a tuple element — makes a derived return. A `Proj` inside a type
+    // argument (`List<Proj T>`) is a borrow the result *holds*, tracked as a
+    // lend, so type arguments are not descended into.
     fn in_ref(r: &TypeRef) -> Option<Ident> {
         if r.name.name == "Proj" {
-            if let Some(from) = &r.from {
+            if let Some(from) = r.from.first() {
                 return Some(from.clone());
             }
         }
-        r.args.iter().find_map(first_proj_source)
+        None
     }
     match ty {
         Type::Named { qualifiers, base } => qualifiers

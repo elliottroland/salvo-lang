@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\nparams Linear<It> {\n    fn close(it: It) -> [] None\n}\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> None => !value\nparams Linear<It> {\n    fn close(it: It) -> None => !it\n}\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -67,7 +67,7 @@ fn errors(src: &str) -> Vec<String> {
 const PRELUDE: &str = r#"
 
 effect Throw<M> {
-    fn throw(message: M) -> [] Nothing
+    fn throw(message: M) -> Nothing => !message
 }
 
 qualifier Ok<T> of T
@@ -77,32 +77,32 @@ struct Handle : Linear<self> {
     fd: Int
 }
 
-fn close(x: Handle) -> [] None {}
+fn close(x: Handle) -> None => !x {}
 
 
-fn open_handle(fd: Int) [] -> [] Handle {
+fn open_handle(fd: Int) [] -> Handle {
     return Handle { fd: fd }
 }
-fn close_handle(h: Handle) [] -> [] None {
+fn close_handle(h: Handle) [] -> None => !h {
     close(h)
 }
-fn note(text: Str) [] -> [text] None {}
+fn note(text: Str) [] -> None => text {}
 
-fn parse(line: Str) [Throw<Str>] -> [] Int {
+fn parse(line: Str) [Throw<Str>] -> Int => !line {
     if flagged(line) {
         throw("bad line")
     }
     return 1
 }
 
-fn limit(n: Int) [Throw<Int>] -> [] Int {
+fn limit(n: Int) [Throw<Int>] -> Int {
     if n > 3 {
         throw(n)
     }
     return n
 }
 
-fn flagged(line: Str) [] -> [line] Bool {
+fn flagged(line: Str) [] -> Bool => line {
     return true
 }
 "#;
@@ -110,7 +110,7 @@ fn flagged(line: Str) [] -> [line] Bool {
 /// Wraps a body in a `[]`-effect fn returning `None`.
 fn check(body: &str) -> Vec<String> {
     errors(&format!(
-        "{PRELUDE}\nfn probe(flag: Bool) [] -> [] None {{\n{body}\n}}\n"
+        "{PRELUDE}\nfn probe(flag: Bool) [] -> None {{\n{body}\n}}\n"
     ))
 }
 
@@ -160,7 +160,7 @@ fn several_message_types_union_together() {
 fn an_always_throwing_body_still_has_an_ok_arm() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe() [] -> [] None {{\n\
+         fn probe() [] -> None {{\n\
          let outcome: Bool = try {{\n\
          parse(\"x\")\n\
          note(\"unreachable\")\n\
@@ -216,7 +216,7 @@ fn a_throw_with_nowhere_to_land_is_rejected() {
 fn declaring_the_effect_propagates() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn forward(line: Str) [Throw<Str>] -> [] Int {{\n\
+         fn forward(line: Str) [Throw<Str>] -> Int => !line {{\n\
          return parse(line)\n\
          }}\n"
     ));
@@ -228,7 +228,7 @@ fn declaring_the_effect_propagates() {
 fn a_message_the_target_cannot_carry_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn forward(line: Str) [Throw<Int>] -> [] Int {{\n\
+         fn forward(line: Str) [Throw<Int>] -> Int => !line {{\n\
          return parse(line)\n\
          }}\n"
     ));
@@ -244,7 +244,7 @@ fn a_message_the_target_cannot_carry_is_rejected() {
 fn main_cannot_declare_the_throw_effect() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn main() [Throw<Str>] -> [] None {{\n\
+         fn main() [Throw<Str>] -> None {{\n\
          note(\"hi\")\n\
          }}\n"
     ));
@@ -262,7 +262,7 @@ fn a_handler_for_throw_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          handler Swallow of Throw<Str> {{\n\
-         fn throw(message: Str) -> [] Nothing {{\n\
+         fn throw(message: Str) -> Nothing => !message {{\n\
          note(message)\n\
          }}\n\
          }}\n"
@@ -281,7 +281,7 @@ fn a_handler_for_throw_is_rejected() {
 fn a_throwing_branch_counts_as_returning() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn strict(n: Int) [Throw<Str>] -> [] Int {{\n\
+         fn strict(n: Int) [Throw<Str>] -> Int {{\n\
          if n > 0 {{\n\
          return n\n\
          }} else {{\n\
@@ -299,7 +299,7 @@ fn a_throwing_branch_counts_as_returning() {
 fn a_throwing_branch_does_not_leak_its_consumption() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn strict(text: Str) [Throw<Str>] -> [] None {{\n\
+         fn strict(text: Str) [Throw<Str>] -> None => !text {{\n\
          if flagged(text) {{\n\
          throw(text)\n\
          }}\n\
@@ -320,7 +320,7 @@ fn a_throwing_branch_does_not_leak_its_consumption() {
 fn a_linear_value_across_a_may_throw_call_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn risky(line: Str) [Throw<Str>] -> [] Int {{\n\
+         fn risky(line: Str) [Throw<Str>] -> Int => !line {{\n\
          let h = open_handle(1)\n\
          let n = parse(line)\n\
          close_handle(h)\n\
@@ -342,7 +342,7 @@ fn a_linear_value_across_a_may_throw_call_is_rejected() {
 fn releasing_before_the_call_discharges_it() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn safe(line: Str) [Throw<Str>] -> [] Int {{\n\
+         fn safe(line: Str) [Throw<Str>] -> Int => !line {{\n\
          let h = open_handle(1)\n\
          close_handle(h)\n\
          return parse(line)\n\
@@ -361,7 +361,7 @@ fn releasing_before_the_call_discharges_it() {
 fn an_inner_try_takes_only_its_own_throws() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn nested(line: Str) [Throw<Str>] -> [] Int {{\n\
+         fn nested(line: Str) [Throw<Str>] -> Int => !line {{\n\
          let inner: Bool = try {{\n\
          limit(2)\n\
          }}\n\
@@ -392,16 +392,16 @@ fn a_nested_result_outcome_can_be_taken_apart() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          qualifier Err<M> of M\n\
-         fn wrapped(n: Int) [Throw<Str>] -> [] Ok Int | Err Str {{\n\
+         fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {{\n\
          if flagged(\"x\") {{\n\
          throw(\"bad\")\n\
          }}\n\
          return ok(n)\n\
          }}\n\
-         fn ok(value: Int) [] -> [] Int as Ok {{\n\
+         fn ok(value: Int) [] -> Int as Ok {{\n\
          return value\n\
          }}\n\
-         fn probe() [] -> [] None {{\n\
+         fn probe() [] -> None {{\n\
          let outcome = try {{ wrapped(1) }}\n\
          when outcome {{\n\
          is Ok {{\n\
@@ -499,7 +499,7 @@ fn matching_a_qualified_union_directly_names_the_remedy() {
 fn an_assignment_inside_a_try_body_resets_narrowing() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe(value: Str | Int) [] -> [] None {{\n\
+         fn probe(value: Str | Int) [] -> None => !value {{\n\
          if value is Str {{\n\
          let outcome = try {{\n\
          value = 7\n\
@@ -517,7 +517,7 @@ fn an_assignment_inside_a_try_body_resets_narrowing() {
     // read is fine, so the rejection above means what it says.
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn probe(value: Str | Int) [] -> [] None {{\n\
+         fn probe(value: Str | Int) [] -> None => !value {{\n\
          if value is Str {{\n\
          let outcome = try {{\n\
          parse(\"x\")\n\

@@ -43,7 +43,7 @@ struct Range {
     end: Int
 }
 
-fn range(start: Int, end: Int) -> [] Range {
+fn range(start: Int, end: Int) -> Range {
     return Range {start: start, end: end}
 }
 
@@ -64,11 +64,11 @@ struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn countdown(from: Int) -> [] Mut Countdown {
+fn countdown(from: Int) -> Mut Countdown {
     return Mut Countdown {at: from}
 }
 
-fn next(p: Mut Countdown) -> [p: Mut] Emitted Int | Finished {
+fn next(p: Mut Countdown) -> Emitted Int | Finished => p: Mut {
     if p.at <= 0 {
         return finished()
     }
@@ -84,11 +84,11 @@ fn arrays() {
     let first = numbers[0]
 }
 
-fn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: Mut] T {
+fn remove_first<T>(list: Mut NonEmpty List<T>) -> T => list: Mut {
     return list.get(0)!
 }
 
-fn consume<T>(list: List<T>) -> [] None {
+fn consume<T>(list: List<T>) -> None {
 }
 
 fn maybe_remove_first<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
@@ -106,7 +106,7 @@ fn generic_calls() [Random<Int>, Random<Double>] -> None {
 
 // [fn-effects] A fn type may declare the effects a call of the value
 // performs; the function taking it inherits them.
-fn run_it(f: (s: Str) [Console] -> [s] Str, value: Str) -> [value] Str {
+fn run_it(f: (s: Str) [Console] -> Str, value: Str) -> Str =>[f] s => value {
     return f(value)
 }
 
@@ -128,7 +128,7 @@ params Field<T> {
 // `?Field<T>` spreads the group's members as implicit parameters of their
 // own, with no binder — they are called unqualified here and overridden by
 // their own names at the call.
-fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
+fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
     let acc = zero()
     for x in xs {
         acc = add(acc, x)
@@ -136,7 +136,7 @@ fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T {
     return acc
 }
 
-fn ordered<T>(list: List<T>, ?cmp: (T, T) -> Int) -> [list] List<T> {
+fn ordered<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list {
     return list
 }
 

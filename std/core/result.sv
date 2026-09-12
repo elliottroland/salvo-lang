@@ -19,11 +19,11 @@ qualifier Err<T> of T
 // value is moved into the result, so nothing is kept ([] deductions);
 // linear values may be tagged, since the obligation travels with them
 // [linear-generics].
-fn ok<T canbe Linear>(value: T) [] -> [] T as Ok {
+fn ok<T canbe Linear>(value: T) [] -> T as Ok {
     return value
 }
 
 // [qual-ctor-fn] Tags a value as the failure arm of a result union.
-fn err<T canbe Linear>(value: T) [] -> [] T as Err {
+fn err<T canbe Linear>(value: T) [] -> T as Err {
     return value
 }

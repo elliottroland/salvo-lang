@@ -185,7 +185,8 @@ fun main() {
     val words = listOf<String>("ann", "bo", "carol")
     val lengths = map(iter__2(words), { w -> w.length }, ::next__2)
     println(console, "5. lengths: ${reduce(iter__2(lengths), 0, { acc, n -> acc + n }, ::next__2)}")
-    val vowels = filter(iter__3("iteration"), { c -> c == 'i' || c == 'o' }, ::next__3)
+    val word = "iteration"
+    val vowels = filter(iter__3(word), { c -> c == 'i' || c == 'o' }, ::next__3)
     println(console, "5. vowels: ${vowels.size}")
     println(console, "5. halving total ${reduce(iter__4(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__5)}")
     val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__4)

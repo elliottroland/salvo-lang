@@ -598,6 +598,14 @@ same programs running ([rs-effect-fusion]).
   * Generic struct fields are checked under the instantiation's
     substitution; struct cycles are assumed immutable along the
     visiting spine.
+  * [copy-implicit] A handler constructor's `?copy` implicit is a property;
+    `copy(v)` in a member dispatches to it, and the `use` site passes the
+    type-directed copy for the concrete type (`{ __i0 -> __i0 }` where the
+    type is immutable). This is what lets a generic handler hold a `T` it
+    hands out.
+  * An `iter fn` over a *generic* subject no longer needs a copy of a `T`:
+    the generated pass borrows its subject [iter-fn] [proj-field], so the
+    former refusal here is gone (2026-09-11).
 * [readonly-return] Derived returns erase: the result already is the
   alias on the JVM, and the checker's caller-side links keep it aligned
   with Rust's borrows.

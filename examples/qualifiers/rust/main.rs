@@ -18,13 +18,13 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_string::*;
 
-pub fn NonEmpty_qualifies<T: Clone + 'static>(list: &Vec<T>) -> bool {
+pub fn NonEmpty_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return (list.len() as i32) > 0;
 }
 
 pub fn head(list: &Vec<i32>) -> i32 {
-    let mut first = list.get((0) as usize).cloned();
-    return first.unwrap();
+    let mut first = list.get((0) as usize);
+    return *first.unwrap();
 }
 
 pub fn celsius(degrees: i32) -> i32 {

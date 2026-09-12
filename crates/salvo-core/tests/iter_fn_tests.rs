@@ -31,20 +31,20 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str =
     "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
      intrinsic type List<T> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> [value] T\n\
-     intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n\
-     intrinsic fn list<T>(...elems: T[]) [] -> [] List<T>\n\
-     intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> [list: Mut] None\n\
-     intrinsic fn get<T>(list: List<T>, index: Int) [] -> [list, index] T?\n\
-     intrinsic fn size<T>(list: List<T>) [] -> [list] Int\n\
+     intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n\
+     intrinsic fn list<T>(...elems: T[]) [] -> List<T>\n\
+     intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+     intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
+     intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> [] T as Emitted {\n    return value\n}\n\
-     fn finished() [] -> [] Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> [it: Mut] Emitted T | Finished\n}\n\
-     effect Console {\n    fn print(message: Str) -> [] None\n}\n\
-     handler StdOutConsole of Console {\n    fn print(message: Str) -> [] None {}\n}\n\
-     fn println(message: Str) [Console] -> [] None {}\n";
+     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
+     effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
+     handler StdOutConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
+     fn println(message: Str) [Console] -> None => !message {}\n";
 
 /// Every diagnostic — parse, resolve and check — because an `iter fn`'s own
 /// rules are reported by the desugaring, which runs inside the parser.
@@ -120,7 +120,7 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
 #[test]
 fn an_iter_fn_makes_its_subject_iterable() {
     let errs = errors(&format!(
-        "{COUNTDOWN}\nfn go() -> [] None {{\n    let c = Countdown {{ from: 3 }}\n    \
+        "{COUNTDOWN}\nfn go() -> None {{\n    let c = Countdown {{ from: 3 }}\n    \
          for n in c {{}}\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -132,7 +132,7 @@ fn an_iter_fn_makes_its_subject_iterable() {
 #[test]
 fn driving_leaves_the_subject_usable() {
     let errs = errors(&format!(
-        "{COUNTDOWN}\nfn go() -> [] None {{\n    let c = Countdown {{ from: 3 }}\n    \
+        "{COUNTDOWN}\nfn go() -> None {{\n    let c = Countdown {{ from: 3 }}\n    \
          for n in c {{}}\n    for n in c {{}}\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -143,7 +143,7 @@ fn driving_leaves_the_subject_usable() {
 #[test]
 fn the_generated_iter_hands_back_a_pass_you_can_hold() {
     let errs = errors(&format!(
-        "{COUNTDOWN}\nfn go() -> [] None {{\n    let c = Countdown {{ from: 3 }}\n    \
+        "{COUNTDOWN}\nfn go() -> None {{\n    let c = Countdown {{ from: 3 }}\n    \
          let p = iter(c)\n    let step = next(p)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
@@ -189,7 +189,7 @@ fn the_subject_is_read_only() {
 fn a_state_initializer_may_not_perform_effects() {
     let errs = errors(
         "struct S { n: Int }\n\
-         fn noisy() [Console] -> [] Int {\n    println(\"hi\")\n    return 1\n}\n\
+         fn noisy() [Console] -> Int {\n    println(\"hi\")\n    return 1\n}\n\
          iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = noisy()\n    }\n    \
          return finished()\n}\n",
@@ -351,7 +351,7 @@ fn an_empty_state_block_is_refused() {
 #[test]
 fn the_generated_pass_type_cannot_be_written() {
     let errs = errors(&format!(
-        "{COUNTDOWN}\nfn hold(p: __Pass_Countdown) -> [] None {{}}\n"
+        "{COUNTDOWN}\nfn hold(p: __Pass_Countdown) -> None => !p {{}}\n"
     ));
     assert!(
         errs.iter()
@@ -402,7 +402,7 @@ fn an_unknown_subject_field_is_reported_against_the_subject() {
 fn the_whole_subject_may_be_handed_on() {
     let errs = errors(
         "struct S { n: Int }\n\
-         fn describe(s: S) -> [s] Int {\n    return s.n\n}\n\
+         fn describe(s: S) -> Int => s {\n    return s.n\n}\n\
          iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        left: Int = s.n\n    }\n    \
          if left <= 0 {\n        return finished()\n    }\n    \
@@ -437,7 +437,7 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// learning sweep ran after the arguments were typed, `next` was reported as
 /// ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
-fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, Proj[from: c] => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -453,7 +453,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
 fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
     let errs = errors(&format!(
         "{COUNTDOWN}{CONTAINER_COMBINATOR}\n\
-         fn go() -> [] Int {{\n    let c = Countdown {{ from: 3 }}\n    return total(c)\n}}\n"
+         fn go() -> Int {{\n    let c = Countdown {{ from: 3 }}\n    return total(c)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -463,14 +463,14 @@ fn a_generic_fn_infers_the_pass_type_of_an_iter_fn_subject() {
 fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
     let errs = errors(&format!(
         "struct Bag {{ items: List<Int> }}\n\
-         struct BagYield : Yield<self, Int> canbe Mut {{ items: List<Int>, at: Int }}\n\
-         fn iter(bag: Bag) -> [] Mut BagYield {{\n    \
+         struct BagYield : Yield<self, Int> canbe Mut {{ items: Proj List<Int>, at: Int }}\n\
+         fn iter(bag: Bag) -> Mut BagYield => bag {{\n    \
          return Mut BagYield {{ items: bag.items, at: 0 }}\n}}\n\
-         fn next(p: Mut BagYield) -> [p: Mut] Emitted Int | Finished {{\n    \
+         fn next(p: Mut BagYield) -> Emitted Int | Finished => p: Mut {{\n    \
          let e = get(p.items, p.at)\n    if e is None {{\n        return finished()\n    }}\n    \
          p.at = p.at + 1\n    return emitted(e)\n}}\n\
          {CONTAINER_COMBINATOR}\n\
-         fn go() -> [] Int {{\n    let b = Bag {{ items: list(4, 5) }}\n    return total(b)\n}}\n"
+         fn go() -> Int {{\n    let b = Bag {{ items: list(4, 5) }}\n    return total(b)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
@@ -483,7 +483,7 @@ fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
 fn an_undetermined_container_reports_the_ambiguity() {
     let errs = errors(&format!(
         "{CONTAINER_COMBINATOR}\n\
-         fn forward<D>(d: D) -> [] Int {{\n    return total(d)\n}}\n"
+         fn forward<D>(d: D) -> Int => !d {{\n    return total(d)\n}}\n"
     ));
     assert!(
         errs.iter().any(|e| e.contains("ambiguous") || e.contains("no `iter`")),

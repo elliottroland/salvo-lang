@@ -19,11 +19,11 @@
 //
 // Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration
 // the loop reads [iter-generic-drive], so a generic pass is driven exactly as a
-// named one is. `[it: Mut]` says the pass is advanced **in place** and handed
+// named one is. `=> it: Mut` says the pass is advanced **in place** and handed
 // back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
     let out = mutable_list<U>()
     for x in it {
         add(out, f(x))
@@ -31,9 +31,14 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut 
     return out
 }
 
-// The elements of [it] that [keep] accepts, in order.
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [it: Mut, keep] Mut List<T> {
-    let out = mutable_list<T>()
+// The elements of [it] that [keep] accepts, in order — as a **view**: the
+// result holds borrows of the elements, so nothing is copied [copy-opt-in],
+// and it lives no longer than the pass's source. `[it: Mut Proj]` is the
+// written lend [proj-infer]: a generic body cannot show the analysis that an
+// element of an opaque pass is stored, so the signature says it. For a list
+// of your own to keep, see [filter_to].
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<Proj T> => it: Mut, Proj[from: it], keep {
+    let out = mutable_list<Proj T>()
     for x in it {
         if keep(x) {
             add(out, x)
@@ -44,7 +49,7 @@ fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> [it: Mut, k
 
 // Folds [it] into a single value, starting from [init] and combining with
 // [f] — the accumulator first, the element second.
-fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [it: Mut, f] A {
+fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f {
     let acc = init
     for x in it {
         acc = f(acc, x)
@@ -56,9 +61,9 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> [i
 // `map(xs, f)` still reads well on the type people map most: a backend lowers
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
-intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>
-intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> [list, keep] Mut List<T>
-intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> [list, f] A
+intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
+intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<Proj T> => list, Proj[from: list], keep
+intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
 
 // ===== mapping into a collection you provide [seq-into] =====
 
@@ -73,9 +78,9 @@ fn map_to<D, It, T, U>(
     dest: Mut D,
     it: Mut It,
     f: (T) -> U,
-    ?add: (dest: Mut D, elem: U) -> [dest: Mut] None,
+    ?add: (dest: Mut D, elem: U) -> None,
     ?Yield<It, T>
-) [] -> [it: Mut, f] Mut D {
+) [] -> Mut D =>[add] dest: Mut, !elem => it: Mut, f {
     for x in it {
         add(dest, f(x))
     }
@@ -83,16 +88,20 @@ fn map_to<D, It, T, U>(
 }
 
 // The same, keeping the elements [keep] accepts rather than mapping them.
+// [dest] owns what it is given, so each kept element is **copied** in — the
+// `_to` name is the opt-in [copy-opt-in], and [copy] arrives as an implicit
+// so the copy is the element type's own [copy-implicit].
 fn filter_to<D, It, T>(
     dest: Mut D,
     it: Mut It,
     keep: (T) -> Bool,
-    ?add: (dest: Mut D, elem: T) -> [dest: Mut] None,
+    ?add: (dest: Mut D, elem: T) -> None,
+    ?copy: (v: T) -> T,
     ?Yield<It, T>
-) [] -> [it: Mut, keep] Mut D {
+) [] -> Mut D =>[add] dest: Mut, !elem => it: Mut, keep {
     for x in it {
         if keep(x) {
-            add(dest, x)
+            add(dest, copy(x))
         }
     }
     return dest

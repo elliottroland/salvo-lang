@@ -141,6 +141,9 @@ pub struct FnParamContract {
     /// qualifiers [deduce-syntax].
     pub effect: QualEffect,
     pub mutable: bool,
+    /// [proj-infer] `[p: Proj]` written on the fn type: a call's result
+    /// holds a borrow of this argument.
+    pub lent: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

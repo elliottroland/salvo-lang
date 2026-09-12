@@ -67,7 +67,7 @@ fn errors(src: &str) -> Vec<String> {
 #[test]
 fn a_returning_guard_narrows_the_rest_of_the_block() {
     let errs = errors(
-        "fn describe(s: Str?) -> [s] Str {\n    \
+        "fn describe(s: Str?) -> Str => s {\n    \
          if s is None {\n        return \"none\"\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
     );
@@ -78,7 +78,7 @@ fn a_returning_guard_narrows_the_rest_of_the_block() {
 #[test]
 fn a_breaking_guard_narrows_the_rest_of_the_body() {
     let errs = errors(
-        "fn count(s: Str?) -> [s] Int {\n    \
+        "fn count(s: Str?) -> Int => s {\n    \
          let n = 0\n    \
          while n < 3 {\n        \
          if s is None {\n            break\n        }\n        \
@@ -91,7 +91,7 @@ fn a_breaking_guard_narrows_the_rest_of_the_body() {
 #[test]
 fn a_continuing_guard_narrows_the_rest_of_the_body() {
     let errs = errors(
-        "fn count(s: Str?) -> [s] Int {\n    \
+        "fn count(s: Str?) -> Int => s {\n    \
          let n = 0\n    \
          while n < 3 {\n        \
          n = n + 1\n        \
@@ -106,8 +106,8 @@ fn a_continuing_guard_narrows_the_rest_of_the_body() {
 #[test]
 fn a_diverging_call_in_the_guard_counts_as_an_exit() {
     let errs = errors(
-        "fn give_up(reason: Str) -> [] Nothing {\n    return give_up(reason)\n}\n\
-         fn describe(s: Str?) -> [s] Str {\n    \
+        "fn give_up(reason: Str) -> Nothing => !reason {\n    return give_up(reason)\n}\n\
+         fn describe(s: Str?) -> Str => s {\n    \
          if s is None {\n        give_up(\"none\")\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
     );
@@ -119,7 +119,7 @@ fn a_diverging_call_in_the_guard_counts_as_an_exit() {
 #[test]
 fn an_elif_chain_leaves_the_remaining_arm() {
     let errs = errors(
-        "fn pick(v: Int | Str | Bool) -> [v] Bool {\n    \
+        "fn pick(v: Int | Str | Bool) -> Bool => v {\n    \
          if v is Int {\n        return false\n    } elif v is Str {\n        return true\n    }\n    \
          let flag: Bool = v\n    return true\n}\n",
     );
@@ -131,7 +131,7 @@ fn an_elif_chain_leaves_the_remaining_arm() {
 #[test]
 fn a_branch_that_falls_through_narrows_nothing() {
     let errs = errors(
-        "fn describe(s: Str?) -> [s] Str {\n    \
+        "fn describe(s: Str?) -> Str => s {\n    \
          let seen = false\n    \
          if s is None {\n        seen = true\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
@@ -146,7 +146,7 @@ fn a_branch_that_falls_through_narrows_nothing() {
 #[test]
 fn a_mixed_if_narrows_nothing() {
     let errs = errors(
-        "fn pick(v: Int | Str | Bool) -> [v] Bool {\n    \
+        "fn pick(v: Int | Str | Bool) -> Bool => v {\n    \
          let n = 0\n    \
          if v is Int {\n        return false\n    } elif v is Str {\n        n = 1\n    }\n    \
          let flag: Bool = v\n    return true\n}\n",
@@ -162,7 +162,7 @@ fn a_mixed_if_narrows_nothing() {
 #[test]
 fn an_exiting_then_branch_with_an_else_still_narrows_after() {
     let errs = errors(
-        "fn describe(s: Str?) -> [s] Str {\n    \
+        "fn describe(s: Str?) -> Str => s {\n    \
          let seen = false\n    \
          if s is None {\n        return \"none\"\n    } else {\n        seen = true\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
@@ -175,7 +175,7 @@ fn an_exiting_then_branch_with_an_else_still_narrows_after() {
 #[test]
 fn an_assignment_on_the_surviving_path_resets_the_narrowing() {
     let errs = errors(
-        "fn describe(s: Str?, other: Str?) -> [s, other] Str {\n    \
+        "fn describe(s: Str?, other: Str?) -> Str => s, other {\n    \
          if s is None {\n        return \"none\"\n    } else {\n        s = other\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
     );
@@ -190,7 +190,7 @@ fn an_assignment_on_the_surviving_path_resets_the_narrowing() {
 #[test]
 fn an_assignment_in_the_exiting_branch_does_not_reset() {
     let errs = errors(
-        "fn describe(s: Str?, other: Str?) -> [s, other] Str {\n    \
+        "fn describe(s: Str?, other: Str?) -> Str => s, other {\n    \
          if s is None {\n        s = other\n        return \"none\"\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
     );

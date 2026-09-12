@@ -21,12 +21,12 @@
 //!
 //! ```text
 //! struct __Pass_Countdown : Yield<self, Int> canbe Mut {
-//!     __subject: Countdown,
+//!     __subject: Proj Countdown,
 //!     at: Int
 //! }
 //!
 //! fn iter(c: Countdown) [] -> [c] Mut __Pass_Countdown {
-//!     return Mut __Pass_Countdown { __subject: copy(c), at: c.from }
+//!     return Mut __Pass_Countdown { __subject: c, at: c.from }
 //! }
 //!
 //! fn next(__p: Mut __Pass_Countdown) [] -> [__p: Mut] Emitted Int | Finished {
@@ -294,9 +294,7 @@ fn expand(
     let iter_span = spans.take();
     let next_span = span;
     let subject_field_span = spans.take();
-    let copy_call_span = spans.take();
-    let copy_callee_span = spans.take();
-    let copy_arg_span = spans.take();
+    let subject_read_span = spans.take();
     let lit_span = spans.take();
     let ret_span = spans.take();
     let pass_name = Ident {
@@ -319,12 +317,12 @@ fn expand(
                     base: TypeRef {
                         name: g.clone(),
                         args: vec![],
-                        from: None,
+                        from: Vec::new(),
                         span: g.span,
                     },
                 })
                 .collect(),
-            from: None,
+            from: Vec::new(),
             span,
         },
     };
@@ -343,9 +341,12 @@ fn expand(
     //      whole. (A single-file parse sees this file only; the program-level
     //      expansion the CLI drives sees every file's declarations.)
     //
-    // All three are observationally identical, because the mint copies: the pass
-    // can never see a later write to the subject, so a per-field snapshot at the
-    // mint says exactly what a whole copy says.
+    // All three are observationally identical, because the pass *borrows*: it
+    // is a view of the subject [proj-field], so the subject cannot be written
+    // while the pass lives [proj-infer], and a per-field borrow at the mint says
+    // exactly what a whole borrow says. (Until 2026-09-11 the mint copied, which
+    // was the phase's last hidden copy; an `iter fn` that wants a snapshot now
+    // writes `copy(...)` in a `state` initializer.)
     let state_names: Vec<String> = f
         .iter_state
         .iter()
@@ -407,13 +408,17 @@ fn expand(
     if whole {
         fields.push(FieldDecl {
             docs: vec![
-                "The value being iterated, copied in when the pass was minted.".to_string(),
+                "The value being iterated — borrowed, so the pass is a view of it \
+                 [proj-field]: nothing is copied at the mint [copy-opt-in], and the \
+                 subject cannot be moved or mutated while the pass lives."
+                    .to_string(),
             ],
             name: Ident {
                 name: SUBJECT.to_string(),
                 span: subject_field_span,
             },
-            ty: subject.ty.clone(),
+            // [proj-field] `Proj Subject`: the pass projects the subject.
+            ty: proj_of(&subject.ty, subject_field_span),
             default: None,
             span: subject_field_span,
         });
@@ -425,7 +430,10 @@ fn expand(
                 name: name.clone(),
                 span: subject_field_span,
             },
-            ty: ty.clone(),
+            // A per-field snapshot borrows the field too — except a Copy
+            // scalar, whose copy is free and whose borrow would only cost a
+            // deref [copy-scalar-free].
+            ty: if is_copy_scalar(ty) { ty.clone() } else { proj_of(ty, subject_field_span) },
             default: None,
             span: subject_field_span,
         });
@@ -459,7 +467,7 @@ fn expand(
                 },
                 elem.clone(),
             ],
-            from: None,
+            from: Vec::new(),
             span,
         }],
         auto_qualifiers: vec![type_ref("Mut", struct_span)],
@@ -467,7 +475,13 @@ fn expand(
         span: struct_span,
     };
 
-    // 2. `iter`: mints a fresh pass, copying the subject so it stays usable.
+    // 2. `iter`: mints a fresh pass over the subject, which stays usable — it
+    //    is borrowed, not copied (user decision 2026-09-11): the pass is a view,
+    //    linked to the subject by the ordinary fate rules [proj-infer], which is
+    //    what keeps the two backends agreeing — a write to the subject during a
+    //    drive is refused rather than differently visible [backend-parity]. An
+    //    `iter fn` that wants a snapshot writes one: `state { rows: List<Int> =
+    //    copy(c.rows) }` [copy-opt-in].
     let mut lit_fields: Vec<StructLitField> = Vec::new();
     if whole {
         lit_fields.push(StructLitField {
@@ -476,30 +490,16 @@ fn expand(
                     name: SUBJECT.to_string(),
                     span: subject_field_span,
                 },
-                // The subject is **copied** into the pass, which is what makes a
-                // second drive start over — and what keeps the two backends
-                // agreeing, since sharing it would make a write during one drive
-                // visible on one target and not the other [backend-parity].
-                value: Expr::Call {
-                    callee: Box::new(Expr::Ident(Ident {
-                        name: "copy".to_string(),
-                        span: copy_callee_span,
-                    })),
-                    type_args: vec![],
-                    args: vec![Expr::Ident(Ident {
-                        name: subject.name.name.clone(),
-                        span: copy_arg_span,
-                    })],
-                    named: vec![],
-                    span: copy_call_span,
-                },
+                value: Expr::Ident(Ident {
+                    name: subject.name.name.clone(),
+                    span: subject_read_span,
+                }),
             },
             span: subject_field_span,
         });
     }
-    // A snapshot reads the field once, here at the mint. No `copy`: the field's
-    // value is read out of a value this call keeps, exactly as any other field
-    // read is, so the ordinary rules decide whether that costs anything.
+    // A snapshot reads the field once, here at the mint, into a `Proj` field:
+    // a borrow of the subject's field, costing nothing.
     for (field_name, pass_name) in &snapshots {
         // Distinct spans again: two nodes per snapshot field, and they must not
         // share keys with each other or with the nodes above.
@@ -564,7 +564,7 @@ fn expand(
         implicit_groups: vec![],
         effects: Some(vec![]),
         deductions: Some(vec![Deduction {
-            param: subject.name.clone(),
+            target: DeductionTarget::Param { name: subject.name.clone(), path: Vec::new() },
             kind: DeductionKind::KeepAll,
             span: iter_span,
         }]),
@@ -597,6 +597,15 @@ fn expand(
         assigns_through: false,
     };
     rewrite.block(&mut next_body);
+    // [yield-proj] An `iter fn` emitting borrowed elements names the
+    // *subject* as their source (`Emitted (Proj[from: b] T)`); in the
+    // generated `next` the subject is reached through the pass, so the
+    // source is the pass parameter — the borrow chains through its `Proj`
+    // field to the subject the caller holds.
+    let next_return = f.return_type.clone().map(|mut t| {
+        rename_proj_source(&mut t, &subject.name.name, PASS);
+        t
+    });
     let next_fn = FnDecl {
         docs: f.docs.clone(),
         intrinsic: false,
@@ -605,7 +614,7 @@ fn expand(
         name: f.name.clone(),
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
-        derived_return: None,
+        derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),
         params: vec![Param {
             name: Ident {
                 name: PASS.to_string(),
@@ -621,14 +630,17 @@ fn expand(
         // Advancing mutates the pass and hands it back: that is what lets a
         // caller drive it further [iter-drive-in-place].
         deductions: Some(vec![Deduction {
-            param: Ident {
-                name: PASS.to_string(),
-                span: next_span,
+            target: DeductionTarget::Param {
+                name: Ident {
+                    name: PASS.to_string(),
+                    span: next_span,
+                },
+                path: Vec::new(),
             },
             kind: DeductionKind::Exhaustive(vec![type_ref("Mut", next_span)]),
             span: next_span,
         }]),
-        return_type: f.return_type.clone(),
+        return_type: next_return.clone(),
         constructs: None,
         body: Some(next_body),
         span: f.span,
@@ -648,7 +660,7 @@ fn type_ref(name: &str, span: Span) -> TypeRef {
             span,
         },
         args: vec![],
-        from: None,
+        from: Vec::new(),
         span,
     }
 }
@@ -1137,4 +1149,75 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
     }
 
     walk_block(body, reserved, out);
+}
+
+/// [proj-field] `ty` under a `Proj` qualifier: the pass struct's borrowed
+/// field type.
+fn proj_of(ty: &Type, span: Span) -> Type {
+    match ty {
+        Type::Named { qualifiers, base } => {
+            let mut qs = vec![type_ref("Proj", span)];
+            qs.extend(qualifiers.iter().cloned());
+            Type::Named { qualifiers: qs, base: base.clone() }
+        }
+        other => Type::QualifiedGroup {
+            qualifiers: vec![type_ref("Proj", span)],
+            base: Box::new(other.clone()),
+            span,
+        },
+    }
+}
+
+/// [copy-scalar-free] A bare native scalar, whose copy is free.
+fn is_copy_scalar(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Named { qualifiers, base }
+            if qualifiers.is_empty()
+                && base.args.is_empty()
+                && matches!(
+                    base.name.name.as_str(),
+                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                )
+    )
+}
+
+/// [yield-proj] Renames the source of every `Proj[from: old]` in `ty` to
+/// `new`, in place.
+fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
+    fn in_ref(r: &mut TypeRef, old: &str, new: &str) {
+        if r.name.name == "Proj" {
+            for from in &mut r.from {
+                if from.name == old {
+                    from.name = new.to_string();
+                }
+            }
+        }
+        for a in &mut r.args {
+            rename_proj_source(a, old, new);
+        }
+    }
+    match ty {
+        Type::Named { qualifiers, base } => {
+            for q in qualifiers {
+                in_ref(q, old, new);
+            }
+            in_ref(base, old, new);
+        }
+        Type::QualifiedGroup { qualifiers, base, .. } => {
+            for q in qualifiers {
+                in_ref(q, old, new);
+            }
+            rename_proj_source(base, old, new);
+        }
+        Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+            for a in arms {
+                rename_proj_source(a, old, new);
+            }
+        }
+        Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
+            rename_proj_source(elem, old, new)
+        }
+        Type::Fn { .. } => {}
+    }
 }

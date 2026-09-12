@@ -244,7 +244,7 @@ ownership contract. Salvo source has no references; the Rust backend
 derives them mechanically:
 
 * **Parameter modes.** For each parameter of a fn with a deduction entry:
-  * *omitted* from the deductions (`kept == false`) → the parameter is
+  * *consumed* (`=> !p`, or inferred so; `kept == false`) → the parameter is
     **moved**: it is passed **by value** (`T`). The Salvo checker
     guarantees the caller no longer uses the argument, so the move is
     always legal.
@@ -360,6 +360,64 @@ derives them mechanically:
   instead); rustc's borrow checker remains the final authority — a
   program that emits but does not borrow-check is a compiler bug, not a
   user error.
+
+### Projections [rs-proj]
+
+The `Proj` rules of LANGUAGE_SPEC.md ([readonly-return] [proj-anywhere]
+[proj-readonly] [proj-field] [proj-infer] [yield-proj]) are the one place
+Salvo's source states a borrow, and this backend renders each as the Rust
+borrow it is. Nothing here clones.
+
+* [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
+  `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
+  `'a` is generated onto **every** source parameter (`Proj[from: a, b]`)
+  and the return. A returned projection of a `&mut` pass parameter that is
+  itself a borrowing struct names the *struct's* source lifetime instead
+  (`next(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished>`
+  [rs-proj-struct]), so the reborrow of `p` is free for the next turn.
+* [rs-opt-borrow] A local bound from an optional projection (`let h =
+  first(xs)`) holds `Option<&T>` (`BindKind::OptRef`): a later narrowing
+  unwraps the reference (`*h.unwrap()` for Copy, `h.unwrap().clone()`
+  owned) rather than cloning the reference itself; in a `&T` position it
+  passes `h.unwrap()`; `let v = get(xs, i)!` binds as a plain `Ref`.
+  Found live 2026-09-11: the generic path emitted `.as_ref().unwrap()
+  .clone()`, a clone of the *reference* (`&&T → &T`).
+* [rs-proj-struct] A struct with a `Proj` field — or an owned field whose
+  type has one, transitively — is a **borrowing struct**: `struct
+  ListYield<'s, T> { items: &'s Vec<T>, at: i32 }`, with `<'s>` on owned
+  view-typed fields; every mention elides (`ListYield<'_, T>`); a struct
+  literal borrows into its `Proj` fields (`&list`); it is returned *by
+  value* (the struct carries the lifetime, no `&` wraps it).
+* [rs-proj-lends] The lifetime a view carries reaches the parameters it
+  borrows [proj-infer]: with one reference parameter elision ties them;
+  with more, `'a` is named on every lent parameter (`Checked::fn_lends`)
+  and the return. A **lent implicit position** (`?iter: (c: C) -> Mut It`
+  with `=>[iter] Proj[from: c]`) renders `&'c C` under a lifetime `'c`
+  named on the enclosing fn's kept parameter `c` — the result's type
+  (`It`) is fixed at the call site, so the borrow it holds cannot be a
+  fresh per-call one; the enclosing fn must keep `c` (a consumed one has
+  nothing a view could outlive — reported). Re-pointing entries
+  (`v.items: Proj[from: other]`) tie `'r` on the target struct and the
+  source parameters, and the assignment renders as a borrow.
+* [rs-proj-arm] A union with a `Proj` arm is an ordinary instantiation of
+  the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a
+  call filling `?Yield<It, T>` from a borrowing `next`, the element generic
+  is **retagged** to `&T` in the turbofish; user callbacks at a retagged
+  position arrive one reference deeper and peel it (`let n = *n;` at the
+  top of a lambda, `let __a0 = *__a0;` in a by-name adapter; an annotated
+  lambda parameter renders `&&T`); resolved implicit adapters clone a
+  retagged position out where the callee owns it (`push`), and `copy` at
+  a retagged position is the identity. A concrete Copy element
+  (`?Yield<It, Int>`) is copied out by a match adapter instead. A local
+  bound from a `Proj`-arm call remembers its borrowed arms
+  (`borrowed_arm_locals`): a payload read of one derefs twice for a Copy
+  scalar and binds as `Ref` otherwise; such a value flowing into a
+  position written as the owned union is adapted arm by arm for Copy
+  payloads and is a codegen error otherwise (a hidden clone this backend
+  refuses).
+* Views of temporaries are refused by the checker [proj-anywhere]; the
+  only thing this backend adds is that rustc would have said the same
+  (E0716).
 
 ## Unions [rs-union-enums]
 

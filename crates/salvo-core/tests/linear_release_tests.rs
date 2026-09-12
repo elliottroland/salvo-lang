@@ -18,7 +18,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> [] None\nparams Linear<It> {\n    fn close(it: It) -> [] None\n}\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Nothing\nintrinsic fn discard<T canbe Linear>(value: T) [] -> None => !value\nparams Linear<It> {\n    fn close(it: It) -> None => !it\n}\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -67,7 +67,7 @@ fn errors(src: &str) -> Vec<String> {
 const PRELUDE: &str = r#"
 
 effect Throw<M> {
-    fn throw(message: M) -> [] Nothing
+    fn throw(message: M) -> Nothing => !message
 }
 
 qualifier Ok<T> of T
@@ -77,22 +77,22 @@ struct Handle : Linear<self> {
     fd: Int
 }
 
-fn close(x: Handle) -> [] None {}
+fn close(x: Handle) -> None => !x {}
 
 
 struct Label {
     text: Str? = None
 }
 
-fn open_handle(fd: Int) [] -> [] Handle {
+fn open_handle(fd: Int) [] -> Handle {
     return Handle { fd: fd }
 }
-fn close_handle(h: Handle) [] -> [] None {
+fn close_handle(h: Handle) [] -> None => !h {
     close(h)
 }
-fn note(text: Str) [] -> [text] None {}
-fn take(text: Str) [] -> [] None {}
-fn shout(text: Str) [] -> [text] Str {
+fn note(text: Str) [] -> None => text {}
+fn take(text: Str) [] -> None => !text {}
+fn shout(text: Str) [] -> Str => text {
     return ""
 }
 "#;
@@ -100,7 +100,7 @@ fn shout(text: Str) [] -> [text] Str {
 /// Wraps a body in a `[]`-effect fn returning `None`.
 fn check(body: &str) -> Vec<String> {
     errors(&format!(
-        "{PRELUDE}\nfn probe(flag: Bool) [] -> [] None {{\n{body}\n}}\n"
+        "{PRELUDE}\nfn probe(flag: Bool) [] -> None {{\n{body}\n}}\n"
     ))
 }
 
@@ -185,10 +185,10 @@ fn a_break_must_release_what_the_iteration_owns() {
 fn a_call_that_may_throw_must_release_first() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn risky(flag: Bool) [Throw<Str>] -> [] None {{\n\
+         fn risky(flag: Bool) [Throw<Str>] -> None {{\n\
          if flag {{ return throw(\"no\") }}\n\
          }}\n\
-         fn probe2(flag: Bool) [Throw<Str>] -> [] None {{\n\
+         fn probe2(flag: Bool) [Throw<Str>] -> None {{\n\
          let h = open_handle(3)\n\
          risky(flag)\n\
          close(h)\n\

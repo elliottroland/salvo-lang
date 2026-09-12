@@ -2,7 +2,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn map<It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
+pub fn map<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         out.push(f(&x));
@@ -10,7 +10,7 @@ pub fn map<It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(it: &mut
     return out;
 }
 
-pub fn filter<It: Clone + 'static, T: Clone + 'static>(it: &mut It, keep: &mut impl FnMut(&T) -> bool, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
+pub fn filter<It: Clone, T: Clone>(it: &mut It, keep: &mut impl FnMut(&T) -> bool, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
     let mut out = vec![];
     while let Union2::U1(mut x) = next(it) {
         if keep(&x) {
@@ -20,7 +20,7 @@ pub fn filter<It: Clone + 'static, T: Clone + 'static>(it: &mut It, keep: &mut i
     return out;
 }
 
-pub fn reduce<It: Clone + 'static, T: Clone + 'static, A: Clone + 'static>(it: &mut It, init: A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
+pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
     let mut acc = init.clone();
     while let Union2::U1(mut x) = next(it) {
         acc = f(&acc, &x);
@@ -28,17 +28,17 @@ pub fn reduce<It: Clone + 'static, T: Clone + 'static, A: Clone + 'static>(it: &
     return acc;
 }
 
-pub fn map_to<D: Clone + 'static, It: Clone + 'static, T: Clone + 'static, U: Clone + 'static>(mut dest: D, it: &mut It, f: &mut impl FnMut(&T) -> U, add: &mut dyn FnMut(&mut D, U), next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
+pub fn map_to<D: Clone, It: Clone, T: Clone, U: Clone>(mut dest: D, it: &mut It, f: &mut impl FnMut(&T) -> U, add: &mut dyn FnMut(&mut D, U), next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
     while let Union2::U1(mut x) = next(it) {
         add(&mut dest, f(&x));
     }
     return dest;
 }
 
-pub fn filter_to<D: Clone + 'static, It: Clone + 'static, T: Clone + 'static>(mut dest: D, it: &mut It, keep: &mut impl FnMut(&T) -> bool, add: &mut dyn FnMut(&mut D, T), next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
+pub fn filter_to<D: Clone, It: Clone, T: Clone>(mut dest: D, it: &mut It, keep: &mut impl FnMut(&T) -> bool, add: &mut dyn FnMut(&mut D, T), copy: &mut dyn FnMut(T) -> T, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
     while let Union2::U1(mut x) = next(it) {
         if keep(&x) {
-            add(&mut dest, x);
+            add(&mut dest, copy(x));
         }
     }
     return dest;

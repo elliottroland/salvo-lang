@@ -119,6 +119,89 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Deductions respelled: the `=>` clause (user proposal and decisions
+2026-09-11, late).** The bracket list after `->` is gone; a signature ends in
+`-> T => entries`, on the same line or the next. Entries: `p` (kept), `!p`
+(consumed; `p: Nothing` says the same), `p: Qual` (exhaustive), `p: None`
+(strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: Proj[from: a]`
+(the result's field projects `a`), `v.f: Proj[from: a]` (a parameter's field is
+re-pointed), bare `Proj[from: a, b]` (opaque: the result holds a borrow of
+both), and `=>[f] …` groups scoping entries to a fn-typed parameter (its own
+parameters named in its type; inline lists inside a parameter list are a parse
+error — ambiguous with the next parameter, user chose the one clean option).
+**Unmentioned means inferred**: a clause is partial and most fns write none;
+a bodiless declaration (effect member, platform member, intrinsic) must
+mention every parameter except Copy scalars [copy-scalar-free]; fn types keep
+today's default. The contract-stability cost — a body edit can change what
+callers may do with no signature change — was raised, accepted, and recorded
+in ROADMAP as a revisit. `Proj[from: a, b]` names several sources at once
+and is what a projection joined across branches reads as. **What it took:**
+a `FatArrow` token; `Deduction { target: Param{name, path} | Result{path} |
+Opaque, kind: … | Proj(sources) }` with `TypeRef.from: Vec<Ident>`;
+`parse_deduction_clause`/`parse_deduction_entry` (fn-type groups attach to
+the parameter's `Type::Fn`); `deduce.rs` running the fixpoint for *every*
+bodied fn and overlaying the written entries (`ParamDeduction.written`),
+validating only what was written, and treating `return x` under a wholesale
+`Proj[from: x]` as a borrow; `check.rs` preferring the effective table
+(`effective_contract`), per-parameter `own_written` for move-mode claims,
+`require_full_clause` replacing the whole-list requirement, multi-source
+`derived_calls`, and re-pointing entries adding held links at the call; the
+LSP hover rendering the effective clause (`!p`, `p: Q`, `Proj[from: …]`,
+`=>[f] …`; Copy scalars and keep-all entries omitted); the Rust emitter
+tagging every source with `'a`, borrowing the RHS of a `Proj`-field
+assignment, and tying `'r` for re-pointing. The sweep was mechanical
+(a throwaway script, then a pass restoring the consumptions the old
+exhaustive lists implied on bodied test helpers — `consume(x) {}` infers
+*kept*, which the tests did not mean): std, corpus, examples (regenerated),
+every inline test source, LANGUAGE.md/LANGUAGE_SPEC.md/README. Std shrank:
+intrinsics keep their full clauses, bodied fns mostly lost theirs. **Tests**:
+842 (from 828), all green with `--no-fail-fast`. **Gotcha found on the
+way**: plain `cargo test` stops at the first failing test *binary*, so "one
+failure left" can hide others — check with `--no-fail-fast`.
+
+**Phase 2b "copies only by opt-in" — built, and the view model settled (user
+decisions 2026-09-11).** The five steps from ROADMAP landed: `[rs-opt-borrow]`
+(the `Option<&T>` local), `get → (Proj[from: list] T)?` and std's `next →
+Emitted (Proj[from: p] T) | Finished` [yield-proj], `filter → Mut List<Proj
+T>` as a view, `?copy` as a general implicit on `filter_to` and on handler
+constructors [copy-implicit] (the former [implicit-fn-only] restriction on
+constructors lifted), and the std audit (no element-storing combinator clones
+silently; `Str` operations produce new strings by nature). Along the way
+three questions were settled by the user: (1) **`Proj Mut X` is legal but
+read-only** [proj-readonly] — `Mut X <: Proj Mut X`, never the reverse, `copy`
+the way out — which is what refuses `take(s, 2)` on `s = get(ps, 0)!` while
+`take(p, 2)` on a constructed `p = iter(xs)` advances; a view is an **owned
+object holding borrows**, so `iter` returns a plain `Mut ListYield<T>`, no
+`Proj` on the whole; (2) **which parameters a result holds borrows of is
+inferred** [proj-infer] (`lends.rs`: per field, through calls, locals, `!`,
+branches; conservative fallback to every kept parameter where there is no
+body), with the explicit form for fn types and effect members — the
+principle the user stated for the language: "infer as much as it can for
+free, and let the user state what inference cannot reach"; (3) **any struct
+may hold `Proj` fields** [proj-field], written without a source, replacing
+the pass-only exemption that first landed (the option-(2) review item is
+closed by it). Two soundness rules came from rustc catching what the checker
+had not: **a view of a temporary** may be used within its statement but not
+bound, returned or stored [proj-anywhere] (`let p = slice(list(1, 2))` is
+E0716), and a `Yield<self, Proj T>` obligation must agree with its `next`.
+**`iter fn` passes borrow their subject** (user decision): `__subject: Proj
+Subject`, `Proj` snapshot fields, nothing copied at the mint, a snapshot
+written with `copy(...)` in a `state` initializer — which fixed the
+self-referential generated struct rustc had refused and **lifted the Kotlin
+generic-`iter fn` cut** (nothing copies a `T` any more; e2e on both backends).
+Rust: borrowing structs carry `'s` (transitively through owned view fields),
+`[rs-proj-lends]` ties `'a`/`'c`, `[rs-proj-arm]` retags the element generic
+and peels one reference in callbacks and adapters, borrowed-arm payload reads
+bind as `Ref`, a borrowed Copy arm flowing into an owned position is adapted
+arm by arm (non-Copy is a codegen error, not a hidden clone). **Option
+explored and rejected**: struct-level *link parameters* (`Pair<T, U, a, b>`)
+as the required spelling — the user preferred inference with the clause as
+fallback; the form is reserved in ROADMAP for per-field precision on
+bodiless callees. **Documented gap**: a generic body cannot see that an
+element of an opaque pass is borrowed (`filter`'s `add(out, x)`), so the
+signature says it (`=> Proj[from: it]`); a user fn storing such an element
+without writing so is caught by rustc, not the checker.
+
 **`ReadOnly` is renamed `Proj`, and copying becomes opt-in-only (user decisions
 2026-09-11).** Found while making `get` return a borrow: std hides two copies
 the language would never let user code make silently — `filter` on a list
@@ -732,7 +815,7 @@ are the shape of every large deletion in this compiler:
 decision 2026-09-10).** The shape:
 
 ```
-fn total<C, It>(c: C, ?iter: (c: C) -> [] Mut It, ?Yield<It, Int>) -> [] Int {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] !c {
     let sum = 0
     let p = iter(c)
     for n in p { sum = sum + n }
@@ -1474,7 +1557,7 @@ qualifier NonEmpty<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
 
     // Adding an element makes the list non-empty.
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty, !elem
 }
 ```
 
@@ -1622,7 +1705,7 @@ params Field<T> {
     fn zero() -> T
 }
 
-fn total<T>(xs: List<T>, ?Field<T>) -> [xs] T { ... add(acc, x) ... zero() ... }
+fn total<T>(xs: List<T>, ?Field<T>) -> T => xs { ... add(acc, x) ... zero() ... }
 
 total(list(1, 2, 3))                          // 6, defaults resolved
 total(list(2, 3, 4), add = times, zero = one)  // 24, overridden by name
@@ -2529,13 +2612,13 @@ Rust**:
 
 ```
 effect Sink {
-    fn keep(list: Mut List<Int>) -> [list: Mut] None    // promises it back
-    fn size_kept() -> [] Int
+    fn keep(list: Mut List<Int>) -> None    // promises it back => list: Mut
+    fn size_kept() -> Int
 }
 handler Bin of Sink {
     held: Mut List<Int> = mutable_list()
-    fn keep(list: Mut List<Int>) -> [list: Mut] None { held = list }
-    fn size_kept() -> [] Int { return size(held) }
+    fn keep(list: Mut List<Int>) -> None => list: Mut { held = list }
+    fn size_kept() -> Int { return size(held) }
 }
 // caller: keep(xs); add(xs, 2); size_kept()
 ```
@@ -2555,7 +2638,7 @@ against their written lists ([deduce-infer]), outside the fixpoint, which is
 sound because members' *bodies* never feed other fns' contracts. The
 program above is now rejected at the member's own declaration ("deduction
 promises `list` back to the caller, but the body moves it"), and the
-honest version — the member declaring `-> []`, moving the list — prints 2
+honest version — the member declaring `=> !…`, moving the list — prints 2
 on both backends.
 
 Known remaining gap, recorded in BACKEND_SPEC.rust.md under [rs-effects]:
@@ -3342,7 +3425,7 @@ that still shape the code, and where to look for the mechanics.
 The first stage of the shared-fate roadmap (see the L1 section below for
 the decided model). What landed:
 
-- **`intrinsic fn copy<T>(value: T) -> [value] T`** in `std/core/basic.sv`
+- **`intrinsic fn copy<T>(value: T) -> T`** in `std/core/basic.sv` => value
   [intrinsic-fn] [copy-fn]: parser already accepted `intrinsic fn`
   (body-less like `external`); the declaration flows through
   Symbols/resolve/checker unchanged — the `[value]` deduction is the
@@ -3594,7 +3677,7 @@ All five decisions (L6a–e) approved by the user as recommended; rules
   not all = error — the exact dual of maybe-moved. Reported variables
   are marked consumed (one error per obligation). Gated to round two+
   (`inferred.is_some()`), like the other contract-dependent checks.
-- **`intrinsic fn discard<T>(value: T) -> [] None`** in std; the `[]`
+- **`intrinsic fn discard<T>(value: T) -> None`** in std; the `[]` => !value
   deduction makes the discharge just another move. Rust lowers to
   `drop(value)`, Kotlin to `(value).let {}` [intrinsic-fn]. Both
   verified end to end with identical stdout on the open/use/close
@@ -3610,7 +3693,7 @@ All five decisions (L6a–e) approved by the user as recommended; rules
 - `LocalVar` gained `decl_span`, so obligation diagnostics point at the
   variable's declaration.
 - Practical consequence (documented): a Salvo-bodied consumer
-  (`fn close_file(h: FileHandle) -> []`) must itself end the chain with
+  (`fn close_file(h: FileHandle) -> `) must itself end the chain with => !h
   `discard(h)` — real resource release lives in external fns, which
   have no body to check. `List<FileHandle>` is expressible but not
   constructible until a generic opt-in exists (L7).
@@ -3642,7 +3725,7 @@ deferred. (Both sites were spelled `with` until the 2026-09-03 rename
   Empty construction + `add` is the supported pattern.
 - **std audit**: `add`, `list`, `mutable_list`, `size` opted in;
   `discard` re-declared as
-  `intrinsic fn discard<T canbe Linear>(value: T) -> [] None`; `get`
+  `intrinsic fn discard<T canbe Linear>(value: T) -> None`; `get` => !value
   deliberately *not* opted (returns an alias of an element — a clone of
   a linear value would duplicate the obligation); `copy` refused.
 - Verified end to end: the `List<FileHandle>` workflow (construct
@@ -3735,7 +3818,7 @@ default keeps-everything, so nothing broke and the parity hole closed
 by faithful emission. Rule [fn-contract]:
 
 - **Surface**: fn-type parameters may be named and a standard deduction
-  list may follow the arrow (`(v: List<Int>) -> [] Int`). `Type::Fn`
+  list may follow the arrow (`(v: List<Int>) -> Int => !…`). `Type::Fn`
   gained `param_names`/`deductions`; `Ty::Fn` gained
   `contract: Option<Vec<FnParamContract>>` (a types.rs struct — kept
   out of `Display` to avoid message churn).
@@ -3806,7 +3889,7 @@ by faithful emission. Rule [fn-contract]:
   module gets its own Kotlin package `salvo.<module.path>` with generated
   imports [kt-package] [kt-imports]; companions copy verbatim
   [backend-companion].
-- Deductions (`-> [list: Mut] T`) are inferred/validated by the
+- Deductions (`-> T => list: Mut`) are inferred/validated by the
   `deduce.rs` post-pass and stored in `Checked::deductions`; the Kotlin
   backend ignores them, the Rust backend derives its parameter modes from
   them (kept = borrow, omitted = move [rs-borrows]); the checker enforces
@@ -3899,7 +3982,7 @@ return emitted(good)
 **Was reproduced** (`analyze`, both a concrete and a generic element type):
 
 ```
-fn head(xs: List<Int>) -> [xs] Int {
+fn head(xs: List<Int>) -> Int => xs {
     let e = get(xs, 0)
     if e is None {
         return 0
@@ -4019,7 +4102,7 @@ fn tagged(xs: Iter<Int>, f: (Int) -> Int) -> Iter<Int> {
     for x in xs { yield f(x) }
 }
 
-fn bump(seen: Mut List<Int>, v: Int) -> [seen: Mut] Int {
+fn bump(seen: Mut List<Int>, v: Int) -> Int => seen: Mut {
     add(seen, copy(v))
     return v
 }
@@ -4215,7 +4298,7 @@ The decided model:
 
 - **L1a — `intrinsic fn copy` (decided).** New `intrinsic` item keyword
   for compiler-intrinsic fns:
-  `intrinsic fn copy<T>(value: T) -> [value] T` is declared in std (the
+  `intrinsic fn copy<T>(value: T) -> T` is declared in std (the => value
   signature + `[value]` deduction are all the checker needs:
   non-consuming, result independent), has *no define files*, and each
   emitter lowers calls to it type-directedly — Kotlin: identity for
@@ -4369,7 +4452,7 @@ five decisions approved by the user as recommended on 2026-09-02:
 - **L6b**: consumption = any move, as the deduction system defines it;
   moves transfer the obligation (compositional across calls, returns,
   stores, and move-mode bindings).
-- **L6c**: `intrinsic fn discard<T>(value: T) -> [] None` is the
+- **L6c**: `intrinsic fn discard<T>(value: T) -> None` is the => !value
   explicit escape hatch; early-exit paths are checked by the existing
   path machinery; panic/abort semantics out of scope until they exist.
 - **L6d**: composites containing linear components are linear
@@ -4392,11 +4475,11 @@ std/user code: if the intra-function `copy` costs never show up in
 practice, independent returns may be the permanently right answer.
 
 - **DECISION L7a** — whether to add it at all, and the annotation
-  surface if so (e.g. `-> [persons] persons.T`-style vs a marker on
+  surface if so (e.g. `-> persons.T`-style (a projected-element type) vs a marker on
   the return type); every std external returning a projection would
   need auditing.
 - **Leading design for L7a (user decision 2026-09-02): parameterized
-  compiler qualifiers.** Supersedes the `-> [persons] persons.T`
+  compiler qualifiers.** Supersedes the `-> persons.T`
   strawman. Compiler-inserted qualifiers form a distinct class — never
   affecting overload resolution/`unify`/mangling/erasure, not testable
   with `is`, not constructible, strippable only by blessed fns
@@ -4485,7 +4568,7 @@ dependency is a handler **constructor parameter of effect type**:
 
 ```
 handler ConsoleLogger(console: Console) of Logger {
-    fn log(message: Str) -> [message] None { print(message) }
+    fn log(message: Str) -> None => message { print(message) }
 }
 ```
 
@@ -4725,7 +4808,7 @@ arrives later as an explicit effect (likely a compiler intrinsic).
 qualifier Thrown<M> of M            // mirrors `Err<T> of T` in core.result
 
 effect Throw<M> {                    // intrinsic; message is moved, like `err`
-    fn throw(message: M) [] -> [] Nothing
+    fn throw(message: M) [] -> Nothing => !message
 }
 
 // `try` is a compiler intrinsic, not an effect:
@@ -5124,7 +5207,7 @@ argument list.
 struct Lines canbe Mut : Linear, Yield<Str>
 
 params Yield<T> {
-    fn next(s: Mut Self) -> [s: Mut] Emitted T | Finished
+    fn next(s: Mut Self) -> Emitted T | Finished => s: Mut
 }
 ```
 
@@ -5166,12 +5249,12 @@ discharged:
 struct Lines : Linear, Yield<Str> canbe Mut { handle: File }
 
 params Linear {
-    fn close(s: Self) -> [] None      // consumes: `s` is not kept
+    fn close(s: Self) -> None      // consumes: `s` is not kept => !s
 }
 ```
 
 - **The declarer must supply the `close`.** A type that says `: Linear` without
-  a matching `close(Lines) -> [] None` is an error at the *struct*.
+  a matching `close(Lines) -> None => !…` is an error at the *struct*.
 - **`close` is the discharge.** `discard` no longer satisfies a linear
   obligation — it is refused, naming `close` — which closes the hole that made
   the separate-groups version wrong: `discard(lines)` satisfied linearity and
@@ -5418,7 +5501,7 @@ with almost no emitter work.
 
 Done, green (full suite 767, both toolchains' e2e recompiling the rewritten
 sources to the same stdout). `std/core/iterator.sv` now declares the
-designated group — `params Yield<T> { fn next(s: Mut Self) -> [s: Mut]
+designated group — `params Yield<T> { fn next(s: Mut Self) => s: Mut
 Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
 **a type declaring `: Yield<T>`**, full stop.
 
@@ -5615,7 +5698,7 @@ alone implies neither.
 #### R4 part 1 as built (2026-09-08): `Linear` designated
 
 Done and green. `Linear` is a designated obligation group in
-`std/core/basic.sv` — `params Linear<It> { fn close(it: It) -> [] None }` — and
+`std/core/basic.sv` — `params Linear<It> { fn close(it: It) -> None }` — and => !it
 a type declares `: Linear<self>`.
 
 - **The mandatory `close` came free** from [group-obligation]: declaring
@@ -5757,7 +5840,7 @@ followed in its six steps; what it did not predict is recorded here.
 **std as built.** `ListYield<T>`/`ArrayYield<T>`/`StrYield` are ordinary structs
 (`items`/`text` plus `at`) declaring `: Yield<self, T> canbe Mut`, each with a
 Salvo `next` — the `is None` guard shape [is-narrow-guard] is what made them
-writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `-> []`
+writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `=> !…`
 (constructing the pass *moves* the container in, probe finding 4), and
 `iterable.sv` is gone. `seq.sv`'s `map`/`filter`/`reduce`/`map_to`/`filter_to`
 drive `it: Mut It` through a `?Yield<It, T>` spread — with `while` + `next` +
@@ -5890,7 +5973,7 @@ projection.
 **The payoff.** `std/core/seq.sv` lost 44 lines and reads as ordinary Salvo:
 
 ```
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> [it: Mut, f] Mut List<U> {
+fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
     let out = mutable_list<U>()
     for x in it {
         add(out, f(x))
@@ -5949,8 +6032,8 @@ std, and they turn the sequencing question into five facts:
 3. **A generic struct literal needs its type arguments written**
    (`Mut ListYield<T> { … }`) — R0 finding 5, met again immediately.
 4. **A pass that stores its source consumes it**: `fn iter<T>(items: List<T>)
-   -> [items] Mut ListYield<T>` is refused ("deduction promises `items` back to
-   the caller, but the body moves it"), so std's `iter` will be `-> []`. Worth
+   -> Mut ListYield<T> => items` is refused ("deduction promises `items` back to
+   the caller, but the body moves it"), so std's `iter` will be `=> !…`. Worth
    knowing before the rewrite: iterating a list *consumes* the list unless the
    pass borrows, which is drive-in-place (R5's own open question) territory.
 5. **A container `next` cannot be written in Salvo yet** — narrowing did not
@@ -5964,7 +6047,7 @@ std, and they turn the sequencing question into five facts:
 `?Iterable` goes away entirely and a combinator's subject **is** the pass:
 
 ```
-fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U>
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper
 ```
 
 A container is iterated by writing the `iter` call — `map(iter(xs), double)` —
@@ -6016,7 +6099,7 @@ way:
 ##### Open defect (found 2026-09-08): narrowing does not survive a guard
 
 ```
-fn head(xs: List<Int>) -> [xs] Int {
+fn head(xs: List<Int>) -> Int => xs {
     let e = get(xs, 0)
     if e is None {
         return 0
@@ -6070,8 +6153,8 @@ they all reduce to it:
   premise ("the yield form lowers to the raw form"). This *is* the prerequisite,
   stated positively: for each `yield fn next(o: O) -> T`, the compiler declares
   a pass type `__Pass_O : Yield<self, T> canbe Mut`, a
-  `fn next(p: Mut __Pass_O) -> [p: Mut] Emitted T | Finished`, and a mint
-  `fn iter(o: O) -> [] Mut __Pass_O`. The emitters already generate the machine
+  `fn next(p: Mut __Pass_O) -> Emitted T | Finished`, and a mint => p: Mut
+  `fn iter(o: O) -> Mut __Pass_O`. The emitters already generate the machine => !o
   and know how to advance and close it, so the two functions are lowerings, not
   new code. Everything else then follows from rules that already exist:
   overload selection, implicit resolution, `for` over the machine, and a
@@ -6100,7 +6183,7 @@ is rewritten to a fresh instance of its pass. And the half that makes it
 tractable — *generic* signatures always write the **pass**:
 
 ```
-fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> [it: Mut, mapper] Mut List<U>
+fn map<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper
 ```
 
 "Generic functions don't need to be desugared, since that happens before they
@@ -6219,8 +6302,8 @@ its own.** This is accepted today and prints `n 2 / n 1 / after` — no `closed`
 ```
 struct Lines : Yield<self, Int>, Linear<self> canbe Mut { at: Int }
 
-fn next(l: Mut Lines) -> [l: Mut] Emitted Int | Finished { … }
-fn close(l: Lines) [Console] -> [] None { println("closed") }
+fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut { … }
+fn close(l: Lines) [Console] -> None { println("closed") }
 
 for n in lines { println("n ${n}") }        // drives, consumes, never closes
 ```
@@ -6409,7 +6492,7 @@ yield fn next(c: Counter) [] -> Int {
 So a `: Yield<T>` clause is dischargeable **two ways**, distinguished by the
 `yield` keyword on the fn:
 
-- **raw**: `fn next(c: Mut Counter) -> [c: Mut] Emitted Int | Finished` — the
+- **raw**: `fn next(c: Mut Counter) -> Emitted Int | Finished` — the => c: Mut
   subject *is* the state, `for` drives it in place, a second drive continues.
   This is the form for `zip`, `merge`, holding an iteration in a variable,
   passing one to a function.
@@ -6564,7 +6647,7 @@ turns out to need it; nothing in this design forecloses it.
 1. **Pull stays the model.** Push revisitable as an addition, never as a
    replacement.
 2. **The protocol is Salvo-level, not intrinsic**: `fn next(st: Mut St)
-   -> [st: Mut] Emitted T | Finished`, gathered in a `params Iterator<St, T>`
+   -> Emitted T | Finished => st: Mut`, gathered in a `params Iterator<St, T>`
    group beside the existing `params Iterable<It, T>`. `has_next`/`next`
    retire. Consequences: a user can write an iterator *by hand* (which is
    how `zip`/`merge` become ordinary structs — no materialising one side),
@@ -6955,7 +7038,7 @@ Built and verified so far:
 - **`std/core/iterator.sv`** declares the protocol in Salvo rather than in
   the compiler: `qualifier Emitted<T> of T` with its constructor, a fieldless
   `struct Finished {}`, and
-  `params Iterator<St, T> { fn next(st: Mut St) -> [st: Mut] Emitted T | Finished }`.
+  `params Iterator<St, T> { fn next(st: Mut St) -> Emitted T | Finished }`. => st: Mut
   Names are the user's (2026-09-07), renamed from `Next`/`Stopped` before
   any of it was written.
   * `Emitted` is a *qualifier* so the element keeps its own type and a
@@ -7501,7 +7584,7 @@ the diagnostic names the remedy — annotate the return type `Once X`.
 
 ```
 struct Zip<A, B> { ... }
-fn next<A, B>(z: Mut Zip<A, B>) -> [z: Mut] Emitted (A, B) | Finished { ... }
+fn next<A, B>(z: Mut Zip<A, B>) -> Emitted (A, B) | Finished => z: Mut { ... }
 
 fn zip<A, B>(xs: Once Iter<A>, ys: Once Iter<B>) -> Zip<A, B> { ... }
 for pair in zip(as, bs) { ... }   // ERROR: `Zip<A, B>` has a `next` but is
@@ -7690,7 +7773,7 @@ The surface is the user's decision, in `std/core/seq.sv`:
   also keeps "how many times was this consumed?" visible at the call site.
 - `map_to` / `filter_to` — the destination is the **first argument**, and
   appending goes through an **`?add` implicit parameter**
-  (`(dest: Mut D, elem: U) -> [dest: Mut] None`), so the destination is
+  (`(dest: Mut D, elem: U) -> None => dest: Mut`), so the destination is
   anything with an `add` rather than a `List` — the same "a function, not a
   trait" move `?Iterable` makes for the subject. Nothing is returned: the
   caller already holds the destination.
@@ -7745,7 +7828,7 @@ let out = map_to(mutable_list<Int>(), xs, double)
 let kept = filter_to(map_to(mutable_list<Int>(), xs, double), xs, is_even)
 ```
 
-The destination is therefore **moved in and handed back** (`-> [xs, f] Mut D`,
+The destination is therefore **moved in and handed back** (`-> Mut D => xs, f`,
 with `dest` absent from the deduction list) rather than kept — which is what
 makes the nested form above legal, since a kept parameter could not be the
 value of the enclosing expression. Holding a destination across the call means
@@ -7771,8 +7854,8 @@ program, and every line of Rust below is the emitter's actual output today:
 struct Feed { name: Str, items: Iter<Int> }
 
 fn naturals() -> Iter<Int> { let i = 0  while true { yield copy(i)  i = i + 1 } }
-fn evens(it: Iter<Int>) -> [it] Iter<Int> { for x in it { if x % 2 == 0 { yield copy(x) } } }
-fn total(xs: Iter<Int>, limit: Int) -> [xs] Int { … for v in xs { … } … }
+fn evens(it: Iter<Int>) -> Iter<Int> => it { for x in it { if x % 2 == 0 { yield copy(x) } } }
+fn total(xs: Iter<Int>, limit: Int) -> Int => xs { … for v in xs { … } … }
 ```
 
 **Today** — three kinds of indirection, all of them from one decision (`Iter<T>`
@@ -8371,7 +8454,7 @@ to need. The surface as built, all in `std/core/string.sv` with lowerings in
 each backend's `intrinsics.rs`:
 
 - `intrinsic type Str canbe Mut`; `intrinsic fn mutable_str(...parts: Str[])
-  [] -> [parts] Mut Str` (the parts are *kept*, since they are read rather
+  [] -> Mut Str => parts` (the parts are *kept*, since they are read rather
   than stored — which is what makes the Rust lowering borrow them).
 - On `Str`: `size`, `char_at`, `iter` (→ `Iter<Char>`, which is what makes
   the S-Seq functions work over strings for nothing), `split`, `index_of`
@@ -8397,11 +8480,11 @@ Built as decided (`std/core/iterable.sv` + `std/core/seq.sv`), rule
 ```
 params Iterable<It, T> { fn iter(it: It) -> Iter<T> }
 
-fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> [xs, f] Mut List<U>
-fn filter<It, T>(xs: It, keep: (T) -> Bool, ?Iterable<It, T>) -> [xs, keep] Mut List<T>
-fn reduce<It, T, A>(xs: It, init: A, f: (A, T) -> A, ?Iterable<It, T>) -> [xs, f] A
+fn map<It, T, U>(xs: It, f: (T) -> U, ?Iterable<It, T>) -> Mut List<U> => xs, f
+fn filter<It, T>(xs: It, keep: (T) -> Bool, ?Iterable<It, T>) -> Mut List<T> => xs, keep
+fn reduce<It, T, A>(xs: It, init: A, f: (A, T) -> A, ?Iterable<It, T>) -> A => xs, f, !init
 
-intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> [list, f] Mut List<U>   // + filter, reduce
+intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U>   // + filter, reduce => list, f
 ```
 
 Verified on both backends with one program covering a `List` (the fast
@@ -8472,7 +8555,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 822)
+## Test inventory (all green: 842)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8480,7 +8563,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo test` for a run that takes nothing from the cache,
 and `cargo nextest run` when you want to see which tests cost what.
 
-- `salvo-core`: 396 - 19 unit tests (file classification, including the
+- `salvo-core`: 409 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8977,7 +9060,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 72 (three parser tests for the scope selector and
+- `salvo-syntax`: 74 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -9038,7 +9121,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 149 - golden snapshots of the M2 demo, the M3
+- `salvo-backend-kotlin`: 151 - golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9210,7 +9293,7 @@ and `cargo nextest run` when you want to see which tests cost what.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 123 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 126 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -9397,6 +9480,35 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`cargo test` stops at the first failing test binary.** A run that shows
+  "one failure left" may be hiding failures in every crate after it; the
+  binaries run in alphabetical order, so a red `salvo-backend-rust` hides
+  `salvo-cli`, `salvo-core` and `salvo-syntax` entirely. Check with
+  `cargo test --no-fail-fast` before calling anything green (2026-09-11: a
+  respelling that "left one test" had 35 more behind it).
+- **A lending iterator cannot own its source.** If a pass *owns* its list,
+  `next(&mut p) -> &T` ties the element to the `&mut` of the pass, and storing
+  an element (what a view must do) is E0499. The pass has to *borrow* the
+  source (`items: &'s Vec<T>`) so elements are `&'s T` — which is why
+  [proj-field] exists and why an `iter fn` pass borrows its subject. Found by
+  writing the Rust by hand and compiling it before touching the emitter.
+- **"Proj stripped at lowering" has a price.** Keeping `Proj` out of `Ty`
+  keeps generics from binding `T = Proj Int`, but two Salvo values of the same
+  type can then have different Rust types (`Union2<&T, F>` vs `Union2<T, F>`).
+  Every place a borrowed value flows into an owned-typed position needs an
+  adapter or a refusal [rs-proj-arm]; the fate link's `held`/`borrowed` flags
+  are the checker's only record of the difference.
+- **A generic body cannot see that an element it stores is borrowed**, because
+  the pass is opaque (`it: Mut It`). Std says it in the signature
+  (`=> Proj[from: it]`); a user fn that does not is caught by rustc, not the
+  checker. Recorded in ROADMAP.
+- **Inference changes what a migration means.** Converting `-> [] T` (consume
+  everything) to a clause that mentions nothing turns a `consume(x) {}` test
+  helper into a *keeping* fn: every test that asserted a move went quiet. A
+  spelling change that also changes a default needs a second pass restoring
+  the old facts explicitly (a second throwaway script read them off the git
+  diff).
+
 - (rs-narrow-mut) **A read helper reused at a write site is a correctness bug,
   not an inefficiency.** `narrow_unwrap` produces an owned temporary, which is
   right for every read; borrowing it `&mut` compiles and mutates the temporary.
@@ -9525,7 +9637,7 @@ snapshot diffs.
   "the callee stores it".** Rust renders a callback owned (`impl Fn + 'static`)
   when the callee keeps it past the call, and "moved by the deduction list"
   looked like the right trigger — a moved value is one the body keeps. It is
-  not: `apply(f: (v: List<P>) -> Int, data: List<P>) -> [data] Int` moves `f`
+  not: `apply(f: (v: List<P>) -> Int, data: List<P>) -> Int => data` moves `f`
   and merely *calls* it, so the whole convention changed under a passing test.
   What holds is the *shape of the result*: a fn-typed parameter plus a return
   type that is a struct with a fn-typed field. When a backend convention needs
@@ -9895,7 +10007,7 @@ snapshot diffs.
 - **When a test fails, read the test source before the compiler.** The
   first platform-effect positive test failed with "deduction promises `n`
   back to the caller, but the body moves it" — and the compiler was right:
-  `return n` moves `n`, so `-> [n] Int` was a contradiction I had written.
+  `return n` moves `n`, so `-> Int => n` was a contradiction I had written.
   The checker's diagnostics have been load-bearing enough for long enough
   that a fresh test source is the more likely culprit.
 
@@ -10417,7 +10529,7 @@ snapshot diffs.
   empty-then-`add`. When opting in an external, audit *every* position,
   not just the contract shape.
 - (L6) A Salvo-bodied consuming fn must end the obligation chain
-  itself: `fn close(h: FileHandle) -> [] None {}` leaks `h` by its own
+  itself: `fn close(h: FileHandle) -> None {}` leaks `h` by its own
   rules — the body owns the moved-in value and must `discard` it (real
   release lives in external fns with no body to check). Tests and
   examples that stub consumers with empty bodies will all fail the

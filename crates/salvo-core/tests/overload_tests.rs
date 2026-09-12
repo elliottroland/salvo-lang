@@ -24,8 +24,8 @@ use salvo_syntax::diag::Severity;
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as *std* files (only std may write `intrinsic`), one per `core`
 /// module so the tests can name them with `@`.
-const STD_LIST: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Any\nintrinsic type List<T> canbe Mut\nintrinsic fn of_list<T>(...elems: T[]) [] -> [] Mut List<T>\nintrinsic fn size<T>(list: List<T>) [] -> [list] Int\n";
-const STD_STRING: &str = "intrinsic fn size(str: Str) [] -> [str] Int\n";
+const STD_LIST: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Any\nintrinsic type List<T> canbe Mut\nintrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nintrinsic fn size<T>(list: List<T>) [] -> Int => list\n";
+const STD_STRING: &str = "intrinsic fn size(str: Str) [] -> Int => str\n";
 
 /// Checks a program of user files (`main.sv` first) against the std prelude.
 fn checked_files(files: &[(&str, &str)]) -> salvo_core::Checked {
@@ -99,7 +99,7 @@ fn warnings(src: &str) -> Vec<String> {
 }
 
 fn probe(body: &str) -> String {
-    format!("fn probe() -> [] None {{\n{body}\n}}\n")
+    format!("fn probe() -> None {{\n{body}\n}}\n")
 }
 
 // ===== [fn-overload-rank] the specificity ladder =====
@@ -108,12 +108,12 @@ fn probe(body: &str) -> String {
 /// order — the case the ranking was first written for.
 #[test]
 fn a_concrete_parameter_beats_a_type_variable() {
-    let decls = "fn describe<T>(value: T) [] -> [] Bool { return true }\n\
-                 fn describe(value: Int) [] -> [] Str { return \"concrete\" }\n";
+    let decls = "fn describe<T>(value: T) [] -> Bool => !value { return true }\n\
+                 fn describe(value: Int) [] -> Str { return \"concrete\" }\n";
     let src = format!("{decls}{}", probe("    let _picked: Str = describe(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-    let flipped = "fn describe(value: Int) [] -> [] Str { return \"concrete\" }\n\
-                   fn describe<T>(value: T) [] -> [] Bool { return true }\n";
+    let flipped = "fn describe(value: Int) [] -> Str { return \"concrete\" }\n\
+                   fn describe<T>(value: T) [] -> Bool => !value { return true }\n";
     let src = format!("{flipped}{}", probe("    let _picked: Str = describe(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
@@ -123,9 +123,9 @@ fn a_concrete_parameter_beats_a_type_variable() {
 /// only ranks candidates the caller could have meant.
 #[test]
 fn a_narrower_union_beats_a_broader_one() {
-    let decls = "fn take(v: Int | Str | Bool) [] -> [] Bool { return true }\n\
-                 fn take(v: Int | Str) [] -> [] Char { return 'p' }\n\
-                 fn take(v: Int) [] -> [] Str { return \"int\" }\n";
+    let decls = "fn take(v: Int | Str | Bool) [] -> Bool => !v { return true }\n\
+                 fn take(v: Int | Str) [] -> Char => !v { return 'p' }\n\
+                 fn take(v: Int) [] -> Str { return \"int\" }\n";
     // A plain `Int` reaches the arm.
     let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -151,8 +151,8 @@ fn a_narrower_union_beats_a_broader_one() {
 /// with a `None` arm, so this needs no rule of its own.
 #[test]
 fn a_plain_type_beats_an_optional() {
-    let decls = "fn take(v: Int?) [] -> [] Bool { return true }\n\
-                 fn take(v: Int) [] -> [] Str { return \"int\" }\n";
+    let decls = "fn take(v: Int?) [] -> Bool => !v { return true }\n\
+                 fn take(v: Int) [] -> Str { return \"int\" }\n";
     let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
@@ -160,15 +160,15 @@ fn a_plain_type_beats_an_optional() {
 /// `Any` is the broadest type there is, so it is the last resort.
 #[test]
 fn any_is_the_least_specific_parameter() {
-    let decls = "fn take(v: Any) [] -> [] Bool { return true }\n\
-                 fn take(v: Int) [] -> [] Str { return \"int\" }\n";
+    let decls = "fn take(v: Any) [] -> Bool => !v { return true }\n\
+                 fn take(v: Int) [] -> Str { return \"int\" }\n";
     let src = format!("{decls}{}", probe("    let _picked: Str = take(3)"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // And it really does accept everything (it is the top type, not a
     // nominal type that happens to be called `Any`).
     let src = format!(
         "{}{}",
-        "fn take(v: Any) [] -> [] Bool { return true }\n",
+        "fn take(v: Any) [] -> Bool => !v { return true }\n",
         probe("    let _picked: Bool = take(\"text\")")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -185,8 +185,8 @@ fn qualifier_sets_rank_by_inclusion() {
                  fn qualifies(n: Int) -> Bool { return true }\n}\n";
     // A superset wins.
     let decls = format!(
-        "{quals}fn label(n: Even Int) [] -> [n] Bool {{ return true }}\n\
-         fn label(n: Even Small Int) [] -> [n] Str {{ return \"both\" }}\n"
+        "{quals}fn label(n: Even Int) [] -> Bool => n {{ return true }}\n\
+         fn label(n: Even Small Int) [] -> Str => n {{ return \"both\" }}\n"
     );
     let src = format!(
         "{decls}{}",
@@ -198,8 +198,8 @@ fn qualifier_sets_rank_by_inclusion() {
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // Different single qualifiers do not.
     let decls = format!(
-        "{quals}fn label(n: Even Int) [] -> [n] Bool {{ return true }}\n\
-         fn label(n: Small Int) [] -> [n] Str {{ return \"small\" }}\n"
+        "{quals}fn label(n: Even Int) [] -> Bool => n {{ return true }}\n\
+         fn label(n: Small Int) [] -> Str => n {{ return \"small\" }}\n"
     );
     let src = format!(
         "{decls}{}",
@@ -223,8 +223,8 @@ fn qualifier_sets_rank_by_inclusion() {
 /// overload rather than a special form.
 #[test]
 fn a_fixed_parameter_list_beats_a_variadic_one() {
-    let decls = "fn make() [] -> [] Str { return \"empty\" }\n\
-                 fn make(...rest: Int[]) [] -> [] Bool { return true }\n";
+    let decls = "fn make() [] -> Str { return \"empty\" }\n\
+                 fn make(...rest: Int[]) [] -> Bool { return true }\n";
     let src = format!("{decls}{}", probe("    let _picked: Str = make()"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
     // With arguments, only the variadic one fits.
@@ -236,8 +236,8 @@ fn a_fixed_parameter_list_beats_a_variadic_one() {
 /// are an ambiguity, not a sum to be totted up.
 #[test]
 fn one_slot_never_pays_for_another() {
-    let decls = "fn mix<T>(a: T, b: Int) [] -> [] Bool { return true }\n\
-                 fn mix<T>(a: Int, b: T) [] -> [] Bool { return true }\n";
+    let decls = "fn mix<T>(a: T, b: Int) [] -> Bool => !a { return true }\n\
+                 fn mix<T>(a: Int, b: T) [] -> Bool => !b { return true }\n";
     let src = format!("{decls}{}", probe("    let x = mix(1, 2)"));
     let msgs = messages(&src);
     assert_eq!(msgs.len(), 1, "{msgs:?}");
@@ -255,8 +255,8 @@ fn one_slot_never_pays_for_another() {
 /// it must not produce an ambiguity of its own.
 #[test]
 fn an_un_inferred_argument_produces_no_ambiguity() {
-    let decls = "fn mix<T>(a: T, b: Int) [] -> [] Bool { return true }\n\
-                 fn mix<T>(a: Int, b: T) [] -> [] Bool { return true }\n";
+    let decls = "fn mix<T>(a: T, b: Int) [] -> Bool => !a { return true }\n\
+                 fn mix<T>(a: Int, b: T) [] -> Bool => !b { return true }\n";
     let src = format!("{decls}{}", probe("    let x = mix(nope(), 2)"));
     let msgs = messages(&src);
     assert_eq!(msgs.len(), 1, "expected only the unresolved-call error: {msgs:?}");
@@ -272,7 +272,7 @@ fn an_un_inferred_argument_produces_no_ambiguity() {
 fn this_module_beats_core() {
     let src = format!(
         "{}{}",
-        "fn size<T>(list: List<T>) [] -> [list] Str { return \"mine\" }\n",
+        "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
         probe("    let xs = of_list(1, 2)\n    let _picked: Str = size(xs)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -282,7 +282,7 @@ fn this_module_beats_core() {
 /// An **import** beats `core` too, and this module beats the import.
 #[test]
 fn the_ladder_runs_core_import_module() {
-    let lib = "fn describe(v: Int) [] -> [] Bool { return true }\n";
+    let lib = "fn describe(v: Int) [] -> Bool { return true }\n";
     let main_import = "import lib.describe\n\n";
     // core has none of these, so the import wins on its own.
     let src = format!(
@@ -296,7 +296,7 @@ fn the_ladder_runs_core_import_module() {
     );
     // With an own-module declaration of the same shape, this module wins.
     let src = format!(
-        "{main_import}fn describe(v: Int) [] -> [] Str {{ return \"mine\" }}\n{}",
+        "{main_import}fn describe(v: Int) [] -> Str {{ return \"mine\" }}\n{}",
         probe("    let _picked: Str = describe(1)")
     );
     let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
@@ -309,7 +309,7 @@ fn the_ladder_runs_core_import_module() {
 fn scope_beats_signature_with_a_warning() {
     let src = format!(
         "{}{}",
-        "fn size(v: Any) [] -> [] Str { return \"mine\" }\n",
+        "fn size(v: Any) [] -> Str => !v { return \"mine\" }\n",
         probe("    let s = \"abc\"\n    let _picked: Str = size(s)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -332,7 +332,7 @@ fn scope_beats_signature_with_a_warning() {
 fn at_module_picks_that_modules_overload() {
     let src = format!(
         "{}{}",
-        "fn size(v: Any) [] -> [] Str { return \"mine\" }\n",
+        "fn size(v: Any) [] -> Str => !v { return \"mine\" }\n",
         probe(
             "    let s = \"abc\"\n    let _core: Int = size@core.string(s)\n    \
              let _mine: Str = size@main(s)"
@@ -363,7 +363,7 @@ fn at_module_without_a_fitting_overload_is_an_error() {
 fn at_module_reaches_past_a_local_of_the_same_name() {
     let src = format!(
         "{}{}",
-        "fn describe(v: Int) [] -> [] Str { return \"fn\" }\n",
+        "fn describe(v: Int) [] -> Str { return \"fn\" }\n",
         probe(
             "    let describe = \"a string\"\n    \
              let _picked: Str = describe@main(1)"
@@ -377,7 +377,7 @@ fn at_module_reaches_past_a_local_of_the_same_name() {
 fn at_module_works_in_dot_notation() {
     let src = format!(
         "{}{}",
-        "fn size<T>(list: List<T>) [] -> [list] Str { return \"mine\" }\n",
+        "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
         probe(
             "    let xs = of_list(1, 2)\n    let mine: Str = xs.size()\n    \
              let core: Int = xs.size@core.list()"
@@ -393,9 +393,9 @@ fn at_module_works_in_dot_notation() {
 /// to match wherever it was going.
 #[test]
 fn a_fn_value_is_selected_by_the_expected_type() {
-    let decls = "fn tag(v: Int) [] -> [v] Str { return \"int\" }\n\
-                 fn tag(v: Str) [] -> [v] Str { return \"str\" }\n\
-                 fn apply(f: (Str) -> Str, s: Str) [] -> [f, s] Str { return f(s) }\n";
+    let decls = "fn tag(v: Int) [] -> Str => v { return \"int\" }\n\
+                 fn tag(v: Str) [] -> Str => v { return \"str\" }\n\
+                 fn apply(f: (Str) -> Str, s: Str) [] -> Str => f, s { return f(s) }\n";
     let src = format!("{decls}{}", probe("    let out = apply(tag, \"x\")"));
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
@@ -404,8 +404,8 @@ fn a_fn_value_is_selected_by_the_expected_type() {
 /// remedies.
 #[test]
 fn an_overloaded_fn_value_with_no_expectation_is_an_error() {
-    let decls = "fn tag(v: Int) [] -> [v] Str { return \"int\" }\n\
-                 fn tag(v: Str) [] -> [v] Str { return \"str\" }\n";
+    let decls = "fn tag(v: Int) [] -> Str => v { return \"int\" }\n\
+                 fn tag(v: Str) [] -> Str => v { return \"str\" }\n";
     let src = format!("{decls}{}", probe("    let f = tag"));
     let msgs = messages(&src);
     assert!(
@@ -425,8 +425,8 @@ fn a_rename_settles_an_ambiguity() {
                  fn qualifies(n: Int) -> Bool { return true }\n}\n\
                  qualifier Small of Int with Even {\n    \
                  fn qualifies(n: Int) -> Bool { return true }\n}\n\
-                 fn label(n: Even Int) [] -> [n] Bool { return true }\n\
-                 fn label(n: Small Int) [] -> [n] Str { return \"small\" }\n\
+                 fn label(n: Even Int) [] -> Bool => n { return true }\n\
+                 fn label(n: Small Int) [] -> Str => n { return \"small\" }\n\
                  rename fn label_small = label(n: Small Int)\n";
     let src = format!(
         "{decls}{}",
@@ -442,7 +442,7 @@ fn a_rename_settles_an_ambiguity() {
 /// block, and gone after it.
 #[test]
 fn a_rename_is_scoped_to_its_block() {
-    let decls = "fn tag(v: Int) [] -> [] Str { return \"int\" }\n";
+    let decls = "fn tag(v: Int) [] -> Str { return \"int\" }\n";
     let src = format!(
         "{decls}{}",
         probe(
@@ -461,7 +461,7 @@ fn a_rename_is_scoped_to_its_block() {
 /// would defeat it — and the parameter list must name an overload exactly.
 #[test]
 fn rename_declaration_errors() {
-    let decls = "fn tag(v: Int) [] -> [] Str { return \"int\" }\n";
+    let decls = "fn tag(v: Int) [] -> Str { return \"int\" }\n";
     let taken = format!("{decls}rename fn tag = tag(v: Int)\n");
     assert!(
         messages(&taken)
@@ -513,8 +513,8 @@ fn a_renamed_name_takes_no_module_selector() {
 /// apart at a call.
 #[test]
 fn identical_parameter_types_are_a_duplicate() {
-    let src = "fn f(n: Int) [] -> [] Str { return \"a\" }\n\
-               fn f(other: Int) [] -> [] Int { return 1 }\n";
+    let src = "fn f(n: Int) [] -> Str { return \"a\" }\n\
+               fn f(other: Int) [] -> Int { return 1 }\n";
     let msgs = messages(src);
     assert_eq!(msgs.len(), 1, "{msgs:?}");
     assert!(
@@ -524,8 +524,8 @@ fn identical_parameter_types_are_a_duplicate() {
         msgs[0]
     );
     // Differing types are an ordinary overload set.
-    let ok = "fn f(n: Int) [] -> [] Int { return 1 }\n\
-              fn f(s: Str) [] -> [] Int { return 2 }\n";
+    let ok = "fn f(n: Int) [] -> Int { return 1 }\n\
+              fn f(s: Str) [] -> Int => !s { return 2 }\n";
     assert!(messages(ok).is_empty(), "{:?}", messages(ok));
 }
 

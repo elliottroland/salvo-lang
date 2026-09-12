@@ -10,7 +10,7 @@ use salvo_syntax::ast::Item;
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type List<T> canbe Mut\nintrinsic fn copy<T>(value: T) [] -> [value] T\nintrinsic type Store<T> canbe Mut\nintrinsic fn fresh() [] -> [] List<Int>\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type List<T> canbe Mut\nintrinsic fn copy<T>(value: T) [] -> T => value\nintrinsic type Store<T> canbe Mut\nintrinsic fn fresh() [] -> List<Int>\n";
 
 /// Parses + resolves + checks a single-file program (no std).
 fn check_src(src: &str) -> (Program, Checked) {
@@ -101,8 +101,8 @@ qualifier A<T> of List<T>
 qualifier B<T> of List<T> with A<T>
 qualifier C<T> of List<T> with A<T>, B<T>
 
-fn drop_a<T>(list: A B List<T>) [] -> [list: B] None {}
-fn consume<T>(list: List<T>) [] -> [] None {}
+fn drop_a<T>(list: A B List<T>) [] -> None => list: B {}
+fn consume<T>(list: List<T>) [] -> None => !list {}
 "#;
 
 // [deduce-infer] A call removes exactly the callee's removal set
@@ -164,7 +164,7 @@ fn caller<T>(list: A B C List<T>) -> None {{
 fn delta_lists_pass_undeclared_qualifiers_through() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn shed_a<T>(list: A B List<T>) [] -> [list: -A] None {{}}
+fn shed_a<T>(list: A B List<T>) [] -> None => list: -A {{}}
 
 fn caller<T>(list: A B C List<T>) -> None {{
     shed_a(list)
@@ -195,17 +195,17 @@ fn mutating_bodies_require_an_exhaustive_list() {
 
 qualifier A<T> of List<T>
 
-fn mutate<T>(list: Mut List<T>) [] -> [list: Mut] None {}
+fn mutate<T>(list: Mut List<T>) [] -> None => list: Mut {}
 
-fn keeps_all<T>(list: Mut A List<T>) -> [list] None {
+fn keeps_all<T>(list: Mut A List<T>) -> None => list {
     mutate(list)
 }
 
-fn drops_one<T>(list: Mut A List<T>) -> [list: -A] None {
+fn drops_one<T>(list: Mut A List<T>) -> None => list: -A {
     mutate(list)
 }
 
-fn exhaustive<T>(list: Mut A List<T>) -> [list: Mut] None {
+fn exhaustive<T>(list: Mut A List<T>) -> None => list: Mut {
     mutate(list)
 }
 "
@@ -244,7 +244,7 @@ fn exhaustive<T>(list: Mut A List<T>) -> [list: Mut] None {
 fn nothing_in_a_deduction_means_moved() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn eat<T>(list: List<T>) [] -> [list: Nothing] None {{}}
+fn eat<T>(list: List<T>) [] -> None => !list {{}}
 
 fn caller<T>(list: List<T>) -> None {{
     eat(list)
@@ -320,7 +320,7 @@ fn effect_member_moves_propagate_to_the_caller() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
 effect Sink {{
-    fn eat(list: List<Int>) -> [] None
+    fn eat(list: List<Int>) -> None => !list
 }}
 
 fn forward(list: List<Int>) [Sink] -> None {{
@@ -348,10 +348,10 @@ fn reads_and_effect_member_calls_borrow() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
 effect Logger {{
-    fn log<T>(list: List<T>) -> [list] None
+    fn log<T>(list: List<T>) -> None => list
 }}
 
-fn peek<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
+fn peek<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 
 fn caller<T>(list: A B List<T>) [Logger] -> Int {{
     let _s = peek(list)
@@ -385,13 +385,13 @@ fn handler_state_stores_are_moves_and_members_are_validated() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
 effect Sink {{
-    fn keep(list: A List<Int>) -> [list: A] None
+    fn keep(list: A List<Int>) -> None => list: A
 }}
 
 handler Bin of Sink {{
     held: List<Int> = fresh()
 
-    fn keep(list: A List<Int>) -> [list: A] None {{
+    fn keep(list: A List<Int>) -> None => list: A {{
         held = list
     }}
 }}
@@ -414,13 +414,13 @@ fn handler_state_stores_are_legal_when_the_contract_moves() {
     let src = format!(
         r#"{QUALIFIED_LISTS}
 effect Sink {{
-    fn keep(list: A List<Int>) -> [] None
+    fn keep(list: A List<Int>) -> None => !list
 }}
 
 handler Bin of Sink {{
     held: List<Int> = fresh()
 
-    fn keep(list: A List<Int>) -> [] None {{
+    fn keep(list: A List<Int>) -> None => !list {{
         held = list
     }}
 }}
@@ -437,11 +437,11 @@ handler Bin of Sink {{
 fn written_lists_are_validated_against_the_body() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn bad_move<T>(list: List<T>) -> [list] None {{
+fn bad_move<T>(list: List<T>) -> None => list {{
     consume(list)
 }}
 
-fn bad_qual<T>(list: A B List<T>) -> [list: A B] None {{
+fn bad_qual<T>(list: A B List<T>) -> None => list: A B {{
     drop_a(list)
 }}
 "
@@ -471,13 +471,13 @@ fn bad_qual<T>(list: A B List<T>) -> [list: A B] None {{
 fn written_list_shape_is_validated() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn unknown_param(x: Int) -> [y] None {{
+fn unknown_param(x: Int) -> None => y {{
 }}
 
-fn duplicate(x: Int) -> [x, x] None {{
+fn duplicate(x: Int) -> None => x, x {{
 }}
 
-fn undeclared_qual<T>(list: List<T>) -> [list: A] None {{
+fn undeclared_qual<T>(list: List<T>) -> None => list: A {{
 }}
 "
     );
@@ -505,10 +505,10 @@ fn undeclared_qual<T>(list: List<T>) -> [list: A] None {{
 fn written_lists_may_be_stricter_than_the_body() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn stricter<T>(list: A B List<T>) -> [list: B] None {{
+fn stricter<T>(list: A B List<T>) -> None => list: B {{
 }}
 
-fn moves_anyway<T>(list: List<T>) -> [] None {{
+fn moves_anyway<T>(list: List<T>) -> None => !list {{
 }}
 "
     );
@@ -531,8 +531,8 @@ fn moves_anyway<T>(list: List<T>) -> [] None {{
 fn bare_entries_keep_all_qualifiers_and_explicit_empty_keeps_none() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn keep_all<T>(list: A B List<T>) [] -> [list] None {{}}
-fn strip_all<T>(list: A B List<T>) [] -> [list:] None {{}}
+fn keep_all<T>(list: A B List<T>) [] -> None => list {{}}
+fn strip_all<T>(list: A B List<T>) [] -> None => list: None {{}}
 "
     );
     let (program, checked) = check_src(&src);
@@ -576,7 +576,7 @@ fn escapes<T>(list: List<T>) -> List<T> {{
 }}
 
 
-fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
+fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -622,7 +622,7 @@ fn caller<T>(list: List<T>) -> Int {{
     return list_size(result)
 }}
 
-fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
+fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -661,9 +661,9 @@ fn reads<T>(store: Mut Store<T>) -> None {{
     runs(g)
 }}
 
-fn bump<T>(store: Mut Store<T>) [] -> [store: Mut] None {{}}
+fn bump<T>(store: Mut Store<T>) [] -> None => store: Mut {{}}
 
-fn store_size<T>(store: Store<T>) [] -> [store] Int {{ return 0 }}
+fn store_size<T>(store: Store<T>) [] -> Int => store {{ return 0 }}
 "
     );
     let (program, checked) = check_src(&src);
@@ -698,7 +698,7 @@ fn late<T>(seed: List<T>) -> Int {{
     return list_size(xs)
 }}
 
-fn list_size<T>(list: List<T>) [] -> [list] Int {{ return 0 }}
+fn list_size<T>(list: List<T>) [] -> Int => list {{ return 0 }}
 "
     );
     let (_, checked) = check_src(&src);
@@ -738,13 +738,13 @@ struct Outer {
     other: Str
 }
 
-fn touch(list: Mut List<Str>) [] -> [list: Mut] None {}
-fn touch_all(p: Mut Person) [] -> [p: Mut] None {}
-fn read(s: Str) [] -> [s] Int { return 0 }
-fn count(list: List<Str>) [] -> [list] Int { return 0 }
-fn add_tag(list: Mut List<Str>, s: Str) [] -> [list: Mut, s] None {}
-fn eat(list: Mut List<Str>) [] -> [] None {}
-fn take_person(p: Person) [] -> [] None {}
+fn touch(list: Mut List<Str>) [] -> None => list: Mut {}
+fn touch_all(p: Mut Person) [] -> None => p: Mut {}
+fn read(s: Str) [] -> Int => s { return 0 }
+fn count(list: List<Str>) [] -> Int => list { return 0 }
+fn add_tag(list: Mut List<Str>, s: Str) [] -> None => list: Mut, s {}
+fn eat(list: Mut List<Str>) [] -> None => !list {}
+fn take_person(p: Person) [] -> None => !p {}
 "#;
 
 fn disjoint_errors(body: &str) -> Vec<String> {
@@ -757,14 +757,14 @@ fn disjoint_errors(body: &str) -> Vec<String> {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n"
+             intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );
     sources.add(
         "main.sv",
         SourceSet::classify(Path::new("main.sv")).unwrap(),
-        format!("{DISJOINT_PRELUDE}\nfn probe() -> [] None {{\n{body}\n}}\n"),
+        format!("{DISJOINT_PRELUDE}\nfn probe() -> None {{\n{body}\n}}\n"),
         false,
     );
     let mut modules = Vec::new();
@@ -1016,7 +1016,7 @@ fn a_move_on_one_branch_is_moved_after_the_join() {
 #[test]
 fn a_kept_parameter_still_refuses_a_projection_move() {
     let src = format!(
-        "{DISJOINT_PRELUDE}\nfn kept(p: Person) -> [p] None {{\n    eat(p.tags)\n    return None\n}}\n"
+        "{DISJOINT_PRELUDE}\nfn kept(p: Person) -> None => p {{\n    eat(p.tags)\n    return None\n}}\n"
     );
     let mut sources = SourceSet::default();
     sources.add(
@@ -1024,7 +1024,7 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mutable_list<T>(...elems: T[]) [] -> [] Mut List<T>\n"
+             intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );
@@ -1057,5 +1057,108 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
             .any(|e| e.contains("cannot move mutable data out of `p`")
                 && e.contains("kept parameter")),
         "expected the kept-parameter refusal, got: {errs:?}"
+    );
+}
+
+// ---- [deduce-syntax] the `=>` clause (user decisions 2026-09-11) ----
+
+/// A written clause is *partial*: the parameters it mentions are fixed, the
+/// rest are inferred from the body exactly as an unwritten clause's are.
+#[test]
+fn unmentioned_parameters_are_inferred_beside_written_ones() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn mixed<T>(kept: A List<T>, eaten: List<T>, stripped: A B List<T>) -> None => stripped: B {{
+    consume(eaten)
+}}
+"
+    );
+    let (program, checked) = check_src(&src);
+    assert!(checked.errors.iter().all(|e| !e.is_error()), "{:?}", checked.errors);
+    // Written: `stripped` keeps exactly `B`.
+    let (kept, quals) = facts(&program, &checked, "mixed", "stripped");
+    assert!(kept && quals == vec!["B".to_string()], "{kept} {quals:?}");
+    // Inferred: `eaten` is consumed (the body hands it to `consume`),
+    // `kept` is kept with its `A`.
+    assert!(!facts(&program, &checked, "mixed", "eaten").0);
+    let (kept, quals) = facts(&program, &checked, "mixed", "kept");
+    assert!(kept && quals == vec!["A".to_string()], "{kept} {quals:?}");
+}
+
+/// A written entry is validated against the body; an unmentioned parameter
+/// is not (there is nothing written to be wrong).
+#[test]
+fn written_entries_are_validated_and_inferred_ones_are_not() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn bad<T>(list: List<T>, other: List<T>) -> None => list {{
+    consume(list)
+    consume(other)
+}}
+"
+    );
+    let (_, checked) = check_src(&src);
+    let errs: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    assert!(
+        errs.iter().any(|e| e.contains("promises `list` back to the caller, but the body moves it")),
+        "{errs:?}"
+    );
+    assert!(!errs.iter().any(|e| e.contains("`other`")), "{errs:?}");
+}
+
+/// A bodiless declaration must mention every parameter except Copy scalars.
+#[test]
+fn a_bodiless_declaration_must_write_its_whole_clause() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+effect Sink {{
+    fn eat<T>(list: List<T>, n: Int) -> None
+    fn fine<T>(list: List<T>, n: Int) -> None => !list
+}}
+"
+    );
+    let (_, checked) = check_src(&src);
+    let errs: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    assert!(
+        errs.iter().any(|e| e.contains("must say what happens to `list`")),
+        "{errs:?}"
+    );
+    assert!(!errs.iter().any(|e| e.contains("`n`")), "Copy scalars are exempt: {errs:?}");
+    assert_eq!(errs.iter().filter(|e| e.contains("must say what happens")).count(), 1);
+}
+
+/// `=>[f] !t` scopes a consumption to a fn-typed parameter (its parameter
+/// named in the type), and `Proj[from: a, b]` joins two sources.
+#[test]
+fn fn_type_groups_and_multi_source_projections() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn apply<T>(list: List<T>, f: (t: List<T>) -> Int) -> Int =>[f] !t {{
+    return f(list)
+}}
+fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> Proj[from: a, b] List<T> {{
+    if flag {{
+        return a
+    }}
+    return b
+}}
+fn main<T>(a: List<T>, b: List<T>) -> None {{
+    let v = either(a, b, true)
+    consume(a)
+    let n = v
+}}
+"
+    );
+    let (_, checked) = check_src(&src);
+    let errs: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    // The call through `f` consumes `list` (the group says so), so `apply`
+    // is inferred to consume it too — no error, just the fact.
+    assert!(
+        errs.iter().any(|e| e.contains("`v` cannot be used here") && e.contains("`a`")),
+        "the projection must be linked to both sources: {errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.contains("returns `Proj[from: a, b]`, so every returned value")),
+        "either branch is a valid source: {errs:?}"
     );
 }

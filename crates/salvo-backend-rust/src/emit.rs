@@ -912,8 +912,26 @@ struct Emitter<'p> {
     /// The current fn has a derived return (`Proj[from: ...]`
     /// [readonly-return]): `return` values render as borrows.
     derived_return_fn: bool,
+    /// [rs-proj-lends] Parameter names that an implicit's *lent* position
+    /// (`?iter: (c: C) -> [c: Proj] Mut It`) is named after, collected while
+    /// the current fn's implicit parameters render: the enclosing fn keeps
+    /// `c` under lifetime `'c`, which the position's `&'c C` shares.
+    lent_position_params: Vec<String>,
+    /// [rs-proj-arm] Locals whose union storage has *borrowed* arms: bound
+    /// from a call whose return type has a `Proj` arm (`let step =
+    /// next(p)` is a `Union2<&T, Finished>`). Reading such an arm's payload
+    /// yields a reference — a Copy scalar derefs once more, anything else
+    /// binds as `Ref` [rs-opt-borrow].
+    borrowed_arm_locals: HashMap<String, Vec<usize>>,
+    /// Set by `emit_narrowed_read` when the payload it produced is a
+    /// reference (a borrowed non-Copy arm); the caller binds it as `Ref`.
+    narrowed_read_is_ref: bool,
+    /// [copy-implicit] Set while rendering a `use`'s constructor implicits:
+    /// the handler stores them, so the adapters are owned `move` closures,
+    /// as a producer's are.
+    emitting_producer_args: bool,
     /// [rs-proj-struct] Structs with a `Proj` field — passes borrowing their
-    /// source [proj-pass-field]. Each is emitted with a lifetime `'s`
+    /// source [proj-field]. Each is emitted with a lifetime `'s`
     /// (`ListYield<'s, T>`) and its `Proj` fields as `&'s T`; every mention
     /// of the type carries the lifetime (`ListYield<'_, T>` in signatures).
     borrowing_structs: HashSet<String>,
@@ -1020,6 +1038,13 @@ struct Emitter<'p> {
     /// *declared* fn type gives that position's parameters. Taken by
     /// `emit_lambda`, so it never leaks to a nested lambda.
     pending_lambda_conv: Option<Vec<BindKind>>,
+    /// [yield-proj] Per lambda parameter, whether the declared parameter type
+    /// is the call's *retagged* element generic (`T` instantiated at `&T`):
+    /// the closure receives one more reference than its body was emitted
+    /// for, and peels it at entry.
+    pending_lambda_retag: Option<Vec<bool>>,
+    /// The element generics retagged to `&T` at the call being emitted.
+    retagged_generics: Vec<String>,
     /// [rs-iter-pass] Set the same way, for the same reason: an iterator fn's
     /// fn-typed parameter is `impl Fn + 'static`, so a lambda handed to one
     /// must be a `move` closure — it outlives the call that created the pass.
@@ -1086,22 +1111,38 @@ impl<'p> Emitter<'p> {
             loop_id: 0,
             destructure_id: 0,
             derived_return_fn: false,
+            emitting_producer_args: false,
+            lent_position_params: Vec::new(),
+            borrowed_arm_locals: HashMap::new(),
+            narrowed_read_is_ref: false,
             returns_borrowing_struct: false,
             proj_arm_ctors: Vec::new(),
             // [rs-proj-struct] Program-wide: a borrowing struct is mentioned
             // by every file that uses it, and the lifetime has to appear at
             // each mention.
-            borrowing_structs: program
-                .modules
-                .iter()
-                .flat_map(|m| m.items.iter())
-                .filter_map(|item| match item {
-                    Item::Struct(sd) if sd.fields.iter().any(|f| type_has_proj(&f.ty)) => {
-                        Some(sd.name.name.clone())
-                    }
-                    _ => None,
-                })
-                .collect(),
+            // [proj-field] Transitive: a struct whose owned field holds a
+            // borrowing struct (an `iter fn`'s state keeping an inner view,
+            // say) carries the lifetime too.
+            borrowing_structs: {
+                let structs: HashMap<&str, &salvo_syntax::ast::StructDecl> = program
+                    .modules
+                    .iter()
+                    .flat_map(|m| m.items.iter())
+                    .filter_map(|item| match item {
+                        Item::Struct(sd) => Some((sd.name.name.as_str(), sd)),
+                        _ => None,
+                    })
+                    .collect();
+                structs
+                    .values()
+                    .filter(|sd| {
+                        sd.fields.iter().any(|f| {
+                            type_has_proj(&f.ty) || salvo_core::lends::holds_proj(&f.ty, &structs)
+                        })
+                    })
+                    .map(|sd| sd.name.name.clone())
+                    .collect()
+            },
             taken_names: HashSet::new(),
             generated_imports: BTreeSet::new(),
             root_module: None,
@@ -1127,6 +1168,8 @@ impl<'p> Emitter<'p> {
             gen_fields: HashSet::new(),
                     gen_slots: HashSet::new(),
                     pending_lambda_conv: None,
+                    pending_lambda_retag: None,
+                    retagged_generics: Vec::new(),
             pending_lambda_move: false,
             try_frames: Vec::new(),
             try_id: 0,
@@ -1520,6 +1563,10 @@ impl<'p> Emitter<'p> {
                 // under the `Proj`.
                 let inner = strip_proj(&field.ty);
                 format!("&'s {}", self.emit_type(&inner))
+            } else if borrowing {
+                // [proj-field] An owned field holding a view shares the
+                // struct's lifetime: `'_` is not allowed in a declaration.
+                self.emit_type(&field.ty).replace("<'_", "<'s")
             } else {
                 self.emit_type(&field.ty)
             };
@@ -1796,7 +1843,16 @@ impl<'p> Emitter<'p> {
         let mut out = format!("\npub struct {name}{generics} {{\n");
         let mut field_types = String::new();
         for p in &own {
-            let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+            // [copy-implicit] A fn-typed constructor parameter (an implicit
+            // such as `?copy: (v: T) -> T`) is stored boxed: `impl Trait` is
+            // not a field type, and the handler outlives the `use` that
+            // built it. Called as `(self.copy)(…)`.
+            let ty = if p.implicit {
+                let rendered = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+                format!("Box<dyn {}>", rendered.trim_start_matches("impl "))
+            } else {
+                self.param_type(&p.ty, p.variadic, ParamMode::Owned)
+            };
             field_types.push_str(&ty);
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
         }
@@ -1829,11 +1885,11 @@ impl<'p> Emitter<'p> {
         let ctor_params: Vec<String> = own
             .iter()
             .map(|p| {
-                format!(
-                    "{}: {}",
-                    rs_ident(&p.name.name),
-                    self.param_type(&p.ty, p.variadic, ParamMode::Owned)
-                )
+                let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+                // [copy-implicit] The adapter arrives as `impl FnMut + 'static`
+                // and is boxed into the field.
+                let ty = if p.implicit { format!("{ty} + 'static") } else { ty };
+                format!("{}: {ty}", rs_ident(&p.name.name))
             })
             .collect();
         out.push_str(&format!(
@@ -1841,7 +1897,15 @@ impl<'p> Emitter<'p> {
             ctor_params.join(", ")
         ));
         for p in &own {
-            out.push_str(&format!("            {},\n", rs_ident(&p.name.name)));
+            if p.implicit {
+                out.push_str(&format!(
+                    "            {}: Box::new({}),\n",
+                    rs_ident(&p.name.name),
+                    rs_ident(&p.name.name)
+                ));
+            } else {
+                out.push_str(&format!("            {},\n", rs_ident(&p.name.name)));
+            }
         }
         for field in &h.state {
             let init = match &field.default {
@@ -2269,6 +2333,7 @@ impl<'p> Emitter<'p> {
         let saved_generics = self.enter_generics(&f.generics);
         let saved_env = std::mem::take(&mut self.effect_env);
         let saved_bindings = std::mem::take(&mut self.bindings);
+        self.borrowed_arm_locals.clear();
         let saved_mutated = std::mem::take(&mut self.mutated);
         let saved_derived = self.derived_return_fn;
         collect_mutated(body, &mut self.mutated);
@@ -2498,6 +2563,7 @@ impl<'p> Emitter<'p> {
         // [fn-contract]: nothing about them survives into Rust.
         let own_implicits = self.implicits_of(f);
         let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
+        self.lent_position_params.clear();
         for imp in &self.implicits.clone() {
             // [rs-iter-pass] An iterator fn's callbacks arrive **owned** and
             // `'static`, because its pass calls them long after this returns —
@@ -2514,7 +2580,97 @@ impl<'p> Emitter<'p> {
             self.bindings.insert(imp.name.clone(), BindKind::RefMut);
             params.push(format!("{}: {rendered}", rs_ident(&imp.name)));
         }
+        // [copy-implicit] A handler member also sees the handler's implicit
+        // constructor parameters — after the signature, since they are
+        // *fields* (`Box<dyn FnMut>`), called through `self`, not trailing
+        // parameters of the member.
+        if let Some((h, _)) = handler_of_style {
+            for p in h.params.iter().filter(|p| p.implicit) {
+                if let Some(ty) = self.checked.expr_ty.get(&(self.file_idx, p.name.span)).cloned() {
+                    self.implicits.push(salvo_core::ImplicitParam {
+                        name: p.name.name.clone(),
+                        ty,
+                        span: p.span,
+                        borrowed_arms: Vec::new(),
+                    });
+                    self.bindings.insert(p.name.name.clone(), BindKind::SelfField);
+                }
+            }
+        }
 
+        // [rs-proj-lends] An implicit's lent position borrows under `'c`, the
+        // enclosing fn's own borrow of the parameter the position is named
+        // after: that parameter must be kept here (a consumed one has no
+        // lifetime to name — the view would have nothing to outlive), and
+        // gets `&'c` too.
+        let mut extra_lifetimes: Vec<String> = Vec::new();
+        if !self.lent_position_params.is_empty() {
+            let wanted = std::mem::take(&mut self.lent_position_params);
+            let mut ok = false;
+            for want in &wanted {
+                let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                let Some(i) = fixed.iter().position(|p| p.name.name == *want) else {
+                    continue;
+                };
+                // Only the *leading* extras (self, effects) shift positions;
+                // the trailing implicits do not.
+                let leading = params.len().saturating_sub(fixed.len() + self.implicits.len());
+                let idx = leading + i;
+                match params.get_mut(idx) {
+                    Some(entry) if entry.contains(": &") && !entry.contains(": &mut ") => {
+                        *entry = entry.replacen(": &", ": &'c ", 1);
+                        ok = true;
+                    }
+                    _ => {
+                        self.error(format!(
+                            "`{}` is lent through an implicit (`[{want}: Proj]`), so `{}` must \
+                             keep it (`-> [{want}] ...`): a consumed value has nothing a view \
+                             could outlive",
+                            want, f.name.name
+                        ));
+                    }
+                }
+            }
+            if ok {
+                extra_lifetimes.push("'c".to_string());
+            }
+        }
+        // [proj-field] Re-pointing entries (`v.items: Proj[from: other]`):
+        // the borrowing struct at `v` takes a borrow of `other`, so the two
+        // share a named lifetime — `v: &mut View<'r>`, `other: &'r T`.
+        if let Some(list) = &f.deductions {
+            let mut tied = false;
+            for d in list {
+                let (salvo_syntax::ast::DeductionTarget::Param { name, .. }, salvo_syntax::ast::DeductionKind::Proj(srcs)) =
+                    (&d.target, &d.kind)
+                else {
+                    continue;
+                };
+                let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                let leading = params.len().saturating_sub(fixed.len() + self.implicits.len());
+                let mut names: Vec<&str> = vec![name.name.as_str()];
+                names.extend(srcs.iter().map(|s| s.name.as_str()));
+                for n in names {
+                    let Some(i) = fixed.iter().position(|p| p.name.name == n) else { continue };
+                    if let Some(entry) = params.get_mut(leading + i) {
+                        let re = if entry.contains("<'_") {
+                            entry.replacen("<'_", "<'r", 1)
+                        } else if entry.contains(": &mut ") {
+                            entry.replacen(": &mut ", ": &'r mut ", 1)
+                        } else {
+                            entry.replacen(": &", ": &'r ", 1)
+                        };
+                        if re != *entry {
+                            *entry = re;
+                            tied = true;
+                        }
+                    }
+                }
+            }
+            if tied {
+                extra_lifetimes.push("'r".to_string());
+            }
+        }
         // [readonly-return] A derived-return fn returns a borrow of its
         // annotated parameter: `&T` (plain) or `Option<&T>` (optional).
         // With a single reference parameter, lifetime elision covers it;
@@ -2575,8 +2731,20 @@ impl<'p> Emitter<'p> {
                 "'s "
             } else if ref_param_count > 1 {
                 lifetime_generics = "'a".to_string();
-                if let Some(i) = derived_param_idx {
-                    // Retag the annotated parameter's type with 'a.
+                // Retag every source parameter's type with 'a
+                // (`Proj[from: a, b]` names several) [proj-anywhere].
+                let sources: Vec<usize> = f
+                    .return_type
+                    .as_ref()
+                    .and_then(|rt| proj_refs_with_from(rt).into_iter().next())
+                    .map(|froms| {
+                        froms
+                            .iter()
+                            .filter_map(|n| f.params.iter().position(|p| p.name.name == *n))
+                            .collect()
+                    })
+                    .unwrap_or_else(|| derived_param_idx.into_iter().collect());
+                for i in sources {
                     let idx = if params.len() > f.params.len() {
                         // Leading self/effect params shift positions.
                         params.len() - f.params.len() + i
@@ -2645,7 +2813,33 @@ impl<'p> Emitter<'p> {
                 }
             }
         } else {
-            self.emit_return_type(f.return_type.as_ref())
+            let rendered = self.emit_return_type(f.return_type.as_ref());
+            // [rs-proj-lends] A result that *holds* borrows (a struct with
+            // `Proj` fields) carries a lifetime that must reach the lent
+            // parameters [proj-infer]. One reference parameter: elision ties
+            // them. More: name `'a` on every lent parameter and the return.
+            let lent: Vec<usize> = fn_key
+                .and_then(|k| self.checked.fn_lends.get(&k).cloned())
+                .unwrap_or_default();
+            if rendered.contains("<'_") && ref_param_count > 1 && !lent.is_empty() {
+                lifetime_generics = "'a".to_string();
+                for &i in &lent {
+                    let idx = if params.len() > f.params.len() {
+                        params.len() - f.params.len() + i
+                    } else {
+                        i
+                    };
+                    if let Some(entry) = params.get_mut(idx) {
+                        *entry = entry
+                            .replacen(": &mut ", ": &'a mut ", 1)
+                            .replacen(": &", ": &'a ", 1)
+                            .replacen("<'_", "<'a", 1);
+                    }
+                }
+                rendered.replace("<'_", "<'a")
+            } else {
+                rendered
+            }
         };
         // [rs-none-unit] An empty rendered return type *is* Rust's `()`. Taken
         // before the `Throw` wrapping below, which replaces the type but not
@@ -2690,6 +2884,7 @@ impl<'p> Emitter<'p> {
         if !lifetime_generics.is_empty() {
             all_generics.push(lifetime_generics.clone());
         }
+        all_generics.extend(extra_lifetimes);
         all_generics.extend(generic_parts);
         let generics = if all_generics.is_empty() {
             String::new()
@@ -3345,10 +3540,10 @@ impl<'p> Emitter<'p> {
             .map(|(i, p)| {
                 let base = self.rust_ty(p);
                 let entry = contract.as_ref().and_then(|c| c.get(i));
-                let (kept, mutable) = match entry {
-                    Some(e) => (e.kept, e.mutable),
+                let (kept, mutable, lent) = match entry {
+                    Some(e) => (e.kept, e.mutable, e.lent),
                     // No contract means "keeps everything" [fn-contract].
-                    None => (true, p.quals().iter().any(|q| q.name == "Mut")),
+                    None => (true, p.quals().iter().any(|q| q.name == "Mut"), false),
                 };
                 // Only a kept **`Mut`** position changes: you cannot mutate
                 // what you were handed by value. Every other position keeps
@@ -3356,8 +3551,22 @@ impl<'p> Emitter<'p> {
                 // them all borrow would be more uniform and would touch every
                 // existing `?Iterable`/`?cmp` call site, which is a change of
                 // its own rather than a fix for this one.
+                // [rs-proj-lends] Except a *lent* position (`[c: Proj]`): the
+                // result holds a borrow of it, which a by-value parameter
+                // could not outlive (E0515), so it arrives as `&T`.
                 if kept && mutable {
                     format!("&mut {base}")
+                } else if kept && lent {
+                    // The result's type (`It`) is fixed at the call site, so
+                    // the borrow it holds cannot be a fresh per-call lifetime:
+                    // it is the enclosing fn's borrow of the parameter this
+                    // position is named after, `'c`, which `emit_fn` names on
+                    // that parameter too. Recorded here, applied there.
+                    let named = entry.and_then(|e| e.name.clone());
+                    if let Some(n) = named {
+                        self.lent_position_params.push(n);
+                    }
+                    format!("&'c {base}")
                 } else {
                     base
                 }
@@ -3565,6 +3774,13 @@ impl<'p> Emitter<'p> {
             } => self.emit_let(pattern, ty.as_ref(), value, *span, indent),
             Stmt::Assign { target, value, span } => {
                 let t = self.emit_raw(target);
+                // [proj-field] Assigning a `Proj` field re-points a borrow:
+                // the field is `&'s T`, so the value is borrowed, not moved
+                // or cloned.
+                if self.assigns_proj_field(target) {
+                    let v = self.borrowed_arg(value);
+                    return format!("{pad}{t} = {v};\n");
+                }
                 // A bare-identifier source is a fate link, not a move
                 // [fate-link] — unless the assignment is a move-mode bind
                 // event [fate-move-mode].
@@ -4086,6 +4302,28 @@ impl<'p> Emitter<'p> {
             if !self.mutated.contains(name.name.as_str()) && self.is_optional_derived_call(value) {
                 self.bindings.insert(name.name.clone(), BindKind::OptRef);
             }
+            // [rs-proj-arm] `let step = next(p)`: the union's `Proj` arm holds
+            // a reference; later payload reads see it.
+            let borrowed_arms = self.call_borrowed_arms(value);
+            if borrowed_arms.is_empty() {
+                self.borrowed_arm_locals.remove(&name.name);
+            } else {
+                self.borrowed_arm_locals.insert(name.name.clone(), borrowed_arms);
+            }
+            // `let v = get(xs, i)!`: the `!` yields the `&T` itself, so the
+            // local is a plain reference binding — no clone at the binding,
+            // reads clone in owned positions as any `Ref` does [rs-borrows].
+            if !self.mutated.contains(name.name.as_str()) {
+                if let Expr::NonNull { operand, .. } = value {
+                    if self.is_optional_derived_call(operand)
+                        && !self.ty_of(value.span()).is_some_and(|t| Self::is_copy_ty(t))
+                    {
+                        let inner = self.emit_owned(operand);
+                        self.bindings.insert(name.name.clone(), BindKind::Ref);
+                        return format!("{pad}let mut {} = {inner}.unwrap();\n", rs_ident(&name.name));
+                    }
+                }
+            }
         }
         // Bare struct literals pick up the annotated type.
         let value_code = match (value, ty) {
@@ -4192,7 +4430,14 @@ impl<'p> Emitter<'p> {
             _ => (None, self.emit_type(&decl.of)),
         };
         // Ctor args are owned (a `use` argument is a move [deduce-infer]).
-        let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        // [copy-implicit] The constructor's implicit parameters follow, as
+        // the adapters the checker resolved at this `use` — rendered like a
+        // call's implicit arguments, owned (they are stored in the handler).
+        let saved_producer = self.emitting_producer_args;
+        self.emitting_producer_args = true;
+        arg_code.extend(self.emit_implicit_args(&[], span));
+        self.emitting_producer_args = saved_producer;
         // [effect-handler-generics] A generic handler is constructed *at* a
         // type: with no argument to infer from, rustc needs the turbofish
         // (`E0283` otherwise).
@@ -4735,7 +4980,11 @@ impl<'p> Emitter<'p> {
                 self.emit_expr(subject)
             } else {
                 let target = self.ty_of(binding.span).cloned();
-                self.emit_narrowed_read(subject, target.as_ref(), self.is_test_of(is_span).cloned())
+                let code = self.emit_narrowed_read(subject, target.as_ref(), self.is_test_of(is_span).cloned());
+                if self.narrowed_read_is_ref {
+                    self.bindings.insert(binding.name.clone(), BindKind::Ref);
+                }
+                code
             };
             out.push_str(&format!(
                 "{pad}let mut {} = {code};\n",
@@ -4776,7 +5025,8 @@ impl<'p> Emitter<'p> {
             };
             let test = self.is_test_of(span).cloned();
             let code = self.emit_narrowed_read(subject, Some(&target), test);
-            let displaced = self.bindings.insert(id.name.clone(), BindKind::Owned);
+            let kind = if self.narrowed_read_is_ref { BindKind::Ref } else { BindKind::Owned };
+            let displaced = self.bindings.insert(id.name.clone(), kind);
             saved.push((id.name.clone(), displaced));
             out.push_str(&format!("{pad}let mut {} = {code};\n", rs_ident(&id.name)));
         }
@@ -4791,6 +5041,115 @@ impl<'p> Emitter<'p> {
                 None => self.bindings.remove(&name),
             };
         }
+    }
+
+    /// [proj-field] Whether an assignment target is a `Proj` field of a
+    /// struct (by the checker's type of the base).
+    fn assigns_proj_field(&mut self, target: &Expr) -> bool {
+        let Expr::Field { base, field, .. } = target else { return false };
+        let Some(base_ty) = self.ty_of(base.span()).cloned() else { return false };
+        let Ty::Named { name, .. } = base_ty.strip_quals() else { return false };
+        let Some(sd) = self.symbols.structs.get(name.as_str()) else { return false };
+        sd.fields
+            .iter()
+            .any(|f| f.name.name == field.name && type_has_proj(&f.ty))
+    }
+
+    /// [rs-proj-arm] The match adapter that copies a union's borrowed
+    /// Copy arms out into the owned union the position wants, or `None`
+    /// when no adaptation applies (no borrowed arms, or the position's own
+    /// arm is `Proj` too). Errors on a non-Copy payload.
+    fn adapt_borrowed_arms_to_owned(
+        &mut self,
+        arg: &Expr,
+        param_ty: Option<&Type>,
+        mode: ParamMode,
+    ) -> Option<String> {
+        let borrowed = match arg {
+            Expr::Ident(id) => self.borrowed_arm_locals.get(&id.name).cloned().unwrap_or_default(),
+            Expr::Call { .. } => self.call_borrowed_arms(arg),
+            _ => Vec::new(),
+        };
+        if borrowed.is_empty() {
+            return None;
+        }
+        let Some(Type::Union { arms, .. }) = param_ty else { return None };
+        let value_arms: Vec<&Type> = arms.iter().filter(|a| !is_none_type(a)).collect();
+        // The position keeps the borrow: nothing to adapt.
+        if borrowed.iter().all(|&i| value_arms.get(i).is_some_and(|a| type_has_proj(a))) {
+            return None;
+        }
+        let n = value_arms.len();
+        if n < 2 {
+            return None;
+        }
+        let mut pats: Vec<String> = Vec::new();
+        for (i, arm) in value_arms.iter().enumerate() {
+            if borrowed.contains(&i) && !type_has_proj(arm) {
+                let inner = strip_proj(arm);
+                // The arm's own qualifier (`Emitted`) is erased; Copy-ness is
+                // the base's.
+                let bare = match &inner {
+                    Type::Named { base, .. } => Type::Named { qualifiers: Vec::new(), base: base.clone() },
+                    other => other.clone(),
+                };
+                if !self.is_copy_ast_type(&bare) {
+                    self.error(format!(
+                        "a borrowed `{}` element cannot flow into a position that owns it \
+                         (`{}`): bind the element and pass `copy(...)` of it, or write the \
+                         position's arm as `Proj`",
+                        inner_name(&inner),
+                        inner_name(arm)
+                    ));
+                    return None;
+                }
+                pats.push(format!("Union{n}::U{k}(__e) => Union{n}::U{k}(*__e)", k = i + 1));
+            } else {
+                pats.push(format!("Union{n}::U{k}(__e) => Union{n}::U{k}(__e)", k = i + 1));
+            }
+        }
+        self.union_sizes.insert(n);
+        let code = self.emit_owned(arg);
+        let adapted = format!("(match {code} {{ {} }})", pats.join(", "));
+        Some(match mode {
+            ParamMode::Owned => adapted,
+            ParamMode::Ref => format!("&{adapted}"),
+            ParamMode::RefMut => format!("&mut {adapted}"),
+        })
+    }
+
+    /// [rs-proj-arm] Whether `arm` of the subject's storage holds a
+    /// reference: the subject is a local bound from a `Proj`-arm call, or
+    /// is such a call itself.
+    fn subject_arm_is_borrowed(&mut self, subject: &Expr, arm: usize) -> bool {
+        match subject {
+            Expr::Ident(id) => self
+                .borrowed_arm_locals
+                .get(&id.name)
+                .is_some_and(|arms| arms.contains(&arm)),
+            Expr::Call { .. } => self.call_borrowed_arms(subject).contains(&arm),
+            _ => false,
+        }
+    }
+
+    /// [rs-proj-arm] The value-arm indices a call's result holds as
+    /// references: the `Proj` arms of the resolved callee's written return
+    /// type. Empty for anything else.
+    fn call_borrowed_arms(&mut self, call: &Expr) -> Vec<usize> {
+        let Expr::Call { span, .. } = call else { return Vec::new() };
+        let Some(key) = self.checked.call_fn.get(&(self.file_idx, *span)).copied() else {
+            return Vec::new();
+        };
+        let Some(decl) = self.fn_by_key(key) else { return Vec::new() };
+        let Some(Type::Union { arms, .. }) = decl.return_type.as_ref() else {
+            return Vec::new();
+        };
+        arms.iter()
+            .filter(|a| !is_none_type(a))
+            .enumerate()
+            .filter(|(_, a)| type_has_proj(a))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Reads the narrowed payload out of a subject for an `is` binding:
@@ -4819,7 +5178,17 @@ impl<'p> Emitter<'p> {
                     Some(t) if Self::is_copy_ty(t) => "*",
                     _ => "",
                 };
-                if clone == "*" {
+                // [rs-proj-arm] A borrowed arm holds `&T`: the accessor's
+                // `&&T` derefs twice for a Copy scalar; otherwise the read
+                // *is* the reference, and the binding is a `Ref`.
+                let borrowed_arm = self.subject_arm_is_borrowed(subject, arm);
+                self.narrowed_read_is_ref = false;
+                if borrowed_arm && clone == "*" {
+                    format!("**{access}.u{}()", arm + 1)
+                } else if borrowed_arm {
+                    self.narrowed_read_is_ref = true;
+                    format!("*{access}.u{}()", arm + 1)
+                } else if clone == "*" {
                     format!("*{access}.u{}()", arm + 1)
                 } else {
                     format!("{access}.u{}().clone()", arm + 1)
@@ -5801,6 +6170,22 @@ impl<'p> Emitter<'p> {
         let names: Vec<String> = (0..decl.params.len())
             .map(|i| format!("__a{i}"))
             .collect();
+        // [yield-proj] A position typed at a retagged element generic hands
+        // the adapter `&&T`; peeling one reference at entry restores the
+        // `&T` the forwarding below was written for.
+        let peels: String = exp_params
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| match t {
+                Type::Named { qualifiers, base } => {
+                    qualifiers.is_empty()
+                        && base.args.is_empty()
+                        && self.retagged_generics.contains(&base.name.name)
+                }
+                _ => false,
+            })
+            .map(|(i, _)| format!("let __a{i} = *__a{i}; "))
+            .collect();
         let fwd: Vec<String> = decl
             .params
             .iter()
@@ -5837,16 +6222,38 @@ impl<'p> Emitter<'p> {
         // [rs-iter-pass] An iterator fn's callback arrives owned, so the
         // adapter closure is the value itself rather than a borrow of one.
         let borrow = if value_mode == ParamMode::Owned { "" } else { "&mut " };
-        Some(format!(
-            "{borrow}|{}| {rust_name}({})",
-            all_params.join(", "),
-            all_args.join(", ")
-        ))
+        Some(if peels.is_empty() {
+            format!(
+                "{borrow}|{}| {rust_name}({})",
+                all_params.join(", "),
+                all_args.join(", ")
+            )
+        } else {
+            format!(
+                "{borrow}|{}| {{ {peels}{rust_name}({}) }}",
+                all_params.join(", "),
+                all_args.join(", ")
+            )
+        })
     }
 
     /// Renders an argument for a `&T` parameter position [rs-borrows].
     fn borrowed_arg(&mut self, expr: &Expr) -> String {
         if let Expr::Ident(id) = expr {
+            // [rs-opt-borrow] A narrowed optional borrow (`let row = get(rows,
+            // i)`, then `row is None` ruled out) is `Option<&T>`: in a `&T`
+            // position it is the reference itself, not a clone borrowed
+            // back.
+            if id.name != "None"
+                && matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef))
+            {
+                if let Some(n) = self.narrowing_of(id.span) {
+                    if n.arm.is_none() {
+                        let storage = self.binding_place(&id.name);
+                        return format!("{storage}.unwrap()");
+                    }
+                }
+            }
             if id.name != "None" && self.ident_unwrap(id).is_none() {
                 match self.bindings.get(id.name.as_str()) {
                     // Already a reference: pass through (deref coercion
@@ -6312,6 +6719,9 @@ impl<'p> Emitter<'p> {
                 let target = self.ty_of(b.span).cloned();
                 let read =
                     self.emit_narrowed_read(subject, target.as_ref(), Some(test.clone()));
+                if self.narrowed_read_is_ref {
+                    self.bindings.insert(b.name.clone(), BindKind::Ref);
+                }
                 out.push_str(&format!(
                     "{pad}        let mut {} = {read};\n",
                     rs_ident(&b.name)
@@ -6335,8 +6745,12 @@ impl<'p> Emitter<'p> {
                                 Some(&target),
                                 Some(test.clone()),
                             );
-                            let displaced =
-                                self.bindings.insert(id.name.clone(), BindKind::Owned);
+                            let kind = if self.narrowed_read_is_ref {
+                                BindKind::Ref
+                            } else {
+                                BindKind::Owned
+                            };
+                            let displaced = self.bindings.insert(id.name.clone(), kind);
                             saved_widen.push((id.name.clone(), displaced));
                             out.push_str(&format!(
                                 "{pad}        let mut {} = {code};\n",
@@ -6642,6 +7056,7 @@ impl<'p> Emitter<'p> {
         // fn-typed position, the callee's declared type decides the
         // convention — see `fn_type_param_conventions`.
         let declared_conv = self.pending_lambda_conv.take();
+        let retag = self.pending_lambda_retag.take().unwrap_or_default();
         let conv_at = |i: usize| declared_conv.as_ref().and_then(|c| c.get(i)).copied();
         let saved: Vec<(String, Option<BindKind>)> = params
             .iter()
@@ -6706,6 +7121,14 @@ impl<'p> Emitter<'p> {
                         _ => ty,
                     },
                 };
+                // [yield-proj] A retagged element arrives one reference
+                // deeper than the annotation says (the peel below restores
+                // it); the written type follows.
+                let ty = if retag.get(i).copied().unwrap_or(false) {
+                    format!("&{ty}")
+                } else {
+                    ty
+                };
                 format!("{}: {ty}", rs_ident(&p.name.name))
             }
             None => rs_ident(&p.name.name),
@@ -6741,14 +7164,34 @@ impl<'p> Emitter<'p> {
                 })
                 .unwrap_or_default()
         };
+        // [yield-proj] A parameter typed at a retagged element generic
+        // arrives as `&&T`; one `*` restores the `&T` the body was emitted
+        // for (the peel rebinds the name, which is what makes it uniform).
+        let peels: String = params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| retag.get(*i).copied().unwrap_or(false))
+            .map(|(_, p)| {
+                let name = rs_ident(&p.name.name);
+                format!("let {name} = *{name}; ")
+            })
+            .collect();
         let out = match body {
             LambdaBody::Expr(expr) => {
-                format!("{mv}|{}| {}", param_list.join(", "), self.emit_expr(expr))
+                let expr_code = self.emit_expr(expr);
+                if peels.is_empty() {
+                    format!("{mv}|{}| {expr_code}", param_list.join(", "))
+                } else {
+                    format!("{mv}|{}| {{ {peels}{expr_code} }}", param_list.join(", "))
+                }
             }
             LambdaBody::Block(block) => {
                 // Closures return their last expression; a trailing
                 // `return X` becomes the value.
                 let mut out = format!("{mv}|{}| {{\n", param_list.join(", "));
+                if !peels.is_empty() {
+                    out.push_str(&format!("    {peels}\n"));
+                }
                 // [rs-exit-splice] A closure is a function boundary: its
                 // `return` runs only the splices registered inside it.
                 let saved_floor = self.splice_floor;
@@ -7127,12 +7570,45 @@ impl<'p> Emitter<'p> {
                     _ => Vec::new(),
                 })
                 .unwrap_or_default();
+            // [copy-implicit] A handler's *constructor* implicit is a written
+            // fn-typed parameter, so it follows [rs-fn-param-convention]: a
+            // kept non-`Mut` position is `&T` (Copy scalars by value). A fn's
+            // own implicit keeps the by-value convention implicits have.
+            let is_ctor_implicit = matches!(self.bindings.get(name), Some(BindKind::SelfField));
+            // [rs-proj-lends] A *lent* position (`[c: Proj]`) is `&T` on any
+            // implicit: the result holds a borrow of it.
+            let kept_ref: Vec<bool> = self
+                .implicits
+                .iter()
+                .find(|i| i.name == name)
+                .map(|i| match i.ty.strip_quals() {
+                    Ty::Fn { params, contract, .. } => (0..params.len())
+                        .map(|k| {
+                            let entry = contract.as_ref().and_then(|c| c.get(k));
+                            if entry.is_some_and(|e| e.kept && e.lent) {
+                                return true;
+                            }
+                            if !is_ctor_implicit {
+                                return false;
+                            }
+                            let kept = entry.is_none_or(|e| e.kept && !e.mutable);
+                            kept && !params.get(k).is_some_and(Self::is_copy_ty)
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                })
+                .unwrap_or_default();
             let arg_code: Vec<String> = args
                 .iter()
                 .enumerate()
                 .map(|(k, a)| {
                     if modes.get(k).copied().unwrap_or(false) {
                         self.borrowed_mut_arg(a)
+                    } else if kept_ref.get(k).copied().unwrap_or(false) {
+                        match self.borrow_value(a) {
+                            Some(b) => b,
+                            None => format!("&{}", self.emit_owned(a)),
+                        }
                     } else {
                         self.emit_owned(a)
                     }
@@ -7338,6 +7814,34 @@ impl<'p> Emitter<'p> {
         // `|n: i32|` and rustc rejected the call (`E0631`).
         if let (Some(Type::Fn { .. }), Expr::Lambda { .. }) = (param_ty, arg) {
             self.pending_lambda_conv = param_ty.map(|pt| self.fn_type_param_conventions(pt));
+            // [yield-proj] Parameters typed at a retagged element generic
+            // arrive with one extra reference; the lambda peels it.
+            if let Some(Type::Fn { params: fps, .. }) = param_ty {
+                let retag: Vec<bool> = fps
+                    .iter()
+                    .map(|t| match t {
+                        Type::Named { qualifiers, base } => {
+                            qualifiers.is_empty()
+                                && base.args.is_empty()
+                                && self.retagged_generics.contains(&base.name.name)
+                        }
+                        _ => false,
+                    })
+                    .collect();
+                if retag.iter().any(|b| *b) {
+                    self.pending_lambda_retag = Some(retag);
+                }
+            }
+        }
+        // [rs-proj-arm] A union value whose `Proj` arm is a reference
+        // (`next(p)` is `Union2<&i32, Finished>`) flowing into a position
+        // written as the owned union (`step: Emitted Int | Finished`): the
+        // Salvo types agree (`Proj` is not a type), the Rust ones do not.
+        // A Copy payload is copied out by a match adapter
+        // [copy-scalar-free]; anything else would need a hidden clone, which
+        // this backend refuses to emit.
+        if let Some(adapted) = self.adapt_borrowed_arms_to_owned(arg, param_ty, mode) {
+            return adapted;
         }
         match mode {
             ParamMode::Owned => self.emit_expr(arg),
@@ -7485,6 +7989,24 @@ impl<'p> Emitter<'p> {
             if let (Some(pt @ Type::Fn { .. }), Expr::Lambda { .. }) = (&param_ty, arg) {
                 let pt = pt.clone();
                 self.pending_lambda_conv = Some(self.fn_type_param_conventions(&pt));
+                // [yield-proj] Which parameters are typed at a retagged
+                // element generic.
+                if let Type::Fn { params: fps, .. } = &pt {
+                    let retag: Vec<bool> = fps
+                        .iter()
+                        .map(|t| match t {
+                            Type::Named { qualifiers, base } => {
+                                qualifiers.is_empty()
+                                    && base.args.is_empty()
+                                    && self.retagged_generics.contains(&base.name.name)
+                            }
+                            _ => false,
+                        })
+                        .collect();
+                    if retag.iter().any(|b| *b) {
+                        self.pending_lambda_retag = Some(retag);
+                    }
+                }
             }
             out.push(match arg {
                 Expr::Ident(_)
@@ -7577,17 +8099,20 @@ impl<'p> Emitter<'p> {
         // `'static` like its written callbacks, so the adapter is a `move`
         // closure rather than a `&mut` borrow of one: the pass calls it long
         // after this call returns.
-        let producer = self
-            .checked
-            .call_fn
-            .get(&(self.file_idx, span))
-            .is_some_and(|k| self.owns_callbacks(*k));
+        let producer = self.emitting_producer_args
+            || self
+                .checked
+                .call_fn
+                .get(&(self.file_idx, span))
+                .is_some_and(|k| self.owns_callbacks(*k));
         // [implicit-param] How the *position* hands each parameter over: a
         // kept-`Mut` one arrives as `&mut T` already (`fn_ty_param_renderings`),
         // so the adapter must not borrow it a second time — `next(&mut __i0)`
         // where `__i0: &mut ListYield<i32>` is E0596. Keyed by implicit name,
         // since that is what the adapter loop has.
-        let position_refmut: HashMap<String, Vec<bool>> = self
+        // `Some(false)` marks a *lent* position, handed over as `&T`
+        // [rs-proj-lends]; `Some(true)` a kept-`Mut` one (`&mut T`).
+        let position_refmut: HashMap<String, Vec<Option<bool>>> = self
             .checked
             .call_fn
             .get(&(self.file_idx, span))
@@ -7601,8 +8126,11 @@ impl<'p> Emitter<'p> {
                                 .iter()
                                 .enumerate()
                                 .map(|(i, pt)| match contract.as_ref().and_then(|c| c.get(i)) {
-                                    Some(e) => e.kept && e.mutable,
-                                    None => pt.quals().iter().any(|q| q.name == "Mut"),
+                                    Some(e) if e.kept && e.mutable => Some(true),
+                                    Some(e) if e.kept && e.lent => Some(false),
+                                    Some(_) => None,
+                                    None if pt.quals().iter().any(|q| q.name == "Mut") => Some(true),
+                                    None => None,
                                 })
                                 .collect(),
                             _ => Vec::new(),
@@ -7638,20 +8166,91 @@ impl<'p> Emitter<'p> {
                         out.push(format!("&mut *{}", rs_ident(name)));
                     }
                 }
-                salvo_core::ImplicitArg::Resolved { name, key } => {
+                salvo_core::ImplicitArg::Resolved { name, key, .. } => {
                     match self.fn_by_key(*key) {
                         Some(decl) => {
                             let fixed: Vec<&Param> =
                                 decl.params.iter().filter(|p| !p.implicit).collect();
                             let params: Vec<String> =
                                 (0..fixed.len()).map(|i| format!("__i{i}")).collect();
+                            // [yield-proj] The callee's element generic is
+                            // retagged to `&T` for this call (its `next`
+                            // borrows), so a position typed at that generic
+                            // hands the adapter a reference where the resolved
+                            // fn owns its parameter: the adapter clones it out —
+                            // the copy the Salvo body wrote as `copy(x)`, landing
+                            // here instead of in the identity `copy` adapter.
+                            let retagged_positions: Vec<bool> = self
+                                .checked
+                                .call_fn
+                                .get(&(self.file_idx, span))
+                                .and_then(|k| self.checked.implicit_params.get(k))
+                                .and_then(|ps| ps.iter().find(|p| p.name == *name))
+                                .map(|p| match p.ty.strip_quals() {
+                                    Ty::Fn { params, .. } => params
+                                        .iter()
+                                        .map(|t| match t.strip_quals() {
+                                            Ty::Var(g) => self.retagged_generics.contains(g),
+                                            Ty::Named { name: g, args } => {
+                                                args.is_empty() && self.retagged_generics.contains(g)
+                                            }
+                                            _ => false,
+                                        })
+                                        .collect(),
+                                    _ => Vec::new(),
+                                })
+                                .unwrap_or_default();
+                            let peels: String = fixed
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, p)| {
+                                    retagged_positions.get(*i).copied().unwrap_or(false)
+                                        && !decl.intrinsic
+                                        && matches!(self.param_mode(Some(*key), p), ParamMode::Owned)
+                                })
+                                .map(|(i, _)| format!("let __i{i} = __i{i}.clone(); "))
+                                .collect();
+                            let peels = if decl.intrinsic && decl.name.name == "copy" {
+                                // `copy` at a retagged `T` is `&&T -> &T`: its
+                                // own `.clone()` below is exactly that peel.
+                                String::new()
+                            } else if decl.intrinsic {
+                                // An intrinsic's lowering is applied to the
+                                // parameters directly; a retagged one clones
+                                // out first (`push` owns its element).
+                                fixed
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(i, p)| {
+                                        retagged_positions.get(*i).copied().unwrap_or(false)
+                                            && !matches!(p.ty, Type::Named { ref qualifiers, .. } if qualifiers.iter().any(|q| q.name.name == "Mut"))
+                                    })
+                                    .map(|(i, _)| format!("let __i{i} = __i{i}.clone(); "))
+                                    .collect()
+                            } else {
+                                peels
+                            };
                             // [implicit-intrinsic] An `intrinsic fn` has no
                             // Rust function to name: it *is* a lowering, so
                             // the adapter's body is that lowering applied to
                             // the adapter's parameters. (`iter` would
                             // otherwise emit `iter(__i0)`, which names the
                             // generated `iter` *module* — E0423.)
-                            let body = if decl.intrinsic {
+                            let body = if decl.intrinsic && decl.name.name == "copy" {
+                                // [copy-implicit] `copy` as a value: the
+                                // position hands the argument over as `&T`
+                                // (a kept fn-type parameter), and every Salvo
+                                // type derives `Clone`, so the copy is one
+                                // clone through the reference [rs-copy]. At a
+                                // retagged `T` (`&i32`) the "copy" is the
+                                // reference itself (a fn's own implicit takes
+                                // its argument by value): identity.
+                                if retagged_positions.first().copied().unwrap_or(false) {
+                                    params[0].clone()
+                                } else {
+                                    format!("{}.clone()", params[0])
+                                }
+                            } else if decl.intrinsic {
                                 self.intrinsic_fn_value_body(decl, &params)
                             } else {
                                 let target = self.rust_fn_name(decl);
@@ -7667,20 +8266,34 @@ impl<'p> Emitter<'p> {
                                         // The position may already have
                                         // handed this parameter over as
                                         // `&mut`.
-                                        let already_mut = position_refmut
+                                        let handed = position_refmut
                                             .get(name)
                                             .and_then(|m| m.get(i))
                                             .copied()
-                                            .unwrap_or(false);
+                                            .flatten();
+                                        let already_mut = handed == Some(true);
+                                        let already_ref = handed == Some(false);
                                         match self.param_mode(Some(*key), &p) {
-                                            ParamMode::Owned if already_mut => {
+                                            ParamMode::Owned if already_mut || already_ref => {
                                                 format!("({}).clone()", params[i])
                                             }
                                             ParamMode::Owned => params[i].clone(),
-                                            // `&mut T` coerces to `&T`.
-                                            ParamMode::Ref if already_mut => params[i].clone(),
+                                            // `&mut T` coerces to `&T`; a lent
+                                            // position is `&T` already.
+                                            ParamMode::Ref if already_mut || already_ref => {
+                                                params[i].clone()
+                                            }
                                             ParamMode::Ref => format!("&{}", params[i]),
                                             ParamMode::RefMut if already_mut => {
+                                                params[i].clone()
+                                            }
+                                            ParamMode::RefMut if already_ref => {
+                                                self.error(format!(
+                                                    "`{}` mutates `{}`, but the position \
+                                                     lends it (`Proj`): a lent argument is \
+                                                     read-only",
+                                                    decl.name.name, p.name.name
+                                                ));
                                                 params[i].clone()
                                             }
                                             ParamMode::RefMut => {
@@ -7708,6 +8321,11 @@ impl<'p> Emitter<'p> {
                             // A fn item is not a closure: wrap it, so the
                             // parameter's `impl FnMut` bound is satisfied
                             // whatever the callee's convention is.
+                            let body = if peels.is_empty() {
+                                body
+                            } else {
+                                format!("{{ {peels}{body} }}")
+                            };
                             if producer {
                                 out.push(format!("move |{}| {body}", params.join(", ")));
                             } else {
@@ -7826,6 +8444,32 @@ impl<'p> Emitter<'p> {
             all.dedup();
             all.truncate(1);
         }
+        // [yield-proj] Which implicit `next`s filled here emit a *borrow*
+        // (`Emitted (Proj T)`): the checker's element type has the borrow
+        // stripped, so the type argument the combinator is instantiated at
+        // must be respelled `&T` — `map::<ListYield<String>, &String, i32>`.
+        // The element generic is the one the spread's `Yield<It, T>` binds
+        // second.
+        let borrowed_elem_generics: Vec<String> = self
+            .checked
+            .implicit_args
+            .get(&(self.file_idx, span))
+            .map(|filled| {
+                filled
+                    .iter()
+                    .filter_map(|a| match a {
+                        salvo_core::ImplicitArg::Resolved { key, .. }
+                        | salvo_core::ImplicitArg::OriginNext { next_fn: key, .. } => {
+                            self.fn_by_key(*key)
+                        }
+                        _ => None,
+                    })
+                    .filter(|d| d.return_type.as_ref().is_some_and(type_has_proj))
+                    .filter_map(|_| self.yield_element_generic(f))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let saved_retag = std::mem::replace(&mut self.retagged_generics, borrowed_elem_generics.clone());
         let outer_mints = std::mem::take(&mut self.pending_mints);
         let outer_machines = std::mem::take(&mut self.mint_machines);
         let (mut prelude, args) = {
@@ -7882,31 +8526,6 @@ impl<'p> Emitter<'p> {
         // their `List` fast path, so the *generic* `?Iterable` body had never
         // been called with a subject whose element type only the adapters
         // could determine.
-        // [yield-proj] Which implicit `next`s filled here emit a *borrow*
-        // (`Emitted (Proj T)`): the checker's element type has the borrow
-        // stripped, so the type argument the combinator is instantiated at
-        // must be respelled `&T` — `map::<ListYield<String>, &String, i32>`.
-        // The element generic is the one the spread's `Yield<It, T>` binds
-        // second.
-        let borrowed_elem_generics: Vec<String> = self
-            .checked
-            .implicit_args
-            .get(&(self.file_idx, span))
-            .map(|filled| {
-                filled
-                    .iter()
-                    .filter_map(|a| match a {
-                        salvo_core::ImplicitArg::Resolved { key, .. }
-                        | salvo_core::ImplicitArg::OriginNext { next_fn: key, .. } => {
-                            self.fn_by_key(*key)
-                        }
-                        _ => None,
-                    })
-                    .filter(|d| d.return_type.as_ref().is_some_and(type_has_proj))
-                    .filter_map(|_| self.yield_element_generic(f))
-                    .collect()
-            })
-            .unwrap_or_default();
         if has_implicits && !f.generics.is_empty() {
             if let Some(args) = self
                 .checked
@@ -7942,6 +8561,7 @@ impl<'p> Emitter<'p> {
         // [iter-fn] A minted pass is released here: the mint is the
         // compiler's value, so a combinator that abandons it early cannot
         // leak it. `__close` is idempotent, so a drained pass pays nothing.
+        self.retagged_generics = saved_retag;
         self.mint_machines = outer_machines;
         let mints = std::mem::replace(&mut self.pending_mints, outer_mints);
         if mints.is_empty() {
@@ -8289,6 +8909,54 @@ fn bin_prec(op: BinaryOp) -> u8 {
     }
 }
 
+/// [proj-anywhere] The `from` lists of every `Proj` in a written type that
+/// names sources, in order of appearance.
+fn proj_refs_with_from(ty: &Type) -> Vec<Vec<String>> {
+    fn in_ref(r: &salvo_syntax::ast::TypeRef, out: &mut Vec<Vec<String>>) {
+        if r.name.name == "Proj" && !r.from.is_empty() {
+            out.push(r.from.iter().map(|i| i.name.clone()).collect());
+        }
+        for a in &r.args {
+            walk(a, out);
+        }
+    }
+    fn walk(ty: &Type, out: &mut Vec<Vec<String>>) {
+        match ty {
+            Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                in_ref(base, out);
+            }
+            Type::QualifiedGroup { qualifiers, base, .. } => {
+                for q in qualifiers {
+                    in_ref(q, out);
+                }
+                walk(base, out);
+            }
+            Type::Union { arms, .. } | Type::Tuple { elems: arms, .. } => {
+                for a in arms {
+                    walk(a, out);
+                }
+            }
+            Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => walk(elem, out),
+            Type::Fn { .. } => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, &mut out);
+    out
+}
+
+/// A written type's base name, for diagnostics.
+fn inner_name(ty: &Type) -> String {
+    match ty {
+        Type::Named { base, .. } => base.name.name.clone(),
+        Type::QualifiedGroup { base, .. } => inner_name(base),
+        other => format!("{other:?}"),
+    }
+}
+
 fn binary_op(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",
@@ -8327,8 +8995,13 @@ fn ast_fn_param_contract(
             _ => false,
         })
         .unwrap_or(false);
+    // [deduce-syntax] Unmentioned in a fn type's group is kept; only a
+    // written move (`!x`) consumes.
     let kept = match (param_names.get(i).and_then(|n| n.as_ref()), deductions) {
-        (Some(name), Some(list)) => list.iter().any(|d| d.param.name == name.name),
+        (Some(name), Some(list)) => !list.iter().any(|d| {
+            d.param_name().is_some_and(|n| n.name == name.name)
+                && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+        }),
         _ => true,
     };
     (kept, is_mut)
@@ -8585,7 +9258,7 @@ fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {
                 base: TypeRef {
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),
-                    from: None,
+                    from: base.from.clone(),
                     span: base.span,
                 },
             }

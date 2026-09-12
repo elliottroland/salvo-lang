@@ -76,7 +76,7 @@ fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
     }
 }
 
-fn read_only(list: Mut List<Int>) [Console] -> [list: Mut] None {
+fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
     if list ^ Mut {
         println("size ${size(list)}")
     }
@@ -92,9 +92,9 @@ qualifier NonEmpty<T> of List<T> {
     }
 
     // Adding an element makes the list non-empty.
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
 }
 
 // [qual-refn-reconcile] A top-level refinement is the consumer's own word on
 // a function, and replaces the qualifiers' refinements for that parameter.
-refn remove_first<T>(list: Mut NonEmpty List<T>) -> [list: -NonEmpty]
+refn remove_first<T>(list: Mut NonEmpty List<T>) => list: -NonEmpty
