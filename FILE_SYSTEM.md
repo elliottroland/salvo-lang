@@ -9,7 +9,9 @@ options, trade-offs, and recommendations — the calls are the user's.
 same-file dischargers, no implicit discharge sites), and OBLIGATIONS.md is
 deleted per its charter — its decided outcomes live in COMPLETED.md's
 decision log ("Phase 3 decided" and "Phase 3 built"); references to its
-sections below read against that log.
+sections below read against that log. **Collections (S-Col, COLLECTIONS.md)
+were decided 2026-09-12/13 and ride before phase 4** — FS-6's "std has no
+map" caveats are resolved by sequencing; that section is updated in place.
 
 Sources: ROADMAP.md ("S-IO — streams, then the filesystem", "The sequence"
 phase 4, the two due-before decisions), COMPLETED.md (the 2026-09-06 S-IO
@@ -72,7 +74,10 @@ FS-1 and FS-2 below, and they are the decisions that shape everything else.
 - **Async does not exist yet** and arrives (if at all) as an explicit effect
   after phase 5. Everything here is blocking IO, identically on both backends.
 - **`Byte` and `Long` exist** as intrinsic types (std/core/basic.sv); there is
-  no byte-buffer surface yet, and no map type (relevant to doubles, FS-6).
+  no byte-buffer surface yet. **Update 2026-09-12: collections are decided
+  and ride before phase 4** (COLLECTIONS.md; `Map<K, V>` with insertion
+  order, `canbe hashed` keys) — the "std has no map" caveats in FS-6 are
+  resolved by sequencing, and its recommendations simplify accordingly.
 
 ## 2. What other languages teach
 
@@ -537,12 +542,14 @@ so what *is* the test story? Three layers, cheapest first:
   `RawHandle` (the raw stream member's payload) to be mintable by Salvo code
   — e.g. `RawFs` members trade in a plain `Long` id rather than an opaque
   host type, with the host handler owning the id→resource table *inside the
-  utility class* (native maps exist there; std has none).
-- **An in-memory `MemFs of Fs` in std itself** (jimfs proper) is deferred:
-  it wants a map type std does not have, and its `open_read` returning a
-  working `InStream` is exactly what O-P2 disallows — under the layering it
-  would instead be `MemRawFs of RawFs` per the previous point, which needs
-  only the id-table pattern in Salvo (assoc `List` v1).
+  utility class*.
+- **An in-memory `MemFs`-equivalent is now writable in Salvo**: with
+  collections decided (S-Col rides before phase 4 — COLLECTIONS.md), a
+  `MemRawFs of RawFs` keeps its id table as `Mut Map<Long, …>` in handler
+  state, per the previous point (an `open_read` returning a working
+  `InStream` remains exactly what O-P2 disallows, so the double lives at
+  the `RawFs` layer, not at `Fs`). What was "deferred for want of a map"
+  is now just work scheduled behind S-Col.
 
 **DECISION FS-6**: is `RawFs` officially implementable by Salvo handlers
 (the id-based `RawHandle` design), or host-only (opaque type, simpler raw
@@ -683,7 +690,7 @@ the *first exercise* of a phase-3 rule outside its own tests:
 | FS-3 ops location | free fns on stream types (object-capability); `Fs` members are path ops only — also mostly defuses the shared-member-name blocker |
 | FS-4 streams | `InStream`/`OutStream`, always buffered, text-only v1, strict UTF-8 both backends, terminator-stripping `read_line`, no seek |
 | FS-5 errors | structured `FsError` union; errors end iteration and surface at `close`; write-side `close` returns a result, droppability accepted and documented |
-| FS-6 doubles | `RawFs` officially Salvo-implementable (id-based handles) as the unit seam; `MemFs` deferred (wants a map type) |
+| FS-6 doubles | `RawFs` officially Salvo-implementable (id-based handles) as the unit seam; `MemRawFs` writable once S-Col lands (`Mut Map<Long, …>` handler state) |
 | FS-7 surface | the member list in §FS-7; paths as `Str`; eager `list_dir`; one-shot conveniences written in Salvo over the members |
 | FS-8 restriction | lexical root check (documented caveat), rebased paths, distinguishable `PathEscapes`, root as `Str`; cap-std-style `Dir` value and `RESOLVE_BENEATH` raw member recorded as hardening |
 

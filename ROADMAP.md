@@ -146,16 +146,42 @@ generic struct literals not inferring type args, and intrinsic
 containers (`List<linear T>`) deferred by decision.
 
 **4 — The filesystem, on an IO stream design** ("Standard library surface →
-S-IO"), using linearity and iterators — which is why it follows 1 and 3. Two
-decisions are due **before** it starts, because both become concrete the moment
-streams exist:
+S-IO"), using linearity and iterators — which is why it follows 1 and 3.
+**[FILE_SYSTEM.md](FILE_SYSTEM.md) lays out the option space** (written
+2026-09-12: nine decisions FS-1…FS-9 with recommendations — the seam for the
+default handler, the two-effect layering for the restricted handler, where
+stream ops live, the error model, testability, the v1 surface, and restricted-
+handler semantics); it dies into COMPLETED.md when the decisions are made,
+OBLIGATIONS.md-style. Riding **before** phase 4, by user decision 2026-09-12:
+
+- **S-Col — collections** ("Standard library surface → S-Col").
+  **Decided in outline** the same day — [COLLECTIONS.md](COLLECTIONS.md)
+  carries three rounds of user decisions (separate `Set`/`Map`/
+  `SortedSet`/`SortedMap` types, insertion-ordered iteration with a Rust
+  runtime file, `canbe hashed`/`canbe ordered` declaration-site opt-ins,
+  universal struct `==` with Salvo-owned float equality, collection
+  literals replacing array literals, `Mut` arrays, the `*_of`/`*_by`/
+  `to_*` conventions) plus the one open design item (the Set/Map
+  borrowing-pass prototype) and the engineering list. FS-6's in-memory
+  test filesystem is its first internal customer.
+
+Two further decisions are due **before** phase 4 starts, because both become
+concrete the moment streams exist:
 
 - **Operator typing and numeric promotion.** Offsets and sizes are naturally
   `Long`, so "does `Int + Long` promote, and to what" stops being theoretical;
   deciding it after std has a numeric surface means churning that surface.
+  The `==`/`!=` slice is now **decided** with the collections round
+  (2026-09-12): same-base-type operands only, qualifiers ignored (state,
+  provenance and `Mut` alike — equality is on the data at check time),
+  structs compare structurally, fn-typed fields bar a struct from `==`,
+  float equality is Salvo-emitted IEEE on both backends. Arithmetic,
+  ordering operators and `Bool` for `&&`/`||` remain open.
 - **Two effects sharing a member name.** `read`/`write`/`close` on an `Fs`
   effect, the stream surface and `Console` collide, so the `println@Console(...)`
   question is due here rather than being dodged with prefixed names.
+  (FILE_SYSTEM.md's FS-3 recommendation — stream ops as free fns, not
+  effect members — softens this from blocking to due-eventually.)
 
 **5 — Threading: the Erlang/Gleam/OTP model.** ("Threading and concurrency",
 below.) A design pass first: four questions the existing implementation forces,
@@ -182,9 +208,10 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| Operator typing rules — legal operand types, numeric promotion, `Bool` for `&&`/`\|\|` | before phase 4 | "Consolidated leftovers" |
-| Two effects declaring one member name: keep the error, or add `println@Console(...)` | before phase 4 | "Effects" |
-| **S-IO** — the stream design the filesystem is the first customer of | phase 4 | "Standard library surface" |
+| Operator typing rules — arithmetic operand types, numeric promotion, ordering ops, `Bool` for `&&`/`\|\|` (the `==`/`!=` slice was decided 2026-09-12 with collections — see "The sequence", phase 4) | before phase 4 | "Consolidated leftovers" |
+| Two effects declaring one member name: keep the error, or add `println@Console(...)` (softened by FILE_SYSTEM.md FS-3: stream ops as free fns) | before phase 4 | "Effects" |
+| **S-IO** — the stream design the filesystem is the first customer of; option space laid out in FILE_SYSTEM.md (FS-1…FS-9, with recommendations) | phase 4 | "Standard library surface" |
+| **S-Col C-7** — the Set/Map borrowing-pass design (prototype-informed, not a paper call; everything else in COLLECTIONS.md is decided) | with S-Col, before phase 4 | "Standard library surface" |
 | Sendability, per-process effect scopes, OS threads versus a runtime, async's fate | phase 5 | "Threading and concurrency" |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
@@ -794,12 +821,66 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
 S-Str (a mutable string and the string function surface) and S-Seq (the sequence
 functions over any pass) landed 2026-09-06; see COMPLETED.md. What is left:
 
+### S-Col — collections (decided in outline 2026-09-12, rides before phase 4)
+
+`Set<T>`, `Map<K, V>`, `SortedSet<T>`, `SortedMap<K, V>` as separate
+intrinsic types, plus the conventions that reshape the existing surface.
+**[COLLECTIONS.md](COLLECTIONS.md) is the record** — the option space, three
+rounds of user decisions (2026-09-12), the remaining open item and the
+engineering list; it dies into COMPLETED.md when the work lands. The
+decisions in brief:
+
+- **Separate sorted types**, not a `Sorted` qualifier (a qualifier is
+  droppable by design; sortedness changes behavior and must not drop).
+- **Insertion-ordered iteration** for Set and Map on both backends, with
+  LinkedHashMap's exact semantics (`put` on an existing key keeps its
+  position; `remove` is O(1) and order-preserving); Rust ships a
+  runtime-file linked ordmap/ordset to match.
+- **Keys**: intrinsic ordering only (no comparator functions). Structs opt
+  in by declaring `canbe hashed` / `canbe ordered`, validated eligible at
+  the declaration (immutable, all fields eligible; the error explains
+  why not). Unions are hashable if every arm is, never orderable. Lists
+  and tuples are orderable if their elements are (Kotlin runtime
+  comparators; Rust native). Float fields bar hashing (revisit later).
+- **Universal struct `==`/`!=`** on same-base-type operands, qualifiers
+  ignored (equality is on the data at check time); `canbe ordered` adds
+  the comparison operators; fn-typed fields bar a struct from `==` (and
+  so from `hashed`/`ordered`); **float equality is Salvo-emitted** on
+  both backends (IEEE now, the hook for precision-specified comparison
+  later).
+- **Literals**: `[1, 2, 3]` is a List (array literals removed —
+  `array_of`/`array_by` replace them), `{"a"}` a Set, `{"k": "v"}` a Map;
+  sugar for the `*_of` constructors; `Mut` prefixes like a struct
+  literal; empty literals take the expected type or error.
+- **Constructor conventions**: `*_of(spread)` + `mut_*` variants
+  (arrays included — `Mut T[]` with element assignment is new),
+  `*_by(size, i -> value)`, `to_*` converters (two `to_map` forms;
+  duplicate keys last-wins). Renames ride along: `list`→`list_of`,
+  `mutable_list`→`mut_list_of`, `mutable_str`→`mut_str`.
+
+Open: **C-7**, the Set/Map pass design — needs a prototype of an intrinsic
+borrowing pass over the native iterators ([proj-field] lifetimes on an
+intrinsic type), not a paper decision. FS-6's in-memory test filesystem
+(FILE_SYSTEM.md) is S-Col's first internal customer.
+
 ### S-IO — streams, then the filesystem (phase 4)
 
 **Phase 4**, and two decisions are due before it starts: operator typing and
-numeric promotion (offsets and sizes are `Long`), and whether two effects may
+numeric promotion (offsets and sizes are `Long`; the `==` slice is already
+decided — see "The sequence"), and whether two effects may
 share a member name (`read`/`write`/`close` collide across `Fs`, the stream
 surface and `Console`). See "The sequence".
+
+**The option space is laid out in [FILE_SYSTEM.md](FILE_SYSTEM.md)**
+(2026-09-12): FS-1 the default handler's seam (recommended: `intrinsic
+handler` over a shipped runtime class), FS-2 how the restricted handler
+reaches the host (recommended: two-effect layering `RawFs`+`Fs` — the
+handler self-dependency ban and [use-no-dup] make direct delegation
+illegal), FS-3 where stream ops live (recommended: free fns on linear
+stream values, object-capability style), FS-4 the stream types, FS-5 the
+error model, FS-6 testability, FS-7 the v1 surface, FS-8 restricted-handler
+semantics, FS-9 the interaction test list. Decisions are the user's; the
+document dies into COMPLETED.md once they are made.
 
 An `Fs` effect was designed in outline (effect + `intrinsic handler
 DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
@@ -1263,3 +1344,8 @@ blocking, and several are "revisit only if a customer appears".
     else is unchecked (`Str * Bool` passes, result typing is just the
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
+    The `==`/`!=` slice was decided 2026-09-12 with the collections round
+    (COLLECTIONS.md): same-base-type operands, qualifiers ignored,
+    structural struct equality, fn-typed fields barring, Salvo-emitted
+    float equality. Arithmetic, ordering and the logical operators
+    remain.

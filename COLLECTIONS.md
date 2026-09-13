@@ -1,10 +1,72 @@
 # Collections — the option space (working document)
 
-Status: **OPEN**. Written 2026-09-12 by a read-only session, companion to
-FILE_SYSTEM.md (whose FS-6 wants a map for `MemRawFs`, and which flags "std
-has no map type" three times). Same style as OBLIGATIONS.md: options,
-trade-offs, recommendations — the calls are the user's. Nothing here is
-scheduled; the sequencing question is C-0.
+Status: **DECIDED in outline 2026-09-12** (user decisions, the seven-point
+direction below); the remaining questions are collected under "What remains
+open" at the end of this block. The option sections are kept as the
+reference for *why*; where a section conflicts with the decisions table,
+the table wins.
+
+| decision | outcome (user, 2026-09-12) |
+|---|---|
+| C-1 types | `Set<T>`, `Map<K,V>`, `SortedSet<T>`, `SortedMap<K,V>` as **separate types** — the four, plus existing `List`/arrays |
+| C-2 keys | intrinsic ordering only, **no comparator functions** (dynamic compare would make Sorted containers depend on the same comparison being used everywhere); struct keys per the eligibility rule below; union keys hashable (each arm hashable) but **never orderable** |
+| C-2 struct eligibility | a struct that is **not `canbe Mut`** and whose fields are all orderable-and-hashable is itself orderable and hashable — usable in Set/Map keys and Sorted variants |
+| C-3 iteration order | `Map` (and by extension `Set`) iterate in **insertion order**; Rust ships a runtime file to support it |
+| C-4 `Sorted` | **rejected as a qualifier** (O-S2 wins): there is no way to lose `Sorted`, and it changes behavior, so it must not be droppable — which a qualifier is by design |
+| C-5 constructors | `*_of(spread)` per type incl. arrays (`list_of`, `set_of`, `sorted_set_of`, `map_of`, `array_of`, …) with `mut_*` variants; `*_by(size, i -> value)` per type incl. `array_by`; `to_*` converters, with **two `to_map` forms** (pairs source; source + `elem -> (k, v)` lambda) |
+| C-6 literals | `[1, 2, 3]` is a **List** (array literals removed — `array_of`/`array_by` replace them), `{"a", "b"}` is a Set, `{"k": "v"}` is a Map; each is sugar for its `*_of`; `Mut` prefixes a literal as it does a struct literal; an **empty literal takes its type from the expected type** (parameter or `let` annotation — `let s: Mut Map<Str, Str> = {}`), otherwise an error |
+| C-7 passes | still open — prototype-informed, unchanged |
+
+Second round (user, 2026-09-12, resolving most of the first round's
+remainders):
+
+| question | outcome |
+|---|---|
+| bound spelling | **`canbe` at the declaration site**, both uses: a struct opts in (`struct Point canbe ordered`) and is **validated eligible right there** (the error explains why it is ineligible — the [interp-to-str] validate-at-declaration pattern); generic params write the bound (`<K canbe ordered>`, mirroring `<T canbe linear>`) |
+| Kotlin ordering emission | generate `compareTo`/comparators for structs declaring `canbe ordered`; **Lists and tuples are orderable if their elements are**, via Kotlin runtime utility files (lexicographic; Rust has `Ord` on `Vec`/tuples natively) |
+| Mut arrays | **added** — element-assignable `Mut T[]`; arrays join the `mut_*` constructor convention |
+| equality | **all structs support `==`/`!=`** (same-type operands only — comparing different struct types is an error); structs `canbe ordered` additionally support `< <= > >=`. This partially settles the operator-typing DECISION for `==` |
+| insertion-order semantics | **LinkedHashMap's**: `put` on an existing key updates the value and keeps the original position; `remove` is O(1) and order-preserving. The Rust runtime file must match — hash index + slab-with-prev/next-links (the LinkedHashMap design), *not* a Vec-backed indexmap (whose remove is O(n) shift or order-breaking swap) |
+| empty literals | expected-type-driven (parameter or let annotation), error when undeterminable |
+| renames | `mutable_str` joins the sweep (`mut_str`); duplicate keys in `to_map`/`map_by`/map literals are **last-wins** |
+| `T \| None` keys | attempt it; if it fights either runtime, **reject `None`** from set elements and map keys |
+
+Third round (user, 2026-09-12 — closing the second round's questions):
+
+| question | outcome |
+|---|---|
+| hashable spelling | **explicit opt-in, `canbe hashed`** — same declaration-site validation and explanatory ineligibility error as `canbe ordered` |
+| float equality | **roll our own `==` for floating-point** on both backends (custom Kotlin `equals`; Rust's IEEE derive already agrees), so Salvo owns the semantics — chosen deliberately as the hook for **future precision-specified comparison**. Structs with float fields get `==` but are **barred from `canbe hashed`** (equality ≠ hashing; revisit later) |
+| `==` and qualifiers | equality ignores qualifiers entirely — state (`Surname Person == Person`), provenance, and `Mut` alike: **equality is on the data at the moment of the check** |
+| Mut arrays | confirmed |
+| fn-typed fields | structs holding a fn-typed field are **barred from `==`** (and therefore from `canbe hashed`/`canbe ordered`) — no honest equality exists (`Rc<dyn Fn>` on Rust, reference identity on Kotlin); diagnostic names the field |
+| C-7 | confirmed: prototype the borrowing pass |
+
+## What remains open
+
+1. **C-7 — the Set/Map pass prototype** (intrinsic borrowing passes over
+   native iterators; `for (k, v) in m` destructuring rides on it). The
+   only remaining design unknown.
+2. **Engineering, no decisions**: the rename + array-literal removal
+   sweep (`list_of`, `mut_list_of`, `mut_str`, …); the two runtime files
+   (Rust linked ordmap/ordset matching LinkedHashMap semantics; Kotlin
+   list/tuple comparators); generated `canbe hashed`/`canbe ordered`
+   derives and comparators; custom float-field `equals` on Kotlin;
+   `Mut T[]` element writes; grammar for bracket/brace literals against
+   `no_struct` contexts. One emission wrinkle to remember: `Mut Str ==
+   Str` on Kotlin compares a `StringBuilder` against a `String` — the
+   equality lowering must compare contents (the recorded-drop machinery
+   [str-drop-mut] is the natural hook).
+
+**Future revisits, recorded**: precision-specified float comparison (the
+custom `==` is its hook); hashing for float-bearing structs; `T | None`
+keys if `None` ends up rejected in practice.
+
+---
+
+Everything below is the original option space, kept for the reasoning.
+
+---
 
 Sources: LANGUAGE.md ("Qualifiers", "Auto-qualifiers and `Mut`",
 "Constructive qualifiers", "State and provenance", "Refinements",
@@ -470,7 +532,9 @@ Notes and sub-decisions:
   offer `replace(map, k, v) -> V?` later if a customer wants the old value.
 - **`remove` returning `V?` moves the value out** — this is FS-6's handle
   table (`remove(table, id)` hands the resource back) and, later, the
-  cache-handle discharge shape from OBLIGATIONS.md, so its signature
+  cache-handle discharge shape (the phase-3 record in COMPLETED.md's
+  decision log: `remove(cache, handle)` as a discharge with context), so
+  its signature
   should be right from day one.
 - **`get` borrows** (`proj[from: map] V` mirrors list's `get`); a caller
   that stores the result writes `copy` [copy-opt-in].
@@ -592,9 +656,9 @@ Phase 3 deferred `List<linear T>`; Set/Map add one sharper fact:
   linear, so under O-K1 this costs nothing and even O-K2's struct keys
   stay non-linear by construction — a `linear struct` key is refused).
 - **Linear *values* are the future customer, not the v1 scope.**
-  `Map<Long, InStream>` is FS-6's handle table and OBLIGATIONS.md's cache
-  example (`remove(cache, handle)` as a discharge with context) — the
-  container-of-linear design (O-C3's intrinsic-container half) lands here
+  `Map<Long, InStream>` is FS-6's handle table and the phase-3 cache
+  example (COMPLETED.md's decision log: `remove(cache, handle)` as a
+  discharge with context) — the container-of-linear design (O-C3's intrinsic-container half) lands here
   when it lands. v1: `Map<K, V>` instantiation with linear `V` is refused
   by the existing [linear-generics]-style check, message pointing at the
   deferral. (FS-6's *runtime-file* handle table dodges this by living in

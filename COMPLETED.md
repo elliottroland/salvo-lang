@@ -121,6 +121,53 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Design pass: collections decided in outline; the filesystem option space
+laid out; recursive types investigated (user decisions 2026-09-12, evening
+into 2026-09-13).** A documentation-only session (run read-only alongside
+the phase-3 build, made writable at the end) that produced three artifacts.
+**(1) FILE_SYSTEM.md** — the phase-4 option space in OBLIGATIONS.md style:
+nine decisions (FS-1…FS-9) with recommendations, from a survey of Java
+classic/nio, Kotlin/Okio, Rust, Go, Python and the capability systems
+(WASI, cap-std, Deno). Notable findings: the user's restricted-handler
+sketch collides with [effect-handler-deps]'s self-dependency ban and
+[use-no-dup] (no effect shadowing), so the recommended shape is two-effect
+layering (`RawFs` + `Fs`, both public handlers depending on the raw seam);
+and the FS-3 recommendation (stream ops as free fns on linear stream
+values, object-capability style) mostly defuses the shared-member-name
+blocker. Decisions not yet made; the document dies into this log when they
+are. **(2) COLLECTIONS.md** — the collections option space, then *decided*
+across three same-day rounds (all user): separate `Set`/`Map`/`SortedSet`/
+`SortedMap` types — the `Sorted`-qualifier idea was examined and rejected
+because a qualifier is droppable by design and sortedness changes behavior;
+insertion-ordered iteration on both backends with LinkedHashMap's exact
+semantics (position kept on `put`-overwrite, O(1) order-preserving
+`remove`; Rust ships a linked ordmap/ordset runtime file); keys by
+intrinsic ordering only, structs opting in via `canbe hashed` /
+`canbe ordered` validated at the declaration, unions hashable-never-
+orderable, lists/tuples orderable via Kotlin runtime comparators; universal
+struct `==`/`!=` (same base type, qualifiers ignored — equality is on the
+data at check time; fn-typed fields bar it; float equality Salvo-emitted on
+both backends, deliberately, as the future hook for precision-specified
+comparison; float fields bar hashing, revisit later); collection literals
+`[…]`/`{…}`/`{k: v}` as sugar for the `*_of` constructors, array literals
+removed, empty literals typed by expectation or error, `Mut` prefixing like
+struct literals; `Mut T[]` (element-assignable arrays) added; the
+`*_of`/`mut_*`/`*_by`/`to_*` conventions with `list`→`list_of`,
+`mutable_list`→`mut_list_of`, `mutable_str`→`mut_str` renames; duplicate
+keys last-wins. This settles the `==`/`!=` slice of the operator-typing
+DECISION (recorded in ROADMAP.md); one design item stays open (C-7, the
+Set/Map borrowing-pass prototype). S-Col rides before phase 4; FS-6's
+in-memory test filesystem is its first customer. **(3) Recursive types**
+— probed against the evening's debug binary: no rule anywhere admits or
+refuses them; Kotlin compiles and runs a recursive struct while Rust dies
+downstream with E0072 and no Salvo diagnostic (recorded as an open defect
+with repro, ROADMAP.md), while recursion through `List<T>` already works
+end to end on both backends. The write-up (ROADMAP.md "Recursive types",
+unscheduled at the end of the queue by user decision) splits the work into
+the cycle diagnostic (owed regardless) and the Rust boxing rule, with the
+two DECISION points (constructibility, depth semantics) and the
+refuse-together rules (non-regular recursion; recursion + linearity).
+
 **A `proj Mut` parameter errors at the declaration (user decision
 2026-09-12, late evening).** Follow-up to [proj-readonly]: a parameter
 written with a *top-level* `proj Mut X` was accepted at the declaration but
