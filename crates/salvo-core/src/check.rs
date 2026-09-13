@@ -3333,6 +3333,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for p in &f.params {
             self.validate_type(&p.ty);
+            // [proj-readonly] A parameter written with a *top-level*
+            // `proj Mut` is self-contradictory, caught here at the
+            // declaration (user decision 2026-09-12): the `proj` promises
+            // to accept borrowed values, but the `Mut` makes this a `Mut`
+            // position, which a `proj` value never satisfies — so every
+            // projection argument would be refused, and the body could
+            // never use the permission either (the parameter is a
+            // projection to it). Nested occurrences (`Mut List<proj Mut
+            // Str>`) stay legal: there the `Mut` belongs to the element
+            // type a view really holds.
+            if let Some(mut_ref) = top_level_proj_mut(&p.ty) {
+                self.error(
+                    mut_ref.span,
+                    format!(
+                        "parameter `{}` cannot be written `proj Mut`: a `proj` value \
+                         can only be read, whatever its `Mut` says, so no projection \
+                         could ever be passed here and the body could never mutate it. \
+                         Drop the `Mut` (a `proj` position accepts `proj Mut` \
+                         arguments), or drop the `proj` to mutate an owned value \
+                         in place",
+                        p.name.name
+                    ),
+                );
+            }
         }
         // [implicit-param] [implicit-group] Expand and validate the implicit
         // parameters before anything else needs them: the body sees each as
@@ -14605,6 +14629,25 @@ fn strip_all_proj(ty: &Ty) -> Ty {
         Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(strip_all_proj).collect()),
         Ty::Array(elem) => Ty::Array(Box::new(strip_all_proj(elem))),
         other => other.clone(),
+    }
+}
+
+/// [proj-readonly] The `Mut` qualifier of a parameter type written with a
+/// *top-level* `proj Mut` — the self-contradictory spelling refused at the
+/// declaration site. Only the parameter's own qualifier list counts:
+/// `proj Mut` nested in a type argument (`Mut List<proj Mut Str>`) is the
+/// element type a view really holds, and a nullable/union of the pair
+/// (`(proj Mut Str)?`) is not a `Mut` position at the call boundary.
+fn top_level_proj_mut(ty: &ast::Type) -> Option<&TypeRef> {
+    let quals = match ty {
+        ast::Type::Named { qualifiers, .. } => qualifiers,
+        ast::Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+        _ => return None,
+    };
+    if quals.iter().any(|q| q.name.name == "proj") {
+        quals.iter().find(|q| q.name.name == "Mut")
+    } else {
+        None
     }
 }
 

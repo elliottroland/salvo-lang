@@ -478,6 +478,32 @@ fn a_held_view_may_be_advanced_but_a_projection_may_not() {
     );
 }
 
+/// [proj-readonly] A parameter written with a top-level `proj Mut` is
+/// refused at the *declaration* (user decision 2026-09-12): the `proj`
+/// promises to accept borrows, the `Mut` refuses every one of them. The
+/// nested spelling (`List<proj Mut Int>`) stays legal — there the pair is
+/// the element type a view really holds — and so does a local annotation.
+#[test]
+fn a_proj_mut_parameter_is_refused_at_the_declaration() {
+    let errs = errors(
+        "fn read(s: proj Mut Str) -> Str => s {\n    return s\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains(
+            "parameter `s` cannot be written `proj Mut`"
+        )),
+        "{errs:?}"
+    );
+    // Nested `proj Mut` in a type argument is not the contradiction.
+    let errs = errors(
+        "fn read(xs: List<proj Mut Str>) -> Int {\n    return 0\n}\n",
+    );
+    assert!(
+        !errs.iter().any(|e| e.contains("cannot be written `proj Mut`")),
+        "{errs:?}"
+    );
+}
+
 /// [proj-infer] Moving the source while a view of it lives is refused —
 /// the link is inferred from `view`'s body, with nothing written.
 #[test]

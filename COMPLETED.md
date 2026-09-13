@@ -121,6 +121,37 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A `proj Mut` parameter errors at the declaration (user decision
+2026-09-12, late evening).** Follow-up to [proj-readonly]: a parameter
+written with a *top-level* `proj Mut X` was accepted at the declaration but
+unsatisfiable by any projection — the `Mut` makes it a `Mut` position, so
+every projection argument was refused at the call site with "cannot mutate"
+(and the body could never use the permission either, the parameter being a
+projection to it). The user's call: report it at the declaration instead.
+`check_fn` now refuses the spelling per parameter (`top_level_proj_mut` in
+check.rs), naming both remedies — drop the `Mut` (a `proj X` position
+accepts `proj Mut X` arguments, `Mut` being droppable) or drop the `proj`.
+Top-level only: `Mut List<proj Mut Str>` (a view's real element type),
+locals, fields and returns keep the type legal. The same walk-through
+re-confirmed *why* kept-aware argument acceptance ([proj-type]) is sound in
+Rust: a kept non-`Mut` parameter is `&T` in the emitted code whatever the
+Salvo spelling ([rs-borrows]), so a top-level projection into it is a plain
+reborrow — verified by compiling and running the probe under rustc. Test:
+`a_proj_mut_parameter_is_refused_at_the_declaration` (widen_tests); spec:
+[proj-readonly] sub-bullet in LANGUAGE_SPEC.md, one sentence in
+LANGUAGE.md's read-only rule. Nothing in std/examples wrote the spelling.
+The same review reworded the over-broad prose (user-approved): LANGUAGE.md's
+"passing a projection where an owned value is expected is an error" and the
+[proj-type] subtyping bullet now state the kept-aware rule the checker
+actually implements — a top-level projection fits a kept, non-`Mut`
+position even written owned (kept is `&T` in Rust either way [rs-borrows]);
+the refusals are exactly `ProjBlock::{Consumes, Mutates, Nested}`, where
+the representations genuinely clash.
+The inventory's per-crate figures were re-measured with `cargo test -p`
+while updating the count (806 → 807): salvo-core 409 → 428, salvo-syntax
+74 → 76, salvo-backend-rust 128 → 131 — stale since earlier same-day
+entries updated only the header total.
+
 **Phase 3 built (2026-09-12, same day as decided).** Every step of the
 plan landed green, and the phase is closed. What it took, by step:
 **(1) Keywords**: `proj`/`once`/`linear` reserved in the lexer;
@@ -8795,7 +8826,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 806)
+## Test inventory (all green: 807)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8803,7 +8834,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 409 - 19 unit tests (file classification, including the
+- `salvo-core`: 428 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -8922,12 +8953,14 @@ cache, with per-test timings.
   parameter needing no binding in any position, and the deliberate
   left-to-right limit — a lambda before its binding argument is not
   inferred)
-  + 9 widening tests (`tests/widen_tests.rs` [qual-widen]: a `^` branch head
+  + 10 widening tests (`tests/widen_tests.rs` [qual-widen]: a `^` branch head
   opening a nested union, `^ Mut` stripping in an `if` with the mutation it
   then rejects, the intrinsic qualifiers refused with their reasons from the
   shared exclusion list, nothing-to-remove rejected, a *type* on the right
   rejected, more than one arm rejected, the no-binding parse error, and a
-  `^` branch consuming its arms so exhaustiveness still reports the rest)
+  `^` branch consuming its arms so exhaustiveness still reports the rest;
+  plus [proj-readonly]: a top-level `proj Mut` parameter refused at the
+  declaration, with the nested spelling staying legal)
   + 25 implicit-parameter tests (`tests/implicit_tests.rs` [implicit-param]
   [implicit-group] [implicit-resolve] [implicit-forward] [implicit-override]
   [implicit-fn-only]: a group's members and a written `?cmp` resolved from the
@@ -9300,7 +9333,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 74 (three parser tests for the scope selector and
+- `salvo-syntax`: 76 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -9539,7 +9572,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 128 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 131 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

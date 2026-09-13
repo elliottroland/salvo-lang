@@ -2259,13 +2259,20 @@ Conventions:
   * Subtyping: `X <: proj X` — an owned value satisfies a projected
     position (it can do strictly more). The reverse never holds, and
     `proj` is **never dropped implicitly**: it is a *never-drop* qualifier
-    (like `Linear`; unlike `Ok`), so passing a projection where an owned
-    value is expected is an error naming the type and the remedies
-    ("write the parameter's type with the `proj`, or pass `copy(...)`") —
-    the same on both backends because Rust makes them different
-    representations. The checker distinguishes why a projection blocked a
-    call (it would be mutated, consumed, or sits nested inside the type)
-    and says so.
+    (like `Linear`; unlike `Ok`). Argument acceptance is **kept-aware**: a
+    kept, non-`Mut` parameter only reads its argument, so a *top-level*
+    projection fits it even where the parameter is written owned (the
+    borrow of an owned value is a borrow — and on the Rust side a kept
+    non-`Mut` parameter is `&T` whatever the spelling [rs-borrows]).
+    A projection is refused, with an error naming the type and the
+    remedies ("write the parameter's type with the `proj`, or pass
+    `copy(...)`"), exactly where the representation would clash: the
+    position **consumes** (`ProjBlock::Consumes` — by-value in Rust),
+    **mutates** (`ProjBlock::Mutates` — `&mut T`; [proj-readonly]), or the
+    projection sits **nested** inside the type (`ProjBlock::Nested` — a
+    union arm or type argument, where `List<Str>` and `List<proj Str>`
+    are different Rust types and must match exactly). The same on both
+    backends, so a program's legality never depends on the target.
   * `proj` on a Copy scalar erases: `proj Int` *is* `Int` — the number is
     the value itself on both backends [copy-scalar-free].
   * Unification treats `proj` in a *pattern* as optional (like `once`): a
@@ -2335,6 +2342,14 @@ Conventions:
   mutating it, reports the projection and the `copy` remedy. `copy` is the
   way out and yields an owned `Mut X`. Moving a wholesale projection is
   refused the same way — except a Copy scalar [copy-scalar-free].
+  * A **parameter** written with a top-level `proj Mut` is an error at the
+    *declaration* (user decision 2026-09-12): the `proj` promises to accept
+    borrowed values, but the `Mut` makes the position one no projection can
+    satisfy, and the body could never use the permission either. The
+    diagnostic names both remedies (drop the `Mut` — a `proj` position
+    accepts `proj Mut` arguments — or drop the `proj`). Nested occurrences
+    (`Mut List<proj Mut Str>`) and non-parameter positions (locals, fields,
+    returns) keep the type legal.
   * Implementation: the projection lives in the lowered type
     ([proj-type], 2026-09-12; before that it was erased and carried only
     on links) *and* on the fate link — `FateLink.borrowed && !held` is a

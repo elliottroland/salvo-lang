@@ -189,6 +189,7 @@ links to the section that states the options.
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
+| **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
 One further proposal is **deferred by decision** rather than waiting:
 `platform handler` / `platform type`. (The `defers`-block proposal went with
@@ -200,10 +201,23 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**None open.** The last two — the retagged-lambda deref-in-cast miss (E0606)
-and the adapter's silent clone of a returned projection — were closed
+**One open.** (The previous two — the retagged-lambda deref-in-cast miss
+(E0606) and the adapter's silent clone of a returned projection — were closed
 2026-09-12 with the lambda-view work; repros and root causes are in
-COMPLETED.md.
+COMPLETED.md.)
+
+- **A recursive struct is an undiagnosed backend divergence** (reproduced
+  2026-09-12). Repro: `struct Node { value: Int, next: Node | None }` plus
+  any use. The checker accepts it on both backends; Kotlin compiles and runs
+  (`data class` fields are references); Rust emits `pub next: Option<Node>`
+  and fails downstream with rustc E0072 — a raw target-compiler error, no
+  Salvo diagnostic. Same through a union arm (`type Tree = Int | Branch`).
+  Root cause: no cycle check anywhere over the type graph — nothing ever
+  admitted or refused recursive types. Fix: the SCC walk + declaration-site
+  diagnostic described under "Recursive types" step 1 (`List`/array edges
+  are not cycle edges — recursion through `List<T>` works end to end today
+  and stays legal). The full feature is separate and unscheduled; the
+  diagnostic is owed regardless.
 
 ## Linear types
 
@@ -1058,6 +1072,106 @@ twice — the reasoning that already deferred `Cell`.
 - `unreg` of a deeply regional structure must copy deeply — same per-backend
   rules as `copy`, including its refuse-rather-than-diverge cases.
 - Folding D7's `Local`/`Escaping` watch-list entry into this design.
+
+## Recursive types — unscheduled, after the sequence
+
+Investigated 2026-09-12 (probes against that evening's debug binary; raised by
+COLLECTIONS.md C-9, whose linked-list question it outgrew). Deliberately **at
+the end of the queue**: nothing in phases 3–5 needs it (user, 2026-09-12). Its
+customers are trees, ASTs and JSON-shaped data — and, until it is built,
+List-mediated recursion (below) covers them.
+
+### Where things stand today: a hole, not a rule
+
+Nothing in the checker or resolver rejects a recursive type; no spec rule
+mentions them. The consequences, all verified by probe:
+
+- `struct Node { value: Int, next: Node | None }` **passes the checker on both
+  backends**. Kotlin emits `data class Node(val value: Int, val next: Node?)`
+  — compiles and runs, references are free indirection. Rust emits
+  `pub next: Option<Node>` and dies downstream with rustc's E0072 ("recursive
+  type has infinite size"), with no Salvo diagnostic. The same happens for
+  recursion through a union arm (`type Tree = Int | Branch`,
+  `Branch { left: Tree, right: Tree }` → `Union2<i32, Branch>`, E0072).
+  This accept/reject divergence is the open defect recorded above.
+- **Recursion through `List<T>` already works end to end on both backends**
+  (probe: `struct Tree { value: Int, kids: List<Tree> }` with a recursive
+  `total` — compiled under rustc, ran, correct output). `Vec` is heap
+  indirection, so the shape is representable today. Trees are therefore
+  *usable now* under this encoding; only direct field and union-arm recursion
+  is broken.
+- `check.rs` was already written defensively: its type-walking predicates
+  carry cycle guards ("recursive struct: already being checked"; the
+  depth-guarded transitive-linearity walk), so the checker survives recursive
+  declarations even though nothing admits them.
+
+### Step 1 — the diagnostic (a defect fix, independent of the feature)
+
+Close the [backend-never-wrong] hole now or with the feature, but decide it is
+owed: an SCC walk over the type graph (struct fields, union arms, alias
+expansions; `List`/array/fn-typed edges do **not** count as cycle edges —
+they indirect already) and an error at the declaration naming the field that
+closes the cycle, with the `List<T>` encoding as the named remedy. Cheap,
+and honest whichever way the feature decision goes.
+
+### Step 2 — the feature: a boxing rule for the Rust backend
+
+Kotlin needs nothing. Rust needs compiler-inserted indirection, and the
+design questions are:
+
+- **Where the box goes** — minimal-edge boxing (box only the field/arm edges
+  that close a cycle, which is rustc's own hint) versus boxing every
+  recursive-type field. Minimal is the presumption. Placement interacts with
+  the union representation: for `Tree = Int | Branch` the box can wrap the
+  arm payload (`Union2<i32, Box<Branch>>`) or the field inside `Branch`, and
+  the choice lands on every generated arm accessor and match.
+- **Transparency at every use site.** A boxed field must behave exactly like
+  an unboxed one: literals wrap (`Box::new`), reads autoderef, union matches
+  see through the box (box patterns are not stable Rust, so emitted matches
+  need explicit derefs), partial moves out of a boxed field keep working
+  (they do, through `Box`), `Mut` paths get `&mut` via `DerefMut`, `copy`
+  deep-clones (`Box<T: Clone>`). **Precedent that this is tractable**: the
+  emitter already renders fn-typed fields differently from fn-typed values —
+  `Rc` wrap at stores, clone at reads [rs-fn-field] — and the recorded
+  drop-conversion machinery shows wrap/unwrap at checker-known sites is
+  established. New spec rule on the Rust side (`rs-box`-shaped), nothing on
+  Kotlin's.
+- **Non-regular (polymorphic) recursion must be refused in Salvo.**
+  `struct Node<T> { next: Node<List<T>> | None }` monomorphizes to infinitely
+  many types on Rust while Kotlin's erasure accepts it — a second silent
+  divergence hiding behind the first, currently surfacing (if at all) as
+  Rust's recursion-limit error. The rule: a type may recurse only at its own
+  instantiation.
+
+### The semantic edges (each small, each a language call)
+
+- **DECISION — constructibility.** `struct A { a: A }` has no base case: no
+  value of it can ever be built. Refuse cycles with no optional/union escape
+  arm at the declaration (recommended), or let them exist vacuously.
+- **DECISION — depth, not cycles.** Actual *cyclic* values appear
+  unconstructible — a cycle needs aliasing plus mutation through the alias,
+  which ownership refuses (and boxed Rust representation could not hold one)
+  — so `to_str`/equality/drop always terminate. But each recurses per node:
+  a 100k-node chain overflows the stack in Kotlin's generated
+  `toString`/`equals` and Rust's derived `Debug` and `Drop` (a known real
+  Rust wart). Accept-and-document (recommended for v1) or emit iterative
+  drop glue for recursive types.
+- **Linearity stays out, together.** A recursive `linear struct` (a chain of
+  obligations) would ask the discharge analysis to walk a runtime-sized
+  structure at compile time; refuse recursion + linearity in the same
+  declaration for v1. The existing cycle guards keep the *predicates*
+  terminating meanwhile.
+- **`iter fn` snapshot note**: an `iter fn` over a recursive subject
+  snapshots per field — a deep copy, correct but O(n) where O(1) is assumed;
+  document when the feature lands.
+
+### Verification shapes, when picked up
+
+The three probes above (direct field, union arm, `List`-mediated), each
+compiled *and run* on both backends; a match through a boxed union arm; a
+partial move out of a boxed field; `copy` of a recursive value; the
+polymorphic-recursion refusal; and the constructibility refusal. The probes
+are re-writable in minutes (they were built against `tmp/`, not kept).
 
 ## Consolidated leftovers
 
