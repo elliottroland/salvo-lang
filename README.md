@@ -169,6 +169,16 @@ fn main() [use] {
   borrow: `proj[from: list] T` returns an element without copying it, a
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
+- **Files**: `std`'s filesystem is the whole language in one surface — an
+  `Fs` effect whose members cover paths *and* streams (so a double fakes all
+  of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
+  `FsError` that cannot be dropped in silence (`ignore` it, or `detach` its
+  kind to keep it), a `Lines` pass for `for line in p`, one-shots
+  (`read_to_str`, `read_lines`, `write_str`) for the common case, and exact
+  byte offsets — `write` answers its byte count, `position` reports one, and
+  `open_read_at(path, offset)` reopens at one, since streams stay
+  forward-only. The machine's filesystem is a `platform handler` at the
+  bottom, so swapping it swaps the world the program runs in.
 - **Interop**: a `platform effect` declares what the program needs from its
   target language, and a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the

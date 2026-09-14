@@ -116,7 +116,7 @@ pub fn emit_program_reporting(
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does. Same gate as
     // [rs-effect-fusion].
-    let fusion = program_needs_fusion(&symbols);
+    let fusion = program_needs_fusion(&symbols, &reachable);
     // [kt-effect-fusion] The Has-accessor interfaces the program uses,
     // merged across files into `fx.kt` (interface name → rendered effect
     // instance).
@@ -276,11 +276,19 @@ pub fn emit_program_reporting(
 /// [kt-effect-params] and nothing fusion-related is emitted. The predicate
 /// matches [rs-effect-fusion]'s gate exactly, so the two backends fuse the
 /// same programs.
-fn program_needs_fusion(symbols: &Symbols<'_>) -> bool {
-    symbols
-        .handlers
-        .values()
-        .any(|h| h.effects.iter().flatten().count() > 0)
+///
+/// **Reachable handlers only** (2026-09-14): std ships one, `DefaultFs
+/// [RawFs]` in `core.hostfs`, and a program that never names it must not pay
+/// the fused emission — which is also why that handler is not in `core.fs`,
+/// a module every iterating program drags in [mod-used-only].
+fn program_needs_fusion(symbols: &Symbols<'_>, reachable: &HashSet<&ModulePath>) -> bool {
+    symbols.handlers.iter().any(|(name, h)| {
+        h.effects.iter().flatten().count() > 0
+            && symbols
+                .handler_modules
+                .get(name)
+                .is_none_or(|m| reachable.contains(*m))
+    })
 }
 
 /// Does `code` mention `name` as a whole identifier? Used to spot a type
@@ -375,14 +383,6 @@ fn generate_compare_file() -> String {
 /// to the delimiter, so it is never a handler parameter [kt-throw-signal].
 fn is_throw_effect_ty(ty: &Ty) -> bool {
     matches!(ty, Ty::Named { name, .. } if name == salvo_core::THROW_EFFECT)
-}
-
-/// [kt-suppress-cast] Identifier-shaped tokens of a rendered Kotlin type,
-/// for matching bare generic parameter names without matching substrings
-/// (the `T` in `Triple` is not a token).
-fn word_tokens(s: &str) -> impl Iterator<Item = &str> {
-    s.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .filter(|t| !t.is_empty())
 }
 
 fn generate_unions_file(sizes: &BTreeSet<usize>) -> String {
@@ -564,6 +564,13 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             ));
         }
         errors.extend(std::mem::take(&mut emitter.errors));
+        // [kt-platform-host] The union wrappers a fallible member's result
+        // lowers to live in the root `salvo` package, so a host file whose
+        // signatures mention one has to import it. Same reason as the
+        // module import above: the skeleton's job is to compile.
+        if !emitter.union_sizes.is_empty() {
+            imports.insert("import salvo.*".to_string());
+        }
 
         let mut content = format!(
             "// Host implementation of the platform declarations of Salvo module \
@@ -605,6 +612,13 @@ pub const SALVO_ENTRY: &str = "salvoMain";
 /// 2026-09-14). Salvo never names the dependencies, so the name is the
 /// emitter's and cannot collide with a written one.
 const HANDLER_CARRIER: &str = "__fx";
+
+/// [kt-effect-fusion] The type parameter a dependent handler's carrier is
+/// bound to. A *parameter* rather than one of the generated `__Fx_N`
+/// classes, which are per-file: a handler declared in one module is
+/// constructed in another, and the two files' classes of the same shape are
+/// different types with the same name.
+const HANDLER_FX: &str = "__Fx";
 
 const KOTLIN_KEYWORDS: &[&str] = &[
     "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in",
@@ -977,7 +991,7 @@ impl<'p> Emitter<'p> {
                     .binding_ty_text(pattern)
                     .unwrap_or_else(|| "Any?".to_string());
                 let stars = vec!["*"; driver.arms].join(", ");
-                self.note_payload_cast(&elem);
+                self.note_payload_cast();
                 (
                     format!("U{}_{}<{stars}>", driver.arms, driver.emitted_arm + 1),
                     format!("{step}.value as {elem}"),
@@ -1438,7 +1452,7 @@ impl<'p> Emitter<'p> {
             return String::new();
         }
         let saved = self.enter_generics(&h.generics);
-        let generics = self.emit_generic_params(&h.generics);
+        let mut generics = self.emit_generic_params(&h.generics);
         let of = self.emit_type(&h.of);
         // [effect-handler-deps] [kt-effect-fusion] The handler's dependencies
         // arrive as **one fused value, built at the `use` site and stored**:
@@ -1446,23 +1460,36 @@ impl<'p> Emitter<'p> {
         // nothing to rebuild per call (user decision 2026-09-14). The
         // parameter is unnamed in Salvo, so the field name is the emitter's.
         let deps = self.handler_dep_effects(h);
-        let (dep_entries, dep_param) = if deps.is_empty() {
-            (Vec::new(), None)
+        let (dep_entries, dep_param, dep_bounds) = if deps.is_empty() {
+            (Vec::new(), None, Vec::new())
         } else {
-            let (class, props, _order) = self.emit_fx_class(&deps);
+            // [kt-effect-fusion] The carrier is a **type parameter** bounded
+            // by the Has-accessor interfaces, not a concrete `__Fx_N` class:
+            // those are minted per *file*, so a handler in one module could
+            // not be constructed from another (the `use` site's carrier of
+            // the same shape is a different class with the same name — found
+            // 2026-09-14 by std's `DefaultFs [RawFs]`, whose `use` lives in
+            // the program). A bound reads the accessors and erases to one
+            // class, exactly as it does for a fn [kt-effect-fusion].
+            self.check_fusable(&deps);
+            let mut bounds: Vec<String> = Vec::new();
             let entries: Vec<EffectEntry> = deps
                 .iter()
-                .zip(&props)
-                .map(|(rendered, prop)| EffectEntry {
-                    ty: None,
-                    rendered: rendered.clone(),
-                    expr: format!("{HANDLER_CARRIER}.{prop}"),
-                    fused: Some(HANDLER_CARRIER.to_string()),
+                .map(|rendered| {
+                    let (iface, prop) = self.has_iface(rendered);
+                    bounds.push(format!("{HANDLER_FX} : {iface}"));
+                    EffectEntry {
+                        ty: None,
+                        rendered: rendered.clone(),
+                        expr: format!("{HANDLER_CARRIER}.{prop}"),
+                        fused: Some(HANDLER_CARRIER.to_string()),
+                    }
                 })
                 .collect();
             (
                 entries,
-                Some(format!("private val {HANDLER_CARRIER}: {class}")),
+                Some(format!("private val {HANDLER_CARRIER}: {HANDLER_FX}")),
+                bounds,
             )
         };
         let ctor = {
@@ -1486,7 +1513,21 @@ impl<'p> Emitter<'p> {
                 format!("({})", params.join(", "))
             }
         };
-        let mut out = format!("\nclass {}{generics}{ctor} : {of} {{\n", h.name.name);
+        // The carrier's type parameter joins the handler's own, and its
+        // bounds go in a `where` clause after the supertype.
+        let where_clause = if dep_bounds.is_empty() {
+            String::new()
+        } else {
+            generics = match generics.strip_suffix('>') {
+                Some(rest) => format!("{rest}, {HANDLER_FX}>"),
+                None => format!("<{HANDLER_FX}>"),
+            };
+            format!(" where {}", dep_bounds.join(", "))
+        };
+        let mut out = format!(
+            "\nclass {}{generics}{ctor} : {of}{where_clause} {{\n",
+            h.name.name
+        );
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
             let init = match &field.default {
@@ -1923,7 +1964,7 @@ impl<'p> Emitter<'p> {
             rendered
         };
         let suppress = if self.unchecked_cast {
-            format!("{pad}@Suppress(\"UNCHECKED_CAST\")\n")
+            format!("{pad}@Suppress(\"UNCHECKED_CAST\", \"USELESS_CAST\")\n")
         } else {
             String::new()
         };
@@ -2218,19 +2259,16 @@ impl<'p> Emitter<'p> {
         saved
     }
 
-    /// [kt-suppress-cast] Notes a cast of an erased (`Any?`) payload to
-    /// `rendered`, when kotlinc would flag it as unchecked: a bare generic
-    /// parameter in scope (erased at run time), or any parameterized type
-    /// (whose arguments are). Casts to concrete non-generic types are
-    /// checked at run time and draw no warning, so they are not noted.
-    fn note_payload_cast(&mut self, rendered: &str) {
-        let generic_word = self
-            .generics
-            .iter()
-            .any(|g| word_tokens(rendered).any(|tok| tok == g));
-        if generic_word || rendered.contains('<') {
-            self.unchecked_cast = true;
-        }
+    /// [kt-suppress-cast] Notes a cast of an erased (`Any?`) payload, which
+    /// kotlinc flags one of two ways: **unchecked** where the target's
+    /// arguments are erased (a bare generic parameter, or any parameterized
+    /// type), and **useless** where kotlinc's own smart cast already gave
+    /// the payload that type — which it does for a concrete arm of a
+    /// concretely-typed union. Both are cosmetic and both are the emitter's
+    /// to silence: generated code must stay warning-free, and the author
+    /// cannot edit it.
+    fn note_payload_cast(&mut self) {
+        self.unchecked_cast = true;
     }
 
     fn emit_return_type(&mut self, ty: Option<&Type>) -> String {
@@ -2805,6 +2843,9 @@ impl<'p> Emitter<'p> {
             }
         }
         ctor_args.extend(written);
+        // The carrier the handler's dependencies arrive in, when it has any:
+        // its class also completes the handler's type-argument list below.
+        let mut dep_class: Option<String> = None;
         if !dep_effects.is_empty() {
             let (class, _props, order) = self.emit_fx_class(&dep_effects);
             let args: Vec<String> = order
@@ -2812,15 +2853,20 @@ impl<'p> Emitter<'p> {
                 .map(|i| self.lookup_effect_handler_by_type(&dep_effects[*i]))
                 .collect();
             ctor_args.push(format!("{class}({})", args.join(", ")));
+            dep_class = Some(class);
         }
         // [effect-handler-generics] A generic handler is constructed *at* a
         // type: Kotlin cannot infer the class's parameter from an empty
         // argument list, so the `use` site's type arguments are written out.
+        // A *dependent* handler carries one more parameter than Salvo wrote
+        // — the carrier's [kt-effect-fusion] — and Kotlin takes a type
+        // argument list whole or not at all, so it is appended here.
         let type_args = match self.checked.use_handler_args.get(&(self.file_idx, span)) {
             Some(args) if args.iter().all(ty_is_concrete) => {
                 let args = args.clone();
-                let rendered: Vec<String> =
+                let mut rendered: Vec<String> =
                     args.iter().map(|a| self.kotlin_ty(a)).collect();
+                rendered.extend(dep_class.clone());
                 format!("<{}>", rendered.join(", "))
             }
             _ => String::new(),
@@ -3123,13 +3169,13 @@ impl<'p> Emitter<'p> {
                     .unwrap_or_else(|| "Any".to_string());
                 let bind = if size >= 2 {
                     let access = if test.nullable { "?" } else { "" };
-                    self.note_payload_cast(&kt);
+                    self.note_payload_cast();
                     format!(
                         "{pad}        val {} = {subj}{access}.value as {kt}\n",
                         kt_ident(&b.name)
                     )
                 } else {
-                    self.note_payload_cast(&kt);
+                    self.note_payload_cast();
                     format!("{pad}        val {} = {subj} as {kt}\n", kt_ident(&b.name))
                 };
                 out.push_str(&bind);
@@ -3146,7 +3192,7 @@ impl<'p> Emitter<'p> {
                         Expr::Ident(id) => {
                             let kt = self.emit_ty(&target);
                             let access = if test.nullable { "?" } else { "" };
-                            self.note_payload_cast(&kt);
+                            self.note_payload_cast();
                             out.push_str(&format!(
                                 "{pad}        val {} = {subj}{access}.value as {kt}\n",
                                 kt_ident(&id.name)
@@ -3238,7 +3284,7 @@ impl<'p> Emitter<'p> {
                 .map(|t| t.nullable)
                 .unwrap_or(false);
             let access = if nullable { "?" } else { "" };
-            self.note_payload_cast(&kt);
+            self.note_payload_cast();
             out.push_str(&format!(
                 "{pad}val {} = {subj}{access}.value as {kt}\n",
                 kt_ident(&id.name)
@@ -3269,7 +3315,7 @@ impl<'p> Emitter<'p> {
                         .map(|t| self.emit_ty(&t))
                         .unwrap_or_else(|| "Any".to_string());
                     let access = if test.nullable { "?" } else { "" };
-                    self.note_payload_cast(&kt);
+                    self.note_payload_cast();
                     format!(
                         "val {} = {subj}{access}.value as {kt}",
                         kt_ident(&binding.name)
@@ -3318,6 +3364,12 @@ impl<'p> Emitter<'p> {
                 let kt = self.emit_ty(&logical);
                 let access = if nullable { "?" } else { "" };
                 let place = self.emit_place_storage(expr);
+                // [kt-suppress-cast] Reading a narrowed place is a payload
+                // cast like any other: the arms of a union are erased, so a
+                // parameterized payload (`Union8<…>` for a nested union,
+                // `List<Str>`) draws kotlinc's unchecked warning. Missed
+                // until std's fs read one — every other cast site noted it.
+                self.note_payload_cast();
                 format!("({place}{access}.value as {kt})")
             }
             Some((PlaceUnwrap::NonNull, _)) => {
@@ -3465,6 +3517,9 @@ impl<'p> Emitter<'p> {
             // Kotlin nullability is transparent: a bare value is already a
             // valid `T?` [type-nullable].
             Coercion::WrapOption { .. } => code,
+            // [type-none-unit] The `None` *value* in a `None`-typed slot is
+            // the unit value, not `null`: the rendered code is replaced.
+            Coercion::NoneUnit => "Unit".to_string(),
             // [str-drop-mut] [kt-mut-str] `StringBuilder` is not a
             // `String`; `MutableList<T>` *is* a `List<T>`, so that drop
             // renders nothing.
@@ -4822,7 +4877,16 @@ impl<'p> Emitter<'p> {
             .symbols
             .effect_of_fn
             .get(name)
-            .filter(|_| !self.checked.local_calls.contains(&(self.file_idx, span)))
+            .filter(|_| {
+                !self.checked.local_calls.contains(&(self.file_idx, span))
+                    // [effect-available] ...or to an ordinary fn, because no
+                    // instance of the owning effect was in scope: the name is
+                    // a member somewhere, this call is not.
+                    && !self
+                        .checked
+                        .fn_over_member_calls
+                        .contains(&(self.file_idx, span))
+            })
         {
             let owners = owners.clone();
             // [effect-member-overload] Several effects may declare the
@@ -5737,6 +5801,34 @@ impl<'p> Emitter<'p> {
         (iface, prop)
     }
 
+    /// [kt-effect-fusion] Whether an effect set can be fused *here*: the
+    /// Has-accessor interfaces are program-wide generated types, so an
+    /// effect instance that is still **generic** at this site cannot be one
+    /// of their properties (nor a bound on a carrier). Reported rather than
+    /// emitted as an undeclared `T` [backend-never-wrong] — the same cut
+    /// Rust states as "a `use` whose effect instance is still generic"
+    /// ([rs-effect-fusion]); before 2026-09-14 Kotlin let it through and
+    /// kotlinc reported the unresolved name.
+    fn check_fusable(&mut self, rendered: &[String]) {
+        let unresolved: Vec<String> = self
+            .generics
+            .iter()
+            .filter(|g| rendered.iter().any(|r| mentions_ident(r, g)))
+            .cloned()
+            .collect();
+        if !unresolved.is_empty() {
+            let mut names = unresolved;
+            names.sort();
+            self.error(format!(
+                "an effect set fused here is still generic (`{}`): the kotlin \
+                 backend needs concrete effect instances for its accessor \
+                 classes — a handler's dependency may not mention the handler's \
+                 own type parameters",
+                names.join("`, `")
+            ));
+        }
+    }
+
     /// [kt-effect-fusion] One fused class: `override val` per effect in the
     /// set, implementing each instance's Has interface. Used for `use`-site
     /// fusions, for a dependent handler's stored environment, and for the
@@ -5755,30 +5847,7 @@ impl<'p> Emitter<'p> {
     /// while a `use` site follows the environment's, and those differ
     /// routinely.
     fn emit_fx_class(&mut self, rendered: &[String]) -> (String, Vec<String>, Vec<usize>) {
-        // A fused class is a plain generated class: it has no type parameters
-        // of its own, so an effect instance that is still *generic* here
-        // cannot be rendered as one of its properties. Reported rather than
-        // emitted as an undeclared `T` [backend-never-wrong] — the same cut
-        // Rust states as "a `use` whose effect instance is still generic"
-        // ([rs-effect-fusion]); before 2026-09-14 Kotlin let it through and
-        // kotlinc reported the unresolved name.
-        let unresolved: Vec<String> = self
-            .generics
-            .iter()
-            .filter(|g| rendered.iter().any(|r| mentions_ident(r, g)))
-            .cloned()
-            .collect();
-        if !unresolved.is_empty() {
-            let mut names = unresolved;
-            names.sort();
-            self.error(format!(
-                "an effect set fused here is still generic (`{}`): the kotlin \
-                 backend needs concrete effect instances for its accessor \
-                 classes — a handler's dependency may not mention the handler's \
-                 own type parameters",
-                names.join("`, `")
-            ));
-        }
+        self.check_fusable(rendered);
         let props: Vec<String> = rendered.iter().map(|r| self.has_iface(r).1).collect();
         let mut order: Vec<usize> = (0..rendered.len()).collect();
         order.sort_by(|a, b| rendered[*a].cmp(&rendered[*b]));

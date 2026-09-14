@@ -250,13 +250,19 @@ Conventions:
   (`is U2_1<*, *>` leaves `value` at `Any?`) casts back to the arm's type;
   when that target is a *generic parameter* (erased at run time) or a
   *parameterized type* (whose arguments are), kotlinc reports an unchecked
-  cast — in code the author cannot edit. The emitter notes such casts as it
-  renders them (generic loop element reads, `when`-arm and `is` bindings,
-  `^` widening binds) and prepends `@Suppress("UNCHECKED_CAST")` to the
-  enclosing emitted function, so generated code stays warning-free. A cast
-  to a concrete non-generic type is run-time checked, draws no warning, and
-  gets no annotation. Soundness is not delegated to the cast: the checker
-  proved the arm before the emitter spelled it.
+  cast — in code the author cannot edit. And where the target *is* concrete,
+  kotlinc's smart cast has already given the payload that type, so it reports
+  the cast as **useless** — the same class of noise from the other direction.
+  The emitter notes every payload cast as it renders it (generic loop element
+  reads, `when`-arm and `is` bindings, `^` widening binds, and narrowed place
+  reads) and prepends `@Suppress("UNCHECKED_CAST", "USELESS_CAST")` to the
+  enclosing emitted function, so generated code stays warning-free whichever
+  warning applies. Soundness is not delegated to the cast: the checker proved
+  the arm before the emitter spelled it.
+  * Both halves were found by std's `core.fs` (2026-09-14): its narrowed
+    reads of a nested error union drew the unchecked warning from a site that
+    noted nothing, and `to_str`'s concrete arms drew the useless one — in
+    std, which must compile clean.
 
 ## Control flow
 
@@ -461,19 +467,37 @@ far less than Rust here because objects alias: a handler can simply
 where Rust had to build the fusion to get the same programs running
 ([rs-effect-fusion]).
 
-* **Gated program-wide, on the same predicate as Rust**: any handler
-  declaring an effect dependency switches the whole program; otherwise
-  effects thread as one handler parameter each [kt-effect-params] and
-  nothing below is emitted. The predicate is *syntactic* since 2026-09-14 —
-  a non-empty effect list on a handler [effect-handler-deps] — and it must
-  stay identical to [rs-effect-fusion]'s, or the two backends stop running
-  the same programs through the same shapes (a stale gate here emitted
-  handler carriers into an un-fused program: caught the same day).
+* **Gated program-wide, on the same predicate as Rust**: any **reachable**
+  handler declaring an effect dependency switches the whole program;
+  otherwise effects thread as one handler parameter each [kt-effect-params]
+  and nothing below is emitted. The predicate is *syntactic* since
+  2026-09-14 — a non-empty effect list on a handler [effect-handler-deps],
+  in a module the program reaches [mod-used-only] — and it must stay
+  identical to [rs-effect-fusion]'s, or the two backends stop running the
+  same programs through the same shapes (a stale gate here emitted handler
+  carriers into an un-fused program: caught the same day).
+  * The reachability half arrived with std's filesystem (2026-09-14): std
+    now *ships* a dependent handler, so a declaration-wide gate fused every
+    program in existence. It is also why that handler lives in `core.hostfs`
+    rather than `core.fs` [fs-host-split] — reachability is name-based, and
+    `core.fs` declares a `next` and a `to_str`.
+  * A dependent handler cannot be emitted with the fusion off (it is an
+    internal codegen error naming the handler), which is the other half of
+    why the split is structural rather than tidiness.
 * [effect-handler-deps] A handler's dependencies emit as **one stored fused
   value**, built at the `use` site and held for the handler's lifetime (user
   decision 2026-09-14):
-  `class ConsoleLogger(private val __fx: __Fx_1) : Logger`, registered as
-  `ConsoleLogger(__Fx_1(__fx.__fx_Console))`. Member bodies resolve a
+  `class ConsoleLogger<__Fx>(private val __fx: __Fx) : Logger where __Fx :
+  __Has_Console`, registered as `ConsoleLogger(__Fx_1(__fx.__fx_Console))`.
+  The carrier is a **bounded type parameter**, not one of the generated
+  `__Fx_N` classes: those are minted per *file*, so naming one in the class's
+  signature left a handler declared in another module unconstructable — found
+  2026-09-14 by std's `DefaultFs [RawFs]`, whose `use` site lives in the
+  program (two files' carriers of the same shape are different types with the
+  same name). A generic *handler* with dependencies therefore takes one more
+  type argument than Salvo wrote, and the `use` site appends the carrier
+  class to its written list, since Kotlin takes a type-argument list whole or
+  not at all. Member bodies resolve a
   dependency to a property of that field (`__fx.__fx_Console`) — an
   `override` signature must match the interface, so nothing can arrive as a
   parameter — and pass the field itself to a fused callee. It replaced a
@@ -712,6 +736,12 @@ where Rust had to build the fusion to get the same programs running
   * A `use` whose declaring module has no host companion is a codegen error
     naming `salvo platform generate` [backend-never-wrong]; std's companion
     is shipped in `std/platform/` rather than generated [platform-tree].
+  * The skeleton imports the **packages its own signatures need**: the
+    declaring module's, the effect's when that lives elsewhere, and the root
+    `salvo` package when a member's result is a union wrapper. Missed until
+    `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
+    — a skeleton that does not compile is a skeleton that fails at its one
+    job.
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable

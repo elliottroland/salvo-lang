@@ -95,7 +95,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__2(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -124,7 +124,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__3(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__4(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())
@@ -185,7 +185,7 @@ import salvo.core.list.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 
-@Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun<It, T, U> map(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): MutableList<U> {
     val out = mutableListOf<U>()
     while (true) {
@@ -197,7 +197,7 @@ fun<It, T, U> map(it: It, f: (T) -> U, next: (It) -> Union2<T, Finished>): Mutab
     return out
 }
 
-@Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished>): MutableList<T> {
     val out = mutableListOf<T>()
     while (true) {
@@ -211,7 +211,7 @@ fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, Finished
     return out
 }
 
-@Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun<It, T, A> reduce(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Finished>): A {
     var acc = init
     while (true) {
@@ -223,7 +223,7 @@ fun<It, T, A> reduce(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, Fi
     return acc
 }
 
-@Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun<D, It, T, U> map_to(dest: D, it: It, f: (T) -> U, add: (D, U) -> Unit, next: (It) -> Union2<T, Finished>): D {
     while (true) {
         val __loop4_step = next(it)
@@ -234,7 +234,7 @@ fun<D, It, T, U> map_to(dest: D, it: It, f: (T) -> U, add: (D, U) -> Unit, next:
     return dest
 }
 
-@Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun<D, It, T> filter_to(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Unit, copy: (T) -> T, next: (It) -> Union2<T, Finished>): D {
     while (true) {
         val __loop5_step = next(it)
@@ -269,7 +269,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__4(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__5(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -311,7 +311,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__5(p: StrYield): Union2<Char, Finished> {
+fun next__6(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -351,7 +351,7 @@ fun greet(console: Console, person: Person) {
     println(console, "Hello, ${full_name(person)}!")
     var __loop1_pass = iter__8(range(1, 4))
     while (true) {
-        val __loop1_step = next__6(__loop1_pass)
+        val __loop1_step = next__7(__loop1_pass)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val i = __loop1_step.value
         println(console, "  $i: ${person.age + i}")
@@ -376,7 +376,7 @@ fun iter__8(r: Range): __Pass_Range {
     return __Pass_Range(end = r.end, at = r.start)
 }
 
-fun next__6(__p: __Pass_Range): Union2<Int, Finished> {
+fun next__7(__p: __Pass_Range): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return U2_2<Int, Finished>(finished())
     }

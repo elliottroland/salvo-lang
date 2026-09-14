@@ -153,6 +153,21 @@ Conventions:
     keep the checker and emitters agreeing on the ident-unwrap predicate.
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
+* [type-none-unit] `None` is **one spelling for two things** — the absent
+  arm of a `T?` and the sole value of the `None` type — and the targets
+  spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),
+  so which one a `None` *expression* lowers to comes from its **slot**, not
+  from the expression. The checker records `Coercion::NoneUnit` where a
+  `None` literal fills a slot whose type *is* `None`, and the emitters
+  render the target's unit value there.
+  * The shape that needs it is a generic argument the call inferred as
+    `None`: `ok(None)` building an `Ok None | Err E` (phase 4's
+    `close`/`flush`/`delete` all return one), `emitted(None)` for a
+    sequence of optionals. Found 2026-09-14 — before the rule both
+    backends emitted an optional into a unit-typed union arm, which
+    neither target compiles.
+  * A `return None` from a `-> None` fn never needed it: the return
+    statement renders no value at all.
 * [type-array] `T[]` is an array; `arr[i]` is 0-indexed; size via
   `size()`. It has **no literal syntax and no generator syntax** since
   2026-09-13 — `[1, 2, 3]` is a `List` [col-literal] — so `array_of(...)`
@@ -2003,6 +2018,23 @@ Conventions:
 * [effect-available] Calling an effect member requires an instance of its
   effect in scope; otherwise "no handler for effect" (a spanned checker
   error since M5).
+  * **Availability decides a bare call first** (user-visible consequence,
+    2026-09-14): a name that is both an effect member and an ordinary fn
+    resolves to the **fn** wherever no instance of the owning effect is in
+    scope, without `@` anywhere. The multi-owner case always read
+    availability this way; this is the single-owner case of the same rule.
+    Without it, std declaring `Fs` claimed `close`, `write`, `read_line`
+    and `position` program-wide, and a program with a `close` of its own
+    stopped compiling whether or not it touched a file.
+    * Recorded for the emitters as `fn_over_member_calls`, since their own
+      "is this a member?" question is asked of a program-wide, scope-blind
+      map (`Symbols::effect_of_fn`) — the same reason `local_calls` exists.
+    * **Still open** where the effect *is* available: a fitting free fn
+      does not compete with the member set, so `close(lines)` beside an
+      `Fs` in scope is an error naming `Fs.close`'s overloads. The remedy
+      today is a distinct name (std's pass discharger is `close_lines`);
+      making the two one overload set is a decision, not a defect
+      (ROADMAP.md).
 * [effect-disambiguation] With multiple instances of a generic effect in
   scope, a member call disambiguates by (in order): explicit type args
   (`next_random<Int>()`), argument types, the expected type
@@ -2026,6 +2058,61 @@ Conventions:
     same entries they began it with. The checker truncates (a `use` only
     pushes); an emitter whose `use` *rewrites* the entries already in scope
     saves and restores the whole environment instead.
+
+### The filesystem (std, `core.fs` + `core.hostfs`)
+
+* [fs-surface] `core.fs` declares the **surface**: `linear struct FsError`
+  over a droppable `FsErrorKind` union (8 arms), the linear stream tokens
+  `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
+  *and* stream operations as members [effect-member-overload]), the `Lines`
+  pass, and the one-shots (`read_to_str`, `read_lines`, `write_str`,
+  `open_lines`). Application code declares `[Fs]` and nothing else.
+  * Fallible members return `Ok T | Err FsError`: an effect member may
+    declare no effects, so there is no `[Throw]` here
+    [effect-member-no-effects]. The `Err` arm is linear, so a result that
+    is never looked at is a compile error, and narrowing to `Ok` discharges
+    it [linear-union-arm]. `ignore(e)` acknowledges, `detach(e)` hands back
+    the droppable kind (a linear value may not be stored
+    [linear-composite]).
+* [fs-token] A stream token is **opaque and never `Mut`** (user decision
+  2026-09-14): its only field is the handle, and every byte of mutable
+  state — position, buffer, the resource — lives in *handler* state, where
+  `Mut` on the token would have claimed a mutation that does not happen.
+  Stream members therefore keep their token (`read_line(s: InStream) ->
+  Str | None => s`) and only `close` consumes it (`=> !s`), which is what
+  makes `close` the discharger [linear-group].
+  * Consequences: `Mut` appears nowhere in the fs surface, the tokens need
+    no `canbe Mut`, and a token in a field (`Lines`) is read without
+    projecting a `Mut` out of it.
+  * A token that outlives its minting handler's `use` scope is a clean
+    `Err StaleHandle`, not undefined behavior: handler id namespaces are
+    per handler.
+* [fs-errors-at-close] Read and write errors are **recorded** by the
+  handler and surface at `close` (and `flush`): `read_line` reports the end
+  of the stream either way, and `write` returns only the byte count, so a
+  loop never narrows a result per line. `close` on both token types returns
+  `Ok None | Err FsError`, so dropping it on the floor does not compile.
+* [fs-host-split] The host-backed filesystem is a **separate module**,
+  `core.hostfs`: `effect RawFs` (plain `Long` handles, droppable kinds),
+  `platform handler HostRawFs of RawFs` (std ships
+  `std/platform/core/hostfs.{kt,rs}` [platform-handler]) and
+  `handler DefaultFs [RawFs] of Fs`, which mints the tokens, maps kinds
+  into `FsError` and discharges in Salvo — the host never holds an
+  obligation.
+  * The split is load-bearing, not cosmetic: `core.fs` declares a `next`
+    and a `to_str`, so name-based reachability drags it into ordinary
+    programs [mod-used-only], while a *dependent handler* switches the
+    whole program to the fused effect emission
+    ([rs-effect-fusion]/[kt-effect-fusion]). Keeping `DefaultFs` out of
+    `core.fs` is what keeps a program that never opens a file unfused.
+  * `[RawFs]` stays greppable as the audit: nothing but a composition root
+    (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
+* [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
+  (a ranged `open_read_at` replaces it, so streams stay forward-only),
+  byte payloads (`read_bytes`/`write_bytes` are the next deliverable),
+  recursive walk or delete, temp files, watching, permissions, symlink
+  creation, and stdin (Console's, not Fs's). `rename_path` is spelled with
+  the suffix because `rename` is a keyword [fn-rename].
 
 ### Non-resumption: `throw` and `try`
 

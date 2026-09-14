@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 881 tests, complete: the toolchain tests are
+cargo test                  # 923 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,97 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The filesystem surface — `core.fs` and `core.hostfs` (phase 4 item 6.3;
+user decision on the token shape, 2026-09-14).** std has a filesystem: an
+`Fs` effect carrying path *and* stream operations, linear stream tokens, a
+linear `FsError`, a `Lines` pass, the one-shots, and a host seam at the
+bottom. Both backends compile and run the same program against real files to
+byte-identical output, warning-free.
+
+**The decision: tokens are never `Mut`** (option (b) of ROADMAP's open
+question). `Mut` is minted at construction and needs `canbe Mut`, so
+`open_read` returning a plain `InStream` could not feed a
+`read_line(s: Mut InStream)`. The call went the other way instead: the token
+is an opaque handle and *all* mutable state — position, buffer, resource —
+lives in handler state, where the decided architecture already put it, so
+`Mut` claims a mutation that does not happen. `Mut` is now absent from the
+whole fs surface: stream members keep their token (`=> s`), `close` consumes
+it (`=> !s`), and a token in a field (`Lines`) is read without projecting a
+`Mut` out of it [fs-token].
+
+**Two modules, and the split is load-bearing.** `core.fs` is the surface;
+`core.hostfs` holds `RawFs`, `platform handler HostRawFs` and
+`handler DefaultFs [RawFs] of Fs`. Reachability is name-based, and `core.fs`
+declares a `next` and a `to_str`, so ordinary programs drag the surface in —
+harmless — while a *dependent handler* switches the whole program to the
+fused effect emission, which would have fused every Salvo program ever
+compiled. The fusion gate also became reachable-only, in both backends
+[fs-host-split].
+
+**Four defects fell out of being the first real customer**, all of them
+invisible until now and all fixed here:
+
+* **`ok(None)` did not compile on either backend** [type-none-unit]. `None`
+  is one spelling for the absent arm of a `T?` *and* for the sole value of
+  the `None` type; the targets spell those differently (`None`/`()`,
+  `null`/`Unit`). The checker now records a `NoneUnit` coercion where a
+  `None` literal fills a slot whose type *is* `None` — a generic argument the
+  call inferred as `None` is the shape — and the emitters render the unit
+  value. `Ok None | Err FsError` is six members of `Fs`, so nothing worked
+  before this.
+* **A Kotlin handler with dependencies could not be constructed from another
+  module** [kt-effect-fusion]: its carrier parameter was one of the per-file
+  `__Fx_N` classes, so `DefaultFs` in std and the `use` site in the program
+  disagreed about a type with the same name. The carrier is a bounded type
+  parameter now, as it already was for fns; a generic dependent handler's
+  `use` site appends the carrier to its written type arguments.
+* **`salvo platform generate` wrote skeletons that did not compile** when a
+  member's signature mentioned more than primitives: no `use crate::…`/
+  `import` lines for the union wrappers, the declaring module's items, or the
+  effect's module. Fixed in both backends — a skeleton that does not compile
+  fails at its one job [rs-platform-handler] [kt-platform-handler].
+* **std's emitted Kotlin was not warning-free**: narrowed reads of a nested
+  union drew `UNCHECKED_CAST` from a site that noted nothing, and concrete
+  arms drew `USELESS_CAST` (kotlinc's smart cast had already typed them). One
+  annotation now covers both, on any function containing a payload cast
+  [kt-suppress-cast].
+
+**One rule changed, and it had to**: **availability decides a bare member
+call** [effect-available]. A name that is both an effect member and an
+ordinary fn now resolves to the *fn* wherever no instance of the owning
+effect is in scope. Without it, std declaring `Fs` claimed `close`, `write`,
+`read_line` and `position` program-wide: a program with a `close` of its own
+stopped compiling whether or not it touched a file — which is exactly what
+happened to a dozen tests the moment `core.fs` existed. The multi-owner case
+already read availability this way; this is the single-owner case of the same
+rule, recorded for the emitters as `fn_over_member_calls` for the same reason
+`local_calls` exists.
+
+**Still open, and it is a language call**: where the effect *is* available, a
+fitting free fn does not compete with the member set, so `close(p: Lines)`
+cannot be called while an `Fs` is in scope. std ships the pass discharger as
+`close_lines` to work today; the options (one overload set, a
+no-fitting-member fallback, or distinct names forever) are a **DECISION** in
+ROADMAP.md.
+
+Smaller findings, recorded rather than fixed: `rename` is a keyword, so the
+member is `rename_path`; `core.fs` is emitted (dead) in programs that never
+open a file, until reachability resolves calls through `call_fn`; and a
+pass's *type* must be visible for `for` to drive it, which reads as a missing
+import of something the value already has. All three are in ROADMAP.md.
+
+Tests: 923 passing (from 920), fresh in 69s. Per backend a golden test of the
+emitted layering and **one compile-and-run case over the same program**
+(create_dirs → write_str → read_lines → the `Lines` pass → `open_read_at` +
+`position` → a missing file, error acknowledged → list_dir → delete), plus
+the Kotlin fusion-carrier assertion and the `USELESS_CAST` reversal. Four
+test programs were renamed off std's new names (`Fs`, `InStream`, `Lines`),
+which is what a fresh std module costs. Rules: LANGUAGE_SPEC.md gained
+[fs-surface] [fs-token] [fs-errors-at-close] [fs-host-split] [fs-v1-cuts]
+[type-none-unit] and the [effect-available] amendment; LANGUAGE.md gained a
+"Files" section; both backend specs carry the fusion, skeleton and cast
+rules.
 
 **Linear tokens can be closed by an effect member, and Rust member
 parameters follow their clause (S-IO item 6's second prerequisite plus the

@@ -193,6 +193,19 @@ pub enum Coercion {
     /// (`Some(...)` in Rust); backends with transparent nullability
     /// (Kotlin) treat this as a no-op.
     WrapOption { target: Ty },
+    /// [type-none-unit] The `None` **value** stands in a slot whose type is
+    /// the bare `None` type, so its representation is the target's *unit*
+    /// value rather than an absent optional (Rust `()`, Kotlin `Unit`).
+    ///
+    /// `None` is spelled the same in both roles — the absent arm of a `T?`,
+    /// and the sole value of the `None` type — and the two lower
+    /// differently, so the choice cannot be made from the expression alone.
+    /// It is made here, where the slot is known: a generic argument slot the
+    /// call inferred as `None` (`ok(None)` for an `Ok None | Err E` result,
+    /// `emitted(None)` for a sequence of optionals) is the shape that needs
+    /// it, and emitting the optional there is target code that does not
+    /// compile.
+    NoneUnit,
     /// [str-drop-mut] A `Mut` qualifier is dropped here: the value is used
     /// where the plain type is required. Every other qualifier erases, so
     /// widening is free — but `Mut` is the one qualifier a backend may
@@ -340,6 +353,16 @@ pub struct Checked {
     /// `core/seq.sv` — the checker and the emitters disagreeing about what
     /// a call *is*.
     pub local_calls: HashSet<Key>,
+    /// [effect-available] Call sites whose name *is* an effect member but
+    /// which resolved to an ordinary **fn declaration**, because no instance
+    /// of the owning effect was in scope (2026-09-14). Recorded for the same
+    /// reason as `local_calls`: the emitters ask a program-wide,
+    /// scope-blind map (`Symbols::effect_of_fn`) whether a name is a member,
+    /// and would otherwise emit a member dispatch for a call the checker
+    /// resolved to a function — std's `Fs` claims `close`, `write`,
+    /// `read_line` and `position`, so this is every program that has one of
+    /// those names and no filesystem.
+    pub fn_over_member_calls: HashSet<Key>,
     /// Concrete effect instances threaded as leading handler arguments for
     /// a call to a fn that declares effect dependencies (keyed by the call
     /// span, in the callee's declaration order).
@@ -13184,6 +13207,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         join
     }
 
+    /// [type-none-unit] Records that a `None` **literal** argument fills a
+    /// slot whose type *is* `None`, so the emitters render the target's unit
+    /// value (`()`, `Unit`) instead of an absent optional.
+    ///
+    /// `None` is one spelling for two things — the absent arm of a `T?` and
+    /// the sole value of the `None` type — and the targets spell them
+    /// differently, so the choice belongs wherever the *slot* is known. A
+    /// generic argument the call inferred as `None` is the shape that needs
+    /// it: `ok(None)` building an `Ok None | Err E`, `emitted(None)` for a
+    /// sequence of optionals. Emitting the optional there is target code
+    /// that does not compile, which is how the hole was found (phase 4's
+    /// `close(s) -> Ok None | Err FsError`).
+    fn note_none_unit(&mut self, arg: &Expr, slot: &Ty) {
+        if slot.is_none_ty() && matches!(arg, Expr::Ident(id) if id.name == "None") {
+            self.out
+                .coerce
+                .insert(self.key(arg.span()), Coercion::NoneUnit);
+        }
+    }
+
     /// Records the representation change (if any) needed to use a value of
     /// (`logical`, `repr`) where `expected` is required. Arm matching is
     /// positional over the declared type's non-`None` arms
@@ -14199,6 +14242,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         // form [effect-at].
         if let Some(members) = self.scope.effect_members.get(name) {
             let members = members.clone();
+            // [effect-available] **Availability decides first** (2026-09-14):
+            // a member call needs an instance, so a name that is *also* an
+            // ordinary fn is that fn wherever no handler is in scope — and
+            // `@` is not needed to say so. Without this rule std's `Fs`
+            // claimed `close`, `write`, `read_line` and `position`
+            // program-wide, and a program with a `close` of its own stopped
+            // compiling the moment the module existed, whether or not it
+            // opened a file. The multi-owner branch below already read
+            // availability this way; this is the single-owner case of the
+            // same rule.
+            let any_available = members.iter().any(|(e, _)| {
+                self.effect_env
+                    .iter()
+                    .any(|t| matches!(t, Ty::Named { name: n, .. } if *n == e.name.name))
+            });
+            if !any_available && !self.overloads_of(name).is_empty() {
+                // Fall through to the fn overloads below — and tell the
+                // emitters, whose own "is this a member?" map cannot see
+                // scopes [effect-available].
+                self.out.fn_over_member_calls.insert(self.key(span));
+            } else {
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
@@ -14272,6 +14336,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.check_effect_call(
                 effect, &overloads, type_args, args, named, expected, span,
             );
+            }
         }
 
         // 2. Function overloads [fn-overload] (fn declarations, else
@@ -14623,6 +14688,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             let logical = arg_tys[i].clone();
             let repr = self.repr_of(args[i], &logical);
             self.maybe_coerce(args[i].span(), &logical, &repr, &pt);
+            // [type-none-unit] A generic slot the call inferred as `None`
+            // takes the unit value, not an optional.
+            self.note_none_unit(args[i], &pt);
         }
         // [linear-discard] `discard` is the obligation's **terminal**, and
         // it is legal only inside a *discharger* of the value's type — a fn
@@ -15738,6 +15806,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let logical = arg_tys[i].clone();
                     let repr = self.repr_of(args[i], &logical);
                     self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+                    // [type-none-unit] As for a fn call: a `None`-typed slot
+                    // takes the unit value.
+                    self.note_none_unit(args[i], &sp);
                 }
             }
             None => {

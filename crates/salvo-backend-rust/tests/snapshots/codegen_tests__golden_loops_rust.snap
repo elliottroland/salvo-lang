@@ -102,7 +102,7 @@ pub struct ListYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__2<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -131,7 +131,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__3<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__4<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
@@ -265,7 +265,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__4<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__5<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -305,7 +305,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__5(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__6(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -369,7 +369,7 @@ pub fn iter__8(r: &Range) -> __Pass_Range {
     return __Pass_Range { end: r.end, at: r.start };
 }
 
-pub fn next__6(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
+pub fn next__7(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -425,7 +425,7 @@ __loop3
     }
     let mut __loop4_ran = false;
     let mut __loop5_pass = iter__8(&(range(0, 0)));
-    while let Union2::U1(mut x) = next__6(&mut __loop5_pass) {
+    while let Union2::U1(mut x) = next__7(&mut __loop5_pass) {
         __loop4_ran = true;
         println(&mut console, &("unreachable".to_string()));
     }

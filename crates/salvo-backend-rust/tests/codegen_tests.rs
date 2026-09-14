@@ -2665,7 +2665,7 @@ fn rustc_compiles_and_runs_operators() {
 // availability in `shut` and by the `@Effect` selector in `main`.
 
 const EFFECT_AT_DEMO: &str = r#"
-effect Fs {
+effect Store {
     fn open(path: Str) -> Int => path
     fn close(handle: Int) -> Str
 }
@@ -2674,7 +2674,7 @@ effect Net {
     fn close(handle: Int) -> Str
 }
 
-handler MemFs of Fs {
+handler MemStore of Store {
     fn open(path: Str) -> Int => path {
         return 7
     }
@@ -2689,17 +2689,17 @@ handler MemNet of Net {
     }
 }
 
-fn shut(h: Int) [Fs] -> Str {
+fn shut(h: Int) [Store] -> Str {
     return close(h)
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use MemFs()
+    use MemStore()
     use MemNet()
     let h = open("a.txt")
     println(shut(h))
-    println(close@Fs(h))
+    println(close@Store(h))
     println(close@Net(9))
     println(h.close@Net())
 }
@@ -4309,11 +4309,11 @@ pub const UNBOUNDED_OUTPUT: &str = "v 0\nv 6\nv 12\n";
 /// `return` alike. Before this the linear obligation counted as discharged by
 /// the move into the loop — bookkeeping — while the resource leaked.
 pub const RAW_CLOSE_DEMO: &str = r#"
-linear struct Lines : Yield<self, Int> canbe Mut {
+linear struct Ticks : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
+fn next(l: Mut Ticks) -> Emitted Int | Finished => l: Mut {
     if l.at <= 0 {
         return finished()
     }
@@ -4322,13 +4322,13 @@ fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
     return emitted(v)
 }
 
-fn close(l: Lines) [Console] -> None => !l {
+fn close(l: Ticks) [Console] -> None => !l {
     discard(l)
     println("closed")
 }
 
 fn drained() [Console] -> None {
-    let lines = Mut Lines { at: 2 }
+    let lines = Mut Ticks { at: 2 }
     for n in lines {
         println("n ${n}")
     }
@@ -4337,7 +4337,7 @@ fn drained() [Console] -> None {
 }
 
 fn abandoned() [Console] -> None {
-    let lines = Mut Lines { at: 5 }
+    let lines = Mut Ticks { at: 5 }
     for n in lines {
         println("m ${n}")
         break
@@ -5117,10 +5117,10 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
     let src = &main.content;
     for needle in [
         // The optional, and the `state` slot inside the generated pass.
-        "next__2(p.as_mut().unwrap())",
-        "next__2(__p.inner.as_mut().unwrap())",
+        "next__3(p.as_mut().unwrap())",
+        "next__3(__p.inner.as_mut().unwrap())",
         // The union arm.
-        "next__2(q.u1_mut())",
+        "next__3(q.u1_mut())",
         // The assignment base.
         "r.as_mut().unwrap().at = 2",
     ] {
@@ -6115,7 +6115,7 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // was removed 2026-09-10, and again when `Set` and `Map` brought their own
     // passes (two more) 2026-09-13.
     assert!(
-        main.contains("next__8(&mut console, &mut __loop"),
+        main.contains("next__9(&mut console, &mut __loop"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
@@ -6613,15 +6613,15 @@ fn rustc_compiles_and_runs_a_linear_union_arm() {
 /// same-file `close_take`, which closes the source. The uncomposable-pass
 /// cut is closed.
 const WRAPPER_PASS_DEMO: &str = r#"
-linear struct Lines : Yield<self, Int> canbe Mut {
+linear struct Ticks : Yield<self, Int> canbe Mut {
     at: Int
 }
 
-fn open_lines(from: Int) -> Mut Lines {
-    return Mut Lines { at: from }
+fn open_lines(from: Int) -> Mut Ticks {
+    return Mut Ticks { at: from }
 }
 
-fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
+fn next(l: Mut Ticks) -> Emitted Int | Finished => l: Mut {
     if l.at <= 0 {
         return finished()
     }
@@ -6630,17 +6630,17 @@ fn next(l: Mut Lines) -> Emitted Int | Finished => l: Mut {
     return emitted(v)
 }
 
-fn close(l: Lines) [Console] -> None => !l {
+fn close(l: Ticks) [Console] -> None => !l {
     println("closed lines")
     discard(l)
 }
 
 linear struct Take : Yield<self, Int> canbe Mut {
-    source: Mut Lines,
+    source: Mut Ticks,
     left: Int
 }
 
-fn take(source: Mut Lines, n: Int) -> Mut Take => !source {
+fn take(source: Mut Ticks, n: Int) -> Mut Take => !source {
     return Mut Take { source: source, left: n }
 }
 
@@ -7471,13 +7471,13 @@ const MEMBER_OVERLOADS: &str = r#"
 struct InFile { id: Int }
 struct OutFile { id: Int }
 
-effect Fs {
+effect Vault {
     fn close(f: InFile) -> Str => !f
     fn close(f: OutFile) -> Str => !f
     fn describe(f: InFile) -> Str => f
 }
 
-handler Files of Fs {
+handler Files of Vault {
     fn close(f: InFile) -> Str => !f {
         return "closed in ${f.id}"
     }
@@ -7494,7 +7494,7 @@ fn main() [use] {
     use Files()
     println(describe(InFile { id: 3 }))
     println(close(InFile { id: 1 }))
-    println(close@Fs(OutFile { id: 2 }))
+    println(close@Vault(OutFile { id: 2 }))
 }
 "#;
 
@@ -7522,14 +7522,14 @@ fn effect_member_overloads_get_distinct_names() {
         "fn describe(&mut self, f: &InFile) -> String;",
         // The handler implements both under the trait's names, with the
         // trait's modes.
-        "impl Fs for Files {",
+        "impl Vault for Files {",
         "fn close(&mut self, f: InFile) -> String {",
         "fn close__2(&mut self, f: OutFile) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
     // The call sites: the `InFile` one takes the base name, the `OutFile` one
-    // (written with the `@Fs` selector) the suffixed name.
+    // (written with the `@Vault` selector) the suffixed name.
     assert!(
         src.contains(".close(InFile {") && src.contains(".close__2(OutFile {"),
         "expected both call sites to name their own overload and pass the \
@@ -7650,38 +7650,38 @@ fn rustc_compiles_and_runs_member_modes() {
 const LINEAR_MEMBER_DISCHARGE: &str = r#"
 // The phase-4 token shape in miniature: a linear token whose only discharger
 // is an *effect member*, discharged inside the handler that implements it.
-linear struct InStream canbe Mut { handle: Int }
-linear struct OutStream canbe Mut { handle: Int }
+linear struct InTape canbe Mut { handle: Int }
+linear struct OutTape canbe Mut { handle: Int }
 
-effect Fs {
-    fn open_read(path: Str) -> Mut InStream => path
-    fn open_write(path: Str) -> Mut OutStream => path
-    fn read_line(s: Mut InStream) -> Str => s: Mut
-    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text
-    fn close(s: InStream) -> Str => !s
-    fn close(s: OutStream) -> Str => !s
+effect Tape {
+    fn open_read(path: Str) -> Mut InTape => path
+    fn open_write(path: Str) -> Mut OutTape => path
+    fn read_line(s: Mut InTape) -> Str => s: Mut
+    fn write(s: Mut OutTape, text: Str) -> Int => s: Mut, text
+    fn close(s: InTape) -> Str => !s
+    fn close(s: OutTape) -> Str => !s
 }
 
-handler MemFs of Fs {
-    fn open_read(path: Str) -> Mut InStream => path {
-        return Mut InStream { handle: size(path) }
+handler MemTape of Tape {
+    fn open_read(path: Str) -> Mut InTape => path {
+        return Mut InTape { handle: size(path) }
     }
-    fn open_write(path: Str) -> Mut OutStream => path {
-        return Mut OutStream { handle: size(path) }
+    fn open_write(path: Str) -> Mut OutTape => path {
+        return Mut OutTape { handle: size(path) }
     }
-    fn read_line(s: Mut InStream) -> Str => s: Mut {
+    fn read_line(s: Mut InTape) -> Str => s: Mut {
         s.handle = s.handle + 1
         return "line ${s.handle}"
     }
-    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text {
+    fn write(s: Mut OutTape, text: Str) -> Int => s: Mut, text {
         s.handle = s.handle + size(text)
         return size(text)
     }
-    fn close(s: InStream) -> Str => !s {
+    fn close(s: InTape) -> Str => !s {
         discard(s)
         return "closed in"
     }
-    fn close(s: OutStream) -> Str => !s {
+    fn close(s: OutTape) -> Str => !s {
         discard(s)
         return "closed out"
     }
@@ -7689,11 +7689,11 @@ handler MemFs of Fs {
 
 fn main() [use] {
     use StdOutConsole()
-    use MemFs()
-    let r: Mut InStream = open_read("data.txt")
+    use MemTape()
+    let r: Mut InTape = open_read("data.txt")
     println(read_line(r))
     println(close(r))
-    let w: Mut OutStream = open_write("out.txt")
+    let w: Mut OutTape = open_write("out.txt")
     let n = write(w, "hello")
     println("wrote ${n}")
     println(close(w))
@@ -7713,12 +7713,12 @@ fn a_linear_token_is_discharged_by_an_effect_member() {
     for expected in [
         // The consuming overloads own their token; the mutating members
         // borrow it mutably.
-        "fn close(&mut self, s: InStream) -> String;",
-        "fn close__2(&mut self, s: OutStream) -> String;",
-        "fn read_line(&mut self, s: &mut InStream) -> String;",
+        "fn close(&mut self, s: InTape) -> String;",
+        "fn close__2(&mut self, s: OutTape) -> String;",
+        "fn read_line(&mut self, s: &mut InTape) -> String;",
         // A discharged token is dropped, so `discard` emits nothing that
         // could resurrect it: the value simply ends there.
-        "fn close(&mut self, s: InStream) -> String {",
+        "fn close(&mut self, s: InTape) -> String {",
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
@@ -7736,4 +7736,184 @@ fn rustc_compiles_and_runs_a_linear_token_closed_by_a_member() {
         "linear-member-discharge",
         LINEAR_MEMBER_DISCHARGE_OUTPUT,
     );
+}
+
+// ===== std's filesystem [platform-handler] [linear-group] =====
+
+/// std's `core.fs`, exercised end to end against real files: the
+/// `platform handler HostRawFs` at the bottom, `DefaultFs [RawFs]` above it,
+/// linear stream tokens discharged by an effect member, the `Lines` pass,
+/// the one-shots, a `position` after a ranged open, and a failure path whose
+/// linear `FsError` is acknowledged once. `__DIR__` is replaced with a
+/// scratch directory: the program makes it, works in it and removes it, so
+/// nothing is left behind and the output mentions no paths.
+///
+/// The Kotlin backend runs this program verbatim, and both must print these
+/// lines byte for byte — the whole point of the layering is that only the
+/// host file differs.
+const FS_PROGRAM: &str = r#"
+fn describe(e: FsError) [] -> Str => e {
+    if e.kind is NotFound {
+        return "not found"
+    }
+    return "other"
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    use HostRawFs()
+    use DefaultFs()
+
+    let dir = "__DIR__"
+    let made = create_dirs(dir)
+    when made {
+        is Ok { println("made") }
+        is Err { println("made: ${describe(made)}") ignore(made) }
+    }
+
+    let path = "__DIR__/notes.txt"
+    let written = write_str(path, "alpha\nbeta\ngamma\n")
+    when written {
+        is Ok { println("wrote ${written}") }
+        is Err { println("wrote: ${describe(written)}") ignore(written) }
+    }
+
+    let all = read_lines(path)
+    when all {
+        is Ok { println("lines: ${all}") }
+        is Err { println("lines: ${describe(all)}") ignore(all) }
+    }
+
+    let opened = open_read(path)
+    when opened {
+        is Ok {
+            let p = lines(opened)
+            for line in p {
+                println("line: ${line}")
+            }
+            let closed = close_lines(p)
+            when closed {
+                is Ok { println("closed") }
+                is Err { println("closed: ${describe(closed)}") ignore(closed) }
+            }
+        }
+        is Err { println("open: ${describe(opened)}") ignore(opened) }
+    }
+
+    // A ranged open: "alpha\n" is six bytes, so the next line starts there.
+    let tail = open_read_at(path, 6)
+    when tail {
+        is Ok {
+            let s: InStream = tail
+            let line = read_line(s)
+            when line {
+                is Str { println("at 6: ${line}") }
+                is None { println("at 6: end") }
+            }
+            println("position: ${position(s)}")
+            let shut = close(s)
+            when shut {
+                is Ok { println("") }
+                is Err { println("tail: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("tail: ${describe(tail)}") ignore(tail) }
+    }
+
+    let missing = read_to_str("__DIR__/nope.txt")
+    when missing {
+        is Ok { println("unexpected") }
+        is Err { println("missing: ${describe(missing)}") ignore(missing) }
+    }
+
+    let listed = list_dir(dir)
+    when listed {
+        is Ok { println("dir: ${listed}") }
+        is Err { println("dir: ${describe(listed)}") ignore(listed) }
+    }
+
+    let gone = delete(path)
+    when gone {
+        is Ok { println("deleted") }
+        is Err { println("deleted: ${describe(gone)}") ignore(gone) }
+    }
+    let gone_dir = delete(dir)
+    when gone_dir {
+        is Ok { println("removed") }
+        is Err { println("removed: ${describe(gone_dir)}") ignore(gone_dir) }
+    }
+}
+"#;
+
+const FS_OUTPUT: &str = "made\nwrote 17\nlines: [alpha, beta, gamma]\n\
+                         line: alpha\nline: beta\nline: gamma\nclosed\n\
+                         at 6: beta\nposition: 11\n\nmissing: not found\n\
+                         dir: [notes.txt]\ndeleted\nremoved\n";
+
+/// The program with its scratch directory baked in. Under the crate's own
+/// target tmpdir, so the two backends' runs cannot collide.
+fn fs_program() -> String {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fs-e2e-data");
+    FS_PROGRAM.replace("__DIR__", &dir.to_string_lossy())
+}
+
+/// [rs-platform-handler] What the layering emits: no struct for the platform
+/// handler, `DefaultFs` as an ordinary Salvo handler reaching `RawFs` through
+/// the fusion, and the consuming member taking its token **by value** so the
+/// discharge is a move rather than a clone.
+#[test]
+fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
+    let files = generate(&[("main.sv", &fs_program())]);
+    let surface = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("core/fs.rs"))
+        .expect("core/fs.rs")
+        .content;
+    for expected in [
+        "pub trait Fs {",
+        // The token is consumed: by value, not `&InStream`.
+        "fn close(&mut self, s: InStream)",
+        // …and kept members borrow it.
+        "fn read_line(&mut self, s: &InStream) -> Option<String>",
+    ] {
+        assert!(
+            surface.contains(expected),
+            "expected `{expected}` in:\n{surface}"
+        );
+    }
+    // The host seam is its own module [mod-used-only]: a program that never
+    // opens a file links none of it.
+    let host = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("core/hostfs.rs"))
+        .expect("core/hostfs.rs")
+        .content;
+    for expected in [
+        "pub trait RawFs {",
+        "fn raw_close_read(&mut self, handle: i64)",
+        "pub struct DefaultFs",
+    ] {
+        assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
+    }
+    assert!(
+        !host.contains("pub struct HostRawFs"),
+        "the platform handler's struct is the host's:\n{host}"
+    );
+    // std ships the host file, and it travels into the output.
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path == std::path::Path::new("platform/core/hostfs.rs")),
+        "expected std's host companion to be emitted"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_the_fs_surface() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", &fs_program())]);
+    run_rust_files(&files, "fs-surface", FS_OUTPUT);
 }

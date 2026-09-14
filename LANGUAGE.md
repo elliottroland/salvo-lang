@@ -2500,6 +2500,80 @@ Three restrictions, each following from the implementation not being Salvo's:
 
 The two forms answer different questions. Use a `platform effect` when the *capability* is the host's and the program is a guest in the host's process — the host constructs everything and owns `main`. Use a `platform handler` when the capability is the language's, several implementations exist, and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses the second form itself, and ships its host classes the same way — under `std`'s own `platform/` tree, one file per backend.
 
+## Files
+
+The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, a linear error that cannot be dropped in silence, a pass for the lines, and a `platform handler` at the very bottom.
+
+A program that reads a file declares `[Fs]` and nothing else:
+
+```
+fn first_line(path: Str) [Fs] -> Ok Str | Err FsError => path {
+    let opened = open_read(path)
+    if opened is Err {
+        return opened                    // the error travels; it still owes
+    }
+    let s: InStream = opened             // s owes: a stream must be closed
+    let line = read_line(s)
+    let closed = close(s)                // the discharger, and it reports
+    if closed is Err {
+        return closed
+    }
+    when line {
+        is Str { return ok(line) }
+        is None { return err(FsError { kind: IoError {path: copy(path), message: "empty"} }) }
+    }
+}
+```
+
+Four things in that function are the language's, not the library's:
+
+* **`open_read` returns a union with a linear arm**, so the result *is* the stream: forget to look at it and the program does not compile; narrow it to `Err` and the stream was never opened.
+* **`InStream` is linear**, so the `close` is not politeness. Its only field is a handle — the position, the buffer and the resource live in the handler — which is why no stream operation needs `Mut`.
+* **`FsError` is linear too.** An error you do not care about takes one call to say so: `ignore(e)`. One you want to keep costs `detach(e)`, which hands back the plain `FsErrorKind` (a linear value may not be stored, so this is the way into a `List<FsErrorKind>`). Narrowing a result to its `Ok` arm discharges the error that was never there.
+* **Failures are returned, never thrown.** An effect member may declare no effects, `Throw` included, so every fallible member answers `Ok T | Err FsError`.
+
+Reading the lines is ordinary iteration, over a pass that owns the stream:
+
+```
+fn print_file(path: Str) [Fs, Console] -> None => path {
+    let opened = open_read(path)
+    if opened is Err {
+        println("cannot read ${path}: ${to_str(opened)}")
+        ignore(opened)
+        return None
+    }
+    let p = lines(opened)                // the stream's obligation moves in
+    for line in p {
+        println(line)
+    }
+    let closed = close_lines(p)          // closing the pass closes the stream
+    if closed is Err {
+        ignore(closed)
+    }
+}
+```
+
+And the 90% case needs none of it — `read_to_str(path)`, `read_lines(path)`, `write_str(path, text)` open, work and close, so no token ever reaches the caller.
+
+The composition root is where the filesystem is chosen:
+
+```
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawFs()      // the host's: real files, plain handles
+    use DefaultFs()      // Salvo: mints the tokens, maps the errors
+    let text = read_to_str("notes.txt")
+    when text {
+        is Ok { println(text) }
+        is Err { println(to_str(text)) ignore(text) }
+    }
+}
+```
+
+`DefaultFs` depends on `RawFs` and says so on its declaration, so nothing above it mentions the raw layer; `RawFs` trades in `Long` handles and droppable error kinds, so the host class never holds a Salvo obligation — the `close` that discharges a token is Salvo code, checked. Swapping the bottom swaps the filesystem: a handler of your own that implements `Fs` fakes the whole surface, streams included, because the stream operations are *members* rather than free functions.
+
+Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. There is no seek — streams are forward-only — and text is decoded strictly, so a wrong offset lands mid-codepoint and comes back as `Err InvalidUtf8` rather than as mojibake.
+
 ## Specific backend details
 
 ### Kotlin

@@ -841,10 +841,19 @@ from putting borrows in the first category.
 
 #### The emission
 
-**Gated program-wide.** If no handler declares a dependency, nothing here
-runs and effects thread as one `&mut dyn E` parameter each [rs-effects] —
-existing output is untouched. The switch cannot be per-scope: a fn's
-signature must not depend on which of its callers holds a fusion.
+**Gated program-wide.** If no **reachable** handler declares a dependency,
+nothing here runs and effects thread as one `&mut dyn E` parameter each
+[rs-effects] — existing output is untouched. The switch cannot be per-scope:
+a fn's signature must not depend on which of its callers holds a fusion.
+
+The reachability half arrived with std's filesystem (2026-09-14): std now
+ships a dependent handler (`DefaultFs [RawFs]`), so a declaration-wide gate
+fused every program ever compiled. It is also why that handler lives in
+`core.hostfs` rather than `core.fs` [fs-host-split] — reachability is
+name-based [mod-used-only] and `core.fs` declares a `next` and a `to_str`,
+so ordinary programs drag the *surface* in and must not be fused by it.
+Emitting a dependent handler with the fusion off is an internal codegen
+error naming the handler, so the two halves cannot silently disagree.
 
 **The Has-accessor trait, beside every effect.** In fusion mode
 `emit_effect` emits a second trait next to each effect trait:
@@ -1176,6 +1185,13 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * A `use` whose declaring module has no host companion is a codegen error
     naming `salvo platform generate` [backend-never-wrong]; std's companion
     is shipped in `std/platform/` rather than generated [platform-tree].
+  * The skeleton opens with the **`use` lines its own signatures need**: the
+    declaring module's items, `crate::unions::*` when a member's result is a
+    union, the ordered collections when one appears, and the module of the
+    effect being implemented when that is elsewhere. A host file is a module
+    of the same crate, so without them the skeleton does not compile — which
+    stayed invisible until a `platform handler` whose members trade in more
+    than primitives arrived (`HostRawFs`, 2026-09-14).
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic

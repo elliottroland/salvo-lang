@@ -155,20 +155,15 @@ self-dependencies, stream ops as `Fs` members with `@Effect`
 disambiguation, `RawFs` below the members behind `platform handler
 HostRawFs`, linear tokens and the O-L2 `FsError`, per-operation Str/Byte
 buffered streams, and the signed-off v1 surface). The document retires into
-COMPLETED.md when phase 4 lands. **Its prerequisite milestone — the
-Has-accessor effect fusion — was built first, 2026-09-14** (user decision;
-see COMPLETED.md's decision log): both backends now fuse behind generated
-per-effect accessor traits/interfaces, which is what makes bare `Fs` stream
-members collision-proof. **Both former due-before decisions are closed**:
-operator typing (numeric-only arithmetic, integer widening, explicit
-int↔float, literal adoption, `Bool`-only logicals — decided 2026-09-14,
-**implementation still owed before or inside phase 4**) and shared member
-names (`@Effect` call disambiguation — decided 2026-09-14, the grammar rule
-to be drafted with phase 4). What remains here is *work*, not decisions:
-**only the fs surface itself**, with the two-deliverable byte sequencing.
-The operator-typing checker slice, the `@Effect` grammar, O-R2 interception
-and the `platform handler` mechanism are **built** (2026-09-14; see S-IO
-below).
+COMPLETED.md when phase 4 lands. **Everything up to and including the
+surface is built (2026-09-14)**: the Has-accessor effect fusion, the
+operator-typing slice, the `@Effect` grammar, O-R2 interception, the
+`platform handler` mechanism, effect-member overloading, the
+[linear-group] member-discharger amendment, and then `core.fs` +
+`core.hostfs` themselves — compiled and run against real files on both
+backends. **What is left**: the member-vs-fn naming DECISION (one row in
+the table above), `MemFs`, `RestrictedFs`, bytes, and an example. See S-IO
+below for the ordered list.
 
 **S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
 day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
@@ -206,7 +201,7 @@ links to the section that states the options.
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| **Are stream tokens `Mut`?** — `open_read` returning `Mut InStream` (a), tokens never `Mut` with all state in the handler (b, recommended), or letting a plain linear value reach a `Mut` position (c) | phase 4, before the surface | "S-IO" item 6.3 |
+| **One name, member or fn?** — a *fitting* free fn does not compete with an available effect's member set, so `close(lines)` beside an `Fs` in scope is an error. Merge them into one overload set (a), fall back to fns when no member fits (b, recommended), or keep distinct names in std (c, shipped today as `close_lines`) | phase 4, before the fs surface is called *done* | "S-IO" item 6.3 |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
 (The three phase-4 rows this table used to carry — operator typing, shared
@@ -1043,37 +1038,47 @@ what is left is implementation, in the agreed order:
       handler's implementation of it is a `discard` context
       [linear-discard] — per overload, and keeping members still may not
       discard.
-   3. **The surface**: `std/core/fs.sv` — `FsErrorKind`/`linear FsError` with
-      `ignore`/`detach`/`to_str`, the `InStream`/`OutStream` tokens, `RawFs`
-      + `platform handler HostRawFs` with the two shipped host files
-      (`std/platform/core/fs.{kt,rs}` — the seam is built, this is its first
-      customer), `DefaultFs [RawFs] of Fs`, the `Lines` pass and the
-      one-shots. Then `MemFs` and `RestrictedFs(root) [Fs]`, then **bytes**
-      as the second sequenced deliverable (§5.10.2 E).
-      * **DECISION, before the signatures are transcribed — is a stream token
-        `Mut`?** §5.10.2 has `open_read(path) -> Ok InStream | Err FsError`
-        beside `read_line(s: Mut InStream)`, and those two cannot both stand:
-        `Mut` is minted at construction (`Mut InStream { … }`) and needs the
-        struct to say `canbe Mut`, so a plain `InStream` cannot be passed to a
-        `Mut` position (verified 2026-09-14 while testing the token shape —
-        see COMPLETED.md's decision-log entry on the member-discharger
-        amendment). Three ways out:
-        (a) **the opens return `Mut`** — `Ok Mut InStream | Err FsError`,
-        tokens declared `linear struct InStream canbe Mut`; the consuming
-        `close(s: InStream)` still takes them, since dropping `Mut` is a
-        widening. This is what the miniature e2e case does today.
-        (b) **the tokens are not `Mut` at all** — `read_line(s: InStream) ->
-        Str | None => s` keeps them, and every byte of mutable state
-        (position, buffer) lives in *handler* state, which the decided
-        architecture already puts there: the token is an opaque id
-        (§5.7 item 5). Nothing about a token would need mutating.
-        (c) let a plain linear value reach a `Mut` position — a *language*
-        change to what `Mut` means, and the expensive answer.
-        **Recommendation: (b)** — it matches "the handler keeps
-        id → representation" exactly, removes `canbe Mut` from the token
-        declarations, and leaves `Mut` out of the fs surface entirely; (a) is
-        the fallback if some member turns out to need the token itself to
-        change.
+   3. ~~**The surface**~~ — **✅ built 2026-09-14** (COMPLETED.md's decision
+      log): `std/core/fs.sv` (errors, tokens, `effect Fs`, the `Lines` pass,
+      the one-shots) and `std/core/hostfs.sv` (`RawFs`,
+      `platform handler HostRawFs`, `handler DefaultFs [RawFs] of Fs`) with
+      both shipped host files (`std/platform/core/hostfs.{kt,rs}`),
+      compiled and run against real files on both backends to
+      byte-identical output. Tokens are **never `Mut`** (user decision
+      2026-09-14, option (b)); the split into two modules is load-bearing
+      [fs-host-split].
+   4. **What is left of the fs**, in this order:
+      * **DECISION, and the only thing between the surface and "done":**
+        std's pass discharger ships as `close_lines(p: Lines)` because a
+        *fitting* free fn does not compete with an available effect's member
+        set — `close(p)` with an `Fs` in scope is an error naming `Fs.close`'s
+        overloads. Options, with cost: (a) **one overload set** — members and
+        fns ranked together by specificity, `@` as the tie-breaker
+        (principled, the largest change, some ambiguity-diagnostic risk);
+        (b) **fall back when no member fits** — the member set is tried
+        first, and a call no member accepts goes to the fns, so every
+        program that compiles today keeps its meaning and `close(lines)`
+        starts working (recommended; argument typing has to be shared
+        between the two paths so nothing is checked twice); (c) **keep
+        distinct names in std** — zero compiler work, and every user who
+        writes a linear pass with a `close` hits the same wall. Note the
+        *un*available case is already fixed and is not part of this: a name
+        that is both a member and a fn resolves to the fn wherever no
+        handler is in scope [effect-available], which is what keeps a
+        program with its own `close` compiling at all.
+      * **`MemFs of Fs`** — the in-memory double (`Mut Map<Long, MemOpen>`
+        handler state), and the round-trip hazard from §5.5.1: byte offsets
+        must match the host's, or unit tests pass while production breaks.
+      * **`RestrictedFs(root) [Fs] of Fs`** — the interception customer
+        (§5.10.1, FS-8: lexical containment, rebased paths,
+        `Err PathEscapes`).
+      * **Bytes** (§5.10.2 E): `read_bytes`/`write_bytes` with boxed
+        `List<Byte>` first, then `Byte` → Kotlin `UByte` and the
+        specialized `UByteArray`/`Vec<u8>` rendering as the second
+        deliverable.
+      * **Examples and prose**: an `examples/files/` worked example, and
+        FILE_SYSTEM.md's retirement into COMPLETED.md when all of the above
+        lands.
    Also fixed on the way (user request, 2026-09-14): on Rust an effect
    member's parameter modes now follow its **written clause** — consumed by
    value, kept `Mut` as `&mut`, kept plain as `&` — where they used to take
@@ -1083,27 +1088,38 @@ what is left is implementation, in the agreed order:
 FILE_SYSTEM.md retires into COMPLETED.md when phase 4 lands,
 OBLIGATIONS.md-style.
 
-An `Fs` effect was designed in outline (effect + `intrinsic handler
-DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
-`intrinsic type … canbe linear`, errors in the return type because
-[effect-member-no-effects] forbids a member from declaring `[Throw<M>]`).
-**Deferred by the user 2026-09-06**: IO *streams* should be designed
-properly first, with the filesystem as their first customer, rather than
-the other way round. Two findings from the outline worth keeping for when
-it resumes:
+The historical outline of an `Fs` effect (2026-09-06, deferred so that IO
+streams could be designed first) has been superseded by what shipped: its two
+findings — errors returned rather than thrown, and stream operations as
+*members* so a double can fake them — are both in the built surface
+[fs-surface]. FILE_SYSTEM.md remains the plan of record for what is left of
+phase 4, and retires into COMPLETED.md when the fs is done.
 
-- Errors cannot use `Throw` at all — an effect member may not declare
-  effects — so every fallible member returns `Ok T | Err Str`. **Blocked as of
-  2026-09-08**: storing a linear value in a composite — a union arm included —
-  is now an interim *error* (see "`Linear` becomes a compiler-known obligation
-  group"), so this shape needs either an exception for union arms or a different
-  result shape before S-IO restarts. That makes
-  `Ok InputStream | Err Str` the normal shape, and a **linear value inside
-  a union arm** the interaction to verify first ([linear-composite] says
-  composites are contagious, but nothing exercises it).
-- Whether stream operations are *members* of the effect or free
-  `intrinsic fn`s is a testability question, not a plumbing one: only
-  members can be faked by a double.
+### Leftovers found while building the fs (none blocking)
+
+- **Reachability is name-based, so `core.fs` is linked by programs that never
+  open a file**: it declares a `next` and a `to_str`, and `reach.rs` pulls in
+  every module declaring a *used name* [mod-used-only]. The consequence is
+  emitted-but-dead code (the surface, plus the 8-arm union wrappers), not
+  wrong behavior — and the dependent handler was moved to `core.hostfs`
+  precisely so the *fusion* is not dragged in with it. The fix, when it is
+  worth it: resolve fn-name usage through the checker's `call_fn` instead of
+  `name_origins`, which needs reachability to run after checking.
+- **`rename` is a keyword**, so the member is `rename_path` (both on `Fs` and
+  in `RawFs`). Making `rename` contextual in a member position is a parser
+  change nobody has asked for; the name deviates from FILE_SYSTEM.md §5.10.2
+  deliberately.
+- **A pass's type must be *visible* for `for` to drive it**: importing the
+  `next` alone is not enough (`import fs.Lines` was needed in a scratch
+  program before `for line in p` resolved), which reads as a missing import
+  of something the value already has. Invisible in std (`core.*` is
+  implicit); worth a better diagnostic, or a rule that the subject's own
+  declaration is enough.
+- **Kotlin's `USELESS_CAST` is suppressed rather than avoided**
+  [kt-suppress-cast]: the emitter could skip the payload cast where kotlinc's
+  smart cast already types it, but knowing exactly when is subtle, and the
+  annotation costs nothing.
+
 
 ## Threading and concurrency — the OTP model (phase 5)
 

@@ -164,7 +164,7 @@ pub fn emit_program_reporting(
     // [rs-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does.
-    let fusion = program_needs_fusion(&symbols);
+    let fusion = program_needs_fusion(&symbols, &reachable);
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -506,6 +506,9 @@ pub fn platform_skeletons(
         };
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         let mut body = String::new();
+        // The modules whose items the host file has to see beyond its own
+        // (an effect declared elsewhere — std's, typically).
+        let mut impl_paths: BTreeSet<String> = BTreeSet::new();
         for e in &effects {
             body.push_str(&emitter.host_impl(e, &own_path));
         }
@@ -519,7 +522,12 @@ pub fn platform_skeletons(
                 .and_then(|name| all_effect_module.get(name))
                 .and_then(|m| path_to(m));
             match effect_path {
-                Some(path) => body.push_str(&emitter.host_handler_impl(h, &path)),
+                Some(path) => {
+                    body.push_str(&emitter.host_handler_impl(h, &path));
+                    if path != own_path {
+                        impl_paths.insert(path);
+                    }
+                }
                 None => errors.push(format!(
                     "{}: `platform handler {}` implements an effect whose module \
                      emits no Rust module to attach it to",
@@ -560,13 +568,41 @@ pub fn platform_skeletons(
         }
         errors.extend(std::mem::take(&mut emitter.errors));
 
+        // [rs-platform-host] The host file is a module of the *same crate*,
+        // so every name its signatures mention has to be in scope there: the
+        // declaring module's own items (the structs and type aliases the
+        // members take), the union wrappers a fallible member's result
+        // lowers to, and the ordered collections when one appears. Without
+        // them the skeleton does not compile — which was invisible until a
+        // `platform handler` whose members trade in more than primitives
+        // arrived (std's `HostRawFs`, phase 4).
+        let mut uses: BTreeSet<String> = BTreeSet::new();
+        uses.insert(format!("use {own_path}::*;"));
+        for path in &impl_paths {
+            uses.insert(format!("use {path}::*;"));
+        }
+        if !emitter.union_sizes.is_empty() {
+            uses.insert("use crate::unions::*;".to_string());
+        }
+        if emitter.needs_collections {
+            uses.insert("use crate::collections::*;".to_string());
+        }
+        let preamble = if uses.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n{}\n",
+                uses.into_iter().collect::<Vec<_>>().join("\n")
+            )
+        };
+
         let content = format!(
             "// Host implementation of the platform declarations of Salvo module \
              `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
              compiler never writes\n// this file again — it is yours. Nothing here is \
              checked by Salvo: rustc\n// checks it, against the traits the backend \
              generates from the\n// `platform effect` and `platform handler` \
-             declarations.\n{body}"
+             declarations.\n{preamble}{body}"
         );
         files.push(EmittedFile {
             rel_path: salvo_core::host_rel_path(module, "rs"),
@@ -848,11 +884,21 @@ fn module_produces_code(module: &Module) -> bool {
 /// Purely syntactic since 2026-09-14: a dependency is an entry in the
 /// handler's own effect list (`handler Stamped [Logger, Clock] of Logger`),
 /// so nothing has to be resolved to answer the question.
-fn program_needs_fusion(symbols: &Symbols<'_>) -> bool {
-    symbols
-        .handlers
-        .values()
-        .any(|h| h.effects.iter().flatten().count() > 0)
+///
+/// **Reachable handlers only** (2026-09-14): std ships one, `DefaultFs
+/// [RawFs]` in `core.hostfs`, and a program that never names it must not pay
+/// the fused emission — which is also why that handler is not in `core.fs`,
+/// a module every iterating program drags in [mod-used-only]. The gate reads
+/// the same reachable set the emission loop does, and both backends read the
+/// same one.
+fn program_needs_fusion(symbols: &Symbols<'_>, reachable: &HashSet<&ModulePath>) -> bool {
+    symbols.handlers.iter().any(|(name, h)| {
+        h.effects.iter().flatten().count() > 0
+            && symbols
+                .handler_modules
+                .get(name)
+                .is_none_or(|m| reachable.contains(*m))
+    })
 }
 
 /// Rust reserved words that need escaping as identifiers.
@@ -7251,6 +7297,10 @@ impl<'p> Emitter<'p> {
         match coercion {
             // [rs-option] Optionals are physical in Rust.
             Coercion::WrapOption { .. } => format!("Some({code})"),
+            // [type-none-unit] The `None` *value* in a `None`-typed slot is
+            // the unit value, not an absent optional: the code it was
+            // rendered as (`None`) is replaced outright.
+            Coercion::NoneUnit => "()".to_string(),
             Coercion::WrapUnion { target, arm, inner } => {
                 // [qual-group] The inner wrap of a flattened nested group
                 // runs first: the value is physically the bare inner value.
@@ -8450,7 +8500,16 @@ impl<'p> Emitter<'p> {
             .symbols
             .effect_of_fn
             .get(name)
-            .filter(|_| !self.checked.local_calls.contains(&(self.file_idx, span)))
+            .filter(|_| {
+                !self.checked.local_calls.contains(&(self.file_idx, span))
+                    // [effect-available] ...or to an ordinary fn, because no
+                    // instance of the owning effect was in scope: the name is
+                    // a member somewhere, this call is not.
+                    && !self
+                        .checked
+                        .fn_over_member_calls
+                        .contains(&(self.file_idx, span))
+            })
         {
             let owners = owners.clone();
             let checked_effect = self

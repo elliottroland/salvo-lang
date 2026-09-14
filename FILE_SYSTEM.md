@@ -1,5 +1,13 @@
 # The filesystem — the phase-4 option space (working document)
 
+> **Status 2026-09-14: the surface is built.** `std/core/fs.sv`,
+> `std/core/hostfs.sv` and `std/platform/core/hostfs.{kt,rs}` implement
+> §5.7–5.10 as decided, with the token-`Mut` question closed (tokens are never
+> `Mut`) and the deviations listed at §5.10.2's signature block. What is left
+> of phase 4 — the member-vs-fn naming DECISION, `MemFs`,
+> `RestrictedFs(root)`, bytes, an example — is in ROADMAP.md's S-IO list; this
+> document retires into COMPLETED.md when that is done.
+
 Status: **DECIDED** (2026-09-14, six rounds of user decisions — see §5;
 handler-dependency syntax updated in place the same day, when the surface
 became an effect list on the declaration — `handler DefaultFs [RawFs] of Fs`
@@ -1741,13 +1749,27 @@ effect Fs {
 }
 ```
 
-> **Open before transcribing these signatures (found 2026-09-14):
-> `open_read` returns a plain `InStream` while `read_line` takes
-> `Mut InStream`, and those cannot both stand — `Mut` is minted at
-> construction and needs `canbe Mut` on the declaration, so a plain token
-> cannot reach a `Mut` position. Options and a recommendation (tokens never
-> `Mut`; all mutable state stays in handler state, where §5.7 item 5 already
-> puts it) are in ROADMAP.md's S-IO item 6.3, marked DECISION.**
+> **Decided and built 2026-09-14: tokens are never `Mut`** (option (b) —
+> ROADMAP's DECISION, closed). Every `Mut` above is gone: stream members keep
+> their token (`read_line(s: InStream) -> Str | None => s`), `close` consumes
+> it, and all mutable state lives in handler state, where §5.7 item 5 already
+> put it. What shipped, against this draft:
+>
+> * **`rename` → `rename_path`** (both here and in `RawFs`): `rename` is a
+>   keyword [fn-rename].
+> * **Two modules, not one**: `core.fs` (this surface) and `core.hostfs`
+>   (`RawFs`, `HostRawFs`, `DefaultFs`), because a dependent handler in a
+>   module every program reaches would fuse every program's effect emission
+>   [fs-host-split].
+> * **`close(p: Lines)` ships as `close_lines`** pending the member-vs-fn
+>   resolution DECISION in ROADMAP.md: a fitting free fn does not compete
+>   with an available effect's member set.
+> * **Bytes, `MemFs` and `RestrictedFs` are not in this deliverable** — the
+>   agreed sequencing (§5.10.2 E and ROADMAP's S-IO list).
+> * `raw_*` member names split where only the token type distinguished them
+>   (`raw_close_read`/`raw_close_write`, `raw_read_position`/
+>   `raw_write_position`): the raw layer takes `Long` handles, so it cannot
+>   overload on them.
 
 - **Sub-question A — member overloading.** `close(InStream)` /
   `close(OutStream)` and the two `position`s overload *within one
