@@ -13,7 +13,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
-fun<T> non_empty_list(first: T, vararg rest: T): List<T> {
+fun<T> non_empty_list(first: T, rest: Array<T>): List<T> {
     return listOf<T>(first, *rest)
 }
 

@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 848 tests, complete: the toolchain tests are
+cargo test                  # 849 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -191,7 +191,25 @@ That change also made an existing test *better*: the sorted-collections demo
 did `add(s, …)` and then tested `min(s) is Str`, and with the refinement in
 place `min` answers with an element, so the test now reads the value directly.
 
-**Tests**: 848 (from 845). Three qualifier-overloading tests with locally
+**And a third fix the user asked for next**: a user-declared variadic of a
+*primitive* element type had been broken on Kotlin, and the two directions I
+had recorded turned out to be one — `vararg ns: Int` is an `IntArray`, and
+Kotlin has **no** way to write a `vararg` of boxed `Int` (verified against
+kotlinc), so both directions were really "stop using `vararg`", differing only
+in scope. Taken uniformly: a variadic parameter is now an ordinary `Array<T>`
+parameter on that backend [kt-variadic], with the call site building the array
+— and since `arrayOf` takes Kotlin's own spread, a plain tail, a lone spread
+and a mixture all build the same way. `vararg` bought nothing, both sides of
+every call being generated, and it cost a representation split the Rust backend
+never had (it has always passed a `Vec<T>`). Reference and generic element types
+were unaffected, which is why std never hit this.
+Writing the test for it exposed **another** instance of the E0382 class: the
+*ordinary* call path moved a lone spread of a place into the callee's owned
+variadic parameter, so `f(...rest)` followed by any use of `rest` was a raw
+rustc error. The intrinsic path had learned to clone with the sorted
+collections; this one had not.
+
+**Tests**: 849 (from 845). Three qualifier-overloading tests with locally
 declared qualifiers (the checker harness builds its own prelude, so std's own
 declarations are asserted end to end instead), `a_mixed_variadic_tail_is_
 assembled_once` on the emitted shape, and mixed-spread plus container-claim
@@ -9174,7 +9192,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 848)
+## Test inventory (all green: 849)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -9769,7 +9787,7 @@ cache, with per-test timings.
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 81 cases as of qualifier overloading). The remaining tests: golden snapshots of the M2 demo, the M3
+  (2026-09-12; 82 cases as of the variadic representation change). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9941,7 +9959,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 142 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 143 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

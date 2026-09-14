@@ -1443,12 +1443,15 @@ impl<'p> Emitter<'p> {
                 continue; // appended below, in the checker's order
             }
             let ty = self.emit_type(&p.ty);
-            if p.variadic {
-                let elem = self.variadic_elem_type(&p.ty);
-                params.push(format!("vararg {}: {elem}", kt_ident(&p.name.name)));
-            } else {
-                params.push(format!("{}: {ty}", kt_ident(&p.name.name)));
-            }
+            // [kt-variadic] A variadic parameter is an ordinary `Array<T>`
+            // parameter, not a `vararg`. Kotlin's `vararg` of a *primitive*
+            // element type is an `IntArray`/`DoubleArray`/… rather than an
+            // `Array<Int>`, and those are unrelated types on the JVM: nothing
+            // generic accepts one, so `iter(ns)` inside the body failed and an
+            // `Array<Int>` could not be spread into the position. Since both
+            // sides of every call are generated, the `vararg` sugar bought
+            // nothing and cost a representation split.
+            params.push(format!("{}: {ty}", kt_ident(&p.name.name)));
         }
         // [implicit-param] Implicit parameters are ordinary trailing
         // parameters of fn type: the caller passes what resolution found, so
@@ -1760,24 +1763,13 @@ impl<'p> Emitter<'p> {
             .iter()
             .filter(|p| !p.implicit)
             .map(|p| {
-                if p.variadic {
-                    let elem = self.variadic_elem_type(&p.ty);
-                    format!("vararg {}: {elem}", kt_ident(&p.name.name))
-                } else {
-                    format!("{}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty))
-                }
+                // [kt-variadic] An ordinary array parameter — see `emit_fn`.
+                format!("{}: {}", kt_ident(&p.name.name), self.emit_type(&p.ty))
             })
             .collect::<Vec<_>>()
             .join(", ")
     }
 
-    /// The element type of a variadic `...args: T[]` parameter.
-    fn variadic_elem_type(&mut self, ty: &Type) -> String {
-        match ty {
-            Type::Array { elem, .. } => self.emit_type(elem),
-            other => self.emit_type(other),
-        }
-    }
 
     fn emit_generic_params(&self, generics: &[Ident]) -> String {
         if generics.is_empty() {
@@ -4828,8 +4820,29 @@ impl<'p> Emitter<'p> {
             }
         }
         let outer_mints = std::mem::take(&mut self.pending_mints);
-        for a in args.iter() {
+        // [kt-variadic] [fn-variadic] The variadic tail is one `Array<T>`
+        // argument, matching the parameter. `arrayOf` takes Kotlin's own
+        // spread, so a plain tail, a lone `...spread` and a mixture all build
+        // the same way — and a lone spread passes straight through, since it
+        // already *is* the array.
+        let variadic_at = f.params.iter().filter(|p| !p.implicit).position(|p| p.variadic);
+        let fixed = variadic_at.unwrap_or(args.len());
+        for a in args.iter().take(fixed) {
             all.push(self.emit_expr(a));
+        }
+        if variadic_at.is_some() {
+            let tail: Vec<&&Expr> = args.iter().skip(fixed).collect();
+            let lone_spread =
+                tail.len() == 1 && matches!(tail[0], Expr::Spread { .. });
+            if lone_spread {
+                if let Expr::Spread { operand, .. } = tail[0] {
+                    all.push(self.emit_expr(operand));
+                }
+            } else {
+                let items: Vec<String> =
+                    tail.into_iter().map(|a| self.emit_expr(a)).collect();
+                all.push(format!("arrayOf({})", items.join(", ")));
+            }
         }
         // [implicit-resolve] The implicit parameters, in the callee's order:
         // ordinary trailing arguments, so nothing about them is visible in

@@ -671,6 +671,21 @@ same programs running ([rs-effect-fusion]).
     so the choice only picks the launch class (unlike Rust's crate root
     [rs-crate]).
 
+* [kt-variadic] [fn-variadic] A **variadic parameter is an ordinary
+  `Array<T>` parameter**, not a `vararg` (2026-09-13). Kotlin's `vararg` of a
+  *primitive* element type is an `IntArray`/`DoubleArray`/…, not an
+  `Array<Int>`, and those are unrelated types on the JVM: nothing generic
+  accepts one, so `iter(ns)` inside the body did not compile and an
+  `Array<Int>` could not be spread into the position. Reference and generic
+  element types were unaffected, which is why std — whose variadics are all
+  generic or `Str` — never hit it.
+  * The call site builds the array, and `arrayOf` takes Kotlin's own spread,
+    so a plain tail, a lone `...spread` and a mixture all build the same way;
+    a lone spread passes straight through, since it already *is* the array.
+  * `vararg` bought nothing here: both sides of every call are generated, so
+    the sugar was never called by hand, and it cost a representation split.
+    The Rust backend has always passed a `Vec<T>`, so the two now agree.
+
 ## Runtime modules [kt-runtime-source]
 
 * [kt-runtime-source] Code the backend *ships* rather than generates lives in

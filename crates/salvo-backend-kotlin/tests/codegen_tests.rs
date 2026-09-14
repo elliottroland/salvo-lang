@@ -1824,6 +1824,65 @@ fn main() [use] {
      lone [2, 3]\n")
 }
 
+// ===== [kt-variadic] a user-declared variadic, every element type =====
+
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_user_variadics`. This is the case the
+/// representation change exists for: with `vararg ns: Int` the parameter was an
+/// `IntArray`, which nothing generic accepts, so `iter(ns)` did not compile and
+/// an `Array<Int>` could not be spread in. A variadic parameter is now an
+/// ordinary `Array<T>` on this backend, and the call site builds it.
+fn kotlinc_compiles_and_runs_user_variadics() -> KotlinCase {
+    let src = r#"
+fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
+    let seen = mut_list_of(0)
+    for n in iter(ns) {
+        add(seen, copy(n))
+    }
+    println("${label} ${size(ns)}")
+    return size(seen)
+}
+
+fn join_strs(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
+    let joined = mut_str(...parts)
+    println("${sep} ${joined}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    // A variadic of a *primitive* element type: plain, spread, mixed, empty.
+    let a = count_ints("plain", 1, 2, 3)
+    let rest = array_of(2, 3)
+    let b = count_ints("spread", ...rest)
+    let c = count_ints("mixed", 1, ...rest)
+    let d = count_ints("empty")
+    println("counts ${a} ${b} ${c} ${d}")
+
+    // The spread source survives the calls: a variadic position is not
+    // tracked, so the callee's owned parameter is built by cloning.
+    println("reusable ${size(rest)}")
+
+    // A reference element type, which always worked.
+    join_strs("refs", "a", "b")
+    let words = array_of("y", "z")
+    join_strs("refs", "x", ...words)
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "user-variadics", "plain 3\n\
+     spread 2\n\
+     mixed 3\n\
+     empty 0\n\
+     counts 4 3 4 1\n\
+     reusable 2\n\
+     refs ab\n\
+     refs xyz\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
@@ -1862,6 +1921,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_generated_constructors,
     kotlinc_compiles_and_runs_list_claims,
     kotlinc_compiles_and_runs_mixed_spread,
+    kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_handler_deps_in_anger,
     kotlinc_compiles_and_runs_handler_deps_chain,

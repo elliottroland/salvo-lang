@@ -7987,10 +7987,26 @@ impl<'p> Emitter<'p> {
         }
         if variadic_at.is_some() {
             let rest = args.get(fixed..).unwrap_or(&[]);
-            // A single spread forwards the whole vector [fn-variadic].
+            // A single spread forwards the whole vector [fn-variadic] — but a
+            // **place** is cloned, not moved. The variadic parameter is owned
+            // in the emitted signature (it is built from the arguments), while
+            // the checker does not track a variadic position, so the caller's
+            // array stays live afterwards: moving it made `total(...rest)`
+            // followed by any further use of `rest` a raw rustc E0382, with no
+            // Salvo diagnostic [backend-never-wrong]. The intrinsic path
+            // learned this with the sorted collections; this one had not.
             if rest.len() == 1 {
                 if let Expr::Spread { operand, .. } = rest[0] {
-                    out.push(self.emit_owned(operand));
+                    let code = self.emit_owned(operand);
+                    let place = matches!(
+                        operand.as_ref(),
+                        Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. }
+                    );
+                    out.push(if place && !code.ends_with(".clone()") {
+                        format!("{code}.clone()")
+                    } else {
+                        code
+                    });
                     return out;
                 }
             }

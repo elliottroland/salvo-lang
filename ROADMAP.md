@@ -223,7 +223,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Four open.** (Closed in the sessions before this one, with repros and
+**Three open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -231,7 +231,10 @@ same-named fn-typed local, and variadic args moving out of their caller's
 locals. The broken `Int[n] { … }` array generator was closed by **deleting
 the form** — user decision 2026-09-13. Mixing a plain argument with a
 `...spread` in one variadic call is now **supported** rather than refused,
-which also let std's `non_empty_list` go back to being ordinary Salvo.)
+which also let std's `non_empty_list` go back to being ordinary Salvo. A
+user-declared variadic of a *primitive* element type no longer breaks on
+Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
+[kt-variadic].)
 
 - **A container operation inside a *generic* function is a backend
   divergence** (reproduced 2026-09-13). Repro:
@@ -261,26 +264,6 @@ which also let std's `non_empty_list` go back to being ordinary Salvo.)
   the checker could refuse the unbounded body with a Salvo error, and the Rust
   emitter could put `T: Hash + Eq` (or `T: Ord`) on the signature and make the
   program work. Until then, container operations belong in non-generic code.
-
-- **A user-declared variadic of a *primitive* element type breaks on Kotlin**
-  (reproduced 2026-09-13). Repro:
-
-  ```
-  fn total(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
-      for n in iter(ns) { … }
-  }
-  ```
-
-  Rust is fine. Kotlin emits `vararg ns: Int`, which the JVM types as
-  `IntArray` rather than `Array<Int>`, so `iter(ns)` fails ("actual type is
-  'IntArray', but 'Array<uninferred T>' was expected") and passing an
-  `Array<Int>` into the position mismatches as well. `...parts: Str[]` and
-  every generic variadic work, which is why std never hit it. Found while
-  adding mixed spread and reproduced with **no** spread involved, so it is
-  independent of that work. Fix direction: emit the boxed `Array<Int>` for a
-  variadic whose element type is primitive (Kotlin's `vararg` of a primitive is
-  the only place the two array representations diverge), or lower a variadic
-  parameter as a plain `Array<T>` parameter and spread at the call sites.
 
 - **A recursive struct is an undiagnosed backend divergence** (reproduced
   2026-09-12). Repro: `struct Node { value: Int, next: Node | None }` plus

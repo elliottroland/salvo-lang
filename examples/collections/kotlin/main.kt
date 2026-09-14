@@ -80,7 +80,7 @@ fun main() {
     val words = listOf<String>("alpha", "be")
     val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, w.length) }).forEach { __e -> __m.put(__e.first, __e.second) } }
     println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
-    val filled = non_empty_list("ada", "grace")
+    val filled = non_empty_list("ada", arrayOf("grace"))
     println(console, "6. first is ${first(filled)}, no optional")
     val growing: MutableList<Int> = mutableListOf<Int>()
     growing.add(7)

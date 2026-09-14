@@ -6888,3 +6888,62 @@ fn rustc_compiles_and_runs_mixed_spread() {
     let files = generate(&[("main.sv", MIXED_SPREAD_DEMO)]);
     run_rust_files(&files, "mixed-spread", MIXED_SPREAD_OUTPUT);
 }
+
+// ===== [kt-variadic] a user-declared variadic, every element type =====
+
+/// Shared verbatim with the Kotlin backend's
+/// `kotlinc_compiles_and_runs_user_variadics`. The Kotlin side is the one this
+/// exists for: a `vararg` of a *primitive* element type is an `IntArray`, not
+/// an `Array<Int>`, and those are unrelated on the JVM — so the parameter is
+/// emitted as a plain array instead. Rust is here to hold the parity.
+pub const USER_VARIADIC_DEMO: &str = r#"
+fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
+    let seen = mut_list_of(0)
+    for n in iter(ns) {
+        add(seen, copy(n))
+    }
+    println("${label} ${size(ns)}")
+    return size(seen)
+}
+
+fn join_strs(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
+    let joined = mut_str(...parts)
+    println("${sep} ${joined}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    // A variadic of a *primitive* element type: plain, spread, mixed, empty.
+    let a = count_ints("plain", 1, 2, 3)
+    let rest = array_of(2, 3)
+    let b = count_ints("spread", ...rest)
+    let c = count_ints("mixed", 1, ...rest)
+    let d = count_ints("empty")
+    println("counts ${a} ${b} ${c} ${d}")
+
+    // The spread source survives the calls: a variadic position is not
+    // tracked, so the callee's owned parameter is built by cloning.
+    println("reusable ${size(rest)}")
+
+    // A reference element type, which always worked.
+    join_strs("refs", "a", "b")
+    let words = array_of("y", "z")
+    join_strs("refs", "x", ...words)
+}
+"#;
+
+pub const USER_VARIADIC_OUTPUT: &str = "plain 3\n\
+     spread 2\n\
+     mixed 3\n\
+     empty 0\n\
+     counts 4 3 4 1\n\
+     reusable 2\n\
+     refs ab\n\
+     refs xyz\n";
+
+#[test]
+fn rustc_compiles_and_runs_user_variadics() {
+    let files = generate(&[("main.sv", USER_VARIADIC_DEMO)]);
+    run_rust_files(&files, "user-variadics", USER_VARIADIC_OUTPUT);
+}

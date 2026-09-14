@@ -1468,6 +1468,13 @@ Conventions:
   * A variadic position is otherwise untracked by the flow analysis, so an
     intrinsic that merely *reads* its parts must borrow them in Rust: an
     owned splice would move a variable the checker still considers live.
+    * For the same reason a spread of a **place** into an *owning* variadic
+      parameter is **cloned**, on the ordinary call path as well as the
+      intrinsic one: the parameter is owned in the emitted Rust (it is built
+      from the arguments) while the caller's array stays live, so moving it
+      made `f(...rest)` followed by any further use of `rest` a raw rustc
+      E0382 (fixed on the intrinsic path 2026-09-13 with the sorted
+      collections, and on the ordinary path later the same day).
   * **A tail may mix plain arguments with a spread** — `list_of(first,
     ...rest)` — since 2026-09-13. Kotlin always could, its spread being an
     operator on an argument (`listOf(first, *rest)`); Rust needs the tail as
