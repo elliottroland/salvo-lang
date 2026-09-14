@@ -439,57 +439,99 @@ Conventions:
 
 ### Effect dependencies [kt-effect-fusion]
 
-**Implemented 2026-09-04** for dependency *injection*; the fusion proper
-(one `fx` value per scope) remains planned, and is *only* a uniformity
-refinement here. Kotlin needs far less than Rust here because objects
-alias: a handler can simply **hold** its dependency, and dependency hiding
-is an ordinary field read — where Rust had to build the fusion to get the
-same programs running ([rs-effect-fusion]).
+**Dependency injection implemented 2026-09-04; the fusion proper (one
+fused value per scope) implemented 2026-09-14** with the Has-accessor
+design (user decision, FILE_SYSTEM.md §5.8.1 — adopted for both backends;
+single-effect fns fuse too, by the user's consistency call). Kotlin needs
+far less than Rust here because objects alias: a handler can simply
+**hold** its dependency, and dependency hiding is an ordinary field read —
+where Rust had to build the fusion to get the same programs running
+([rs-effect-fusion]).
 
+* **Gated program-wide, on the same predicate as Rust**: any handler
+  declaring an effect dependency switches the whole program; otherwise
+  effects thread as one handler parameter each [kt-effect-params] and
+  nothing below is emitted.
 * [effect-handler-deps] A constructor parameter of effect type emits as the
   `private val` it already was — `class ConsoleLogger(private val console: Console) : Logger`
   — and the handler's member bodies resolve that effect to the *field*
   rather than to a leading parameter, since an `override` signature must
-  match the interface (`override fun log(message: String)`).
+  match the interface (`override fun log(message: String)`). Under the
+  fusion the member body also opens with a combiner over the dependency
+  fields (below), so calls to fused callees inside it have a carrier.
 * The `use` site supplies the dependency from the effect environment, in the
   handler's declaration order, interleaved with any written constructor
-  arguments: `val logger: Logger = ConsoleLogger(console)`. Callers of the
-  outer effect never mention it (`fun work(logger: Logger)`).
-* Still planned, and only for parameter *uniformity* rather than
-  correctness: collapsing a fn's N handler parameters into one fusion value
-  behind a **multi-bounded generic**
-  (`fun <T> work(fx: T) where T : Console, T : Logger`), which erasure makes
-  a single emitted function.
-* Nested `use` scopes **rebuild** flat (user decision): the inner fusion
-  holds the outer scope's handlers as its own fields rather than a
-  reference to the outer fusion. Rust could not keep this — see
-  [rs-effect-fusion], where flatness is unachievable and inner scopes chain
-  through a single provider field — but Kotlin has no borrow analysis to
-  satisfy, so the flat form stands here.
-* [kt-effect-facets] **Facets are Kotlin-only** (user decision
-  2026-09-04). One class cannot implement `Random<Int>` and
-  `Random<Double>` — erasure rejects it ("type parameter 'T' … has
-  inconsistent values", "a supertype appears twice") — yet
-  [effect-no-dup] permits both instances in one effect list, and
-  LANGUAGE.md documents that example. So a **generic** effect gets one
-  generated *non-generic* facet interface per instance in use, with the
-  instance in the member name:
+  arguments. Callers of the outer effect never mention it.
+* **Has-accessor interfaces, per effect *instance***, generated once per
+  program into `fx.kt` (root `salvo` package, wildcard-importing every
+  emitted module):
 
   ```kotlin
-  interface Fx_Random_Int    { fun random__Int(): Int }
-  interface Fx_Random_Double { fun random__Double(): Double }
+  interface __Has_Logger     { val __fx_Logger: Logger }
+  interface __Has_Random_Int { val __fx_Random_Int: Random<Int> }
   ```
 
-  The fusion implements the facets; the effect interface itself stays
-  generic and unchanged, since that is what *handlers* implement and what
-  an effect-typed constructor parameter refers to. Non-generic effects
-  (`Console`) keep plain member names — mangling applies only where a type
-  argument must disambiguate, like [kt-qual-mangling] for qualified
-  overloads. Rust needs none of this ([rs-effect-fusion]).
-  * **Revisit** (user note 2026-09-04): the accumulated need for name
-    mangling across the Kotlin backend ([kt-qual-mangling], the overload
-    suffixes, and now facets) deserves a fresh look — there may be a
-    single alternative that removes several of them at once.
+  Per instance rather than per declaration because erasure forbids one
+  class implementing `__Has_Random<Int>` **and** `__Has_Random<Double>` —
+  the exact constraint that motivated the (now retired) facet design.
+  Fused values implement the Has interfaces, never the effect interfaces,
+  so member names cannot collide on them and instances stay apart by
+  *property* (`fx.__fx_Random_Int.next_random()`).
+* **One fused parameter per fn, one effect included**, behind a
+  multi-bounded generic — which erasure makes a single emitted function:
+
+  ```kotlin
+  fun<__Fx> banner(__fx: __Fx) where __Fx : __Has_Console, __Fx : __Has_Logger { … }
+  ```
+
+  Subset forwarding is generic instantiation (`shout(__fx)`); member
+  dispatch reads the property (`__fx.__fx_Logger.log(…)`).
+* **Nested `use` scopes rebuild flat** (user decision): one generated
+  class per `use` site with an `override val` per effect in scope —
+  inherited ones initialized from their current expressions (objects
+  alias, so aliasing is free), the new one from the handler constructor:
+
+  ```kotlin
+  class __Fx_3(
+      override val __fx_Console: Console,
+      override val __fx_Logger: Logger,
+  ) : __Has_Console, __Has_Logger
+  // use ConsoleLogger() ⇒
+  val __fx2 = __Fx_3(__fx.__fx_Console, ConsoleLogger(__fx.__fx_Console))
+  ```
+
+  Rust could not keep flatness — see [rs-effect-fusion], where inner
+  scopes chain through a single provider field — but Kotlin has no borrow
+  analysis to satisfy, so the flat form stands here. **The environment
+  restore at scope exit is a full clone**, not a depth truncation: a
+  `use` *rebases* the enclosing entries onto its fused value, and that
+  mutation must roll back with the scope (found the hard way, 2026-09-14).
+* **The dyn boundaries** keep per-effect values and open with a combiner
+  (a fused class with no new handler): **platform `main`** keeps one
+  parameter per platform effect (the host ABI [kt-platform-host]);
+  **fn values** keep per-effect leading parameters in their *type*
+  (`(Logger, String) -> String`) — Kotlin's nominal typing has no blanket
+  impls, so no provider interface could cover subsets — and a lambda's
+  body opens by combining them (`val __fx = __Fx_5(logger)`), while a
+  named fn passed as a value is **always adapted** when effectful, the
+  carrier built inline: `{ __fx0: Logger, __a0 -> shout(__Fx_6(__fx0), __a0) }`
+  (a bare `::shout` reference can no longer match the per-effect ABI,
+  since the declaration takes `__Fx`).
+* Threading into a *fused callee* collapses the per-effect arguments to
+  the one carrier (`work(__fx)`); threading into a *fn value* stays
+  per-effect (`f(__fx.__fx_Logger, s)`). Each environment entry records
+  both: the handler expression and the carrier.
+* [kt-effect-facets] **Retired 2026-09-14, never implemented.** The facet
+  design (a generated non-generic interface per instance of a generic
+  effect, with the instance mangled into the *member* names) existed on
+  paper for the day one class had to implement two instances of a generic
+  effect — which only a fused class does, and the fusion had not been
+  built. The per-instance Has interfaces above are that day's actual
+  answer: the instance lands in the *interface and property* name instead
+  of the member names, the effect interface stays generic and untouched,
+  and handlers never notice. The 2026-09-04 "facets are Kotlin-only"
+  user decision survives as: per-instance accessor interfaces are
+  Kotlin-only, Rust's accessor trait stays generic ([rs-effect-fusion]).
 
 ## Functions
 

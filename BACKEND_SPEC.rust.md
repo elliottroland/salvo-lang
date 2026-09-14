@@ -785,12 +785,18 @@ the blanket rule:
 
 ### Effect dependencies via handler fusion [rs-effect-fusion]
 
-**Implemented 2026-09-04.** A handler may declare a dependency
+**Implemented 2026-09-04; reshaped to the Has-accessor design 2026-09-14**
+(user decision, FILE_SYSTEM.md §5.8.1 — adopted for both backends and
+sequenced before the filesystem work; the single-effect case fuses too, by
+the user's consistency call). A handler may declare a dependency
 ([effect-handler-deps]); Rust renders it by *fusing* the handlers of a
-scope into one value. The user decision was "B9, rebuilding, no facets in
-Rust" (2026-09-03/04); COMPLETED.md's E1a holds the decision log and the
-rejected alternatives. Every shape below was verified by compiling and
-running it with `rustc` before the emitter was taught to produce it.
+scope into one value. The original strategy decision was "B9, rebuilding,
+no facets in Rust" (2026-09-03/04); COMPLETED.md's E1a holds the decision
+log and the rejected alternatives. Every shape below was verified by
+compiling and running it with `rustc` before the emitter was taught to
+produce it (2026-09-14 for the Has shapes, including two instances of a
+generic effect inherited through one `dyn` provider, and supertrait
+elaboration carrying UFCS through it).
 
 **The problem.** A dependent handler must reach its dependency when its
 member runs, without the *caller* of that member supplying one. Kotlin
@@ -813,49 +819,76 @@ runs and effects thread as one `&mut dyn E` parameter each [rs-effects] —
 existing output is untouched. The switch cannot be per-scope: a fn's
 signature must not depend on which of its callers holds a fusion.
 
-**One fused parameter per fn.** A fn needing one effect keeps
-`__fx: &mut dyn E`; a fn needing two or more takes a *generic* fused
-value:
+**The Has-accessor trait, beside every effect.** In fusion mode
+`emit_effect` emits a second trait next to each effect trait:
 
 ```rust
-pub fn banner<__Fx: Console + Logger>(__fx: &mut __Fx) { … }
+pub trait __Has_Random<T> {
+    fn __get_Random(&mut self) -> &mut dyn Random<T>;
+}
 ```
 
-Generic rather than `dyn` for one reason, and it is the reason worth
-remembering: a fn must be able to forward its fused value to a callee
-needing a **subset** of its effects (`shout(&mut *__fx)` for
-`[Console]`). With `dyn`, that needs `&mut dyn Conj_A_B_C` →
-`&mut dyn Conj_A_B`, which trait upcasting *cannot* do — upcasting only
-reaches supertraits, and a conjunction of two is not a supertrait of a
-conjunction of three. A Sized generic unsizes to any of its bounds, so
-every subset call is trivial. The cost is monomorphization per fusion
-type; it stays finite because fusion structs are not generic in their
-provider (see below).
+Generic exactly as the effect is, so one declaration serves every
+instance, and declared in the effect's own file so its identity crosses
+modules through the same globs the effect's does [rs-imports] — no shared
+definitions file. Fused values implement `__Has_E` per effect in scope,
+**never the effect traits themselves**: member names cannot collide on a
+fused value (a future `Fs` and `Net` both wanting `close` was the
+motivating case), and two instances of a generic effect disambiguate with
+the *Has* trait's turbofish rather than by name mangling.
+
+**One fused parameter per fn, one effect included** (uniformity, user
+decision 2026-09-14):
+
+```rust
+pub fn banner<__Fx: __Has_Console + __Has_Logger>(__fx: &mut __Fx) { … }
+```
+
+Generic rather than `dyn` for the same reason as before, now one step
+removed: a fn forwards its fused value to a callee needing a **subset**
+of its effects (`shout(&mut *__fx)`), and a Sized generic satisfies any
+subset of its bounds by monomorphization, where `dyn`-to-`dyn` would need
+upcasting that cannot reach a smaller conjunction. The cost is
+monomorphization per fusion type; it stays finite because fusion structs
+are not generic in their provider (see below).
+
+**Member dispatch is accessor-then-method**:
+`__Has_Random::<i32>::__get_Random(&mut *__fx).next_random(…)` — the UFCS
+turbofish on the Has trait picks the instance, and the member call itself
+is on `&mut dyn Random<i32>`, which is never ambiguous.
 
 **One fusion struct per `use` site**, chained to whatever provided the
 effects already in scope:
 
 ```rust
 pub struct __Fx_main_3<'a, __H> {
-    __outer: &'a mut dyn Console,   // or `dyn __Conj_…` for two or more
-    __h: __H,                       // the handler this `use` registers
+    __outer: &'a mut dyn __Has_Console,  // or `dyn __Prov_…` for two or more
+    __h: __H,                            // the handler this `use` registers
 }
 ```
 
 * **One `__outer` field**, not one per inherited effect: N reborrows of
   the same provider would alias. That single field is the only place a
   fused value needs a *nameable* type, and therefore the only reason
-  conjunction traits exist:
-  `pub trait __Conj_A_B: A + B {} impl<T: A + B + ?Sized> __Conj_A_B for T {}`
-  — emitted per file that needs one, where the blanket impl makes
-  duplication harmless (a fusion built in module `M` satisfies
-  `N::__Conj_A_B` too).
+  provider traits exist:
+  `pub trait __Prov_A_B: __Has_A + __Has_B {} impl<T: __Has_A + __Has_B + ?Sized> __Prov_A_B for T {}`
+  — a conjunction of **Has** traits, emitted per file that needs one,
+  where the blanket impl makes duplication harmless (a fusion built in
+  module `M` satisfies `N::__Prov_A_B` too).
+* The fusion's impls are **Has-accessor impls**: an inherited effect
+  forwards through the provider —
+  `__Has_A::__get_A(&mut *self.__outer)` — which type-checks because
+  supertrait elaboration makes `dyn __Prov_…: __Has_A` hold, and the
+  turbofish keeps two instances of one generic effect apart. An
+  *independent* new handler's accessor returns `&mut self.__h`
+  (bound `__H: Effect`); a *dependent* one returns `self`, because the
+  raw effect impl lives on the fusion (below).
 * **`dyn` in `__outer`** keeps monomorphization finite: a recursive fn
   that registers a handler and recurses maps its fusion type to itself
   instead of nesting `__Fx<__Fx<…>>` forever.
 * **Generic over the handler** (`__H`), so a *generic* handler needs no
   re-derivation of its type arguments: `CyclicRandom::new(vec![…])` infers
-  them, and the fusion's impls bound `__H` by the effect it provides.
+  them, and the fusion's impls bound `__H` by what they need.
 * The fusion **owns** the handler, so there is no separate handler local
   and no second borrow to manage.
 
@@ -884,43 +917,60 @@ it), so they move into a generated trait:
 
 ```rust
 pub trait __Impl_ConsoleLogger {
-    fn log(&mut self, __fx: &mut dyn Console, message: &String);
+    fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String);
 }
 impl __Impl_ConsoleLogger for ConsoleLogger { /* the written body */ }
 ```
 
 `&mut self` is kept, so `self.state` still works, and the trait is only
-ever a *bound* — never `dyn` — so its methods may be generic. A single
-dependency travels as `&mut dyn D`; two or more need a Sized generic
-(`__Fx: D1 + D2`), because a `dyn` cannot satisfy a Sized bound and a
-`?Sized` one could not be unsized again further down. The Sized value is
-built by a per-handler adapter over the one provider field:
+ever a *bound* — never `dyn` — so its methods may be generic.
+Dependencies travel **uniformly** as a Has-bounded Sized generic, one
+dependency included (user decision 2026-09-14: consistency over a special
+case). The Sized value is built by a per-handler adapter over the one
+provider field, implementing each dependency's Has trait by forwarding:
 
 ```rust
-pub struct __Deps_CountingAudit<'a, __P: ?Sized> { __p: &'a mut __P }
-impl<'a, __P: Console + ?Sized> Console for __Deps_CountingAudit<'a, __P> { … }
+pub struct __Deps_CountingAudit<'a, __P: ?Sized> { pub __p: &'a mut __P }
+impl<'a, __P: __Has_Console + ?Sized> __Has_Console for __Deps_CountingAudit<'a, __P> { … }
 ```
 
-The fusion's forwarding impl is where the trick lands — `&mut self` is
-destructured into **disjoint field borrows** first, so the handler's state
-and its dependency are two separate `&mut`:
+(`pub __p`, because the adapter is declared beside its handler but
+constructed inside fusion impls in whichever module `use`s it.) The
+fusion's *raw effect impl* for the dependent handler is where the trick
+lands — `&mut self` is destructured into **disjoint field borrows**
+first, so the handler's state and its dependency are two separate
+`&mut`:
 
 ```rust
 impl<'a, __H: __Impl_ConsoleLogger> Logger for __Fx_main_3<'a, __H> {
     fn log(&mut self, message: &String) {
         let Self { __outer, __h } = self;
-        __Impl_ConsoleLogger::log(__h, &mut **__outer, message)
+        let mut __deps = __Deps_ConsoleLogger{ __p: &mut **__outer };
+        __Impl_ConsoleLogger::log(__h, &mut __deps, message)
     }
 }
 ```
 
-Independent handlers keep today's `impl Effect for H`, and the fusion
-forwards to `&mut self.__h`.
+The dependent handler's Has-accessor then returns `self`: the fusion is
+the `dyn Effect` its own accessor hands out. Independent handlers keep
+today's `impl Effect for H`, and their accessor returns `&mut self.__h`.
 
-**Member dispatch is UFCS** in fusion mode (`Console::print(recv, m)`,
-`Random::<i32>::next_random(recv)`): one value implements every effect in
-scope, so plain method syntax would be ambiguous between two effects with a
-same-named member, and between two instances of a generic effect.
+**The dyn boundaries.** Two ABIs cannot take a generic fused parameter,
+and each opens by rebuilding a Sized fused value:
+
+* **Platform `main`** keeps one `&mut dyn E` parameter per platform
+  effect — the host constructs one implementation each and calls
+  `salvo_main` with them [rs-platform-entry] — and its body begins with a
+  generated combiner (`__Dyn_main_1<'a>`, one dyn field per effect, a
+  Has impl each) that the rest of the body threads.
+* **Fn values** declare **one** `&mut dyn` provider parameter for their
+  whole effect list — the single effect's Has trait, or a `__Prov_…`
+  conjunction — since two separate reborrows of the caller's one fused
+  value would alias (`E0499`). A lambda's body opens with a combiner
+  over that provider (`__FxDyn_demo_1<'a>`); a named fn passed as a
+  value gets the same combiner inside its adapter closure. The caller
+  threads its fused value into the position by plain unsizing (the
+  blanket impl makes any fused value a provider).
 
 **Arguments that reach the fused value are hoisted** into a temporary:
 
@@ -934,9 +984,11 @@ with the fusion — and it is why the emitter renders such calls as block
 expressions.
 
 **No facets in Rust** (user decision 2026-09-04): each backend leverages
-its own language. Rust has no erasure, so one fusion implements
-`Random<i32>` and `Random<String>` directly and multi-instance generic
-effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
+its own language. Rust has no erasure, so one generic `__Has_Random<T>`
+declaration serves `Random<i32>` and `Random<String>` alike and
+multi-instance generic effects need no mangling. Kotlin's Has interfaces
+are per *instance* instead ([kt-effect-fusion]) — which is also what
+retired the facet design there.
 
 #### Deliberate cuts inside the fusion ([backend-never-wrong])
 
@@ -965,10 +1017,10 @@ effects need no mangling. Kotlin cannot ([kt-effect-fusion]).
     they were discarded, and because this report fires only on the *fusion*
     path a single-effect program emitted invalid Rust instead (`E0283`, plus
     `E0392`).
-* A generated **conjunction trait name claimed by two different effect
-  sets**: sanitizing `<`/`,` to `_` is not injective, so an effect literally
-  named `Random_i32` collides with `Random<i32>`. Vanishingly unlikely, but
-  silently reusing the wrong trait would be wrong code.
+* A generated **provider or accessor trait name claimed by two different
+  effect sets**: sanitizing `<`/`,` to `_` is not injective, so an effect
+  literally named `Random_i32` collides with `Random<i32>`. Vanishingly
+  unlikely, but silently reusing the wrong trait would be wrong code.
 
 Both are reported at the `use`/handler that causes them, never mis-emitted.
 

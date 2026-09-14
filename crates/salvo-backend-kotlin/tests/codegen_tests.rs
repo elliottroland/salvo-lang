@@ -3970,7 +3970,8 @@ fn main() [use] -> None {
 /// [effect-handler-deps] The dependency becomes a constructor field, the
 /// member reaches it through that field (its signature must match the
 /// interface), the `use` site passes the handler in scope, and `work` takes
-/// only the Logger.
+/// only the Logger — behind its Has bound, since dependency programs fuse
+/// [kt-effect-fusion].
 #[test]
 fn handler_dependencies_inject_at_construction() {
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
@@ -3993,14 +3994,28 @@ fn handler_dependencies_inject_at_construction() {
         main.content
     );
     assert!(
-        main.content.contains("ConsoleLogger(console)"),
+        main.content.contains("ConsoleLogger(console)")
+            || main.content.contains("ConsoleLogger(__fx.__fx_Console)"),
         "expected the `use` site to supply the dependency in:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("fun work(logger: Logger)"),
-        "callers should not mention the dependency in:\n{}",
         main.content
+            .contains("fun<__Fx> work(__fx: __Fx) where __Fx : __Has_Logger"),
+        "callers should not mention the dependency, and a single effect \
+         still fuses (uniformity) in:\n{}",
+        main.content
+    );
+    // The Has-accessor interface is generated once, in fx.kt.
+    let fx = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "fx.kt")
+        .expect("fx.kt emitted");
+    assert!(
+        fx.content
+            .contains("interface __Has_Logger {\n    val __fx_Logger: Logger\n}"),
+        "expected the accessor interface in fx.kt:\n{}",
+        fx.content
     );
 }
 
@@ -5039,10 +5054,12 @@ fn main() [use] -> None {
 const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
 
 /// [fn-effects] Kotlin threads the effect as a leading closure parameter
-/// too, rather than capturing it — one mechanism on both backends. A named
-/// fn whose effect list matches passes as a function reference; one with
-/// *fewer* effects gets an adapter that takes what the caller passes and
-/// ignores it (the variance rule).
+/// too, rather than capturing it — one mechanism on both backends. The
+/// fn-value ABI stays per-effect even under the fusion (nominal typing has
+/// no blanket impls), and the lambda body opens by combining its effect
+/// parameters into the fused carrier [kt-effect-fusion]. A named fn is
+/// always adapted: an effectful one gets the carrier built inline, a pure
+/// one ignores the threaded effect (the variance rule).
 #[test]
 fn fn_type_effects_thread_into_lambdas() {
     let program = build_program(&[("main.sv", FN_EFFECTS_DEMO)]);
@@ -5053,24 +5070,26 @@ fn fn_type_effects_thread_into_lambdas() {
         .iter()
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
-    // The inherited effect is a real parameter of `run_it`.
+    // The inherited effect fuses `run_it`'s own signature; the fn *type*
+    // keeps the per-effect parameter.
     assert!(
         main.content
-            .contains("fun run_it(logger: Logger, f: (Logger, String) -> String"),
-        "expected the inherited effect in the signature:\n{}",
+            .contains("run_it(__fx: __Fx, f: (Logger, String) -> String"),
+        "expected the fused signature with a per-effect fn type:\n{}",
         main.content
     );
-    // The lambda takes it rather than capturing it.
+    // The lambda takes the effect rather than capturing it, and combines
+    // it into a fused carrier.
     assert!(
-        main.content.contains("{ logger2: Logger, s: String ->")
-            || main.content.contains("{ logger2: Logger, s ->"),
+        main.content.contains(": Logger, s ->"),
         "expected the effect as a leading lambda parameter:\n{}",
         main.content
     );
-    // A matching named fn passes as a reference; a pure one is adapted.
+    // Named fns are adapted: the effectful one gets an inline carrier, the
+    // pure one drops the threaded effect.
     assert!(
-        main.content.contains("::shout"),
-        "expected a function reference for the matching fn:\n{}",
+        main.content.contains("shout(__Fx_"),
+        "expected the effectful named fn to receive an inline carrier:\n{}",
         main.content
     );
     assert!(

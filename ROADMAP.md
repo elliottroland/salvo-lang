@@ -147,37 +147,35 @@ containers (`List<linear T>`) deferred by decision.
 
 **4 — The filesystem, on an IO stream design** ("Standard library surface →
 S-IO"), using linearity and iterators — which is why it follows 1 and 3.
-**[FILE_SYSTEM.md](FILE_SYSTEM.md) lays out the option space** (written
-2026-09-12: nine decisions FS-1…FS-9 with recommendations — the seam for the
-default handler, the two-effect layering for the restricted handler, where
-stream ops live, the error model, testability, the v1 surface, and restricted-
-handler semantics); it dies into COMPLETED.md when the decisions are made,
-OBLIGATIONS.md-style.
+**Fully decided 2026-09-14** (six rounds of user decisions; the decision-log
+entry "Phase 4 fully decided" in COMPLETED.md has the summary,
+**[FILE_SYSTEM.md](FILE_SYSTEM.md) is the plan of record** with the decided
+architecture in its §5.7–5.10: interception with binds-outward
+self-dependencies, stream ops as `Fs` members with `@Effect`
+disambiguation, `RawFs` below the members behind `platform handler
+HostRawFs`, linear tokens and the O-L2 `FsError`, per-operation Str/Byte
+buffered streams, and the signed-off v1 surface). The document retires into
+COMPLETED.md when phase 4 lands. **Its prerequisite milestone — the
+Has-accessor effect fusion — was built first, 2026-09-14** (user decision;
+see COMPLETED.md's decision log): both backends now fuse behind generated
+per-effect accessor traits/interfaces, which is what makes bare `Fs` stream
+members collision-proof. **Both former due-before decisions are closed**:
+operator typing (numeric-only arithmetic, integer widening, explicit
+int↔float, literal adoption, `Bool`-only logicals — decided 2026-09-14,
+**implementation still owed before or inside phase 4**) and shared member
+names (`@Effect` call disambiguation — decided 2026-09-14, the grammar rule
+to be drafted with phase 4). What remains here is *work*, not decisions:
+the operator-typing checker slice, the `@Effect` grammar, O-R2
+interception (checker + both backends), the `platform handler` mechanism
+(possibly its own decoupled session), then the fs surface itself with the
+two-deliverable byte sequencing.
 
 **S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
 day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
 universal struct `==`, `canbe hashed`/`canbe ordered`, and the
-`*_of`/`*_by`/`to_*` conventions. See COMPLETED.md. FS-6's in-memory test
-filesystem was to be its first internal customer and now has the collections
-it needs.
-
-Two further decisions are due **before** phase 4 starts, because both become
-concrete the moment streams exist:
-
-- **Operator typing and numeric promotion.** Offsets and sizes are naturally
-  `Long`, so "does `Int + Long` promote, and to what" stops being theoretical;
-  deciding it after std has a numeric surface means churning that surface.
-  The `==`/`!=` slice is now **decided** with the collections round
-  (2026-09-12): same-base-type operands only, qualifiers ignored (state,
-  provenance and `Mut` alike — equality is on the data at check time),
-  structs compare structurally, fn-typed fields bar a struct from `==`,
-  float equality is Salvo-emitted IEEE on both backends. Arithmetic,
-  ordering operators and `Bool` for `&&`/`||` remain open.
-- **Two effects sharing a member name.** `read`/`write`/`close` on an `Fs`
-  effect, the stream surface and `Console` collide, so the `println@Console(...)`
-  question is due here rather than being dodged with prefixed names.
-  (FILE_SYSTEM.md's FS-3 recommendation — stream ops as free fns, not
-  effect members — softens this from blocking to due-eventually.)
+`*_of`/`*_by`/`to_*` conventions. See COMPLETED.md. The in-memory test
+filesystem (`MemFs`) was to be its first internal customer and now has the
+collections it needs.
 
 **5 — Threading: the Erlang/Gleam/OTP model.** ("Threading and concurrency",
 below.) A design pass first: four questions the existing implementation forces,
@@ -204,17 +202,19 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| Operator typing rules — arithmetic operand types, numeric promotion, ordering ops, `Bool` for `&&`/`\|\|` (the `==`/`!=` slice was decided 2026-09-12 with collections — see "The sequence", phase 4) | before phase 4 | "Consolidated leftovers" |
-| Two effects declaring one member name: keep the error, or add `println@Console(...)` (softened by FILE_SYSTEM.md FS-3: stream ops as free fns) | before phase 4 | "Effects" |
-| **S-IO** — the stream design the filesystem is the first customer of; option space laid out in FILE_SYSTEM.md (FS-1…FS-9, with recommendations) | phase 4 | "Standard library surface" |
 | Sendability, per-process effect scopes, OS threads versus a runtime, async's fate | phase 5 | "Threading and concurrency" |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
+(The three phase-4 rows this table used to carry — operator typing, shared
+member names, and the S-IO design itself — were **all decided 2026-09-14**;
+see "The sequence" phase 4, S-IO, and COMPLETED.md's decision log.)
+
 One further proposal is **deferred by decision** rather than waiting:
-`platform handler` / `platform type`. (The `defers`-block proposal went with
+`platform type`. (`platform handler` was un-deferred 2026-09-14 — it is now
+a phase-4 work item, see "Effects"; the `defers`-block proposal went with
 `defer` itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
@@ -403,24 +403,32 @@ as a library transformer if it reads better than the intrinsic.
   (Neither target offers it either — a Kotlin `Continuation` throws on a second
   resume, a Rust `Future` cannot be cloned.)
 
-### DECISION — two effects may not share a member name
+### ~~DECISION~~ Two effects sharing a member name — decided 2026-09-14: `@Effect` disambiguation ships
 
 `Symbols::effect_of_fn` maps a member name to one effect, so declaring `emit` on
 both `Logger` and `Metrics` is a declaration error today, and the message
-already promises the syntax that would fix it: `println@Console(...)`. Lifting
-it means a multimap plus every member path — `check_effect_call`, deduction
-inference, refinements, the LSP — so it is a milestone of its own rather than an
-easy win. The call to make is whether the collision stays an error
-([mod-collision]'s reasoning) or the disambiguation form ships.
+already promises the syntax the user has now chosen: **`member@Effect(args)`**
+(`read_line@Fs(s)`), with the generic arguments written in the effect
+signature when needed to disambiguate (`next_random@Random<Int>()`) and
+omittable when the bare name is unique. Decided during the phase-4 rounds
+(FILE_SYSTEM.md §5.8; bare `Fs` members are the first customer). The
+implementation is a phase-4 work item (S-IO item 3): a multimap plus every
+member path — `check_effect_call`, deduction inference, refinements, the
+LSP — and the grammar rule drafted in LANGUAGE_SPEC.md beside the
+scope-selection `@`. Emission is already collision-proof on both backends
+([rs-effect-fusion]/[kt-effect-fusion]'s Has accessors — built 2026-09-14).
 
-### Deferred by decision: `platform handler` and `platform type`
+### `platform handler` — un-deferred 2026-09-14 (phase-4 work item); `platform type` still deferred
 
-Both recorded when the interop redesign landed (user decision 2026-09-05):
-a `platform handler` is a host implementation of an *ordinary* Salvo effect,
-constructed by `use`; a `platform type` is the type-aliasing gap the user
-accepted, with platform structs sketched as the eventual answer ("let's leave
-platform type until a need arises"). `platform effect` is the whole interop path
-until one of them has a customer.
+Both were recorded when the interop redesign landed (user decision
+2026-09-05): a `platform handler` is a host implementation of an *ordinary*
+Salvo effect, constructed by `use`; a `platform type` is the type-aliasing
+gap the user accepted, with platform structs sketched as the eventual answer
+("let's leave platform type until a need arises"). **The need arose:**
+`HostRawFs of RawFs` is the filesystem's bottom handler (FS-1 resolved as
+O-M2, user decision 2026-09-14 — see FILE_SYSTEM.md), so `platform handler`
+is now S-IO work item 5, possibly its own decoupled session. `platform type`
+remains deferred; `platform effect` remains the interop path until then.
 
 ### Two cuts inside the Rust effect fusion
 
@@ -932,22 +940,38 @@ overloads that drop the optional. See COMPLETED.md. What is still not there:
 
 ### S-IO — streams, then the filesystem (phase 4)
 
-**Phase 4**, and two decisions are due before it starts: operator typing and
-numeric promotion (offsets and sizes are `Long`; the `==` slice is already
-decided — see "The sequence"), and whether two effects may
-share a member name (`read`/`write`/`close` collide across `Fs`, the stream
-surface and `Console`). See "The sequence".
+**Phase 4, fully decided 2026-09-14** (six rounds of user decisions —
+COMPLETED.md's decision log has the summary). No open decisions remain;
+what is left is implementation, in the agreed order:
 
-**The option space is laid out in [FILE_SYSTEM.md](FILE_SYSTEM.md)**
-(2026-09-12): FS-1 the default handler's seam (recommended: `intrinsic
-handler` over a shipped runtime class), FS-2 how the restricted handler
-reaches the host (recommended: two-effect layering `RawFs`+`Fs` — the
-handler self-dependency ban and [use-no-dup] make direct delegation
-illegal), FS-3 where stream ops live (recommended: free fns on linear
-stream values, object-capability style), FS-4 the stream types, FS-5 the
-error model, FS-6 testability, FS-7 the v1 surface, FS-8 restricted-handler
-semantics, FS-9 the interaction test list. Decisions are the user's; the
-document dies into COMPLETED.md once they are made.
+1. ~~**The Has-accessor effect fusion**~~ — **✅ built 2026-09-14** on both
+   backends (COMPLETED.md decision log; [rs-effect-fusion],
+   [kt-effect-fusion]).
+2. **The operator-typing slice** (decided — see the closed DECISION under
+   "Consolidated leftovers"): numeric-only arithmetic, integer widening,
+   explicit int↔float, literal adoption of the expected numeric type,
+   `Bool`-only logicals, promoted result types. Effectively a phase-4
+   prerequisite: offset arithmetic (`position(s) + size(line)`) is
+   `Long + Int` in user code.
+3. **The `@Effect` member-disambiguation grammar** (`read_line@Fs(s)`,
+   generics in the effect signature when ambiguous — decided; the
+   LANGUAGE_SPEC.md rule needs drafting beside the scope-selection `@`).
+4. **O-R2 interception**: a handler may depend on the effect it
+   implements, binding strictly outward; shadowing allowed (same-scope
+   duplicate-instance registration stays an error). Checker + both
+   backends + diagnostics.
+5. **The `platform handler` mechanism** (FS-1/O-M2), possibly its own
+   decoupled session; `HostRawFs` is its first customer.
+6. **The filesystem itself**, per
+   **[FILE_SYSTEM.md](FILE_SYSTEM.md)** §5.7–5.10 (the plan of record:
+   architecture, member lists, error model, token design, restriction
+   semantics, and the FS-9 + §5 verify list), with bytes as the second
+   sequenced deliverable inside it. The [linear-group] amendment —
+   consuming effect members declared in the linear type's file join the
+   discharge set — lands with it.
+
+FILE_SYSTEM.md retires into COMPLETED.md when phase 4 lands,
+OBLIGATIONS.md-style.
 
 An `Fs` effect was designed in outline (effect + `intrinsic handler
 DefaultFs`, a `File` struct, linear `InputStream`/`OutputStream` as
@@ -1406,13 +1430,16 @@ blocking, and several are "revisit only if a customer appears".
 - Module reachability is name-based and conservative: a local variable
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
-- **DECISION (open, for the user):**
+- **Operator typing (decided 2026-09-14; the checker slice is still to
+  build — see S-IO item 2):**
   - Binary operators are typed only for `None` [op-no-none]: everything
     else is unchecked (`Str * Bool` passes, result typing is just the
-    left operand's type). Decide the operator typing rules — legal
-    operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
-    The `==`/`!=` slice was decided 2026-09-12 with the collections round
-    (see COMPLETED.md): same-base-type operands, qualifiers ignored,
-    structural struct equality, fn-typed fields barring, Salvo-emitted
-    float equality. Arithmetic, ordering and the logical operators
-    remain.
+    left operand's type). The rules are now decided (user decision
+    2026-09-14, FILE_SYSTEM.md §5.10.3): arithmetic on numeric operands
+    only, **no `Str +`** (`${}` is concatenation); ordering on numerics
+    and `canbe ordered` structs; `&&`/`||`/`!` on `Bool` only; implicit
+    widening within integer types (`Int + Long → Long`), int↔float mixing
+    requires explicit conversion; integer literals adopt the expected
+    numeric type; `Int / Int` is integer division on both backends; the
+    result type is the promoted operand type. The `==`/`!=` slice was
+    decided 2026-09-12 with the collections round (see COMPLETED.md).

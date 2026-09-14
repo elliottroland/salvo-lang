@@ -122,6 +122,68 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Has-accessor effect fusion, both backends (user decision 2026-09-14, built
+the same day).** The user proposed the design during the phase-4 decision
+rounds (below) and pulled it forward as its own milestone, delivered before
+the filesystem work: the value fused calls thread does **not** implement the
+effect traits/interfaces — it implements one generated *accessor* per effect
+(`__Has_Console { fn __get_Console(&mut self) -> &mut dyn Console }` on Rust,
+`interface __Has_Random_Int { val __fx_Random_Int: Random<Int> }` on Kotlin),
+and member calls go through the accessor. What it buys: effect members can
+never collide on a fused value (the `close@Fs` vs `close@Net` future), two
+instances of a generic effect disambiguate structurally (Rust: the generic
+Has trait's turbofish; Kotlin: per-instance interfaces — which **retires
+[kt-effect-facets] unbuilt**, since the instance now lands in the
+interface/property name instead of mangled member names), and the fn-ABI is
+uniform — a *single* effect fuses too (user steering call: consistency over
+the `&mut dyn E` special case). The gate is unchanged and now shared: any
+handler declaring a dependency switches the whole program on either backend;
+plain-mode output is untouched. Kotlin's side is the "uniformity fusion"
+[kt-effect-fusion] had recorded as planned, now real: multi-bounded generics
+(`fun<__Fx> f(__fx: __Fx) where __Fx : __Has_A`), flat-rebuilt fused classes
+per `use`, per-instance Has interfaces merged program-wide into `fx.kt`.
+Rust's side is the [rs-effect-fusion] reshape: Has traits emitted beside each
+effect (generic, so cross-module identity rides the existing globs),
+provider traits over Has supertraits for the one nameable `__outer`/fn-value
+type, accessor-then-method dispatch replacing UFCS-on-the-effect, and the
+`__Deps_H` adapter made unconditional. The dyn boundaries — platform `main`
+(host ABI) and fn values (aliasing/borrow limits) — keep per-effect
+parameters and open with a generated combiner. Every Rust shape was
+rustc-verified before the emitter learned it (including two instances of one
+generic effect inherited through a single `dyn` provider — supertrait
+elaboration carries the UFCS bound, which made a feared cut unnecessary).
+Both backends compile and run every fusion program end-to-end; suite
+849/849, fresh. Full mechanism: BACKEND_SPEC.rust.md [rs-effect-fusion],
+BACKEND_SPEC.kotlin.md [kt-effect-fusion].
+
+**Phase 4 (the filesystem) fully decided (user decisions 2026-09-14, six
+rounds).** FILE_SYSTEM.md carries the complete option record and the decided
+architecture; the calls, in brief: **effects may intercept** — a handler may
+depend on the effect it implements, binding strictly outward, with shadowing
+allowed and [use-no-dup] reduced to the duplicate-instance error (O-R2);
+**stream ops are effect members** (O-P1, after two reversals — free fns lost
+to the `[Fs, RawFs]` double declaration their test seam required), with
+**bare member names disambiguated by `@Effect` syntax** (`read_line@Fs(s)`,
+generics in the effect signature when ambiguous — this *made* the ROADMAP
+"shared member names" due-before decision); **linearity stays above the
+platform** — `RawFs` (plain `Long` handles, `platform handler HostRawFs`,
+FS-1 resolved as O-M2) sits under an `Fs` whose handlers are all Salvo
+(`DefaultFs(raw: RawFs)`, `MemFs`, `RestrictedFs(root, fs: Fs)`), so linear
+tokens are minted and discharged only in checked code; **errors** are O-L2
+(`linear struct FsError { kind: FsErrorKind }`, `ignore`/`detach`
+dischargers, errors-at-close on both stream sides, 8-arm taxonomy);
+**buffered, per-operation Str/Byte streams** with `open_read_at` ranged
+opens, byte-count-returning writes, `position` on both stream types, `Byte`
+→ Kotlin `UByte`, bytes in v1; **restriction** is lexical, rebased,
+distinguishable (`PathEscapes`), root as `Str`; and the **operator-typing**
+due-before DECISION is closed: numeric-only arithmetic (no `Str +`),
+`Bool`-only logicals, implicit widening within integer types, explicit
+int↔float conversion, literals adopting the expected numeric type, promoted
+result types. The [linear-group] discharge set gains consuming effect
+members declared in the type's file (entailed by O-P1 + member dischargers).
+FILE_SYSTEM.md remains the plan of record until phase 4 lands, then retires
+into this log as OBLIGATIONS.md did.
+
 **Mixed variadic spreads, and qualifier overloading (user decisions
 2026-09-13).** Two follow-ups the user asked for after C-6, each of which
 turned out to be an unimplemented case rather than a target limitation.
@@ -5333,7 +5395,13 @@ duplication of user code.
 
 #### B9 — handler fusion ✅ chosen (user decisions 2026-09-03/04), shipped 2026-09-04
 
-The strategy of record, now implemented on both backends. Full mechanism,
+The strategy of record, now implemented on both backends. **Reshaped
+2026-09-14 to the Has-accessor design** (user decision — see the decision
+log's "Has-accessor effect fusion" entry): the fused value now implements
+generated per-effect accessor traits/interfaces instead of the effect
+traits themselves, the single-effect case fuses too, and Kotlin's planned
+uniformity fusion became real. Everything below about *why* fusion beat
+B1–B8 stands unchanged; the specs hold the current shapes. Full mechanism,
 with the borrow reasoning and the
 verified shapes, is in **BACKEND_SPEC.rust.md [rs-effect-fusion]** (the
 constraint is Rust's) and **BACKEND_SPEC.kotlin.md [kt-effect-fusion]**.
@@ -10150,6 +10218,17 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A scope's effect environment must be restored by *clone*, not by depth
+  truncation, once anything mutates entries in place.** The Kotlin emitter
+  truncated `effect_env` back to its depth at block exit, which was
+  sufficient while scopes only *pushed*; the Has-fusion `use` sites also
+  **rebase** the enclosing entries onto the new fused value, and a
+  truncate leaves that mutation behind — the enclosing scope then
+  dispatches through a variable that no longer exists (`unresolved
+  reference '__fx4'`, found by kotlinc in the e2e batch, 2026-09-14). The
+  Rust emitter never hit it because it had always saved and restored full
+  clones. If an emitter grows any in-place mutation of scoped state, audit
+  every save/restore of that state for the truncate pattern the same day.
 - **A new runtime module must be added to `runtime_tests.rs`'s list.** That
   list is what makes the test complete rather than a sample, and nothing
   fails if you forget: the module is still spliced into user output, just

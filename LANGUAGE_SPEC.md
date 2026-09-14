@@ -1862,13 +1862,17 @@ Conventions:
     in any order (verified both ways). The availability rule *is* the
     acyclicity guarantee, which is what the fusion emission relies on.
   * Emission is the fusion strategy ([rs-effect-fusion],
-    [kt-effect-fusion]). Kotlin injects the dependency at construction
-    (objects alias, so nothing more is needed); Rust builds one *fusion*
-    per `use` scope which owns the handler, implements every effect in
-    scope, and hands the dependency to the member body from a disjoint
-    borrow — because capturing it in the handler would lock it for the
-    handler's lifetime where Kotlin shares it freely. Both backends run
-    the same programs to the same output.
+    [kt-effect-fusion]), since 2026-09-14 in the **Has-accessor** shape on
+    both backends (user decision, adopted from FILE_SYSTEM.md §5.8.1): one
+    fused value per scope carries the registered handlers behind generated
+    per-effect accessor traits/interfaces, so effect members can never
+    collide on it and instances of a generic effect stay apart. Kotlin
+    additionally injects the dependency at construction (objects alias);
+    Rust hands it to the member body from a disjoint borrow of the
+    fusion — capturing it in the handler would lock it for the handler's
+    lifetime where Kotlin shares it freely. Both backends gate the fusion
+    on the same program-wide predicate and run the same programs to the
+    same output.
 * [effect-fn-deps] A fn's `[E1, E2<T>]` list declares its effect
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every

@@ -1827,22 +1827,34 @@ fn handler_dependencies_fuse() {
     );
     assert!(
         c.contains("pub trait __Impl_ConsoleLogger")
-            && c.contains("fn log(&mut self, __fx: &mut dyn Console, message: &String)"),
-        "expected the member bodies in a trait taking the fused dependency:\n{c}"
+            && c.contains("fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String)"),
+        "expected the member bodies in a trait taking the fused dependency \
+         behind its Has bound:\n{c}"
     );
     assert!(
-        c.contains("pub fn work(__fx: &mut dyn Logger)"),
-        "callers must not mention the dependency:\n{c}"
+        c.contains("pub fn work<__Fx: __Has_Logger>(__fx: &mut __Fx)"),
+        "callers must not mention the dependency, and a single effect still \
+         fuses (uniformity):\n{c}"
     );
     assert!(
-        c.contains("__outer: &'a mut dyn Console") && c.contains("__h: __H,"),
+        c.contains("pub trait __Has_Logger {\n    fn __get_Logger(&mut self) -> &mut dyn Logger;\n}"),
+        "expected the Has-accessor trait beside the effect:\n{c}"
+    );
+    assert!(
+        c.contains("__outer: &'a mut dyn __Has_Console") && c.contains("__h: __H,"),
         "expected a fusion chaining to the provider and owning the handler:\n{c}"
     );
     assert!(
         c.contains("let Self { __outer, __h } = self;")
-            && c.contains("__Impl_ConsoleLogger::log(__h, &mut **__outer, message)"),
+            && c.contains("let mut __deps = __Deps_ConsoleLogger{ __p: &mut **__outer };")
+            && c.contains("__Impl_ConsoleLogger::log(__h, &mut __deps, message)"),
         "the forwarding impl must split `&mut self` into disjoint field \
-         borrows before threading the dependency:\n{c}"
+         borrows before threading the dependency adapter:\n{c}"
+    );
+    assert!(
+        c.contains("fn __get_Logger(&mut self) -> &mut dyn Logger {\n        self\n    }"),
+        "a dependent handler's accessor returns the fusion itself, which \
+         carries the raw effect impl:\n{c}"
     );
 }
 
@@ -1862,7 +1874,7 @@ fn programs_without_handler_dependencies_do_not_fuse() {
         "expected one `&mut dyn` parameter per effect:\n{c}"
     );
     assert!(
-        !c.contains("__Fx_") && !c.contains("__Conj_"),
+        !c.contains("__Fx_") && !c.contains("__Prov_") && !c.contains("__Has_"),
         "no fusion items should be generated:\n{c}"
     );
 }
@@ -1998,31 +2010,36 @@ fn fusion_shapes() {
         .find(|f| f.rel_path.ends_with("main.rs"))
         .unwrap();
     let c = &main.content;
-    // A fn needing two effects takes one *generic* fused value, so it can
-    // forward to a callee needing a subset (`dyn` could not: upcasting
-    // only reaches supertraits).
+    // A fn needing effects takes one *generic* fused value bounded by the
+    // Has-accessor traits — never the effect traits, so member names cannot
+    // collide on it — and forwards it to a callee needing a subset.
     assert!(
-        c.contains("pub fn banner<__Fx: Console + Logger>(__fx: &mut __Fx)")
+        c.contains("pub fn banner<__Fx: __Has_Console + __Has_Logger>(__fx: &mut __Fx)")
             && c.contains("shout(&mut *__fx,"),
-        "expected a generic fused parameter forwarded to a smaller callee:\n{c}"
+        "expected a Has-bounded fused parameter forwarded to a smaller callee:\n{c}"
     );
-    // Two dependencies need a Sized view over the single provider field.
+    // Dependencies need a Sized Has-implementing view over the single
+    // provider field — uniformly, one dependency or two.
     assert!(
         c.contains("pub struct __Deps_CountingAudit<'a, __P: ?Sized>")
             && c.contains("let mut __deps = __Deps_CountingAudit{ __p: &mut **__outer };")
-            && c.contains("fn note<__Fx: Console + Counter>(&mut self, __fx: &mut __Fx"),
-        "expected the two-dependency adapter and a generic member:\n{c}"
+            && c.contains("fn note<__Fx: __Has_Console + __Has_Counter>(&mut self, __fx: &mut __Fx"),
+        "expected the dependency adapter and a Has-bounded generic member:\n{c}"
     );
-    // Conjunction traits exist only as `__outer` field types.
+    // Provider traits exist only as `__outer` field types, and conjoin the
+    // Has traits, never the effects.
     assert!(
-        c.contains("pub trait __Conj_Console_Logger: Console + Logger {}")
-            && c.contains("impl<T: Console + Logger + ?Sized> __Conj_Console_Logger for T {}"),
-        "expected a conjunction trait with its blanket impl:\n{c}"
+        c.contains("pub trait __Prov_Console_Logger: __Has_Console + __Has_Logger {}")
+            && c.contains(
+                "impl<T: __Has_Console + __Has_Logger + ?Sized> __Prov_Console_Logger for T {}"
+            ),
+        "expected a provider trait over Has supertraits with its blanket impl:\n{c}"
     );
-    // Member dispatch is UFCS: one value implements every effect in scope.
+    // Member dispatch is accessor-then-method: the Has trait's turbofish
+    // disambiguates generic instances, the member call is on `&mut dyn E`.
     assert!(
-        c.contains("Random::<i32>::next_random(&mut __fx"),
-        "expected UFCS dispatch for a generic effect:\n{c}"
+        c.contains("__Has_Random::<i32>::__get_Random(&mut __fx"),
+        "expected accessor dispatch for a generic effect:\n{c}"
     );
     // Two effect calls in one expression: the inner one is hoisted, or the
     // fused value would be borrowed twice (`E0499`).
@@ -2353,10 +2370,13 @@ fn main() [use] -> None {
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
         .expect("main.rs emitted");
-    // The effect arrives as a parameter of the closure, not a capture.
+    // The effect arrives as a parameter of the closure, not a capture —
+    // under the fusion, as the single `dyn` provider the closure combines
+    // into a Sized fused value [rs-effect-fusion].
     assert!(
-        main.content.contains("|logger: &mut dyn Logger,"),
-        "expected the effect threaded into the closure:\n{}",
+        main.content.contains(": &mut dyn __Has_Logger,")
+            && main.content.contains("{ __outer: __prov }"),
+        "expected the effect threaded into the closure as a Has provider:\n{}",
         main.content
     );
     run_rust_files(&files, "fn-effects", "LOG: in lambda x\ndone x\n");
@@ -3079,11 +3099,11 @@ fn main() [use] -> None {
 
 const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
 
-/// [fn-effects] The effect is a leading `&mut dyn` parameter of the closure
-/// type, so nothing is captured — which is what lets the value cross a call
-/// that borrows the same effect value (the lifted fusion cut). A named fn is
-/// wrapped in an adapter that takes the expected effects and forwards the
-/// ones it declares.
+/// [fn-effects] The effect is a leading parameter of the closure type, so
+/// nothing is captured — which is what lets the value cross a call that
+/// borrows the same effect value (the lifted fusion cut). Under the fusion
+/// it is the single `&mut dyn` Has-provider [rs-effect-fusion]; the lambda
+/// and the named-fn adapter rebuild a Sized fused value from it.
 #[test]
 fn fn_type_effects_thread_into_closures() {
     let files = generate(&[("main.sv", FN_EFFECTS_DEMO)]);
@@ -3093,21 +3113,22 @@ fn fn_type_effects_thread_into_closures() {
         .expect("main.rs emitted");
     assert!(
         main.content
-            .contains("f: &mut impl FnMut(&mut dyn Logger, &String) -> String"),
-        "expected the effect in the closure type:\n{}",
+            .contains("f: &mut impl FnMut(&mut dyn __Has_Logger, &String) -> String"),
+        "expected the Has provider in the closure type:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("|logger: &mut dyn Logger,"),
-        "expected the effect as a leading closure parameter:\n{}",
+        main.content.contains(": &mut dyn __Has_Logger,")
+            && main.content.contains("{ __outer: __prov }"),
+        "expected the provider as a leading closure parameter, combined in \
+         the body:\n{}",
         main.content
     );
-    // The adapter for a named fn: takes the expected effect, forwards what
-    // the declaration needs (`shout`), or ignores it (`plain`).
+    // The adapter for a named fn: takes the expected provider, rebuilds a
+    // fused value for a declaration that needs it (`shout`).
     assert!(
-        main.content.contains("__fx0: &mut dyn Logger")
-            && main.content.contains("shout(&mut *__fx0"),
-        "expected the named-fn adapter to forward the effect:\n{}",
+        main.content.contains("shout(&mut __fx"),
+        "expected the named-fn adapter to forward a fused value:\n{}",
         main.content
     );
     assert!(
