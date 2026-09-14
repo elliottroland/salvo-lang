@@ -833,7 +833,7 @@ impl Rewrite {
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. } => self.expr(base),
-            Expr::Scoped { base, .. } => {
+            Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
                 if let Some(base) = base {
                     self.expr(base);
                 }
@@ -1149,7 +1149,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     }
                 }
             }
-            Expr::Scoped { base, .. } => {
+            Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
                 if let Some(base) = base {
                     walk_expr(base, reserved, out);
                 }

@@ -246,6 +246,13 @@ pub struct ThrowSite {
 #[derive(Default)]
 pub struct Checked {
     pub expr_ty: HashMap<Key, Ty>,
+    /// [op-promote] Operator operands widened by numeric promotion, keyed
+    /// by the operand expression's span, mapped to the promoted type
+    /// (`Int + Long` promotes the `Int` side to `Long`; `Float`/`Double`
+    /// likewise). Read by backends whose target has no native mixed-width
+    /// operators (Rust inserts `as` casts; Kotlin's own operator set
+    /// already covers the mixes and ignores this).
+    pub promotions: HashMap<Key, Ty>,
     /// Declared (physical) type for identifier uses whose logical type was
     /// narrowed by flow analysis.
     pub repr_ty: HashMap<Key, Ty>,
@@ -790,52 +797,32 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
     }
 }
 
-/// [effect-member-unique] A member name identifies its effect
-/// program-wide (`Symbols::effect_of_fn` maps a name to *one* effect), so
-/// two effects declaring the same member name make every call to it
-/// resolve to whichever was collected last — and there is no syntax to say
-/// which one was meant (`emit<Logger>(…)` parses as *member* type
-/// arguments). Reported at declaration rather than left to produce a
-/// baffling "no handler for effect" downstream (user decision 2026-09-05).
+/// [effect-member-unique] A member name is unique **within its effect**.
+/// Across effects the name may recur ([effect-member-overload], user
+/// decision 2026-09-14, lifting the 2026-09-05 program-wide ban): a call
+/// disambiguates by which effect has a handler in scope, or explicitly
+/// with `member@Effect(…)` [effect-at] — the syntax whose absence was the
+/// original ban's reason.
 ///
 /// Walks files and items in source order and reports at the *second*
 /// declaration, so the diagnostic is deterministic and fires exactly once
-/// per collision — the `Symbols` maps cannot be used for this, since they
-/// are last-wins and hash-ordered.
+/// per collision.
 fn check_effect_member_names(program: &Program, out: &mut Checked) {
-    // member name -> (effect name, file index, name span)
-    let mut seen: HashMap<&str, (&str, usize, Span)> = HashMap::new();
+    // (effect name, member name) seen so far.
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
     for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
         for item in &ast.items {
             let Item::Effect(e) = item else { continue };
             for f in &e.fns {
-                match seen.get(f.name.name.as_str()) {
-                    Some((other, _, _)) if *other == e.name.name.as_str() => {
-                        out.errors.push(FileDiagnostic::error(
-                            file_idx,
-                            f.name.span,
-                            format!(
-                                "effect `{}` already declares a member named `{}`",
-                                e.name.name, f.name.name
-                            ),
-                        ));
-                    }
-                    Some((other, _, _)) => {
-                        out.errors.push(FileDiagnostic::error(
-                            file_idx,
-                            f.name.span,
-                            format!(
-                                "effect `{other}` already declares a member named \
-                                 `{}`: a member name identifies its effect, and there \
-                                 is no syntax to say which effect a call to `{}` means \
-                                 — rename one of them",
-                                f.name.name, f.name.name
-                            ),
-                        ));
-                    }
-                    None => {
-                        seen.insert(&f.name.name, (&e.name.name, file_idx, f.name.span));
-                    }
+                if !seen.insert((&e.name.name, &f.name.name)) {
+                    out.errors.push(FileDiagnostic::error(
+                        file_idx,
+                        f.name.span,
+                        format!(
+                            "effect `{}` already declares a member named `{}`",
+                            e.name.name, f.name.name
+                        ),
+                    ));
                 }
             }
         }
@@ -5750,12 +5737,59 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   not — the axes are separate.
     ///
     /// Unknown and `Nothing` operands stay lenient [type-unknown-lenient].
-    fn check_comparison_operands(&mut self, op: ast::BinaryOp, span: Span, l: &Ty, r: &Ty) {
+    fn check_comparison_operands(
+        &mut self,
+        op: ast::BinaryOp,
+        span: Span,
+        lhs: &Expr,
+        rhs: &Expr,
+        l: &Ty,
+        r: &Ty,
+    ) {
         let equality = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::NotEq);
         let (lb, rb) = (l.strip_quals(), r.strip_quals());
-        if lb.is_unknown() || rb.is_unknown() || matches!(lb, Ty::Nothing) || matches!(rb, Ty::Nothing)
-        {
+        if op_lenient(lb) || op_lenient(rb) {
             return;
+        }
+        let sym = op_symbol(op);
+        // [op-order] Ordering on numerics allows the same widening
+        // arithmetic does — `Int < Long` compares at `Long`, the narrower
+        // side recording a promotion [op-promote] — and refuses the
+        // int↔float mix the same way. This runs *before* the same-base
+        // check, which mixed widths would otherwise trip.
+        if !equality {
+            match (op_numeric(lb), op_numeric(rb)) {
+                (Some((lf, lr)), Some((rf, rr))) => {
+                    if lf != rf {
+                        self.error(
+                            span,
+                            format!(
+                                "`{sym}` cannot mix `{l}` and `{r}`: integer and \
+                                 floating-point operands need an explicit conversion \
+                                 (`to_double`, `to_long`, …)"
+                            ),
+                        );
+                        return;
+                    }
+                    match lr.cmp(&rr) {
+                        std::cmp::Ordering::Less => self.record_promotion(lhs.span(), rb),
+                        std::cmp::Ordering::Greater => self.record_promotion(rhs.span(), lb),
+                        std::cmp::Ordering::Equal => {}
+                    }
+                    return;
+                }
+                (None, None) => {}
+                _ => {
+                    self.error(
+                        span,
+                        format!(
+                            "cannot compare `{l}` with `{r}`: the operands of a \
+                             comparison must be the same type"
+                        ),
+                    );
+                    return;
+                }
+            }
         }
         // Same base type on both sides — qualifiers ignored, since equality
         // is about the data.
@@ -5774,9 +5808,33 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let Ty::Named { name, .. } = lb else {
+            // [op-order] A non-named operand (tuple, array, fn value) has
+            // no ordering either backend defines at the operator.
+            if !equality {
+                self.error(
+                    span,
+                    format!(
+                        "`{l}` cannot be ordered: `{sym}` works on numeric operands \
+                         and on structs declaring `canbe ordered`"
+                    ),
+                );
+            }
             return;
         };
         let Some(decl) = self.scope.structs.get(name.as_str()) else {
+            // [op-order] A non-struct, non-numeric base (`Str`, `Char`,
+            // `Bool`, `Byte`, containers): equality per [col-equality],
+            // ordering refused — the decided surface is numerics and
+            // `canbe ordered` structs (user decision 2026-09-14).
+            if !equality {
+                self.error(
+                    span,
+                    format!(
+                        "`{name}` cannot be ordered: `{sym}` works on numeric \
+                         operands and on structs declaring `canbe ordered`"
+                    ),
+                );
+            }
             return;
         };
         if decl.fields.iter().any(|f| matches!(f.ty, ast::Type::Fn { .. })) {
@@ -5801,6 +5859,104 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
+    }
+
+    /// [op-arith] Arithmetic operand typing (user decision 2026-09-14):
+    /// numeric operands only — `Str +` is refused toward `${}`
+    /// interpolation — with implicit widening *within* a class
+    /// (`Int + Long → Long`, `Float + Double → Double`; the narrower side
+    /// records a promotion [op-promote]) and an explicit-conversion error
+    /// *across* classes. The result is the promoted operand type.
+    /// `Unknown`/`Nothing` and unconstrained generics stay lenient
+    /// [type-unknown-lenient].
+    fn check_arith(
+        &mut self,
+        op: ast::BinaryOp,
+        span: Span,
+        lhs: &Expr,
+        rhs: &Expr,
+        l: &Ty,
+        r: &Ty,
+    ) -> Ty {
+        let (lb, rb) = (l.strip_quals(), r.strip_quals());
+        if op_lenient(lb) || op_lenient(rb) {
+            // One mistake, one diagnostic: an unknown side neither errors
+            // nor widens — a known numeric side carries the result.
+            return match (op_numeric(lb), op_numeric(rb)) {
+                (Some(_), _) => lb.clone(),
+                (_, Some(_)) => rb.clone(),
+                _ => Ty::Unknown,
+            };
+        }
+        let sym = op_symbol(op);
+        match (op_numeric(lb), op_numeric(rb)) {
+            (Some((lf, lr)), Some((rf, rr))) => {
+                if lf != rf {
+                    self.error(
+                        span,
+                        format!(
+                            "`{sym}` cannot mix `{l}` and `{r}`: integer and \
+                             floating-point operands need an explicit conversion \
+                             (`to_double`, `to_long`, …)"
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                match lr.cmp(&rr) {
+                    std::cmp::Ordering::Equal => lb.clone(),
+                    std::cmp::Ordering::Less => {
+                        self.record_promotion(lhs.span(), rb);
+                        rb.clone()
+                    }
+                    std::cmp::Ordering::Greater => {
+                        self.record_promotion(rhs.span(), lb);
+                        lb.clone()
+                    }
+                }
+            }
+            _ => {
+                let is_str = |t: &Ty| matches!(t, Ty::Named { name, .. } if name == "Str");
+                let message = if matches!(op, ast::BinaryOp::Add) && (is_str(lb) || is_str(rb)) {
+                    "`+` does not concatenate strings: build the text with \
+                     interpolation (`\"${a}${b}\"`)"
+                        .to_string()
+                } else {
+                    format!(
+                        "`{sym}` needs numeric operands (`Int`, `Long`, `Float`, \
+                         `Double`); found `{l}` and `{r}`"
+                    )
+                };
+                self.error(span, message);
+                Ty::Unknown
+            }
+        }
+    }
+
+    /// [op-bool] A truth-valued operand (`&&`, `||`, `!`): `Bool` only —
+    /// the value-position twin of the condition rule (no truthiness).
+    fn require_bool_operand(&mut self, sym: &str, operand: &Expr, ty: &Ty) {
+        let tb = ty.strip_quals();
+        if op_lenient(tb) {
+            return;
+        }
+        if matches!(tb, Ty::Named { name, .. } if name == "Bool") {
+            return;
+        }
+        self.error(
+            operand.span(),
+            format!(
+                "`{sym}` needs `Bool` operands (found `{ty}`): Salvo has no \
+                 truthiness — compare explicitly (`n != 0`) or test the type \
+                 with `is`"
+            ),
+        );
+    }
+
+    /// [op-promote] Records a numeric widening on an operand, for the
+    /// backends whose operators do not mix widths natively (Rust casts;
+    /// Kotlin's operator set covers the mixes).
+    fn record_promotion(&mut self, span: Span, target: &Ty) {
+        self.out.promotions.insert(self.key(span), target.clone());
     }
 
     /// [col-hashed-ordered] Whether a struct declares `canbe hashed`.
@@ -7083,6 +7239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
+            | Expr::EffectScoped { .. }
             | Expr::Error { .. } => false,
         }
     }
@@ -7154,6 +7311,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
+            | Expr::EffectScoped { .. }
             | Expr::Error { .. } => false,
         }
     }
@@ -9022,7 +9180,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         }
         // [fn-overload-at] `xs.add@core.list(..)`: the receiver is an
         // ordinary expression.
-        Expr::Scoped { base, .. } => {
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
             if let Some(base) = base {
                 collect_assigned_expr(base, out);
             }
@@ -9173,7 +9331,9 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Try { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
         // dot-notation receiver can mention anything.
-        Expr::Scoped { base, .. } => base.as_ref().is_some_and(|b| expr_mentions(b, name)),
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
+            base.as_ref().is_some_and(|b| expr_mentions(b, name))
+        }
         // Leaves: no sub-expression, so nothing to mention.
         Expr::Int { .. }
         | Expr::Float { .. }
@@ -10010,8 +10170,21 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
         match expr {
-            Expr::Int { long, .. } => Ty::named(if *long { "Long" } else { "Int" }),
-            Expr::Float { single, .. } => Ty::named(if *single { "Float" } else { "Double" }),
+            // [lit-adopt] An *unsuffixed* numeric literal adopts the
+            // expected numeric type where one exists (`let x: Long = 1`,
+            // `f(1)` into a `Long` parameter, `let d: Double = 3`), so
+            // `Long` positions need no `to_long(1)` noise (user decision
+            // 2026-09-14). A written suffix stays explicit and never
+            // adopts; an integer literal never adopts `Int`-ward (a
+            // `Float` literal cannot become `Int`).
+            Expr::Int { long, .. } => match adopted_numeric(expected, *long, false) {
+                Some(name) => Ty::named(name),
+                None => Ty::named(if *long { "Long" } else { "Int" }),
+            },
+            Expr::Float { single, .. } => match adopted_numeric(expected, *single, true) {
+                Some(name) => Ty::named(name),
+                None => Ty::named(if *single { "Float" } else { "Double" }),
+            },
             Expr::Bool { .. } => Ty::named("Bool"),
             Expr::Char { .. } => Ty::named("Char"),
             Expr::Str { parts, .. } => {
@@ -10217,6 +10390,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                         &id.name,
                     ),
                 }
+                Ty::Unknown
+            }
+            // [effect-at] An effect-selected member is a *call* form: a
+            // member is not a value — nothing implements it until a
+            // handler is in scope, and neither backend can render one
+            // detached from its dispatch.
+            Expr::EffectScoped {
+                base, name, effect, ..
+            } => {
+                if let Some(base) = base {
+                    self.check_expr(base, None);
+                }
+                self.error(
+                    name.span,
+                    format!(
+                        "`{}@{}` selects an effect's member, which is not a \
+                         value: call it (`{}@{}(…)`)",
+                        name.name, effect.name, name.name, effect.name
+                    ),
+                );
                 Ty::Unknown
             }
             // [fn-overload-at] [fn-value-select] A scope-selected fn *value*
@@ -10586,10 +10779,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 struct_ty
             }
             Expr::Unary { op, operand, .. } => {
-                let t = self.check_expr(operand, None);
                 match op {
-                    UnaryOp::Neg => t,
-                    UnaryOp::Not => Ty::named("Bool"),
+                    // [op-arith] Negation is numeric. The expectation
+                    // passes through, so `let x: Long = -5` adopts
+                    // [lit-adopt].
+                    UnaryOp::Neg => {
+                        let t = self.check_expr(operand, expected);
+                        let tb = t.strip_quals();
+                        if !op_lenient(tb) && op_numeric(tb).is_none() {
+                            self.error(
+                                operand.span(),
+                                format!(
+                                    "unary `-` needs a numeric operand (`Int`, `Long`, \
+                                     `Float`, `Double`); found `{t}`"
+                                ),
+                            );
+                        }
+                        t
+                    }
+                    // [op-bool] Negation of a truth value: `Bool` only —
+                    // Salvo has no truthiness.
+                    UnaryOp::Not => {
+                        let t = self.check_expr(operand, None);
+                        self.require_bool_operand("!", operand, &t);
+                        Ty::named("Bool")
+                    }
                 }
             }
             Expr::Binary { op, lhs, rhs, .. } => {
@@ -10605,16 +10819,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [str-drop-mut] An operator works on plain values.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
-                        if l.is_unknown() {
-                            Ty::Unknown
-                        } else {
-                            l.strip_quals().clone()
-                        }
+                        // [op-arith] Numeric operands, widening within a
+                        // class, promoted result type.
+                        self.check_arith(*op, expr.span(), lhs, rhs, &l, &r)
                     }
                     And | Or => {
                         // Value-position boolean: no narrowing propagation.
-                        self.check_expr(lhs, None);
-                        self.check_expr(rhs, None);
+                        let l = self.check_expr(lhs, None);
+                        let r = self.check_expr(rhs, None);
+                        // [op-bool] Both sides are truth values.
+                        self.require_bool_operand(op_symbol(*op), lhs, &l);
+                        self.require_bool_operand(op_symbol(*op), rhs, &r);
                         Ty::named("Bool")
                     }
                     _ => {
@@ -10629,11 +10844,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // content.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
-                        // [col-equality] Comparison operands must be the same
-                        // base type, and what may be compared at all depends
-                        // on the operator: `==`/`!=` work on any struct,
-                        // ordering only on one declaring `canbe ordered`.
-                        self.check_comparison_operands(*op, expr.span(), &l, &r);
+                        // [col-equality] [op-order] Comparison operands must
+                        // be compatible, and what may be compared at all
+                        // depends on the operator: `==`/`!=` work on any
+                        // struct, ordering on numerics (widened) and structs
+                        // declaring `canbe ordered`.
+                        self.check_comparison_operands(*op, expr.span(), lhs, rhs, &l, &r);
                         Ty::named("Bool")
                     }
                 }
@@ -13441,6 +13657,51 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
 
+        // [effect-at] `close@Fs(s)` / `s.close@Fs()`: the *effect* whose
+        // member is meant, written where two effects declare the same
+        // member name [effect-member-overload]. It goes straight to that
+        // effect's member — same-named fn overloads and locals do not
+        // compete — and the call's type arguments keep their
+        // [effect-disambiguation] meaning (they pin the instance:
+        // `next_random@Random<Int>()`).
+        if let Expr::EffectScoped {
+            base, name, effect, ..
+        } = callee
+        {
+            let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            let Some(decl) = self.scope.effects.get(effect.name.as_str()).copied() else {
+                for a in &all_args {
+                    self.check_expr(a, None);
+                }
+                self.error_unresolved(
+                    effect.span,
+                    format!("no effect named `{}` is in scope", effect.name),
+                    &effect.name,
+                );
+                return Ty::Unknown;
+            };
+            self.record_def_ref(effect.span, &effect.name);
+            let Some(member) = decl.fns.iter().find(|f| f.name.name == name.name) else {
+                for a in &all_args {
+                    self.check_expr(a, None);
+                }
+                self.error(
+                    name.span,
+                    format!(
+                        "effect `{}` has no member named `{}`",
+                        effect.name, name.name
+                    ),
+                );
+                return Ty::Unknown;
+            };
+            self.record_def_ref(name.span, &name.name);
+            return self.check_effect_call(decl, member, type_args, &all_args, named, expected, span);
+        }
+
         // [fn-overload-at] `f@core.list(x)` / `xs.f@core.list(y)`: the module
         // whose overload is meant. Written *instead of* letting scope
         // precedence decide, so it goes straight to overload selection — a
@@ -13655,11 +13916,69 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Ty {
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
-        // effects).
-        if let Some(&(effect, member)) = self.scope.effect_members.get(name) {
+        // effects). [effect-member-overload] Several effects may declare
+        // the member name: the one with an instance available wins; two
+        // available (or none) is an error naming the `member@Effect(…)`
+        // form [effect-at].
+        if let Some(members) = self.scope.effect_members.get(name) {
+            let members = members.clone();
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
+            let (effect, member) = if members.len() == 1 {
+                members[0]
+            } else {
+                let available: Vec<(&'p ast::EffectDecl, &'p ast::FnDecl)> = members
+                    .iter()
+                    .filter(|(e, _)| {
+                        self.effect_env.iter().any(
+                            |t| matches!(t, Ty::Named { name: n, .. } if *n == e.name.name),
+                        )
+                    })
+                    .copied()
+                    .collect();
+                let owners = || {
+                    members
+                        .iter()
+                        .map(|(e, _)| format!("`{}`", e.name.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                match available.as_slice() {
+                    [one] => *one,
+                    [] => {
+                        for a in args {
+                            self.check_expr(a, None);
+                        }
+                        self.error(
+                            span,
+                            format!(
+                                "`{name}` is a member of {}, none of which has a \
+                                 handler in scope: declare one in the function's \
+                                 effect list or `use` a handler",
+                                owners()
+                            ),
+                        );
+                        return Ty::Unknown;
+                    }
+                    more => {
+                        let first = more[0].0.name.name.as_str();
+                        for a in args {
+                            self.check_expr(a, None);
+                        }
+                        self.error(
+                            span,
+                            format!(
+                                "`{name}` is a member of {} — more than one is in \
+                                 scope, so the call must pick its effect: \
+                                 `{name}@{first}(…)` [effect-at]",
+                                owners()
+                            ),
+                        );
+                        return Ty::Unknown;
+                    }
+                }
+            };
             return self.check_effect_call(effect, member, type_args, args, named, expected, span);
         }
 
@@ -15158,6 +15477,79 @@ fn op_symbol(op: BinaryOp) -> &'static str {
         GtEq => ">=",
         And => "&&",
         Or => "||",
+    }
+}
+
+/// [op-arith] The operator-numeric types, as (is_float_class, width rank):
+/// the integer widths `Int` < `Long` and the float widths `Float` <
+/// `Double`, promotion widening within a class only. `Byte` is
+/// deliberately **not** operator-numeric: it lowers signed on one backend
+/// and unsigned on the other today, so its arithmetic could not agree
+/// (the byte surface arrives with the filesystem work and the `UByte`
+/// lowering).
+fn numeric_class(name: &str) -> Option<(bool, u8)> {
+    match name {
+        "Int" => Some((false, 0)),
+        "Long" => Some((false, 1)),
+        "Float" => Some((true, 0)),
+        "Double" => Some((true, 1)),
+        _ => None,
+    }
+}
+
+/// The operator-numeric class of a (qualifier-stripped) type.
+fn op_numeric(ty: &Ty) -> Option<(bool, u8)> {
+    match ty {
+        Ty::Named { name, .. } => numeric_class(name),
+        _ => None,
+    }
+}
+
+/// [op-arith] Operands the operator rules stay silent about: a type the
+/// checker could not infer [type-unknown-lenient], a diverging expression,
+/// and an unconstrained generic parameter (whose leniency here is a
+/// documented leftover, matching the equality slice).
+fn op_lenient(ty: &Ty) -> bool {
+    ty.is_unknown() || matches!(ty, Ty::Nothing | Ty::Var(_))
+}
+
+/// [lit-adopt] The numeric type an **unsuffixed** literal adopts from its
+/// expected type (user decision 2026-09-14): a plain numeric expectation,
+/// reached through qualifiers and through a sole non-`None` union arm
+/// (`let x: Long? = 1`). A float literal only adopts within the float
+/// class; an integer literal adopts any wider numeric type but never
+/// re-adopts `Int` (which would be a no-op).
+fn adopted_numeric(expected: Option<&Ty>, suffixed: bool, float_lit: bool) -> Option<&'static str> {
+    if suffixed {
+        return None;
+    }
+    let target = numeric_expectation(expected?)?;
+    let legal = if float_lit {
+        matches!(target, "Float" | "Double")
+    } else {
+        matches!(target, "Long" | "Float" | "Double")
+    };
+    legal.then_some(target)
+}
+
+/// The single numeric type an expected type names, if it names one.
+fn numeric_expectation(expected: &Ty) -> Option<&'static str> {
+    match expected.strip_quals() {
+        Ty::Named { name, .. } => match name.as_str() {
+            "Int" => Some("Int"),
+            "Long" => Some("Long"),
+            "Float" => Some("Float"),
+            "Double" => Some("Double"),
+            _ => None,
+        },
+        Ty::Union(arms) => {
+            let mut non_none = arms.iter().filter(|a| !a.is_none_ty());
+            match (non_none.next(), non_none.next()) {
+                (Some(one), None) => numeric_expectation(one),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 

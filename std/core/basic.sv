@@ -10,6 +10,25 @@ intrinsic type Nothing
 
 type Number = Int | Long | Double | Float
 
+// [op-convert] The explicit numeric conversions the operators point at
+// where they refuse to mix classes ([op-arith]: `Int + Double` is an
+// error naming `to_double`). Truncating conversions truncate toward zero
+// and saturate at the target's bounds, identically on both backends;
+// `to_int(Long)` keeps the low 32 bits (both backends' `toInt()`/`as i32`
+// semantics).
+intrinsic fn to_int(value: Long) [] -> Int => value
+intrinsic fn to_int(value: Double) [] -> Int => value
+intrinsic fn to_int(value: Float) [] -> Int => value
+intrinsic fn to_long(value: Int) [] -> Long => value
+intrinsic fn to_long(value: Double) [] -> Long => value
+intrinsic fn to_long(value: Float) [] -> Long => value
+intrinsic fn to_double(value: Int) [] -> Double => value
+intrinsic fn to_double(value: Long) [] -> Double => value
+intrinsic fn to_double(value: Float) [] -> Double => value
+intrinsic fn to_float(value: Int) [] -> Float => value
+intrinsic fn to_float(value: Long) [] -> Float => value
+intrinsic fn to_float(value: Double) [] -> Float => value
+
 // [intrinsic-fn] [copy-fn] Duplicates a value: the argument is kept
 // untouched (with all its qualifiers) and the result is a fresh,
 // independent value with no fate links to the source. Implemented by

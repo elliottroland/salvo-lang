@@ -57,6 +57,20 @@ Conventions:
   `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
+* [op-promote] Rust has no mixed-width operators (`i32 + i64` is E0277),
+  so a checker-recorded promotion casts the operand **as a whole**:
+  `((n * 2) as i64)` — the inner parentheses matter, since `as` binds
+  tighter than every arithmetic operator and `(n * 2 as i64)` would cast
+  only the `2`. Targets are `i64` and `f64` only (widening goes up within
+  a class).
+* [lit-adopt] An adopted literal renders at its **checked** type
+  (`1i64`, `3f64`, `0.5f32`); an unsuffixed literal at its default type
+  stays bare for inference [lit-numeric]. [op-convert] lowers to `as`
+  casts, whose semantics match Kotlin's `toX()` pairwise (saturating
+  float→int, low-32-bits `i64`→`i32`).
+* [effect-at] Erased like the scope selector below: the checker records
+  the resolved effect per call (`effect_calls`), and emission is the
+  ordinary member dispatch.
 * [fn-overload-at] [fn-rename] Both caller-side overrides of overload
   resolution are **erased**: `call_fn` records the declaration and mangling
   keeps Rust from re-resolving it [rs-fn-mangling]. A renamed call emits the

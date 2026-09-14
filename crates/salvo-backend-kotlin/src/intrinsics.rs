@@ -37,6 +37,15 @@ pub fn fn_call(
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("TODO()");
     Some(match (name, recv) {
+        // core.basic -----------------------------------------------------
+        // [op-convert] The explicit numeric conversions. Kotlin's `toX()`
+        // agrees with Rust's `as` case by case: float→int truncates toward
+        // zero and saturates (NaN → 0), Long→Int keeps the low 32 bits,
+        // Double→Float rounds.
+        ("to_int", Some("Long" | "Double" | "Float")) => format!("({}).toInt()", a(0)),
+        ("to_long", Some("Int" | "Double" | "Float")) => format!("({}).toLong()", a(0)),
+        ("to_double", Some("Int" | "Long" | "Float")) => format!("({}).toDouble()", a(0)),
+        ("to_float", Some("Int" | "Long" | "Double")) => format!("({}).toFloat()", a(0)),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

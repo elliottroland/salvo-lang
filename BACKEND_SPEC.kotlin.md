@@ -50,6 +50,19 @@ Conventions:
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Byte`/`Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Nothing`→`Nothing` (`emit_named_parts`).
+* [op-promote] Kotlin's own operator set covers the mixed widths
+  (`Long.plus(Int)`, `Int.compareTo(Long)`, `Float.times(Double)`), so
+  checker-recorded promotions emit **nothing** here — the table exists
+  for Rust ([rs-effect-fusion]'s sibling divergence: mechanism differs,
+  behaviour agrees).
+* [lit-adopt] An adopted literal renders at its **checked** type — `1L`,
+  `3.0`, `0.5f` — because Kotlin adopts less than Salvo does (a bare `1`
+  initializes a `Long` `val` but does not conform to a `Long`
+  *parameter*). [op-convert] lowers to `toInt()`/`toLong()`/`toFloat()`/
+  `toDouble()`, whose semantics match Rust's `as` pairwise.
+* [effect-at] Erased: the checker records the resolved effect per call
+  (`effect_calls`), and emission is the ordinary member dispatch through
+  the handler expression.
 * [kt-mut-str] `Mut Str` maps to `StringBuilder`, through the same
   `intrinsics::mut_type_name` hook `Mut List<T>` → `MutableList<T>` uses
   [type-canbe-mut] — and it is the case that hook was *not* enough for:

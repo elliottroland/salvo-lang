@@ -172,31 +172,26 @@ fn duplicate_member_names_in_one_effect_are_rejected() {
     );
 }
 
-/// [effect-member-unique] A member name identifies its effect program-wide,
-/// so two *different* effects cannot share one — there is no syntax to say
-/// which effect a call means. Previously this resolved to whichever effect
-/// was collected last and surfaced as a baffling "no handler for effect"
-/// (user decision 2026-09-05).
+/// [effect-member-overload] Two *different* effects may share a member
+/// name (user decision 2026-09-14, lifting the 2026-09-05 program-wide
+/// ban): a call disambiguates by which effect has a handler in scope, or
+/// explicitly with `member@Effect(…)` [effect-at]. The declaration itself
+/// is legal.
 #[test]
-fn a_member_name_shared_by_two_effects_is_rejected() {
+fn a_member_name_shared_by_two_effects_is_legal() {
     let errs = messages(&src(
         "platform effect A {\n    fn ping() [] -> None\n}\n\n\
          effect B {\n    fn ping() [] -> None\n}\n",
     ));
-    assert!(
-        errs.iter().any(|m| m.contains("effect `A` already declares a member named `ping`")
-            && m.contains("no syntax to say which effect")),
-        "got {errs:?}"
-    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [effect-member-unique] Reported exactly once per collision, at the
-/// second declaration — the check walks source order rather than the
-/// hash-ordered, last-wins `Symbols` maps.
+/// [effect-member-unique] The *within-one-effect* duplicate stays an
+/// error, reported exactly once, at the second declaration.
 #[test]
-fn a_shared_member_name_is_reported_once() {
+fn a_duplicate_member_is_reported_once() {
     let errs: Vec<String> = messages(&src(
-        "platform effect A {\n    fn ping() [] -> None\n}\n\n\
+        "platform effect A {\n    fn ping() [] -> None\n    fn ping() [] -> Int\n}\n\n\
          effect B {\n    fn ping() [] -> None\n}\n",
     ))
     .into_iter()

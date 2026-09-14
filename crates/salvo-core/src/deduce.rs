@@ -955,7 +955,7 @@ impl<'p> Walk<'_, 'p> {
             // [fn-overload-at] A scope-selected callee only appears inside a
             // `Call` (or as a fn value, which moves nothing); the receiver of
             // its dot form is an ordinary read.
-            Expr::Scoped { base, .. } => {
+            Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
                 if let Some(base) = base {
                     self.expr(base);
                 }

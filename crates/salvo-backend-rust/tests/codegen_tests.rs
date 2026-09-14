@@ -2382,6 +2382,132 @@ fn main() [use] -> None {
     run_rust_files(&files, "fn-effects", "LOG: in lambda x\ndone x\n");
 }
 
+// ===== operator typing: widening, literal adoption, conversions =====
+// [op-arith] [op-promote] [lit-adopt] [op-convert] The same source and
+// expected stdout as the Kotlin backend's case [backend-parity]: `Long`
+// arithmetic with widened `Int` operands, adopted literals, mixed-width
+// ordering, and the explicit conversions. Values are chosen fractional
+// where floats print, since whole-double rendering differs between the
+// backends today (open defect).
+
+const OPERATOR_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole
+    let x: Long = 1
+    let n = 5
+    let y = x + n * 2
+    let big = 4000000000L
+    let scaled = big * 2 + n
+    let d: Double = 3
+    let g = d + to_double(n) + 0.25
+    let f: Float = 0.5
+    let h = f * 1.5f
+    let cmp = n < x
+    let back = to_int(big)
+    let neg: Long = -7
+    println("${y} ${scaled} ${g} ${h} ${cmp} ${back} ${neg}")
+}
+"#;
+
+const OPERATOR_STDOUT: &str = "11 8000000005 8.25 0.75 false -294967296 -7\n";
+
+/// [op-promote] [lit-adopt] Rust has no mixed-width operators, so widened
+/// operands cast (`as i64`), and adopted literals render at their checked
+/// type (`1i64`).
+#[test]
+fn promotions_cast_and_literals_adopt() {
+    let files = generate(&[("main.sv", OPERATOR_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted");
+    let c = &main.content;
+    assert!(
+        c.contains("x: i64 = 1i64;"),
+        "expected the adopted literal suffixed:\n{c}"
+    );
+    assert!(
+        c.contains("x + ((n * 2) as i64)"),
+        "expected the widened operand cast as a whole:\n{c}"
+    );
+    assert!(
+        c.contains("as i64) < x"),
+        "expected the ordering operand cast:\n{c}"
+    );
+    assert!(
+        c.contains("(big as i32)"),
+        "expected the conversion intrinsic lowered to a cast:\n{c}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_operators() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", OPERATOR_DEMO)]);
+    run_rust_files(&files, "operators", OPERATOR_STDOUT);
+}
+
+// ===== [effect-at] [effect-member-overload] shared member names =====
+// The same source and expected stdout as the Kotlin backend's case
+// [backend-parity]: two effects declaring `close`, resolved by
+// availability in `shut` and by the `@Effect` selector in `main`.
+
+const EFFECT_AT_DEMO: &str = r#"
+effect Fs {
+    fn open(path: Str) -> Int => path
+    fn close(handle: Int) -> Str
+}
+
+effect Net {
+    fn close(handle: Int) -> Str
+}
+
+handler MemFs of Fs {
+    fn open(path: Str) -> Int => path {
+        return 7
+    }
+    fn close(handle: Int) -> Str {
+        return "fs closed ${handle}"
+    }
+}
+
+handler MemNet of Net {
+    fn close(handle: Int) -> Str {
+        return "net closed ${handle}"
+    }
+}
+
+fn shut(h: Int) [Fs] -> Str {
+    return close(h)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use MemFs()
+    use MemNet()
+    let h = open("a.txt")
+    println(shut(h))
+    println(close@Fs(h))
+    println(close@Net(9))
+    println(h.close@Net())
+}
+"#;
+
+const EFFECT_AT_STDOUT: &str = "fs closed 7\nfs closed 7\nnet closed 9\nnet closed 7\n";
+
+#[test]
+fn rustc_compiles_and_runs_effect_selectors() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", EFFECT_AT_DEMO)]);
+    run_rust_files(&files, "effect-at", EFFECT_AT_STDOUT);
+}
+
 // ===== union coercion inside arrays/tuples/lambda returns =====
 // [type-union] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.

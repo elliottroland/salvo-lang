@@ -73,6 +73,16 @@ pub fn fn_call(
         _ => format!("{}.iter().cloned()", a(0)),
     };
     Some(match (name, recv) {
+        // core.basic -----------------------------------------------------
+        // [op-convert] The explicit numeric conversions. `as` matches the
+        // Kotlin `toX()` semantics case by case: float→int truncates
+        // toward zero and saturates (NaN → 0), i64→i32 keeps the low 32
+        // bits, f64→f32 rounds — verified per pair when the set was added
+        // (2026-09-14).
+        ("to_int", Some("Long" | "Double" | "Float")) => format!("({} as i32)", a(0)),
+        ("to_long", Some("Int" | "Double" | "Float")) => format!("({} as i64)", a(0)),
+        ("to_double", Some("Int" | "Long" | "Float")) => format!("({} as f64)", a(0)),
+        ("to_float", Some("Int" | "Long" | "Double")) => format!("({} as f32)", a(0)),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a

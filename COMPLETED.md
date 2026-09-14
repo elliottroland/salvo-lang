@@ -122,6 +122,60 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Operator typing and the `@Effect` selector, built (2026-09-14, from the
+phase-4 decisions).** The two work items between the fusion milestone and the
+platform handler, closing both former due-before DECISIONs as *code*.
+
+**Operator typing** ([op-arith] [op-order] [op-bool] [op-promote]
+[op-convert] [lit-adopt]): arithmetic and unary `-` are numeric-only (`Int`,
+`Long`, `Float`, `Double` — `Byte` deliberately excluded until its `UByte`
+lowering lands, since it is signed on one backend and unsigned on the other
+today); `Str +` is refused pointing at `${}` interpolation; `&&`/`||`/`!`
+take `Bool` in value position (conditions already did, and report once, not
+twice); ordering works on numerics and `canbe ordered` structs and refuses
+the rest — including `Double` *operands* being fine (IEEE partial comparison
+agrees on both backends) while sorted-collection keys stay refused (no total
+order), a deliberate split. Mixed widths widen within a class with the
+promotion recorded in a new `Checked::promotions` table: Kotlin's operator
+set covers the mixes natively, Rust casts — `((n * 2) as i64)`, where the
+inner parentheses were the session's near-miss (below). Cross-class mixes
+error naming std's new explicit conversions: twelve `to_int`/`to_long`/
+`to_float`/`to_double` intrinsics whose truncating semantics were verified
+pairwise (Kotlin `toX()` ≡ Rust `as`: saturating float→int, low-32-bits
+`Long`→`Int`). Unsuffixed literals **adopt** the expected numeric type
+(`let x: Long = 1`, optionals through the sole value arm; suffixed literals
+and variables never adopt), replacing LANGUAGE.md's "no implicit widenings —
+write `1L`" rule; both emitters render adopted literals at their checked
+type (`1i64`/`1L`, `3f64`/`3.0`), since Kotlin refuses a bare `1` for a
+`Long` *parameter*. Found while testing, pre-existing, now an open defect in
+ROADMAP.md: whole-valued `Double` interpolation prints `2` on Rust and `2.0`
+on Kotlin.
+
+**The `@Effect` selector** ([effect-at] [effect-member-overload], revising
+[effect-member-unique]): member names recur across effects — `close` on `Fs`
+and on `Net` — with `Symbols::effect_of_fn` and the scope member table now
+multimaps and the 2026-09-05 program-wide ban reduced to per-effect
+uniqueness. A bare call resolves through the one candidate effect with a
+handler *available*; none or several is an error naming the selector:
+`close@Fs(h)`, dot form `h.close@Net()`, parsed by case (capitalized after
+`@` is an effect, lowercase a module path [fn-overload-at]) into a new
+`Expr::EffectScoped` node. The call's type arguments keep their
+[effect-disambiguation] meaning under the selector
+(`next_random@Random<Int>()` — no new AST field needed, the generic-call
+parse already carries them). A selected member is a call form, not a value.
+Emission is erased on both backends: the checker records the resolved effect
+per call (`effect_calls`), and the emitters' name-keyed fallback only
+answers for sole owners. Known leftover: the LSP def-site table is
+name-keyed, so go-to-definition on a *shared* member name lands on the last
+collected declaration.
+
+Tests: 870 passing (from 849) — a new `op_tests.rs` (nine checker tests), a
+new `effect_at_tests.rs` (seven), parser tests for the selector grammar,
+rewritten pins of the two replaced rules (`operators_drop_mut`, the two
+shared-member-ban tests), and paired e2e cases compiling and running
+`Long`-arithmetic/conversion and shared-member programs to identical stdout
+on both backends.
+
 **Has-accessor effect fusion, both backends (user decision 2026-09-14, built
 the same day).** The user proposed the design during the phase-4 decision
 rounds (below) and pulled it forward as its own milestone, delivered before
@@ -10218,6 +10272,15 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A green e2e test can hide a misparenthesized emission — shape-assert
+  the exact text when an emitter inserts casts.** The first promotion cast
+  emitted `(n * 2 as i64)`, which Rust parses as `n * (2 as i64)` because
+  `as` binds tighter than every arithmetic operator — and the e2e test
+  *passed*, because `n` was un-annotated and inference bent it to `i64`.
+  The compile-and-run test proved "some program with this text runs", not
+  "the cast means what the checker recorded"; the shape assertion
+  (`((n * 2) as i64)`) is what caught it (2026-09-14). Emit
+  `((operand) as T)` with the operand parenthesized, always.
 - **A scope's effect environment must be restored by *clone*, not by depth
   truncation, once anything mutates entries in place.** The Kotlin emitter
   truncated `effect_env` back to its depth at block exit, which was

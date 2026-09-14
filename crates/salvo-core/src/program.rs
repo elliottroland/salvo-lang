@@ -55,8 +55,12 @@ pub struct Symbols<'p> {
     /// `intrinsic type` declarations (mapped natively by each backend)
     /// [backend-intrinsic].
     pub intrinsic_types: HashMap<&'p str, &'p TypeDecl>,
-    /// Effect-member function name -> owning effect name.
-    pub effect_of_fn: HashMap<&'p str, &'p str>,
+    /// Effect-member function name -> owning effect name(s)
+    /// [effect-member-overload]: several effects may declare the same
+    /// member name (user decision 2026-09-14), so this is a multimap; the
+    /// checker records which effect each call resolved to
+    /// (`Checked::effect_calls`).
+    pub effect_of_fn: HashMap<&'p str, Vec<&'p str>>,
     /// `params` groups by name [implicit-group]: bundles of implicit
     /// parameters, spread into a signature as `?Name<T>`.
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
@@ -80,7 +84,11 @@ impl<'p> Symbols<'p> {
                     Item::Effect(e) => {
                         symbols.effects.insert(&e.name.name, e);
                         for f in &e.fns {
-                            symbols.effect_of_fn.insert(&f.name.name, &e.name.name);
+                            symbols
+                                .effect_of_fn
+                                .entry(&f.name.name)
+                                .or_default()
+                                .push(&e.name.name);
                         }
                     }
                     Item::Handler(h) => {

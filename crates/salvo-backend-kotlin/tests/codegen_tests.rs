@@ -1916,6 +1916,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_collection_iteration,
     kotlinc_compiles_and_runs_collection_literals,
     kotlinc_compiles_and_runs_equality_and_ordering,
+    kotlinc_compiles_and_runs_operators,
+    kotlinc_compiles_and_runs_effect_selectors,
     kotlinc_compiles_and_runs_sorted_collections,
     kotlinc_compiles_and_runs_codepoint_string_order,
     kotlinc_compiles_and_runs_generated_constructors,
@@ -3799,6 +3801,106 @@ fn main() [use] -> None {
      struct lookup: nine\n\
      list order: true prefix: true\n\
      struct nan equality: false\n")
+}
+
+/// [op-arith] [op-promote] [lit-adopt] [op-convert] The same source and
+/// expected output as the Rust backend's `rustc_compiles_and_runs_operators`
+/// [backend-parity]. Kotlin's own operator set covers the mixed widths
+/// (`Long.plus(Int)`, `Int.compareTo(Long)`), so only the adopted literals
+/// need rendering care (`1L`, `3.0`).
+fn kotlinc_compiles_and_runs_operators() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole
+    let x: Long = 1
+    let n = 5
+    let y = x + n * 2
+    let big = 4000000000L
+    let scaled = big * 2 + n
+    let d: Double = 3
+    let g = d + to_double(n) + 0.25
+    let f: Float = 0.5
+    let h = f * 1.5f
+    let cmp = n < x
+    let back = to_int(big)
+    let neg: Long = -7
+    println("${y} ${scaled} ${g} ${h} ${cmp} ${back} ${neg}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("val x: Long = 1L") && main.content.contains("val d: Double = 3.0"),
+        "expected adopted literals rendered at their checked type:\n{}",
+        main.content
+    );
+    kotlin_case(
+        files,
+        "operators",
+        "11 8000000005 8.25 0.75 false -294967296 -7\n",
+    )
+}
+
+/// [effect-at] [effect-member-overload] The same source and expected
+/// output as the Rust backend's `rustc_compiles_and_runs_effect_selectors`
+/// [backend-parity]: two effects declaring `close`, resolved by
+/// availability and by the `@Effect` selector.
+fn kotlinc_compiles_and_runs_effect_selectors() -> KotlinCase {
+    let src = r#"
+effect Fs {
+    fn open(path: Str) -> Int => path
+    fn close(handle: Int) -> Str
+}
+
+effect Net {
+    fn close(handle: Int) -> Str
+}
+
+handler MemFs of Fs {
+    fn open(path: Str) -> Int => path {
+        return 7
+    }
+    fn close(handle: Int) -> Str {
+        return "fs closed ${handle}"
+    }
+}
+
+handler MemNet of Net {
+    fn close(handle: Int) -> Str {
+        return "net closed ${handle}"
+    }
+}
+
+fn shut(h: Int) [Fs] -> Str {
+    return close(h)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use MemFs()
+    use MemNet()
+    let h = open("a.txt")
+    println(shut(h))
+    println(close@Fs(h))
+    println(close@Net(9))
+    println(h.close@Net())
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "effect-at",
+        "fs closed 7\nfs closed 7\nnet closed 9\nnet closed 7\n",
+    )
 }
 
 /// [col-sorted] The same source and expected output as the Rust backend's

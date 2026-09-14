@@ -197,8 +197,16 @@ fn operators_drop_mut() {
         "    let x = mut_str()\n    let y = mut_str()\n    let same = x == y",
     );
     assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
+    // [op-arith] `+` on strings is refused outright (user decision
+    // 2026-09-14): interpolation is the concatenation story, and the error
+    // says so.
     let src = body("    let x = mut_str()\n    let joined = x + x");
-    assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
+    let msgs = messages(&src);
+    assert!(
+        msgs.iter()
+            .any(|m| m.contains("does not concatenate strings") && m.contains("${")),
+        "{msgs:?}"
+    );
 }
 
 // ===== where nothing is dropped =====

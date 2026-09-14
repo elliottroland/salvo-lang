@@ -716,6 +716,21 @@ pub enum Expr {
         module: Vec<Ident>,
         span: Span,
     },
+    /// [effect-at] `close@Fs(s)`, or `s.close@Fs()` in dot form: the
+    /// *effect* whose member is meant, written where two effects declare
+    /// the same member name [effect-member-overload]. The effect is named
+    /// bare; a generic instance is pinned with the call's type arguments
+    /// (`next_random@Random<Int>()`), which keep their
+    /// [effect-disambiguation] meaning.
+    EffectScoped {
+        /// The dot-notation receiver, when written as `base.name@Effect(..)`.
+        base: Option<Box<Expr>>,
+        name: Ident,
+        /// The effect's name, as written (capitalized — a lowercase name
+        /// after `@` is a module path).
+        effect: Ident,
+        span: Span,
+    },
     Call {
         callee: Box<Expr>,
         /// Explicit generic args: `next_random<Int>()`.
@@ -956,6 +971,7 @@ impl Expr {
             | Expr::Field { span, .. }
             | Expr::TupleIndex { span, .. }
             | Expr::Scoped { span, .. }
+            | Expr::EffectScoped { span, .. }
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
             | Expr::ArrayLit { span, .. }

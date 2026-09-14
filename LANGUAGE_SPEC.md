@@ -37,11 +37,21 @@ Conventions:
     you to write `1.0f`); `L` forbids one (`1.2L` is a lex error); a
     literal running into identifier characters (`10x`, `1.2fx`) is a lex
     error. `1.size()` still lexes as an int followed by a method call.
-  * There are no implicit numeric widenings: `let x: Long = 1` is a type
-    error — write `1L`.
   * Backends: Kotlin renders the suffixes as its own (`1L`, `1.2f`);
     Rust renders explicit types (`1i64`, `1.2f32`) and leaves unsuffixed
     literals bare for inference.
+* [lit-adopt] An **unsuffixed** numeric literal adopts the numeric type
+  its position expects (user decision 2026-09-14, replacing the earlier
+  "no implicit widenings — write `1L`" rule): `let x: Long = 1`,
+  `let d: Double = 3`, a `Long` call argument, and `T?` positions through
+  the sole non-`None` arm all adopt. A written suffix never adopts, an
+  integer literal never adopts `Int`-ward (a float literal cannot become
+  an integer), and *variables* never widen implicitly — only literals,
+  and only where a numeric expectation exists (operator operands need
+  none: `x + 1` widens per [op-promote]).
+  * Backends render the adopted type explicitly (`1i64`/`1L`, `3f64`/
+    `3.0`, `0.5f32`/`0.5f`), since neither target adopts everywhere Salvo
+    does (Kotlin refuses a bare `1` for a `Long` *parameter*).
 * [type-str] Strings are immutable, with `${...}` interpolation in
   literals.
   * The lexer captures each `${...}` fragment as raw source + offset; the
@@ -842,10 +852,46 @@ Conventions:
   * Same parity motivation as [interp-no-none]: Kotlin compares against
     `null` happily while Rust rejects the `Option`.
   * `Unknown`/`Nothing` operands stay lenient [type-unknown-lenient].
-  * Arithmetic result typing is otherwise unchanged (the left operand's
-    type, qualifiers stripped); operand typing *beyond* `None` — numeric
-    towers, promotion, `Bool` for `&&`/`||` — is still open, so `&&`/`||`
-    are deliberately not covered by this rule.
+* [op-arith] Arithmetic (`+ - * / %`, unary `-`) works on **numeric
+  operands only** — `Int`, `Long`, `Float`, `Double` (user decision
+  2026-09-14, closing the operand-typing DECISION). The result is the
+  (promoted) operand type, qualifiers stripped. Refusals name their
+  remedy: `Str + Str` points at `${}` interpolation, mixed classes at the
+  conversions [op-convert].
+  * `Byte` is deliberately not operator-numeric yet: it lowers signed on
+    the JVM and unsigned on Rust today, so its arithmetic could not agree
+    — it joins with the byte surface and the `UByte` lowering
+    (FILE_SYSTEM.md).
+  * `Int / Int` is integer division on both backends.
+  * An unconstrained generic operand stays lenient like `Unknown` — a
+    documented leftover matching the equality slice, not a rule.
+* [op-promote] Mixed widths widen implicitly **within** a class:
+  `Int + Long` computes at `Long`, `Float`/`Double` at `Double`, for
+  arithmetic and ordering alike; the narrower operand's span is recorded
+  in `Checked::promotions`. Backends render it their own way: Rust casts
+  (`((n) as i64)` — it has no mixed-width operators), Kotlin's operator
+  set already covers the mixes. Mixing the integer and float classes is
+  an error naming the explicit conversions — never implicit, so float
+  surprises stay opt-in.
+* [op-convert] `core.basic` declares the explicit conversions the
+  operators point at: `to_int`, `to_long`, `to_float`, `to_double`, one
+  overload per source width [intrinsic-fn]. Truncating conversions
+  truncate toward zero and **saturate** at the target's bounds
+  identically on both backends; `to_int(Long)` keeps the low 32 bits
+  (Kotlin `toX()` ≡ Rust `as`, verified pairwise).
+* [op-order] Ordering (`< <= > >=`) works on numeric operands (widened
+  per [op-promote]) and on structs declaring `canbe ordered`
+  [col-equality]; everything else — `Str`, `Char`, `Bool`, containers,
+  tuples, fn values — is refused with the rule spelled out (user decision
+  2026-09-14). Note the deliberate difference from sorted-collection
+  keys [col-hashed-ordered]: `Double` **is** orderable at the operator
+  (both backends agree on IEEE partial comparison, `NaN` answering
+  `false`), while a sorted container of them stays refused (no total
+  order).
+* [op-bool] `&&`, `||` and unary `!` take `Bool` operands only — the
+  value-position twin of [cond-bool], with the same no-truthiness
+  reasoning and remedy text. Condition position reports once, through
+  [cond-bool].
 * [cond-bool] Conditions are boolean expressions: `if`/`elif`, `while`,
   and a subject-less `when`'s branch heads [when-condition] accept `Bool`
   and nothing else. There is no truthiness — no rule could turn an `Int`,
@@ -1087,7 +1133,8 @@ Conventions:
   * The rungs above `Own` are not overload sets: a fn-typed local, parameter
     or implicit *is* the function the caller chose and shadows the name
     outright, an effect member takes the name before any fn does
-    [effect-member-unique], and a rename introduces a fresh name
+    (resolving across same-named effects by availability
+    [effect-member-overload]), and a rename introduces a fresh name
     [fn-rename]. `FnEntry::rung` therefore has three values (`Core`,
     `Import`, `Own`).
   * **Scope beats signature**, deliberately: the alternative is a rule no
@@ -1141,7 +1188,9 @@ Conventions:
 * [fn-overload-at] **`f@module(args)`** names the module whose overload is
   meant, overriding scope precedence: `size@core.list(xs)`,
   `size@main(xs)`, and `xs.size@core.list()` in dot form (the selector
-  attaches to the *name*). Also valid as a value (`describe@main`).
+  attaches to the *name*). Also valid as a value (`describe@main`). A
+  **capitalized** name after `@` is an effect selector instead
+  [effect-at].
   * A module path, not a rung keyword: `@mod`/`@import` would ask the reader
     to know which rung a name came in on (user decision 2026-09-07).
   * Naming a module with no *fitting* overload is an error listing the
@@ -1184,9 +1233,11 @@ Conventions:
   none fits, the diagnostic says so and explains why — a contract difference
   does not show in a printed type [fn-contract].
 * [effect-member-call] An effect member call is checked against its declared
-  parameters like any other call — arity and types. Members do not overload
-  [effect-member-unique], so there is nothing to select and nothing to rank;
-  these are plain mismatch diagnostics. (Until 2026-09-07 the member's
+  parameters like any other call — arity and types. Within its effect a
+  member does not overload [effect-member-unique] — the cross-effect choice
+  is made *before* this, by availability or `@Effect`
+  [effect-member-overload] [effect-at] — so there is nothing to select and
+  nothing to rank; these are plain mismatch diagnostics. (Until 2026-09-07 the member's
   parameter types only flowed in as *expected* types, so `log(true)` on
   `fn log(message: Str)` was accepted.)
 * [call-type-args] A generic call's type arguments must be **determined**.
@@ -3178,16 +3229,36 @@ Conventions:
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
-* [effect-member-unique] A member name identifies its effect program-wide,
-  so no two effects may declare the same member name, and no effect may
-  declare one twice (user decision 2026-09-05). Before this, a collision
-  resolved to whichever effect was collected last and surfaced downstream
-  as a baffling "no handler for effect" — and there is no syntax to
-  disambiguate, since `emit<Logger>(…)` parses as *member* type arguments.
-  * Checked in **source order** and reported at the second declaration, so
-    the diagnostic is deterministic and fires exactly once per collision.
-    The `Symbols` maps cannot serve here: they are hash-ordered and
-    last-wins.
+* [effect-member-unique] A member name is unique **within its effect**;
+  an effect declaring one twice is an error at the second declaration
+  (checked in source order, so the diagnostic is deterministic and fires
+  once).
+* [effect-member-overload] **Across effects a member name may recur**
+  (user decision 2026-09-14, lifting the 2026-09-05 program-wide ban —
+  `close` on `Fs` and `close` on `Net` is the natural spelling):
+  `Symbols::effect_of_fn` and the scope's member table are multimaps, and
+  a bare call resolves through the one candidate effect that is
+  *available* (an instance in the effect environment). None available, or
+  more than one, is an error naming the selector form [effect-at]. The
+  original ban existed because there was no such syntax.
+  * The emitters read the checker's per-call resolution
+    (`Checked::effect_calls`); the name-keyed fallback only answers when
+    the name has a sole owner.
+  * Known leftover: the LSP def-site table is name-keyed, so
+    go-to-definition on a *shared* member name lands on one declaration
+    (last collected).
+* [effect-at] `member@Effect(args)` selects the effect a member call goes
+  through — `close@Fs(h)`, dot form `h.close@Net()` — parsed by case: a
+  **capitalized** name after `@` is an effect, a lowercase one starts a
+  module path [fn-overload-at]. The named effect must be in scope, must
+  declare the member, and must still have a handler available (the
+  selector picks the effect, not a handler out of thin air). The call's
+  type arguments keep their [effect-disambiguation] meaning — they pin a
+  generic effect's *instance*: `next_random@Random<Int>()`. A selected
+  member is a call form, not a value.
+  * The selector is a checker mechanism: it narrows what
+    `Checked::effect_calls` records, and emission is the ordinary member
+    call.
 * [backend-companion] A backend-native source file next to a module's
   sources (`complicated.kt` beside `complicated.sv`, using the backend's
   native extension) is a *companion*: it is copied verbatim into the

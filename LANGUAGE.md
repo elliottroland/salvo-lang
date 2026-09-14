@@ -25,9 +25,11 @@ Salvo has the following basic data types, similar to the JVM:
 * `Char`: a character, equivalent to `Char` in Kotlin and `char` in Rust.
 * `None`: a singleton type, used to represent expressions with no response.
 
-All numbers include the usual arithmetic operations.
+All numbers include the usual arithmetic operations, on **numeric operands only**: `+`, `-`, `*`, `/` and `%` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions. Ordering (`<`, `<=`, `>`, `>=`) works on numbers and on structs declaring `canbe ordered`; equality is its own, broader story (see Collections).
 
-Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). There are no implicit numeric widenings: assigning `1` to a `Long` variable is a type error; write `1L`.
+Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
+
+Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). An **unsuffixed** literal also *adopts* the numeric type its position expects — `let x: Long = 1`, `let d: Double = 3` and passing `1` to a `Long` parameter all work, and `x + 1` needs no `1L` because the operator widening covers it. Adoption is for literals only: an `Int` *variable* never becomes a `Long` implicitly — write `to_long(n)`.
 
 ### Strings
 
@@ -1503,6 +1505,23 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 }
 ```
 
+### Two effects, one member name
+
+Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call resolves through whichever effect actually has a handler in scope; when more than one does, the call picks its effect with `@`, the same selector that picks a module's overload:
+
+```
+fn shut(h: Int) [Fs] -> Str {
+    return close(h)          // only Fs is available here: unambiguous
+}
+
+fn both(h: Int) [Fs, Net] -> None {
+    close@Fs(h)              // explicit: the Fs member
+    h.close@Net()            // dot form, like any member call
+}
+```
+
+The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. Within a *single* effect, member names are still unique — the selector distinguishes effects, not overloads. A selected member is a call form, not a value.
+
 ### Throwing: leaving early with a message
 
 Handlers so far always *resume*: an effect operation runs and control comes back. `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
@@ -2375,7 +2394,7 @@ handler AuditLogger(telemetry: Telemetry) of Logger {
 }
 ```
 
-Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. And a member name identifies its effect, so no two effects may share one — there is no syntax to say which effect a call means.
+Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. Member names may be shared with other effects like any effect's (`close@Fs(…)` picks — see "Two effects, one member name"), but within the platform effect itself each member name appears once.
 
 ## Specific backend details
 

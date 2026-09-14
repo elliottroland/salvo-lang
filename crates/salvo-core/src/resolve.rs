@@ -119,7 +119,11 @@ pub struct ModuleScope<'p> {
     /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
     /// Effect-member fn name -> (owning effect, member decl).
-    pub effect_members: HashMap<&'p str, (&'p EffectDecl, &'p FnDecl)>,
+    /// [effect-member-overload] Effect members callable in this scope, by
+    /// name. Several effects may declare the same member name (user
+    /// decision 2026-09-14); a call disambiguates by which effect is
+    /// available, or explicitly with `member@Effect(…)` [effect-at].
+    pub effect_members: HashMap<&'p str, Vec<(&'p EffectDecl, &'p FnDecl)>>,
     /// Visible name -> modules that declare it (under this name; aliased
     /// imports record the alias). Drives module reachability
     /// [mod-used-only] and generated backend imports.
@@ -840,7 +844,11 @@ fn add_items<'p>(
                 // "no handler for effect `Sink`" from inside `core/seq.sv`
                 // [mod-collision].
                 for f in &e.fns {
-                    scope.effect_members.insert(&f.name.name, (e, f));
+                    scope
+                        .effect_members
+                        .entry(&f.name.name)
+                        .or_default()
+                        .push((e, f));
                     origin(&f.name.name, scope);
                     def_site(&f.name.name, *file, f.name.span, scope);
                 }

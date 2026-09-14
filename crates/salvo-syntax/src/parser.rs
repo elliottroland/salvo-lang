@@ -2446,9 +2446,55 @@ impl<'s> Parser<'s> {
                 // [fn-overload-at] `name@core.list(...)`: the module whose
                 // overload is meant. Written on the *name*, so it attaches
                 // to an identifier or to the field of a dot-notation call.
+                // [effect-at] `name@Fs(...)`: a *capitalized* name after
+                // `@` is an effect instead — the member's owner, where two
+                // effects declare the same member name
+                // [effect-member-overload]. A generic instance is pinned by
+                // the call's type arguments (`next_random@Random<Int>()`),
+                // which parse exactly as they do without the `@`.
                 TokenKind::At if self.same_line() => {
                     let at = self.bump().span;
-                    let mut module = vec![self.ident()?];
+                    let first = self.ident()?;
+                    let is_effect = first
+                        .name
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_uppercase());
+                    if is_effect {
+                        let end = first.span;
+                        expr = match expr {
+                            Expr::Ident(name) => {
+                                let span = name.span.to(end);
+                                Expr::EffectScoped {
+                                    base: None,
+                                    name,
+                                    effect: first,
+                                    span,
+                                }
+                            }
+                            Expr::Field { base, field, .. } => {
+                                let span = base.span().to(end);
+                                Expr::EffectScoped {
+                                    base: Some(base),
+                                    name: field,
+                                    effect: first,
+                                    span,
+                                }
+                            }
+                            other => {
+                                self.error(
+                                    "`@` selects which effect's member a *name* \
+                                     means, so it follows a member name \
+                                     (`close@Fs(s)`) or a dot-notation call \
+                                     (`s.close@Fs()`)",
+                                    at,
+                                );
+                                other
+                            }
+                        };
+                        continue;
+                    }
+                    let mut module = vec![first];
                     while self.at(&TokenKind::Dot) && self.same_line() {
                         // A dot after the module path may belong to the path
                         // (`core.list`) or to a following field access; a

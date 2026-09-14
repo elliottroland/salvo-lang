@@ -1136,6 +1136,43 @@ fn a_scope_selector_needs_a_name() {
     );
 }
 
+/// [effect-at] A *capitalized* name after `@` is an effect selector:
+/// `close@Fs(s)` parses as a call whose callee names the effect, in plain
+/// and dot form, and with the call's type arguments pinning a generic
+/// instance (`next_random@Random<Int>()`).
+#[test]
+fn an_effect_selector_parses_on_names_and_dot_calls() {
+    for source in [
+        "fn probe() -> None {\n    let s = close@Fs(h)\n}\n",
+        "fn probe() -> None {\n    let s = h.close@Fs()\n}\n",
+        "fn probe() -> None {\n    let n = next_random@Random<Int>()\n}\n",
+    ] {
+        let errors = errors_of(source);
+        assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
+    }
+    // The AST shape: an `EffectScoped` callee carrying the effect's name.
+    let (module, diagnostics) =
+        salvo_syntax::parse_module("fn probe() -> None {\n    let s = close@Fs(h)\n}\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()));
+    let printed = format!("{module:?}");
+    assert!(
+        printed.contains("EffectScoped"),
+        "expected an EffectScoped callee: {printed}"
+    );
+}
+
+/// [effect-at] The effect selector follows a name too.
+#[test]
+fn an_effect_selector_needs_a_name() {
+    let errors = errors_of("fn probe() -> None {\n    let n = (1 + 2)@Fs\n}\n");
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`@` selects which effect's member")),
+        "expected the `@` placement error, got {errors:?}"
+    );
+}
+
 /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)`, at module level and as
 /// a statement, with type parameters where the overload has them.
 #[test]

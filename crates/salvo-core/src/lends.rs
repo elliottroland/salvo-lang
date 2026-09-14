@@ -414,7 +414,7 @@ impl<'p> Walk<'_, '_, 'p> {
                 }
                 Some(out)
             }
-            Expr::Scoped { .. } | Expr::Error { .. } => None,
+            Expr::Scoped { .. } | Expr::EffectScoped { .. } | Expr::Error { .. } => None,
         }
     }
 
@@ -433,7 +433,7 @@ impl<'p> Walk<'_, '_, 'p> {
                 v.extend(args.iter());
                 (field.name.clone(), v)
             }
-            Expr::Scoped { name, base, .. } => {
+            Expr::Scoped { name, base, .. } | Expr::EffectScoped { name, base, .. } => {
                 let mut v: Vec<&Expr> = Vec::new();
                 if let Some(b) = base {
                     v.push(b);

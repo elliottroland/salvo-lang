@@ -223,7 +223,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Three open.** (Closed in the sessions before this one, with repros and
+**Four open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -235,6 +235,25 @@ which also let std's `non_empty_list` go back to being ordinary Salvo. A
 user-declared variadic of a *primitive* element type no longer breaks on
 Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
 [kt-variadic].)
+
+- **A whole-valued `Double`/`Float` interpolates differently per backend**
+  (found 2026-09-14 while testing the operator slice; pre-existing). Repro:
+
+  ```
+  fn main() [use] -> None {
+      use StdOutConsole
+      let d = 2.0
+      println("${d}")     // Rust: "2"   Kotlin: "2.0"
+  }
+  ```
+
+  Root cause: Rust's `Display` for `f64` drops the trailing `.0` where
+  Kotlin's `toString` keeps it; fractional values agree (`8.25` both). A
+  [backend-never-wrong]-grade parity break in the printed *text*. The fix
+  belongs in the interpolation lowering [interp-to-str]: a Salvo-emitted
+  float formatter (or a `format!("{:?}")`-shaped rendering on Rust, which
+  keeps the `.0`) — decide once, test with whole, fractional, negative-zero
+  and very large values on both backends.
 
 - **A container operation inside a *generic* function is a backend
   divergence** (reproduced 2026-09-13). Repro:
@@ -403,20 +422,16 @@ as a library transformer if it reads better than the intrinsic.
   (Neither target offers it either — a Kotlin `Continuation` throws on a second
   resume, a Rust `Future` cannot be cloned.)
 
-### ~~DECISION~~ Two effects sharing a member name — decided 2026-09-14: `@Effect` disambiguation ships
+### Two effects sharing a member name — ✅ built 2026-09-14
 
-`Symbols::effect_of_fn` maps a member name to one effect, so declaring `emit` on
-both `Logger` and `Metrics` is a declaration error today, and the message
-already promises the syntax the user has now chosen: **`member@Effect(args)`**
-(`read_line@Fs(s)`), with the generic arguments written in the effect
-signature when needed to disambiguate (`next_random@Random<Int>()`) and
-omittable when the bare name is unique. Decided during the phase-4 rounds
-(FILE_SYSTEM.md §5.8; bare `Fs` members are the first customer). The
-implementation is a phase-4 work item (S-IO item 3): a multimap plus every
-member path — `check_effect_call`, deduction inference, refinements, the
-LSP — and the grammar rule drafted in LANGUAGE_SPEC.md beside the
-scope-selection `@`. Emission is already collision-proof on both backends
-([rs-effect-fusion]/[kt-effect-fusion]'s Has accessors — built 2026-09-14).
+Decided during the phase-4 rounds and built the same day (COMPLETED.md
+decision log): member names recur across effects [effect-member-overload],
+bare calls resolve by availability, and `member@Effect(args)` picks
+explicitly [effect-at] — `close@Fs(h)`, `h.close@Net()`, instance pinned by
+the call's type arguments (`next_random@Random<Int>()`). One leftover,
+deliberate: the LSP def-site table is name-keyed, so go-to-definition on a
+*shared* member name lands on one declaration (last collected) — worth a
+keyed table if it ever grates.
 
 ### `platform handler` — un-deferred 2026-09-14 (phase-4 work item); `platform type` still deferred
 
@@ -947,15 +962,16 @@ what is left is implementation, in the agreed order:
 1. ~~**The Has-accessor effect fusion**~~ — **✅ built 2026-09-14** on both
    backends (COMPLETED.md decision log; [rs-effect-fusion],
    [kt-effect-fusion]).
-2. **The operator-typing slice** (decided — see the closed DECISION under
-   "Consolidated leftovers"): numeric-only arithmetic, integer widening,
-   explicit int↔float, literal adoption of the expected numeric type,
-   `Bool`-only logicals, promoted result types. Effectively a phase-4
-   prerequisite: offset arithmetic (`position(s) + size(line)`) is
-   `Long + Int` in user code.
-3. **The `@Effect` member-disambiguation grammar** (`read_line@Fs(s)`,
-   generics in the effect signature when ambiguous — decided; the
-   LANGUAGE_SPEC.md rule needs drafting beside the scope-selection `@`).
+2. ~~**The operator-typing slice**~~ — **✅ built 2026-09-14** (COMPLETED.md
+   decision log; [op-arith] [op-order] [op-bool] [op-promote] [op-convert]
+   [lit-adopt]): numeric-only arithmetic, integer/float widening with
+   recorded promotions, explicit int↔float via std's new `to_*`
+   conversions, literal adoption, `Bool`-only logicals.
+3. ~~**The `@Effect` member-disambiguation grammar**~~ — **✅ built
+   2026-09-14** (COMPLETED.md decision log; [effect-at]
+   [effect-member-overload]): shared member names across effects,
+   availability-resolved bare calls, `close@Fs(h)` / `h.close@Net()` /
+   `next_random@Random<Int>()`.
 4. **O-R2 interception**: a handler may depend on the effect it
    implements, binding strictly outward; shadowing allowed (same-scope
    duplicate-instance registration stays an error). Checker + both
@@ -1430,16 +1446,11 @@ blocking, and several are "revisit only if a customer appears".
 - Module reachability is name-based and conservative: a local variable
   shadowing a std fn name still pulls that std module in (harmless
   extra output, never a missing module).
-- **Operator typing (decided 2026-09-14; the checker slice is still to
-  build — see S-IO item 2):**
-  - Binary operators are typed only for `None` [op-no-none]: everything
-    else is unchecked (`Str * Bool` passes, result typing is just the
-    left operand's type). The rules are now decided (user decision
-    2026-09-14, FILE_SYSTEM.md §5.10.3): arithmetic on numeric operands
-    only, **no `Str +`** (`${}` is concatenation); ordering on numerics
-    and `canbe ordered` structs; `&&`/`||`/`!` on `Bool` only; implicit
-    widening within integer types (`Int + Long → Long`), int↔float mixing
-    requires explicit conversion; integer literals adopt the expected
-    numeric type; `Int / Int` is integer division on both backends; the
-    result type is the promoted operand type. The `==`/`!=` slice was
-    decided 2026-09-12 with the collections round (see COMPLETED.md).
+- **Operator typing — ✅ decided and built 2026-09-14** ([op-arith]
+  [op-order] [op-bool] [op-promote] [op-convert] [lit-adopt]; the
+  `==`/`!=` slice was 2026-09-12's). One deliberate exclusion carried
+  forward: **`Byte` is not operator-numeric** until the byte surface and
+  the `UByte` lowering land with the filesystem work — its arithmetic
+  would diverge (signed on the JVM, unsigned on Rust) today. Generic
+  (`Ty::Var`) operands stay lenient like `Unknown`, a documented leftover
+  matching the equality slice.

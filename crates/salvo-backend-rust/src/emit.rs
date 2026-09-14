@@ -1242,6 +1242,19 @@ impl<'p> Emitter<'p> {
         self.checked.expr_ty.get(&(self.file_idx, span))
     }
 
+    /// [op-promote] Wraps an operand the checker widened in a cast to the
+    /// promoted type. Only `Long` and `Double` can be targets (widening
+    /// goes up within a class). The operand is parenthesized: `as` binds
+    /// tighter than every arithmetic operator, so `(n * 2 as i64)` would
+    /// cast only the `2`.
+    fn promote_operand(&self, span: Span, code: String) -> String {
+        match self.checked.promotions.get(&(self.file_idx, span)) {
+            Some(Ty::Named { name, .. }) if name == "Long" => format!("(({code}) as i64)"),
+            Some(Ty::Named { name, .. }) if name == "Double" => format!("(({code}) as f64)"),
+            _ => code,
+        }
+    }
+
     fn repr_of(&self, span: Span) -> Option<&'p Ty> {
         self.checked.repr_ty.get(&(self.file_idx, span))
     }
@@ -6162,15 +6175,36 @@ impl<'p> Emitter<'p> {
     fn emit_raw_like(&mut self, expr: &Expr) -> String {
         match expr {
             // Literal suffixes emit explicit Rust types [lit-numeric]
-            // [type-basic]: `1L` -> `1i64`, `1.2f` -> `1.2f32`;
-            // unsuffixed literals stay bare for inference.
-            Expr::Int { value, long, .. } => {
-                format!("{value}{}", if *long { "i64" } else { "" })
+            // [type-basic]: `1L` -> `1i64`, `1.2f` -> `1.2f32`. An
+            // *unsuffixed* literal renders at its **checked** type
+            // [lit-adopt] — `let x: Long = 1` emits `1i64`, `let d: Double
+            // = 3` emits `3f64` — and stays bare at its default type, for
+            // inference.
+            Expr::Int { value, long, span } => {
+                let suffix = if *long {
+                    "i64"
+                } else {
+                    match self.ty_of(*span).map(|t| t.strip_quals()) {
+                        Some(Ty::Named { name, .. }) if name == "Long" => "i64",
+                        Some(Ty::Named { name, .. }) if name == "Double" => "f64",
+                        Some(Ty::Named { name, .. }) if name == "Float" => "f32",
+                        _ => "",
+                    }
+                };
+                format!("{value}{suffix}")
             }
-            Expr::Float { value, single, .. } => {
+            Expr::Float { value, single, span } => {
                 let s = value.to_string();
                 let s = if s.contains('.') { s } else { format!("{s}.0") };
-                format!("{s}{}", if *single { "f32" } else { "" })
+                let suffix = if *single {
+                    "f32"
+                } else {
+                    match self.ty_of(*span).map(|t| t.strip_quals()) {
+                        Some(Ty::Named { name, .. }) if name == "Float" => "f32",
+                        _ => "",
+                    }
+                };
+                format!("{s}{suffix}")
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
@@ -6202,6 +6236,15 @@ impl<'p> Emitter<'p> {
                         "todo!()".to_string()
                     }
                 }
+            }
+            // [effect-at] Checker-refused as a value; never emitted.
+            Expr::EffectScoped { name, .. } => {
+                self.error(format!(
+                    "internal error: `{}@Effect` reached the Rust emitter as a \
+                     value (the checker refuses member values)",
+                    name.name
+                ));
+                "todo!()".to_string()
             }
             Expr::Call {
                 callee,
@@ -6260,6 +6303,11 @@ impl<'p> Emitter<'p> {
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
                 let r = self.emit_operand(rhs, prec);
+                // [op-promote] A widened operand casts to the promoted
+                // type: Rust has no mixed-width operators (`i32 + i64` is
+                // E0277), where Kotlin's operator set covers the mixes.
+                let l = self.promote_operand(lhs.span(), l);
+                let r = self.promote_operand(rhs.span(), r);
                 format!("{l} {} {r}", binary_op(*op))
             }
             Expr::Is {
@@ -7969,6 +8017,17 @@ impl<'p> Emitter<'p> {
             }
             all_args.extend(args.iter());
             self.emit_resolved_call(&name.name, type_args, &all_args, named, span)
+        } else if let Expr::EffectScoped { base, name, .. } = callee {
+            // [effect-at] The effect selector narrowed *which* effect the
+            // checker resolved, which `effect_calls` already records at
+            // this span; emission is the ordinary member call, with the
+            // receiver folded in for the dot form [fn-dot].
+            let mut all_args: Vec<&Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            self.emit_resolved_call(&name.name, type_args, &all_args, named, span)
         } else {
             // Calling a computed value (lambda etc.): owned args [fn-lambda],
             // with its effects threaded first [fn-effects].
@@ -7998,18 +8057,37 @@ impl<'p> Emitter<'p> {
         // `effect_of_fn` is program-wide and knows nothing of scopes, so
         // without this a user effect member could hijack a std function's
         // own parameter (`filter`'s `keep`).
-        if let Some(effect) = self
+        if let Some(owners) = self
             .symbols
             .effect_of_fn
             .get(name)
-            .copied()
             .filter(|_| !self.checked.local_calls.contains(&(self.file_idx, span)))
         {
+            let owners = owners.clone();
             let checked_effect = self
                 .checked
                 .effect_calls
                 .get(&(self.file_idx, span))
                 .cloned();
+            // [effect-member-overload] Several effects may declare the
+            // member: the checker's per-call resolution names the owner;
+            // with a sole owner the map answers directly (the unchecked
+            // fallback path).
+            let effect: &str = match &checked_effect {
+                Some(Ty::Named { name: n, .. }) => owners
+                    .iter()
+                    .copied()
+                    .find(|o| *o == n.as_str())
+                    .unwrap_or(owners[0]),
+                _ if owners.len() == 1 => owners[0],
+                _ => {
+                    self.error(format!(
+                        "internal: `{name}` is a member of several effects and \
+                         the checker recorded no resolution for this call"
+                    ));
+                    owners[0]
+                }
+            };
             let handler = match &checked_effect {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
@@ -10095,7 +10173,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [fn-overload-at] Only the dot-notation receiver is an expression.
-        Expr::Scoped { base, .. } => {
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
             if let Some(base) = base {
                 collect_mutated_expr(base, out);
             }
@@ -10366,7 +10444,7 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_declared_expr(base, out)
         }
         // [fn-overload-at] Only the dot-notation receiver is an expression.
-        Expr::Scoped { base, .. } => {
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
             if let Some(base) = base {
                 collect_declared_expr(base, out);
             }
@@ -10518,6 +10596,7 @@ fn expr_terminates(expr: &Expr) -> bool {
         | Expr::IncDec { .. }
         | Expr::Spread { .. }
         | Expr::Scoped { .. }
+        | Expr::EffectScoped { .. }
         | Expr::Error { .. } => false,
     }
 }

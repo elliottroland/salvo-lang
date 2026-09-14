@@ -3421,13 +3421,32 @@ impl<'p> Emitter<'p> {
         match expr {
             // Literal suffixes map 1:1 onto Kotlin's [lit-numeric]:
             // `1L` -> `1L` (Long), `1.2f` -> `1.2f` (Float).
-            Expr::Int { value, long, .. } => {
-                format!("{value}{}", if *long { "L" } else { "" })
+            // [lit-numeric] [lit-adopt] Suffixes render explicitly (`1L`,
+            // `1.2f`), and an *unsuffixed* literal renders at its
+            // **checked** type: `let x: Long = 1` emits `1L` (a bare `1`
+            // does not conform to a `Long` parameter on the JVM), `let d:
+            // Double = 3` emits `3.0`, `let f: Float = 0.5` emits `0.5f`.
+            Expr::Int { value, long, span } => {
+                if *long {
+                    format!("{value}L")
+                } else {
+                    match self.ty_of(*span).map(|t| t.strip_quals()) {
+                        Some(Ty::Named { name, .. }) if name == "Long" => format!("{value}L"),
+                        Some(Ty::Named { name, .. }) if name == "Double" => format!("{value}.0"),
+                        Some(Ty::Named { name, .. }) if name == "Float" => format!("{value}.0f"),
+                        _ => value.to_string(),
+                    }
+                }
             }
-            Expr::Float { value, single, .. } => {
+            Expr::Float { value, single, span } => {
                 let s = value.to_string();
                 let s = if s.contains('.') { s } else { format!("{s}.0") };
-                format!("{s}{}", if *single { "f" } else { "" })
+                let float = *single
+                    || matches!(
+                        self.ty_of(*span).map(|t| t.strip_quals()),
+                        Some(Ty::Named { name, .. }) if name == "Float"
+                    );
+                format!("{s}{}", if float { "f" } else { "" })
             }
             Expr::Bool { value, .. } => value.to_string(),
             Expr::Char { value, .. } => format!("'{}'", escape_char(*value)),
@@ -3461,6 +3480,15 @@ impl<'p> Emitter<'p> {
             // recorded which declaration it means — so this is the ordinary
             // function reference.
             Expr::Scoped { name, .. } => self.named_fn_value(&name.name, name.span),
+            // [effect-at] Checker-refused as a value; never emitted.
+            Expr::EffectScoped { name, .. } => {
+                self.error(format!(
+                    "internal error: `{}@Effect` reached the Kotlin emitter as a \
+                     value (the checker refuses member values)",
+                    name.name
+                ));
+                "TODO()".to_string()
+            }
             Expr::Field { base, field, span } => {
                 let code = format!("{}.{}", self.emit_expr(base), kt_ident(&field.name));
                 // Predicate-qualifier field overrides cast + assert.
@@ -4498,6 +4526,19 @@ impl<'p> Emitter<'p> {
             return self.emit_resolved_call(&name.name, type_args, &all_args, named, span);
         }
 
+        // [effect-at] `close@Fs(s)` / `s.close@Fs()`: likewise a checker
+        // mechanism — it only narrowed which *effect* the member call
+        // resolves through, which `effect_calls` already records at this
+        // span — so emission is the ordinary member call.
+        if let Expr::EffectScoped { base, name, .. } = callee {
+            let mut all_args: Vec<&Expr> = Vec::with_capacity(args.len() + 1);
+            if let Some(base) = base {
+                all_args.push(base);
+            }
+            all_args.extend(args.iter());
+            return self.emit_resolved_call(&name.name, type_args, &all_args, named, span);
+        }
+
         // Calling a computed value (lambda etc.) — [fn-effects] threads its
         // effects first, like any fn value.
         let callee_code = self.emit_expr(callee);
@@ -4524,13 +4565,32 @@ impl<'p> Emitter<'p> {
         // `effect_of_fn` is program-wide and cannot see scopes, so without
         // this a user effect member could hijack a std function's own
         // parameter (`filter`'s `keep`).
-        if let Some(effect) = self
+        if let Some(owners) = self
             .symbols
             .effect_of_fn
             .get(name)
-            .copied()
             .filter(|_| !self.checked.local_calls.contains(&(self.file_idx, span)))
         {
+            let owners = owners.clone();
+            // [effect-member-overload] Several effects may declare the
+            // member: the checker's per-call resolution names the owner;
+            // with a sole owner the map answers directly (the unchecked
+            // fallback path).
+            let effect: &str = match self.checked.effect_calls.get(&(self.file_idx, span)) {
+                Some(Ty::Named { name: n, .. }) => owners
+                    .iter()
+                    .copied()
+                    .find(|o| *o == n.as_str())
+                    .unwrap_or(owners[0]),
+                _ if owners.len() == 1 => owners[0],
+                _ => {
+                    self.error(format!(
+                        "internal: `{name}` is a member of several effects and \
+                         the checker recorded no resolution for this call"
+                    ));
+                    owners[0]
+                }
+            };
             let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
@@ -5743,7 +5803,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         // [fn-overload-at] Only the dot-notation receiver is an expression.
-        Expr::Scoped { base, .. } => {
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
             if let Some(base) = base {
                 collect_mutated_expr(base, out);
             }

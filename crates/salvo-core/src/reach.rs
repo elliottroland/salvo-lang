@@ -281,7 +281,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [fn-overload-at] `f@core.list(x)` uses the name *and* names the
         // module explicitly — both matter for reachability [mod-used-only].
-        Expr::Scoped { base, name, .. } => {
+        Expr::Scoped { base, name, .. } | Expr::EffectScoped { base, name, .. } => {
             used.insert(&name.name);
             if let Some(base) = base {
                 expr_names(base, used);
