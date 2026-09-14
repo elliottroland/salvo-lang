@@ -170,11 +170,14 @@ fn main() [use] {
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
 - **Interop**: a `platform effect` declares what the program needs from its
-  target language; the compiler generates the interface and
+  target language, and a `platform handler` is a host implementation of an
+  *ordinary* Salvo effect — registered with `use` like any handler, so the
+  entry point stays put. The compiler generates the interface and
   `salvo platform generate` writes the host implementation skeleton into
   `platform/`, so the *target's* compiler checks the two against each other.
-  It is the only interop path: std's own primitives are `intrinsic`, lowered
-  by code inside each backend, and `intrinsic` is the compiler's to declare.
+  Those two are the whole interop surface: std's own primitives are
+  `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
+  compiler's to declare.
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are

@@ -281,8 +281,9 @@ pub struct EffectDecl {
     pub span: Span,
 }
 
-/// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`
-/// or `intrinsic handler StdOutConsole of Console`.
+/// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`,
+/// `intrinsic handler StdOutConsole of Console`, or `platform handler
+/// HostRawFs of RawFs` [platform-handler].
 #[derive(Clone, Debug, PartialEq)]
 pub struct HandlerDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -294,6 +295,18 @@ pub struct HandlerDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
+    /// [platform-handler] `platform handler HostRawFs of RawFs`: a handler
+    /// of an *ordinary* Salvo effect whose implementation is a class the
+    /// host supplies — a companion in the `platform/` tree of the module
+    /// that declares it [platform-tree]. Bodyless in Salvo, and unlike a
+    /// `platform effect` it is registered with `use` like any handler: the
+    /// generated code constructs the host class.
+    ///
+    /// A flag beside `intrinsic` rather than a shared enum, for the reason
+    /// the effect's flag is one: the two never combine — `intrinsic` means
+    /// *the compiler* implements the members, `platform` means the *build*
+    /// does — and the grammar admits only one of them.
+    pub platform: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Constructor parameters, e.g. `(values: T[])`.

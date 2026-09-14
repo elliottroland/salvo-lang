@@ -796,20 +796,79 @@ fn a_plain_effect_is_not_a_platform_effect() {
     assert!(!e.platform);
 }
 
-/// [platform-effect] `platform` takes nothing but `effect`: a platform
-/// declaration groups the functions the host implements. The diagnostic
-/// says so rather than reporting a bare "expected item".
+/// [platform-effect] [platform-handler] `platform` takes `effect` or
+/// `handler`, and nothing else. The diagnostic names both forms rather than
+/// reporting a bare "expected item".
 #[test]
 fn platform_on_a_non_effect_is_an_error_naming_the_form() {
     for source in ["platform type Handle\n", "platform fn now() [] -> Int\n"] {
         let (_module, diagnostics) = salvo_syntax::parse_module(source);
         assert!(
             diagnostics.iter().any(|d| d.is_error()
-                && d.message.contains("expected `effect` after `platform`")
-                && d.message.contains("always an effect")),
+                && d.message
+                    .contains("expected `effect` or `handler` after `platform`")
+                && d.message.contains("`platform handler`")),
             "expected a platform-form error for {source:?}, got {:?}",
             diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
         );
+    }
+}
+
+// --- platform handlers [platform-handler] ---
+
+/// [platform-handler] `platform handler HostRawFs of RawFs` parses as a
+/// handler carrying the flag: bodyless, and otherwise the same grammar as
+/// any handler — the modifier says only who supplies the members.
+#[test]
+fn platform_handler_parses_with_the_flag() {
+    let source = "platform handler HostRawFs of RawFs\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Handler(h) = &module.items[0] else {
+        panic!("expected a handler item");
+    };
+    assert!(h.platform, "expected the platform flag to be set");
+    assert!(!h.intrinsic, "`platform` is not `intrinsic`");
+    assert_eq!(h.name.name, "HostRawFs");
+    assert!(h.fns.is_empty() && h.state.is_empty());
+}
+
+/// [platform-handler] Constructor parameters are the host class's, so the
+/// grammar keeps them: `use HostS3("bucket")` passes them through.
+#[test]
+fn platform_handler_takes_constructor_parameters() {
+    let source = "platform handler HostS3(bucket: Str) of Fs\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let salvo_syntax::ast::Item::Handler(h) = &module.items[0] else {
+        panic!("expected a handler item");
+    };
+    assert!(h.platform);
+    assert_eq!(h.params.len(), 1);
+    assert_eq!(h.params[0].name.name, "bucket");
+}
+
+/// [platform-handler] A plain or `intrinsic` handler is not a platform
+/// handler — the flag defaults off, so nothing existing changes meaning.
+#[test]
+fn a_plain_handler_is_not_a_platform_handler() {
+    let source = "handler Loud of Console {\n    \
+                  fn print(message: Str) -> None => message {\n    }\n}\n\
+                  intrinsic handler StdOutConsole of Console\n";
+    let (module, _diagnostics) = salvo_syntax::parse_module(source);
+    for item in &module.items {
+        let salvo_syntax::ast::Item::Handler(h) = item else {
+            panic!("expected handler items");
+        };
+        assert!(!h.platform, "`{}` should not be platform", h.name.name);
     }
 }
 

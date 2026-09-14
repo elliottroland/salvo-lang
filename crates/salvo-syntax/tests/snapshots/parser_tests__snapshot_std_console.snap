@@ -94,6 +94,7 @@ Module {
             HandlerDecl {
                 docs: [],
                 intrinsic: true,
+                platform: false,
                 name: Ident {
                     name: "StdOutConsole",
                     span: 140..153,

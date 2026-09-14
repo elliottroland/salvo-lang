@@ -55,7 +55,7 @@ pub fn analyze_sources(
     let root = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
 
     let mut sources = SourceSet::default();
-    load_embedded_std(&mut sources);
+    load_embedded_std(&mut sources, native_ext);
     let io_errors = sources.add_dir(&root, native_ext, false);
 
     // Overlay: open-editor contents win over the disk [cli-lsp]. Files
@@ -148,10 +148,13 @@ pub fn analyze_sources(
     })
 }
 
-/// Loads the embedded standard library. Backend-independent: std is one set
-/// of `.sv` files, and each backend lowers its `intrinsic` declarations
-/// itself [backend-intrinsic].
-pub fn load_embedded_std(sources: &mut SourceSet) {
+/// Loads the embedded standard library: every `.sv` module, plus std's own
+/// host companions for the backend in play — `std/platform/**.<native_ext>`,
+/// the implementations of std's `platform handler` declarations
+/// [platform-handler] [platform-tree]. std ships both languages side by side,
+/// exactly as a customer's source tree may, and only the extension of the
+/// backend being compiled for is picked up.
+pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
     fn walk<'a>(dir: &Dir<'a>, out: &mut Vec<&'a include_dir::File<'a>>) {
         for file in dir.files() {
             out.push(file);
@@ -165,13 +168,25 @@ pub fn load_embedded_std(sources: &mut SourceSet) {
     files.sort_by_key(|f| f.path().to_path_buf());
     for file in files {
         let path = file.path();
+        let Some(content) = file.contents_utf8() else {
+            continue;
+        };
+        if path.extension().is_some_and(|e| e == native_ext) {
+            if let Some((module, platform)) = SourceSet::classify_companion(path, native_ext)
+            {
+                sources.add_companion(
+                    path.to_path_buf(),
+                    module,
+                    content.to_string(),
+                    platform,
+                );
+            }
+            continue;
+        }
         if path.extension().is_none_or(|e| e != "sv") {
             continue;
         }
         let Ok(module) = SourceSet::classify(path) else {
-            continue;
-        };
-        let Some(content) = file.contents_utf8() else {
             continue;
         };
         sources.add(

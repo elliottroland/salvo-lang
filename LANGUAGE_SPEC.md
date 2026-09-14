@@ -386,7 +386,8 @@ Conventions:
     justified by a declaration ([call-resolve], [field-resolve],
     [index-resolve], [iter-resolve]). Reaching a target-language feature
     means declaring it — an `intrinsic` in std [backend-intrinsic], or a
-    `platform effect` member [platform-effect] in customer code.
+    `platform effect` member [platform-effect] / a `platform handler`
+    [platform-handler] in customer code.
   * The emitters keep syntactic fallbacks where a checker table may
     legitimately have no entry (an `Unknown`-typed expression still has to
     render), but *not* where the checker now guarantees resolution: an
@@ -3238,8 +3239,9 @@ Conventions:
   whose members the **host** implements, in the target language (user
   decisions 2026-09-05). The compiler generates the interface (Kotlin) or
   trait (Rust) exactly as it does for an ordinary effect; what differs is
-  where the implementation comes from. This is the *only* interop path for
-  customer code.
+  where the implementation comes from. With [platform-handler] it is one of
+  the two interop paths customer code has, and the one for a capability that
+  is the *host's* rather than the language's.
   * It is an ordinary effect in every other respect: a function that
     performs a member declares `[E]`, intermediate frames declare it and
     thread it, and the existing interface/trait emission, `&mut dyn`
@@ -3266,12 +3268,45 @@ Conventions:
     instantiation — Kotlin's facets exist for that [kt-effect-fusion] and
     Rust has no equivalent, so it is refused at the declaration rather than
     at codegen [backend-never-wrong].
-  * `platform` takes nothing but `effect`. A platform *type* and a platform
-    *handler* are deferred (user decision 2026-09-05), and the parse error
-    names the form rather than reporting a bare "expected item".
+  * `platform` takes `effect` or `handler` [platform-handler]; the parse
+    error names both forms rather than reporting a bare "expected item". A
+    platform *type* remains deferred (user decision 2026-09-05).
+* [platform-handler] `platform handler H of E` declares a handler of an
+  **ordinary** Salvo effect whose implementation is a class the *build*
+  supplies, in the target language (FS-1 resolved as O-M2, user decision
+  2026-09-14; the deferred 2026-09-05 proposal, un-deferred because
+  phase 4's `HostRawFs` needs it). Where a `platform effect` hands the whole
+  effect to the host, this hands it one *handler*: the effect stays Salvo's,
+  with as many other handlers as it likes.
+  * It is registered with `use` like any handler — that is the point of the
+    form — so **the entry point does not move**: the instance is
+    constructed inside the program, not handed to it. Constructor
+    parameters are passed through to the host class
+    (`use HostS3("bucket")`).
+  * Nothing is emitted for the declaration itself: the effect's
+    interface/trait is emitted as any effect's, and the `use` site
+    constructs the *host's* class by name — `salvo.platform.<module>.H`
+    (Kotlin) / `crate::platform_<module>::H::new(…)` (Rust). The class is
+    named after the **handler**, since the `use` site names it.
+  * The class lives in the `platform/` companion of the module that
+    *declared* the handler [platform-tree], and `salvo platform generate`
+    writes its skeleton. std ships its own, under `std`'s `platform/` tree,
+    one file per backend — the same mechanism, a different author.
+  * A `use` with no host companion for that module is an error naming
+    `salvo platform generate` [backend-never-wrong]: the alternative is
+    generated code referencing a class nobody wrote.
+  * **Three restrictions**, each because the implementation is not Salvo's:
+    no body (no members, no state — the host class holds both); no effect
+    dependencies (a dependency is supplied to *members*, and these members
+    are host code, which performs no Salvo effect — put an ordinary Salvo
+    handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
+    host writes one concrete class, as for a platform effect).
+  * A `platform handler` of a *platform effect* is the ordinary
+    "platform effects have no Salvo handler" error [platform-effect].
 * [platform-tree] The host implementations live in the source root's
   **`platform/` tree**, mirroring the source layout: `platform/app/entry.kt`
-  implements the platform effects of module `app.entry` in Kotlin,
+  implements the platform effects *and platform handlers*
+  [platform-handler] of module `app.entry` in Kotlin,
   `platform/app/entry.rs` does it in Rust. `salvo platform generate` writes
   them [cli-platform]. They are ordinary companion files
   [backend-companion] — discovered by the active backend's native extension,
@@ -3290,6 +3325,13 @@ Conventions:
     otherwise the program has no entry point at all, and the error names
     `salvo platform generate` rather than leaving the target toolchain to
     report a missing `main` against generated code [backend-never-wrong].
+    The same is required of the module declaring a platform handler the
+    program `use`s [platform-handler] — that one does not move the entry
+    point, so the trigger is the `use`, not `main`.
+  * The tree is not the *customer's* alone: std ships its host classes
+    there too (`std/platform/core/fs.kt`), which is how a std
+    `platform handler` is implemented. The embedded std is loaded with the
+    active backend's extension, exactly as a source directory is.
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
@@ -3328,8 +3370,8 @@ Conventions:
   native extension) is a *companion*: it is copied verbatim into the
   output whenever its module is reachable. It is how hand-written native
   code joins the build — most importantly the host implementations of a
-  `platform effect`, which live in companions under the source root's
-  `platform/` tree [platform-tree]. A companion that collides with a
+  `platform effect` or `platform handler`, which live in companions under
+  the source root's `platform/` tree [platform-tree]. A companion that collides with a
   generated file is an error.
 * [backend-never-wrong] A backend must never emit silently wrong code:
   unsupported constructs are codegen/checker errors. Each backend spec
@@ -3601,12 +3643,15 @@ Conventions:
     `cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json`.
 * [cli-platform] `salvo platform generate --backend NAME (--src DIR |
   --main FILE)` writes the host implementation skeleton for every
-  `platform effect` into `<src>/platform/` [platform-tree]: a named class
-  (Kotlin) or unit struct (Rust) per effect, implementing the generated
-  interface with every member stubbed (`TODO` / `todo!`), plus — in the
-  module whose `main` needs a platform effect — the `main` that constructs
-  the implementations and calls the generated entry point. `--src` and
-  `--main` behave as in `salvo run` [cli-run].
+  `platform effect` and `platform handler` into `<src>/platform/`
+  [platform-tree]: a named class (Kotlin) or unit struct (Rust) per effect,
+  a class/struct named after each platform handler [platform-handler] —
+  with that handler's constructor parameters, and a `new` on Rust, since the
+  `use` site constructs it — each implementing the generated interface with
+  every member stubbed (`TODO` / `todo!`), plus — in the module whose `main`
+  needs a platform effect — the `main` that constructs the implementations
+  and calls the generated entry point. `--src` and `--main` behave as in
+  `salvo run` [cli-run].
   * **Generated once, never overwritten.** An existing file is reported and
     left alone. This is what the interface framing bought: because Salvo and
     the host meet at a generated interface, every later divergence is a
@@ -3618,4 +3663,7 @@ Conventions:
   * The skeleton is rendered by the *same* code that emits the interface, on
     the same checked program, so a skeleton that does not match the
     interface it implements is impossible by construction.
-  * A program with no platform effect generates nothing, and says so.
+  * A program with no platform declaration generates nothing, and says so.
+  * std's own host files are **not** generated: they are shipped in
+    `std/platform/` [platform-tree], so the command only ever writes into
+    the customer's tree.

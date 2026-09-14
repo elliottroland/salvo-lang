@@ -165,10 +165,10 @@ int↔float, literal adoption, `Bool`-only logicals — decided 2026-09-14,
 **implementation still owed before or inside phase 4**) and shared member
 names (`@Effect` call disambiguation — decided 2026-09-14, the grammar rule
 to be drafted with phase 4). What remains here is *work*, not decisions:
-the `platform handler` mechanism (possibly its own decoupled session),
-then the fs surface itself with the two-deliverable byte sequencing. The
-operator-typing checker slice, the `@Effect` grammar and O-R2
-interception are **built** (2026-09-14; see S-IO below).
+**only the fs surface itself**, with the two-deliverable byte sequencing.
+The operator-typing checker slice, the `@Effect` grammar, O-R2 interception
+and the `platform handler` mechanism are **built** (2026-09-14; see S-IO
+below).
 
 **S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
 day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
@@ -213,9 +213,9 @@ member names, and the S-IO design itself — were **all decided 2026-09-14**;
 see "The sequence" phase 4, S-IO, and COMPLETED.md's decision log.)
 
 One further proposal is **deferred by decision** rather than waiting:
-`platform type`. (`platform handler` was un-deferred 2026-09-14 — it is now
-a phase-4 work item, see "Effects"; the `defers`-block proposal went with
-`defer` itself, 2026-09-10 — see "`defer` is deleted".)
+`platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
+same day — see "Effects"; the `defers`-block proposal went with `defer`
+itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
 
@@ -433,17 +433,17 @@ deliberate: the LSP def-site table is name-keyed, so go-to-definition on a
 *shared* member name lands on one declaration (last collected) — worth a
 keyed table if it ever grates.
 
-### `platform handler` — un-deferred 2026-09-14 (phase-4 work item); `platform type` still deferred
+### `platform type` — still deferred; `platform handler` shipped 2026-09-14
 
 Both were recorded when the interop redesign landed (user decision
 2026-09-05): a `platform handler` is a host implementation of an *ordinary*
 Salvo effect, constructed by `use`; a `platform type` is the type-aliasing
 gap the user accepted, with platform structs sketched as the eventual answer
-("let's leave platform type until a need arises"). **The need arose:**
-`HostRawFs of RawFs` is the filesystem's bottom handler (FS-1 resolved as
-O-M2, user decision 2026-09-14 — see FILE_SYSTEM.md), so `platform handler`
-is now S-IO work item 5, possibly its own decoupled session. `platform type`
-remains deferred; `platform effect` remains the interop path until then.
+("let's leave platform type until a need arises"). `platform handler` was
+un-deferred when the need arose (`HostRawFs of RawFs`, FS-1 resolved as O-M2)
+and **built 2026-09-14** — see COMPLETED.md's decision log and
+[platform-handler]. `platform type` remains deferred; the two `platform`
+declarations are the interop surface until it is picked up.
 
 ### A handler cannot dispatch to itself — recorded gap (found 2026-09-14)
 
@@ -1014,8 +1014,16 @@ what is left is implementation, in the agreed order:
    shadows an earlier registration, innermost wins; checker + both
    backends + diagnostics. It also closed a pre-existing Rust `E0308` for
    dependent handlers of generic effect instances.
-5. **The `platform handler` mechanism** (FS-1/O-M2), possibly its own
-   decoupled session; `HostRawFs` is its first customer.
+5. ~~**The `platform handler` mechanism**~~ (FS-1/O-M2) — **✅ built
+   2026-09-14** (COMPLETED.md decision log; [platform-handler],
+   [kt-platform-handler], [rs-platform-handler]): a host implementation of
+   an *ordinary* effect, registered with `use`, its class supplied as the
+   declaring module's `platform/` companion — bodyless, dependency-free,
+   non-generic, skeleton written by `salvo platform generate`, missing host
+   a named error. std's route is the same mechanism with std shipping the
+   companion (`std/platform/…`, loaded per backend extension); it has no
+   customer until `HostRawFs` lands with the fs surface, which is the one
+   remaining piece of plumbing that arrives with item 6.
 6. **The filesystem itself**, per
    **[FILE_SYSTEM.md](FILE_SYSTEM.md)** §5.7–5.10 (the plan of record:
    architecture, member lists, error model, token design, restriction

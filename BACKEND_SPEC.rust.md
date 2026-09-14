@@ -1147,6 +1147,22 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `crate::platform_<N>::<E>Host`. `module_mod_names` is shared with
     `emit_program` so the skeleton and the mounting cannot disagree on a
     name.
+* [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
+  **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
+  constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`
+  being the module that *declared* the handler
+  (`Symbols::handler_modules`), so a std handler works from a customer's
+  `use` unchanged. Under the fusion that expression is the `__h` field's
+  initializer [rs-effect-fusion]; identifiers derived from the handler's
+  name (`__Impl_H`) stay names, never paths — a platform handler has no
+  dependencies, so the dependent shape never applies to one.
+  * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
+    T, …) -> Self }` and `impl <path>::E for H` with every member stubbed —
+    named after the *handler*, and with a `new` because the `use` site calls
+    one, exactly as it does for a generated handler struct.
+  * A `use` whose declaring module has no host companion is a codegen error
+    naming `salvo platform generate` [backend-never-wrong]; std's companion
+    is shipped in `std/platform/` rather than generated [platform-tree].
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic

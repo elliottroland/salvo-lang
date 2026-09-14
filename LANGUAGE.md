@@ -2212,11 +2212,12 @@ field a struct does not have), `[]` on something that is not an array, and
 tells you exactly what you can do with it.
 
 This is what makes interop itself a matter of *declaration*: a Salvo
-program reaches its target language through a `platform effect`, whose
-member functions you declare and the compiler turns into an interface for
-the host to implement (see the backends section) — there is no way to name
-a Kotlin method or a Rust function that some declaration in scope does not
-already stand for. Dot-notation still reads like a method call
+program reaches its target language through a `platform effect` — or a
+`platform handler`, a host implementation of an ordinary Salvo effect —
+whose member functions you declare and the compiler turns into an interface
+for the host to implement (see the backends section) — there is no way to
+name a Kotlin method or a Rust function that some declaration in scope does
+not already stand for. Dot-notation still reads like a method call
 (`text.shout()` is `shout(text)`), but the function has to exist. The same
 applies to generics: a type parameter has no bounds, so nothing is known
 about a `T` — reading `value.name` inside `fn f<T>(value: T)` is an error,
@@ -2349,7 +2350,7 @@ One of the aims of Salvo is to make it easy to integrate Salvo code with the bac
 
 The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
 
-`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through a `platform effect`; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). There is no bodyless declaration form for customer code — `intrinsic` (and the bodyless `intrinsic handler`) is precisely what lets the standard library state a contract the compiler fulfils in place of one.
+`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through the `platform` declarations — a `platform effect`, or a `platform handler` implementing an ordinary effect; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). The bodyless declaration forms customer code does have are the `platform` ones, whose contract the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what lets the standard library state a contract the compiler fulfils in place of one.
 
 For example, the basic types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s, and each backend maps them natively:
 
@@ -2442,6 +2443,49 @@ handler AuditLogger [Telemetry] of Logger {
 ```
 
 Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. Member names may be shared with other effects like any effect's (`close@Fs(…)` picks — see "Two effects, one member name"), but within the platform effect itself each member name appears once.
+
+### A host implementation of an ordinary effect
+
+A `platform effect` says *the whole effect is the host's*. Sometimes the effect is Salvo's own — declared here, handled here, with several handlers — and only one of those handlers is host code: the one that actually touches the outside world. That handler is a `platform handler`:
+
+```
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+platform handler HostRawClock of RawClock
+```
+
+It is bodyless, because its members live in the target language, and it is otherwise an ordinary handler: registered with `use`, one instance per registration, constructor parameters passed through to the host class.
+
+```
+fn main() [use] {
+    use HostRawClock()       // constructs the host's class
+    use DefaultClock()       // ordinary Salvo, depends on RawClock
+    ...
+}
+```
+
+The implementation goes in the same `platform/` tree as a platform effect's, as a class named after the *handler* — the `use` site constructs that name, so it is not the host's to choose — and `salvo platform generate` writes the skeleton for it too:
+
+```kotlin
+// platform/main.kt, as generated
+class HostRawClock : RawClock {
+    override fun raw_now(): Int {
+        TODO("implement RawClock.raw_now")
+    }
+}
+```
+
+Nothing else moves: `main` stays the program's entry point, because the instance is constructed *inside* the program rather than handed to it. Constructor parameters are how a host implementation is configured — `platform handler HostS3(bucket: Str) of Store`, registered as `use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
+
+Three restrictions, each following from the implementation not being Salvo's:
+
+* **No body in Salvo** — no members, no state. The host class holds both.
+* **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] of Clock` is exactly that.
+* **Not generic**, for the reason a platform effect is not: the host writes one concrete class.
+
+The two forms answer different questions. Use a `platform effect` when the *capability* is the host's and the program is a guest in the host's process — the host constructs everything and owns `main`. Use a `platform handler` when the capability is the language's, several implementations exist, and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses the second form itself, and ships its host classes the same way — under `std`'s own `platform/` tree, one file per backend.
 
 ## Specific backend details
 

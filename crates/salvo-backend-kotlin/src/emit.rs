@@ -122,6 +122,9 @@ pub fn emit_program_reporting(
     // instance).
     let mut has_ifaces: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
+    // [platform-handler] [platform-tree] Modules whose host companion a
+    // `use` of a platform handler needs; checked once every file is emitted.
+    let mut platform_hosts: BTreeSet<ModulePath> = BTreeSet::new();
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -145,6 +148,7 @@ pub fn emit_program_reporting(
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
         has_ifaces.extend(emitter.has_ifaces);
+        platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
             rel_path.push(part);
@@ -236,6 +240,26 @@ pub fn emit_program_reporting(
                 &salvo_core::host_rel_path(&unit.file.module, "kt"),
             ));
         }
+    }
+    // [platform-handler] [platform-tree] A `use` of a platform handler
+    // constructs a host class, so the companion that defines it must exist —
+    // in std as much as in customer code, since std ships its own
+    // `platform/` files.
+    for module in &platform_hosts {
+        if salvo_core::host_file(&program.companions, module).is_some() {
+            continue;
+        }
+        let handlers: Vec<&str> = program
+            .units()
+            .filter(|u| u.file.module == *module)
+            .flat_map(|u| salvo_core::platform_handlers(u.ast))
+            .map(|h| h.name.name.as_str())
+            .collect();
+        errors.push(salvo_core::missing_handler_host_error(
+            &handlers.join("`, `"),
+            module,
+            &salvo_core::host_rel_path(module, "kt"),
+        ));
     }
 
     if errors.is_empty() {
@@ -451,6 +475,17 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             effect_module.insert(e.name.name.as_str(), &unit.file.module);
         }
     }
+    // [platform-handler] And every effect, platform or not: a platform
+    // handler implements an *ordinary* effect, whose interface may live in
+    // another module's package (std's, typically).
+    let mut all_effect_module: HashMap<&str, &ModulePath> = HashMap::new();
+    for unit in program.units() {
+        for item in &unit.ast.items {
+            if let Item::Effect(e) = item {
+                all_effect_module.insert(e.name.name.as_str(), &unit.file.module);
+            }
+        }
+    }
 
     let mut files = Vec::new();
     let mut errors = Vec::new();
@@ -459,8 +494,9 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
             continue;
         }
         let effects = salvo_core::platform_effects(unit.ast);
+        let handlers = salvo_core::platform_handlers(unit.ast);
         let entry = salvo_core::platform_entry(unit.ast, &symbols);
-        if effects.is_empty() && entry.is_none() {
+        if effects.is_empty() && handlers.is_empty() && entry.is_none() {
             continue;
         }
         let module = &unit.file.module;
@@ -471,11 +507,36 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
         for e in &effects {
             body.push_str(&emitter.host_impl(e));
         }
+        // [platform-handler] One class per platform handler, named after the
+        // handler itself: the `use` site constructs *this* class, so the
+        // Salvo name and the Kotlin name are the same name.
+        for h in &handlers {
+            body.push_str(&emitter.host_handler_impl(h));
+        }
         // Imports: the module's own generated package always (the
         // interfaces and the entry point live there), plus the packages of
-        // any platform effect declared elsewhere that the entry needs.
+        // any platform effect declared elsewhere that the entry needs, and
+        // of the effect a platform handler implements [platform-handler] —
+        // which is an ordinary effect and may be declared anywhere, std
+        // included.
         let mut imports: BTreeSet<String> = BTreeSet::new();
         imports.insert(format!("import {}.*", kotlin_package(module)));
+        for h in &handlers {
+            let Some(effect) = type_base_name(&h.of) else {
+                continue;
+            };
+            match all_effect_module.get(effect) {
+                Some(other) if *other != module => {
+                    imports.insert(format!("import {}.*", kotlin_package(other)));
+                }
+                Some(_) => {}
+                None => errors.push(format!(
+                    "{}: `platform handler {}` implements `{effect}`, whose \
+                     declaration could not be located",
+                    unit.file.name, h.name.name
+                )),
+            }
+        }
         if let Some(f) = entry {
             let args = emitter.platform_entry_effects(f);
             let mut calls = Vec::new();
@@ -505,12 +566,12 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
         errors.extend(std::mem::take(&mut emitter.errors));
 
         let mut content = format!(
-            "// Host implementation of the platform effects of Salvo module \
+            "// Host implementation of the platform declarations of Salvo module \
              `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
              compiler never writes\n// this file again — it is yours. Nothing here \
              is checked by Salvo: the\n// Kotlin compiler checks it, against the \
-             interfaces the backend generates\n// from the `platform effect` \
-             declarations.\npackage {}\n\n",
+             interfaces the backend generates\n// from the `platform effect` and \
+             `platform handler` declarations.\npackage {}\n\n",
             host_package(module)
         );
         for import in &imports {
@@ -587,6 +648,12 @@ struct Emitter<'p> {
     /// — per *instance*, not per declaration, because erasure forbids one
     /// class implementing `__Has_Random<Int>` and `__Has_Random<Double>`.
     has_ifaces: std::collections::BTreeMap<String, String>,
+    /// [platform-handler] [platform-tree] The modules whose `platform/`
+    /// companion this file's `use` sites depend on: registering a platform
+    /// handler constructs a *host* class, so the companion defining it has
+    /// to exist. Collected per file and checked once, program-wide, the way
+    /// `has_ifaces` is merged.
+    platform_hosts: BTreeSet<ModulePath>,
     /// [kt-effect-fusion] Counter for per-file fused class names
     /// (`__Fx_1`, `__Fx_2`, …; per-file is per-package, so no wider
     /// uniqueness is needed).
@@ -714,6 +781,7 @@ impl<'p> Emitter<'p> {
             effect_paths: HashMap::new(),
             fusion: false,
             has_ifaces: std::collections::BTreeMap::new(),
+            platform_hosts: BTreeSet::new(),
             fusion_id: 0,
             fx_classes: HashMap::new(),
             generated_items: Vec::new(),
@@ -1256,6 +1324,59 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [platform-handler] [kt-platform-handler] One host *handler* skeleton: a
+    /// class named after the handler, implementing the generated interface of
+    /// the ordinary effect it handles, with the handler's constructor
+    /// parameters as its own and every member stubbed with `TODO`. The `use`
+    /// site constructs exactly this class, so the name is not the emitter's
+    /// to choose.
+    fn host_handler_impl(&mut self, h: &HandlerDecl) -> String {
+        let of = self.emit_type(&h.of);
+        let Some(effect) = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()
+        else {
+            self.error(format!(
+                "platform handler `{}` implements `{of}`, which is not a declared \
+                 effect",
+                h.name.name
+            ));
+            return String::new();
+        };
+        let ctor = if h.params.is_empty() {
+            String::new()
+        } else {
+            let params: Vec<String> = h
+                .params
+                .iter()
+                .map(|p| {
+                    format!(
+                        "private val {}: {}",
+                        kt_ident(&p.name.name),
+                        self.emit_type(&p.ty)
+                    )
+                })
+                .collect();
+            format!("({})", params.join(", "))
+        };
+        let mut out = format!("\nclass {}{ctor} : {of} {{\n", kt_ident(&h.name.name));
+        for f in &effect.fns {
+            let member_saved = self.enter_generics(&f.generics);
+            let params = self.emit_member_param_list_with_implicits(f);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&format!(
+                "    override fun {}({params}){ret} {{\n        \
+                 TODO(\"implement {}.{}\")\n    }}\n",
+                kt_ident(&f.name.name),
+                effect.name.name,
+                f.name.name
+            ));
+            self.generics = member_saved;
+        }
+        out.push_str("}\n");
+        out
+    }
+
     /// [platform-tree] The platform effects `main` receives, as rendered
     /// Kotlin type names *in parameter order* — the arguments the host's
     /// `main` must pass to the generated entry point. Read from the same
@@ -1301,6 +1422,14 @@ impl<'p> Emitter<'p> {
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
         if h.intrinsic {
             return self.emit_intrinsic_handler(h);
+        }
+        // [platform-handler] [kt-platform-handler] Nothing is emitted for a
+        // platform handler: its class is the host's, in the module's
+        // `platform/` companion, and the `use` site constructs it by name
+        // (`emit_use`). The generated *interface* is the effect's, emitted
+        // as any effect's is — which is what the host class implements.
+        if h.platform {
+            return String::new();
         }
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
@@ -2525,6 +2654,31 @@ impl<'p> Emitter<'p> {
     /// which infers handler generics from the constructor arguments (e.g.
     /// `Random<Int>` for `use CyclicRandom([1,2,3])`); the handler's
     /// declared `of` type is the fallback for unchecked contexts.
+    /// [platform-handler] [kt-platform-handler] The class a `use` constructs.
+    /// An ordinary handler's is the emitted class of the same name; a
+    /// platform handler's is the *host's*, in the `platform/` package of the
+    /// module that declared it — named in full, because the host package is
+    /// not among a module's generated imports and a `use` may sit in any
+    /// module.
+    fn handler_ctor_name(&mut self, name: &str, decl: &HandlerDecl) -> String {
+        if !decl.platform {
+            return kt_ident(name);
+        }
+        match self.symbols.handler_modules.get(name) {
+            Some(module) => {
+                self.platform_hosts.insert((*module).clone());
+                format!("{}.{}", host_package(module), kt_ident(name))
+            }
+            None => {
+                self.error(format!(
+                    "internal: the declaring module of platform handler `{name}` \
+                     could not be located"
+                ));
+                kt_ident(name)
+            }
+        }
+    }
+
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let (handler_name, written_args) = match handler {
@@ -2608,7 +2762,7 @@ impl<'p> Emitter<'p> {
         };
         let handler_code = format!(
             "{}{type_args}({})",
-            kt_ident(&handler_name),
+            self.handler_ctor_name(&handler_name, decl),
             ctor_args.join(", ")
         );
         let (effect_ty, rendered) = match self.checked.use_effects.get(&(self.file_idx, span)) {

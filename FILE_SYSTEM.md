@@ -255,6 +255,15 @@ customer. If it grows, it becomes the first implementation session,
 decoupled from the rest of phase 4; the concrete `HostRawFs`/`HostFs` use
 case plus the plan for what sits on top is the forcing function for
 designing platform behavior properly.*
+**Built 2026-09-14** ([platform-handler]), and the "where is the class?"
+question O-M2 was charged with answering came out as *the same place a
+platform effect's is*: a companion in the `platform/` tree of the module
+that declared the handler, with std shipping its own under
+`std/platform/…` — so the runtime-file idea O-M1 rested on is what std
+does, spelled as a companion rather than as a backend registry. The
+restrictions that fell out: bodyless, no effect dependencies (host code
+performs no Salvo effect — put a Salvo handler in between, which is what
+`DefaultFs [RawFs] of Fs` is), non-generic.
 
 ---
 
@@ -724,7 +733,7 @@ the *first exercise* of a phase-3 rule outside its own tests:
 
 | decision | recommendation |
 |---|---|
-| FS-1 seam | `intrinsic handler` over a shipped runtime class (`runtime/fs.kt`/`fs.rs`); `platform handler` recorded as the later generalization |
+| FS-1 seam | *(superseded by §5's decision: O-M2 `platform handler`, built 2026-09-14)* `intrinsic handler` over a shipped runtime class (`runtime/fs.kt`/`fs.rs`); `platform handler` recorded as the later generalization |
 | FS-2 delegation | two-effect layering (`RawFs` + `Fs`), no self-dependency lift; interception (O-R2) deferred until a general customer |
 | FS-3 ops location | free fns on stream types (object-capability); `Fs` members are path ops only — also mostly defuses the shared-member-name blocker |
 | FS-4 streams | `InStream`/`OutStream`, always buffered, text-only v1, strict UTF-8 both backends, terminator-stripping `read_line`, no seek |
@@ -1595,8 +1604,12 @@ phase 4 is fully decided and implementation may be scheduled.**
 
 The agreed sequence: **(1) the Has-trait fusion milestone (§5.8.1,
 Rust shapes rustc-verified first) — ✅ built 2026-09-14, (2) the
-`platform handler` mechanism (FS-1/O-M2, possibly its own decoupled
-session), (3) the filesystem itself** — with operator typing (§5.10.3)
+`platform handler` mechanism (FS-1/O-M2) — ✅ built 2026-09-14
+(COMPLETED.md's decision log; [platform-handler] and the two backend
+rules; the host class is a companion in the declaring module's
+`platform/` tree, and std's route is std shipping its own under
+`std/platform/`, so `HostRawFs` needs only its two files and the
+declaration), (3) the filesystem itself** — with operator typing (§5.10.3)
 landing before or inside phase 4 as its prerequisite, and the
 two-deliverable byte sequencing (§5.10.2 E) inside it. **Also built
 2026-09-14, ahead of (2)**: the operator-typing slice, the `@Effect`

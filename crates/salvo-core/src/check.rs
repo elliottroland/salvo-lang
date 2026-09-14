@@ -1431,6 +1431,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Handler(h) => {
                     let saved = self.enter_generics(&h.generics);
+                    // [platform-handler] A host implementation of an ordinary
+                    // effect: bodyless, dependency-free, non-generic.
+                    self.check_platform_handler(h);
                     // [copy-implicit] A handler constructor may take implicit
                     // parameters (lifted 2026-09-11): the `use` site is where
                     // the handler's type arguments are known, so it resolves
@@ -1891,6 +1894,71 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         self.require_explicit(f, "intrinsic fn", true);
+    }
+
+    /// [platform-handler] The restrictions a `platform handler` carries, all
+    /// of them consequences of the implementation being a class the *build*
+    /// supplies rather than Salvo code (FS-1 resolved as O-M2, user decision
+    /// 2026-09-14).
+    ///
+    /// It is the mirror image of a `platform effect`: there the *effect* is
+    /// the host's and the instance arrives at the entry point, here the
+    /// effect is an ordinary Salvo one and only this *handler* is the host's,
+    /// so it registers with `use` like any other [platform-tree].
+    fn check_platform_handler(&mut self, h: &'p ast::HandlerDecl) {
+        if !h.platform {
+            return;
+        }
+        // Bodyless: the members are the host's, in the target language.
+        // Reported at the first offending declaration, since a body is a
+        // whole-declaration mistake either way.
+        if let Some(span) = h
+            .fns
+            .first()
+            .map(|f| f.name.span)
+            .or_else(|| h.state.first().map(|f| f.name.span))
+        {
+            self.error(
+                span,
+                format!(
+                    "`platform handler {}` has no body in Salvo: the host \
+                     implements its members in the target language, in the \
+                     `platform/` companion of this module — run `salvo platform \
+                     generate` to write the skeleton, or drop `platform` to \
+                     handle the effect here",
+                    h.name.name
+                ),
+            );
+        }
+        // Dependencies would have to be supplied *to host code*, which
+        // cannot perform a Salvo effect: the host reaches the outside world
+        // directly, which is why it is host code.
+        if h.effects.as_ref().is_some_and(|e| !e.is_empty()) {
+            self.error(
+                h.name.span,
+                format!(
+                    "`platform handler {}` may not declare effect dependencies: \
+                     its members are host code, which performs no Salvo effect — \
+                     write a Salvo handler that depends on this one's effect if \
+                     you need one in between",
+                    h.name.name
+                ),
+            );
+        }
+        // Generic-free for the reason a platform effect is: the host writes
+        // one concrete class, and there is no instance per type argument to
+        // construct at a `use` site [backend-never-wrong].
+        if !h.generics.is_empty() {
+            self.error(
+                h.name.span,
+                format!(
+                    "`platform handler {}` may not be generic: the host \
+                     implements one concrete class, and an instance per type \
+                     argument is not expressible on every backend",
+                    h.name.name
+                ),
+            );
+        }
     }
 
     /// [platform-effect] The restrictions a `platform effect` carries

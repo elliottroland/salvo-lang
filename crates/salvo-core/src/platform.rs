@@ -1,13 +1,16 @@
-//! Platform-effect queries shared by the backends [platform-tree].
+//! Platform queries shared by the backends [platform-tree].
 //!
-//! A `platform effect` is implemented outside Salvo, in the target
-//! language, by a file in the source root's `platform/` tree. Both backends
-//! need the same three answers — which effects a module hands to the host,
-//! whether its `main` needs one (and is therefore *not* the program's entry
-//! point any more), and whether the host file exists — so they live here
-//! rather than twice in the emitters.
+//! The `platform/` tree holds host code, in the target language, for the two
+//! declarations that have no Salvo body: a `platform effect`, whose whole
+//! implementation is the host's [platform-effect], and a `platform handler`,
+//! a host implementation of an *ordinary* Salvo effect [platform-handler].
+//! Both backends need the same answers — which effects a module hands to the
+//! host, which host classes it declares, whether its `main` needs a platform
+//! effect (and is therefore *not* the program's entry point any more), and
+//! whether the host file exists — so they live here rather than twice in the
+//! emitters.
 
-use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, Item, Module};
+use salvo_syntax::ast::{EffectDecl, EffectRef, FnDecl, HandlerDecl, Item, Module};
 
 use crate::program::Symbols;
 use crate::source::{CompanionFile, ModulePath};
@@ -22,6 +25,36 @@ pub fn platform_effects(ast: &Module) -> Vec<&EffectDecl> {
             _ => None,
         })
         .collect()
+}
+
+/// [platform-handler] The platform handlers a module declares, in
+/// declaration order: the host classes the module's `platform/` companion
+/// must define.
+pub fn platform_handlers(ast: &Module) -> Vec<&HandlerDecl> {
+    ast.items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Handler(h) if h.platform => Some(h),
+            _ => None,
+        })
+        .collect()
+}
+
+/// [platform-handler] [platform-tree] The message for a `use` of a platform
+/// handler whose host class has nowhere to live. Like
+/// [`missing_host_error`] it names the command, because the alternative is
+/// the *target* compiler reporting an unresolved class in generated code.
+pub fn missing_handler_host_error(
+    handler: &str,
+    module: &ModulePath,
+    rel_path: &std::path::Path,
+) -> String {
+    format!(
+        "error: `use {handler}` registers a platform handler, whose implementation \
+         is a host class in `{}`, but that file does not exist: run `salvo platform \
+         generate` to create the implementation skeleton for module `{module}`",
+        rel_path.display()
+    )
 }
 
 /// [platform-effect] Whether a declared effect list mentions a platform

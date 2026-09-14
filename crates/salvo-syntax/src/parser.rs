@@ -422,14 +422,22 @@ impl<'s> Parser<'s> {
                 self.bump();
                 match self.kind() {
                     TokenKind::KwEffect => self.parse_effect(true).map(Item::Effect),
+                    // [platform-handler] `platform handler HostRawFs of RawFs`:
+                    // a host implementation of an *ordinary* Salvo effect,
+                    // registered with `use` like any handler.
+                    TokenKind::KwHandler => self
+                        .parse_handler_flavored(false, true)
+                        .map(Item::Handler),
                     other => {
                         let span = self.peek().span;
                         let found = other.describe();
                         self.error(
                             format!(
-                                "expected `effect` after `platform`, found {found}: a \
-                                 platform declaration groups the functions the host \
-                                 implements, so it is always an effect"
+                                "expected `effect` or `handler` after `platform`, found \
+                                 {found}: a platform declaration is either the group of \
+                                 functions the host implements (`platform effect`) or a \
+                                 host implementation of a Salvo effect (`platform \
+                                 handler`)"
                             ),
                             span,
                         );
@@ -997,6 +1005,17 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_handler(&mut self, intrinsic: bool) -> Option<HandlerDecl> {
+        self.parse_handler_flavored(intrinsic, false)
+    }
+
+    /// `handler`, `intrinsic handler` [backend-intrinsic] and
+    /// `platform handler` [platform-handler] share every piece of grammar:
+    /// the two modifiers differ only in who supplies the members.
+    fn parse_handler_flavored(
+        &mut self,
+        intrinsic: bool,
+        platform: bool,
+    ) -> Option<HandlerDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwHandler)?.span;
         let name = self.ident_type("handler")?;
@@ -1036,6 +1055,7 @@ impl<'s> Parser<'s> {
         Some(HandlerDecl {
             docs,
             intrinsic,
+            platform,
             name,
             generics,
             params,

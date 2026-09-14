@@ -148,6 +148,9 @@ pub fn emit_program_reporting(
 
     let mut files = Vec::new();
     let mut union_sizes: BTreeSet<usize> = BTreeSet::new();
+    // [platform-handler] [platform-tree] Modules whose host companion a
+    // `use` of a platform handler needs; checked once every file is emitted.
+    let mut platform_hosts: BTreeSet<ModulePath> = BTreeSet::new();
     // [rs-mut-str] Generated once for the whole program, when anything
     // needs the string helpers a `Mut Str` mutator uses (`set`).
     let mut needs_str = false;
@@ -184,6 +187,7 @@ pub fn emit_program_reporting(
         needs_str |= emitter.needs_str;
         needs_seq |= emitter.needs_seq;
         needs_collections |= emitter.needs_collections;
+        platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
             rel_path.push(part);
@@ -270,6 +274,26 @@ pub fn emit_program_reporting(
                 &salvo_core::host_rel_path(&unit.file.module, "rs"),
             ));
         }
+    }
+    // [platform-handler] [platform-tree] A `use` of a platform handler
+    // constructs a host struct, so the companion that defines it must exist —
+    // in std as much as in customer code, since std ships its own
+    // `platform/` files.
+    for module in &platform_hosts {
+        if salvo_core::host_file(&program.companions, module).is_some() {
+            continue;
+        }
+        let handlers: Vec<&str> = program
+            .units()
+            .filter(|u| u.file.module == *module)
+            .flat_map(|u| salvo_core::platform_handlers(u.ast))
+            .map(|h| h.name.name.as_str())
+            .collect();
+        errors.push(salvo_core::missing_handler_host_error(
+            &handlers.join("`, `"),
+            module,
+            &salvo_core::host_rel_path(module, "rs"),
+        ));
     }
 
     // Crate-root assembly [rs-crate]: attributes + `#[path]` mod
@@ -447,6 +471,17 @@ pub fn platform_skeletons(
             effect_module.insert(e.name.name.as_str(), &unit.file.module);
         }
     }
+    // [platform-handler] And every effect, platform or not: a platform
+    // handler implements an *ordinary* effect, whose trait may live in
+    // another module (std's, typically).
+    let mut all_effect_module: HashMap<&str, &ModulePath> = HashMap::new();
+    for unit in program.units() {
+        for item in &unit.ast.items {
+            if let Item::Effect(e) = item {
+                all_effect_module.insert(e.name.name.as_str(), &unit.file.module);
+            }
+        }
+    }
 
     let mut files = Vec::new();
     let mut errors = Vec::new();
@@ -455,8 +490,9 @@ pub fn platform_skeletons(
             continue;
         }
         let effects = salvo_core::platform_effects(unit.ast);
+        let handlers = salvo_core::platform_handlers(unit.ast);
         let entry_fn = salvo_core::platform_entry(unit.ast, &symbols);
-        if effects.is_empty() && entry_fn.is_none() {
+        if effects.is_empty() && handlers.is_empty() && entry_fn.is_none() {
             continue;
         }
         let module = &unit.file.module;
@@ -472,6 +508,24 @@ pub fn platform_skeletons(
         let mut body = String::new();
         for e in &effects {
             body.push_str(&emitter.host_impl(e, &own_path));
+        }
+        // [platform-handler] One struct per platform handler, named after the
+        // handler itself: the `use` site constructs *this* struct through
+        // `::new(…)`, so neither the name nor the constructor is the host's
+        // to choose. The trait it implements is the ordinary effect's, which
+        // may live in another module (std's, typically).
+        for h in &handlers {
+            let effect_path = type_base_name(&h.of)
+                .and_then(|name| all_effect_module.get(name))
+                .and_then(|m| path_to(m));
+            match effect_path {
+                Some(path) => body.push_str(&emitter.host_handler_impl(h, &path)),
+                None => errors.push(format!(
+                    "{}: `platform handler {}` implements an effect whose module \
+                     emits no Rust module to attach it to",
+                    unit.file.name, h.name.name
+                )),
+            }
         }
         if let Some(f) = entry_fn {
             let mut args = Vec::new();
@@ -507,11 +561,12 @@ pub fn platform_skeletons(
         errors.extend(std::mem::take(&mut emitter.errors));
 
         let content = format!(
-            "// Host implementation of the platform effects of Salvo module \
+            "// Host implementation of the platform declarations of Salvo module \
              `{module}`.\n//\n// Generated once by `salvo platform generate`; the \
              compiler never writes\n// this file again — it is yours. Nothing here is \
              checked by Salvo: rustc\n// checks it, against the traits the backend \
-             generates from the\n// `platform effect` declarations.\n{body}"
+             generates from the\n// `platform effect` and `platform handler` \
+             declarations.\n{body}"
         );
         files.push(EmittedFile {
             rel_path: salvo_core::host_rel_path(module, "rs"),
@@ -1017,6 +1072,11 @@ struct Emitter<'p> {
     /// their text under the placeholder name → the name they got, so one
     /// shape is one struct however many `use` sites need it.
     fusion_structs: HashMap<String, String>,
+    /// [platform-handler] [platform-tree] The modules whose `platform/`
+    /// companion this file's `use` sites depend on: registering a platform
+    /// handler constructs a *host* struct, so the companion defining it has
+    /// to exist. Collected per file and checked once, program-wide.
+    platform_hosts: BTreeSet<ModulePath>,
     /// Hoisted-temporary counter for the current fn [rs-effect-fusion].
     hoist_id: usize,
     /// The fn currently being emitted, for readable generated names.
@@ -1207,6 +1267,7 @@ impl<'p> Emitter<'p> {
             conj_traits: BTreeMap::new(),
             fusion_id: 0,
             fusion_structs: HashMap::new(),
+            platform_hosts: BTreeSet::new(),
             hoist_id: 0,
             current_fn: String::new(),
             type_subst: HashMap::new(),
@@ -1771,6 +1832,82 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [platform-handler] [rs-platform-handler] One host *handler* skeleton: a
+    /// struct named after the handler, with the handler's constructor
+    /// parameters as its fields and a `new` taking them, implementing the
+    /// generated trait of the ordinary effect it handles. The `use` site
+    /// constructs exactly this — `HostX::new(args)` — so neither the name nor
+    /// the constructor is the host's to choose.
+    fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str) -> String {
+        let of = self.emit_type(&h.of);
+        let Some(effect) = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()
+        else {
+            self.error(format!(
+                "platform handler `{}` implements `{of}`, which is not a declared \
+                 effect",
+                h.name.name
+            ));
+            return String::new();
+        };
+        let name = rs_ident(&h.name.name);
+        let mut out = format!("\npub struct {name} {{\n");
+        for p in &h.params {
+            let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+            out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
+        }
+        out.push_str("}\n");
+        let ctor_params: Vec<String> = h
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    rs_ident(&p.name.name),
+                    self.param_type(&p.ty, p.variadic, ParamMode::Owned)
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "\nimpl {name} {{\n    pub fn new({}) -> Self {{\n        Self {{",
+            ctor_params.join(", ")
+        ));
+        if h.params.is_empty() {
+            out.push_str(" }\n    }\n}\n");
+        } else {
+            out.push('\n');
+            for p in &h.params {
+                out.push_str(&format!("            {},\n", rs_ident(&p.name.name)));
+            }
+            out.push_str("        }\n    }\n}\n");
+        }
+        out.push_str(&format!(
+            "\nimpl {effect_path}::{} for {name} {{\n",
+            rs_ident(&effect.name.name)
+        ));
+        for f in &effect.fns {
+            if !f.generics.is_empty() {
+                continue;
+            }
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(&f.params),
+                self.emit_member_implicits(f)
+            );
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            out.push_str(&format!(
+                "    fn {}(&mut self{params}){ret} {{\n        \
+                 todo!(\"implement {}.{}\")\n    }}\n",
+                rs_ident(&f.name.name),
+                effect.name.name,
+                f.name.name
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
     /// [platform-tree] The platform effects `main` receives, as Salvo effect
     /// names *in parameter order* — the arguments the host's `main` must
     /// pass to the generated entry point. Read from the same checker table
@@ -1872,6 +2009,15 @@ impl<'p> Emitter<'p> {
     fn emit_handler(&mut self, h: &HandlerDecl) -> String {
         if h.intrinsic {
             return self.emit_intrinsic_handler(h);
+        }
+        // [platform-handler] [rs-platform-handler] Nothing is emitted for a
+        // platform handler: its struct is the host's, in the module's
+        // `platform/` companion, and the `use` site constructs it through
+        // `HostX::new(…)` (`handler_ctor_path`). The generated *trait* is the
+        // effect's, emitted as any effect's is — which is what the host
+        // struct implements.
+        if h.platform {
+            return String::new();
         }
         // [effect-handler-deps] Dependencies are the handler's own effect
         // list. The compiler supplies them, so they are neither fields nor
@@ -4860,9 +5006,33 @@ impl<'p> Emitter<'p> {
         self.bindings.insert(var.clone(), BindKind::Owned);
         format!(
             "{pad}let mut {var} = {}{turbofish}::new({});\n",
-            rs_ident(&handler_name),
+            self.handler_ctor_path(&handler_name, decl),
             arg_code.join(", ")
         )
+    }
+
+    /// [platform-handler] [rs-platform-handler] The type a `use` constructs. An
+    /// ordinary handler's is the emitted struct of the same name; a platform
+    /// handler's is the *host's*, in the mounted `platform/` companion of the
+    /// module that declared it — named through `crate::`, because a `use` may
+    /// sit in any module and nothing imports the host mount.
+    fn handler_ctor_path(&mut self, name: &str, decl: &HandlerDecl) -> String {
+        if !decl.platform {
+            return rs_ident(name);
+        }
+        match self.symbols.handler_modules.get(name) {
+            Some(module) => {
+                self.platform_hosts.insert((*module).clone());
+                format!("crate::{}::{}", host_mod_name(module), rs_ident(name))
+            }
+            None => {
+                self.error(format!(
+                    "internal: the declaring module of platform handler `{name}` \
+                     could not be located"
+                ));
+                rs_ident(name)
+            }
+        }
     }
 
     /// [rs-effect-fusion] `use H(...)` under the fusion: one generated
@@ -5014,6 +5184,10 @@ impl<'p> Emitter<'p> {
         // the `dyn` the accessor returns, since the raw effect impl (with
         // its disjoint field borrows) lives on the fusion.
         let handler_ident = rs_ident(handler_name);
+        // [platform-handler] The *constructor* may be a host path
+        // (`crate::platform_main::HostFs`) where the identifier above is
+        // only ever a name — trait names derived from it stay identifiers.
+        let ctor_path = self.handler_ctor_path(handler_name, decl);
         if deps.is_empty() {
             let bound = trait_type(&new_effect.0, &new_effect.1);
             let bounded_generics = match &outer_ty {
@@ -5080,11 +5254,11 @@ impl<'p> Emitter<'p> {
         }
         let fields = match provider {
             Some(p) => format!(
-                "__outer: {p}, __h: {handler_ident}{turbofish}::new({})",
+                "__outer: {p}, __h: {ctor_path}{turbofish}::new({})",
                 arg_code.join(", ")
             ),
             None => format!(
-                "__h: {handler_ident}{turbofish}::new({})",
+                "__h: {ctor_path}{turbofish}::new({})",
                 arg_code.join(", ")
             ),
         };

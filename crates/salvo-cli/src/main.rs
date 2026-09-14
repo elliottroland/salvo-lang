@@ -119,8 +119,8 @@ enum Command {
         #[command(subcommand)]
         command: LangCommand,
     },
-    /// Work with the host side of `platform effect` declarations
-    /// [cli-platform].
+    /// Work with the host side of `platform effect` and `platform handler`
+    /// declarations [cli-platform].
     Platform {
         #[command(subcommand)]
         command: PlatformCommand,
@@ -130,8 +130,8 @@ enum Command {
 #[derive(Subcommand)]
 enum PlatformCommand {
     /// Write the host implementation skeleton for every `platform effect`
-    /// into the source root's `platform/` tree [platform-tree]
-    /// [cli-platform].
+    /// and `platform handler` into the source root's `platform/` tree
+    /// [platform-tree] [cli-platform].
     ///
     /// Existing files are never touched: the skeleton is generated once and
     /// belongs to you afterwards, and every later divergence from the
@@ -356,7 +356,7 @@ fn assemble(
     // Assemble sources: embedded std first (implicitly imported), then the
     // user's source directory.
     let mut sources = SourceSet::default();
-    load_embedded_std(&mut sources);
+    load_embedded_std(&mut sources, backend.file_extension());
 
     if !layout.src.is_dir() {
         eprintln!(
@@ -723,7 +723,8 @@ fn platform_generate(
     };
     if skeletons.is_empty() {
         eprintln!(
-            "no `platform effect` declarations in `{}`: nothing to generate",
+            "no `platform effect` or `platform handler` declarations in `{}`: \
+             nothing to generate",
             layout.src.display()
         );
         return ExitCode::SUCCESS;

@@ -12,7 +12,7 @@ use salvo_syntax::ast::{
     EffectDecl, FnDecl, HandlerDecl, Item, Module, QualifierDecl, StructDecl, TypeDecl,
 };
 
-use crate::source::{CompanionFile, SourceFile};
+use crate::source::{CompanionFile, ModulePath, SourceFile};
 
 /// A parsed compilation: one AST per source file, in `SourceSet` order.
 pub struct Program {
@@ -48,6 +48,12 @@ pub struct Symbols<'p> {
     pub structs: HashMap<&'p str, &'p StructDecl>,
     pub effects: HashMap<&'p str, &'p EffectDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
+    /// [platform-handler] [platform-tree] The module a handler is declared
+    /// in. Only a `platform handler` needs it — the host class implementing
+    /// it lives in *that* module's `platform/` companion, so a `use` site in
+    /// another module still has to name the right package (Kotlin) or mount
+    /// (Rust).
+    pub handler_modules: HashMap<&'p str, &'p ModulePath>,
     /// [qual-overload] Overload sets: one name may be declared over several
     /// subject types, and a backend picks by the subject in hand.
     pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
@@ -93,6 +99,9 @@ impl<'p> Symbols<'p> {
                     }
                     Item::Handler(h) => {
                         symbols.handlers.insert(&h.name.name, h);
+                        symbols
+                            .handler_modules
+                            .insert(&h.name.name, &unit.file.module);
                     }
                     Item::Params(g) => {
                         symbols.param_groups.insert(&g.name.name, g);

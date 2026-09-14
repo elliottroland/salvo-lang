@@ -210,3 +210,134 @@ fn distinct_member_names_across_effects_are_fine() {
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
+
+// ===== platform handlers [platform-handler] =====
+
+/// [platform-handler] The shape: an *ordinary* effect, a handler the host
+/// implements, registered with `use` like any handler. Nothing else about
+/// either declaration changes — which is the point of the form (FS-1
+/// resolved as O-M2, user decision 2026-09-14).
+#[test]
+fn a_platform_handler_is_registered_with_use_like_any_handler() {
+    let errs = messages(&src(
+        "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
+         platform handler HostRawFs of RawFs\n\n\
+         fn shut(handle: Int) [RawFs] -> Bool {\n    return raw_close(handle)\n}\n\n\
+         fn main() [use] -> None {\n    use HostRawFs()\n    shut(1)\n}\n",
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [platform-handler] Constructor parameters are the host class's, passed
+/// through by the `use` site: `use HostS3("bucket")` is how a host
+/// implementation is configured.
+#[test]
+fn a_platform_handler_takes_constructor_arguments() {
+    let errs = messages(&src(
+        "effect Store {\n    fn put(key: Str) [] -> None => key\n}\n\n\
+         platform handler HostS3(bucket: Str) of Store\n\n\
+         fn main() [use] -> None {\n    use HostS3(\"salvo\")\n    put(\"k\")\n}\n",
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [platform-handler] [intrinsic-std-only] Unlike `intrinsic`, `platform` is
+/// the *customer's* modifier: the implementation is a file in their source
+/// tree, not a table inside the compiler, so a program may declare one.
+#[test]
+fn a_platform_handler_is_not_std_only() {
+    let errs = messages(&src(
+        "effect Clock {\n    fn now() [] -> Int\n}\n\n\
+         platform handler HostClock of Clock\n",
+    ));
+    assert!(
+        !errs.iter().any(|m| m.contains("is the compiler's to declare")),
+        "got {errs:?}"
+    );
+}
+
+/// [platform-handler] The members are the host's, in the target language:
+/// there is nothing for a Salvo body to mean, and the diagnostic names both
+/// ways out (write the host file, or drop `platform`).
+#[test]
+fn a_platform_handler_with_a_body_is_rejected() {
+    let errs = messages(&src(
+        "effect Clock {\n    fn now() [] -> Int\n}\n\n\
+         platform handler HostClock of Clock {\n    \
+             fn now() -> Int {\n        return 0\n    }\n}\n",
+    ));
+    assert!(
+        errs.iter().any(|m| m
+            .contains("`platform handler HostClock` has no body in Salvo")
+            && m.contains("`platform/` companion")
+            && m.contains("salvo platform generate")),
+        "got {errs:?}"
+    );
+}
+
+/// [platform-handler] [effect-handler] State is a body too: a host class
+/// hangs its own state on itself, in its own language.
+#[test]
+fn a_platform_handler_with_state_is_rejected() {
+    let errs = messages(&src(
+        "effect Clock {\n    fn now() [] -> Int\n}\n\n\
+         platform handler HostClock of Clock {\n    ticks: Int = 0\n}\n",
+    ));
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`platform handler HostClock` has no body in Salvo")),
+        "got {errs:?}"
+    );
+}
+
+/// [platform-handler] [effect-handler-deps] A dependency is supplied *to a
+/// handler's members*, and these members are host code, which performs no
+/// Salvo effect. The remedy is a Salvo handler in between — which is exactly
+/// what phase 4's `DefaultFs [RawFs] of Fs` is.
+#[test]
+fn a_platform_handler_with_effect_dependencies_is_rejected() {
+    let errs = messages(&src(
+        "effect Logger {\n    fn log(message: Str) -> None => message\n}\n\n\
+         effect Clock {\n    fn now() [] -> Int\n}\n\n\
+         platform handler HostClock [Logger] of Clock\n",
+    ));
+    assert!(
+        errs.iter().any(|m| m
+            .contains("`platform handler HostClock` may not declare effect dependencies")
+            && m.contains("performs no Salvo effect")),
+        "got {errs:?}"
+    );
+}
+
+/// [platform-handler] Generic-free for the reason a `platform effect` is:
+/// the host writes one concrete class, and a `use` site has no instance per
+/// type argument to construct [backend-never-wrong].
+#[test]
+fn a_generic_platform_handler_is_rejected() {
+    let errs = messages(&src(
+        "effect Store<T> {\n    fn put(value: T) [] -> None => !value\n}\n\n\
+         platform handler HostStore<T> of Store<T>\n",
+    ));
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`platform handler HostStore` may not be generic")),
+        "got {errs:?}"
+    );
+}
+
+/// [platform-handler] [platform-effect] A platform handler of a *platform
+/// effect* is the one combination that means nothing: the host already
+/// implements the whole effect and hands the instance to the entry point, so
+/// there is no handler to register. The existing diagnostic covers it.
+#[test]
+fn a_platform_handler_of_a_platform_effect_is_rejected() {
+    let errs = messages(&src(
+        "platform effect Telemetry {\n    fn record(name: Str) [] -> None => name\n}\n\n\
+         platform handler HostTelemetry of Telemetry\n",
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("is a platform effect")
+            && m.contains("has no Salvo handler")),
+        "got {errs:?}"
+    );
+}

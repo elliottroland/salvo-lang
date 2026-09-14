@@ -122,6 +122,74 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`platform handler`, both backends (S-IO item 5, FS-1 resolved as O-M2 —
+2026-09-14).** The interop surface gains its second declaration: a **host
+implementation of an ordinary Salvo effect**, registered with `use` like any
+handler [platform-handler]. Where a `platform effect` hands the whole effect
+to the host and takes the entry point with it, this hands it one *handler* —
+the effect stays Salvo's, with as many other handlers as it likes, and `main`
+stays `main` because the instance is constructed *inside* the program. It is
+the proposal deferred on 2026-09-05 ("until a need arises"), un-deferred by
+phase 4's `HostRawFs of RawFs` sitting under an `Fs` whose other handlers are
+all Salvo.
+
+**Where the class comes from is the whole design, and the answer removed
+work**: it is a companion in the `platform/` tree of the module that
+*declared* the handler — the same tree, loader, mounting and
+`salvo platform generate` that platform effects already had. So a `use` emits
+`salvo.platform.<M>.H(args)` (Kotlin) or
+`crate::platform_<M>::H::new(args)` (Rust), named through the declaring
+module rather than the using one, which is what lets std declare a handler a
+customer's `main` registers. **std's route is the same route**: std ships its
+own host files under `std/platform/…`, and the embedded loader now picks up
+the active backend's extension there exactly as it does in a source
+directory — so FS-1's "the runtime file" became "std's own companion", and
+no backend registry keyed by handler name was needed. Nothing is emitted for
+the declaration itself; the interface/trait is the effect's, as always.
+
+Three restrictions, each a consequence rather than a choice: **no body** (no
+members, no state — the host class holds both), **no effect dependencies** (a
+dependency is supplied to *members*, and these members are host code, which
+performs no Salvo effect — the remedy the diagnostic names is an ordinary
+Salvo handler in between, which is exactly `handler DefaultFs [RawFs] of Fs`),
+and **not generic** (one concrete host class, as for a platform effect). A
+`use` whose declaring module has no host companion is a codegen error naming
+the command [backend-never-wrong] — the platform-entry error's sibling, with
+the `use` as its trigger instead of `main`.
+
+**One pre-existing assumption broke and is fixed**: Kotlin's `entry_hint`
+treated *an emitted `platform/…` file* as proof that the host owns `main`. A
+platform handler puts a host companion beside a module whose `main` is still
+the entry point, so `salvo run` launched the wrong class ("could not find or
+load main class"). The evidence is now the generated module declaring
+`salvoMain` — the emitter's own marker for the entry having moved — rather
+than the presence of customer-written text [kt-platform-handler].
+
+Tests: 901 passing (from 881), fresh. Four parser tests, eight checker tests
+in `salvo-core`'s `platform_tests.rs`, and per backend: no-class/host-ctor
+emission, the skeleton, the missing-host error, and a compile-and-run case —
+one shared program (`HostRawClock` under a `DefaultClock [RawClock] of
+Clock`, the phase-4 shape in miniature, which also puts the `use` on the
+*fused* path) printing `boot@42` byte-identically on both. Plus a Kotlin test
+of std's route (a `platform handler` in a std module, a shipped companion, and
+`platform generate` correctly writing nothing for it) and a CLI test walking
+the whole arc — run fails naming the `use`, generate, implement, run — on
+both backends. Rules: LANGUAGE_SPEC.md [platform-handler] (with
+[platform-tree], [backend-companion], [cli-platform] and [platform-effect]
+updated around it), BACKEND_SPEC.kotlin.md [kt-platform-handler],
+BACKEND_SPEC.rust.md [rs-platform-handler]; LANGUAGE.md gained "A host
+implementation of an ordinary effect" under the platform layer.
+
+**std's route was verified end to end by hand**, since it has no shipped
+customer yet: a throwaway `std/core/testclock.sv` declaring
+`platform handler HostRawTestClock`, with `std/platform/core/testclock.kt`
+and `.rs` beside it, ran `now=7` through `salvo run` on both backends before
+being deleted again. That is what makes the remaining phase-4 work on this
+seam *only* its first customer: `HostRawFs` needs the declaration and the two
+shipped files, nothing more. (It also turned up the `include_dir!` gotcha
+below — a new file under `std/` is invisible until a `salvo-cli` source is
+touched.)
+
 **Handler dependencies become an effect list, and the fusion stops
 duplicating itself (user decisions 2026-09-14, from reading the generated
 Kotlin).** Four calls, all four built:
@@ -9448,7 +9516,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 881)
+## Test inventory (all green: 901)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10410,6 +10478,23 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`include_dir!` does not notice a *new* file in `std/`.** The embedded
+  standard library is `include_dir!("…/std")`, and cargo re-runs it only when
+  a crate source changes — so adding `std/core/x.sv` (or a
+  `std/platform/…` host companion) and rebuilding produces a binary that has
+  never heard of it, and the failure reads like a language bug ("no function
+  named … is in scope"). Touch a file in `salvo-cli` to force the rebuild.
+  Found 2026-09-14 while verifying the std route of [platform-handler];
+  whoever ships `std/platform/core/fs.*` meets it first.
+- **"A file exists" is not evidence of what is *in* it.** Kotlin's
+  `entry_hint` decided the JVM launch class from the presence of an emitted
+  `platform/<M>.kt`, which was equivalent to "the host owns `main`" only
+  while a host file existed for one reason. `platform handler` gave it a
+  second reason, and `salvo run` launched a class with no `main`
+  (2026-09-14). A predicate standing in for a fact stays correct only as long
+  as nothing else can make it true: prefer asking the thing itself — here the
+  *generated* module declaring `salvoMain`, which is the emitter's own marker
+  for the entry having moved, and not customer-written text.
 - **An effect environment is a scope, not a set — and "same effect twice"
   is the case that proves it.** Both emitters and the checker had lookups
   that took the *first* matching entry, which was indistinguishable from

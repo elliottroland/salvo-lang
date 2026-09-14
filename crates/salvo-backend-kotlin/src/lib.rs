@@ -74,18 +74,33 @@ impl Backend for KotlinBackend {
     /// read `…MainKt` unconditionally — correct only because every entry
     /// file so far was `main.sv`.)
     ///
-    /// [platform-tree] When the host owns `main` — which the emitted
-    /// `platform/…` file is the evidence for — the entry class is the
-    /// *host's* facade instead: the generated one declares `salvoMain`,
-    /// whose signature the JVM launcher cannot satisfy.
+    /// [platform-tree] When the host owns `main` — a `main` that needs a
+    /// platform effect [platform-effect] — the entry class is the *host's*
+    /// facade instead: the generated one declares `salvoMain`, whose
+    /// signature the JVM launcher cannot satisfy.
+    ///
+    /// The evidence is the generated module's own text: it declares
+    /// `salvoMain` exactly when the entry moved. An emitted `platform/…`
+    /// file is *not* evidence — a `platform handler` [platform-handler] puts
+    /// a host companion beside a module whose `main` is still the program's
+    /// entry point, and reading the host file instead would sniff
+    /// customer-written code. An unreadable target file falls back to the
+    /// generated facade, the answer for every program with no host entry.
     fn entry_hint(
         &self,
-        _target_dir: &Path,
+        target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
     ) -> String {
         let host = salvo_core::host_rel_path(main_module, self.file_extension());
-        if emitted.iter().any(|p| *p == host) {
+        let mut generated = PathBuf::new();
+        for part in &main_module.0 {
+            generated.push(part);
+        }
+        generated.set_extension(self.file_extension());
+        let entry_moved = std::fs::read_to_string(target_dir.join(&generated))
+            .is_ok_and(|src| src.contains(&format!("fun {}(", emit::SALVO_ENTRY)));
+        if entry_moved && emitted.iter().any(|p| *p == host) {
             format!(
                 "{}.{}",
                 emit::host_package(main_module),

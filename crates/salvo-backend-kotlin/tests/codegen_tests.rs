@@ -67,6 +67,90 @@ fn main() [use] -> None {
 }
 "#;
 
+/// [platform-handler] std's own route: a `platform handler` declared in a
+/// *std* module, implemented by a host companion std ships
+/// (`std/platform/core/…`) rather than one `salvo platform generate` writes.
+/// This is FS-1's `HostRawFs` shape (FILE_SYSTEM.md §5.8) with a clock
+/// standing in for the filesystem.
+#[test]
+fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let mut sources = SourceSet::default();
+    let errors = sources.add_dir(&std_dir, "kt", true);
+    assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    // A std module — `core.*` is implicitly imported, so the program below
+    // sees these names without an `import`.
+    sources.add(
+        "std/core/rawclock.sv",
+        SourceSet::classify(Path::new("core/rawclock.sv")).unwrap(),
+        "effect RawClock {\n    fn raw_now() [] -> Int\n}\n\n\
+         platform handler HostRawClock of RawClock\n"
+            .to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        "fn main() [use] -> None {\n    use StdOutConsole()\n    \
+         use HostRawClock()\n    println(\"now=${raw_now()}\")\n}\n"
+            .to_string(),
+        false,
+    );
+    // The companion std ships for this backend, mounted exactly as a
+    // customer's `platform/` file is [platform-tree].
+    sources.add_companion(
+        std::path::PathBuf::from("platform/core/rawclock.kt"),
+        salvo_core::ModulePath(vec!["core".into(), "rawclock".into()]),
+        "package salvo.platform.core.rawclock\n\nimport salvo.core.rawclock.*\n\n\
+         class HostRawClock : RawClock {\n    override fun raw_now(): Int = 7\n}\n"
+            .to_string(),
+        true,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: sources.companions,
+    };
+    let files = salvo_backend_kotlin::emit_program(&program)
+        .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content
+            .contains("salvo.platform.core.rawclock.HostRawClock()"),
+        "expected the shipped host class to be constructed, got:\n{}",
+        main.content
+    );
+    // The companion travels into the output like any other.
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "platform/core/rawclock.kt"),
+        "expected std's host companion to be copied"
+    );
+    // And `salvo platform generate` writes nothing for it: std's host file
+    // is shipped, not generated.
+    let skeletons = salvo_backend_kotlin::platform_skeletons(&program)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert!(
+        skeletons.is_empty(),
+        "std host files are shipped, not generated: {:?}",
+        skeletons
+            .iter()
+            .map(|f| f.rel_path.display().to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
 fn build_program(extra: &[(&str, &str)]) -> Program {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
@@ -2006,6 +2090,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_when_cond,
     kotlinc_compiles_and_runs_try_mutation,
     kotlinc_compiles_and_runs_a_platform_effect,
+    kotlinc_compiles_and_runs_a_platform_handler,
     kotlinc_compiles_and_runs_overload_delegation,
     kotlinc_compiles_and_runs_the_combinator_surface,
     kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer,
@@ -5853,6 +5938,162 @@ fn kotlinc_compiles_and_runs_a_platform_effect() -> KotlinCase {
     let files = generate_platform_demo_with(&host);
     let expected = "[telemetry] work=41\nresult=42\n";
     kotlin_case_with_entry(files, "platform", "salvo.platform.main.MainKt", expected)
+}
+
+// ===== platform handlers [platform-handler] =====
+
+/// [platform-handler] The phase-4 shape in miniature (FILE_SYSTEM.md §5.8):
+/// a host handler of an ordinary effect at the bottom, an ordinary Salvo
+/// handler depending on it above, and application code that names neither —
+/// `HostRawClock` stands in for `HostRawFs`, `DefaultClock` for `DefaultFs`.
+/// The dependency also switches the program into the fused emission, so the
+/// `use` of a platform handler is exercised on the path phase 4 will take.
+const PLATFORM_HANDLER_DEMO: &str = r#"
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+// The host implements this one, in Kotlin or Rust: bodyless here, and
+// constructed at its `use` like any handler.
+platform handler HostRawClock(offset: Int) of RawClock
+
+effect Clock {
+    fn stamp(label: Str) -> Str => label
+}
+
+handler DefaultClock [RawClock] of Clock {
+    fn stamp(label: Str) -> Str => label {
+        return "${label}@${raw_now()}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawClock(35)
+    use DefaultClock()
+    println(stamp("boot"))
+}
+"#;
+
+fn platform_handler_program() -> Program {
+    build_program(&[("main.sv", PLATFORM_HANDLER_DEMO)])
+}
+
+/// [platform-handler] [platform-tree] The skeleton `salvo platform generate`
+/// writes for the demo's host handler.
+fn platform_handler_skeleton() -> salvo_backend_kotlin::EmittedFile {
+    let program = platform_handler_program();
+    let mut files = salvo_backend_kotlin::platform_skeletons(&program)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares a platform handler");
+    files.remove(0)
+}
+
+fn generate_platform_handler_demo_with(
+    host: &str,
+) -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let mut program = platform_handler_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.kt"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [platform-handler] [kt-platform-handler] What the compiler emits for a
+/// platform handler: the effect's `interface` as for any effect, **no class**
+/// — the class is the host's — and a `use` site that constructs the host
+/// class by its fully-qualified name, since the host package is nobody's
+/// import. `main` stays the program's entry point: unlike a `platform
+/// effect`, nothing arrives from outside.
+#[test]
+fn a_platform_handler_emits_no_class_and_a_host_constructor() {
+    let files = generate_platform_handler_demo_with(&platform_handler_skeleton().content);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("interface RawClock {") && src.contains("fun raw_now(): Int"),
+        "expected the generated interface, got:\n{src}"
+    );
+    assert!(
+        !src.contains("class HostRawClock"),
+        "a platform handler must not emit a class of its own:\n{src}"
+    );
+    assert!(
+        src.contains("salvo.platform.main.HostRawClock(35)"),
+        "expected the `use` site to construct the host class, got:\n{src}"
+    );
+    // The ordinary handler beside it is still emitted, and `main` is still
+    // the entry point.
+    assert!(
+        src.contains("class DefaultClock") && src.contains("fun main()"),
+        "expected the Salvo handler and a generated `main`, got:\n{src}"
+    );
+}
+
+/// [platform-handler] [platform-tree] The skeleton: a class named after the
+/// *handler* (the `use` site constructs that name), taking the handler's
+/// constructor parameters, implementing the ordinary effect's generated
+/// interface with every member stubbed. No `main` is generated — the host
+/// owns no entry point here.
+#[test]
+fn platform_generate_renders_a_host_handler_skeleton() {
+    let file = platform_handler_skeleton();
+    assert_eq!(file.rel_path.to_string_lossy(), "platform/main.kt");
+    let src = &file.content;
+    for expected in [
+        "package salvo.platform.main",
+        "import salvo.main.*",
+        "class HostRawClock(private val offset: Int) : RawClock {",
+        "override fun raw_now(): Int {",
+        "TODO(\"implement RawClock.raw_now\")",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("fun main()"),
+        "a platform handler does not move the entry point:\n{src}"
+    );
+}
+
+/// [platform-handler] [platform-tree] A `use` of a platform handler with no
+/// host file is an error naming the command, not generated code that
+/// references a class nobody wrote — the same reasoning as the platform
+/// entry point's missing-host error [backend-never-wrong].
+#[test]
+fn a_missing_host_file_for_a_platform_handler_names_the_command() {
+    let program = platform_handler_program();
+    let errors = salvo_backend_kotlin::emit_program(&program)
+        .err()
+        .expect("a `use` of a platform handler without a host must not emit");
+    assert!(
+        errors.iter().any(|e| e.contains("use HostRawClock")
+            && e.contains("platform/main.kt")
+            && e.contains("salvo platform generate")),
+        "expected the missing-host error, got:\n{}",
+        errors.join("\n")
+    );
+}
+
+/// [platform-handler] End to end: the generated skeleton with its one stub
+/// filled in, compiled and run by kotlinc. The asserted stdout is
+/// byte-identical to the Rust backend's run of the same program.
+fn kotlinc_compiles_and_runs_a_platform_handler() -> KotlinCase {
+    let skeleton = platform_handler_skeleton();
+    let host = skeleton.content.replace(
+        "TODO(\"implement RawClock.raw_now\")",
+        "return offset + 7",
+    );
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_platform_handler_demo_with(&host);
+    kotlin_case(files, "platform-handler", "boot@42\n")
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====

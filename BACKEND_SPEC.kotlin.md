@@ -676,9 +676,11 @@ where Rust had to build the fusion to get the same programs running
   second `MainKt` on the classpath for module `main`; a package of its own
   keeps them distinct and costs one `import salvo.<M>.*`.
   * Consequently the launch class for a program whose host owns `main` is
-    `salvo.platform.<M>.<Facade>Kt`. `entry_hint` picks it when the emitted
-    set contains the host file, which is the only evidence needed — a
-    platform `main` cannot be emitted without one [platform-tree].
+    `salvo.platform.<M>.<Facade>Kt`. `entry_hint` picks it when the host file
+    was emitted **and** the generated module declares `salvoMain` — the
+    emitter's own marker that the entry moved. The host file alone is not
+    evidence any more: a `platform handler` [kt-platform-handler] puts a host
+    companion beside a module whose `main` is still the entry point.
   * The generated skeleton is `class <E>Host : <E>` with every member
     `override`n and stubbed `TODO("implement <E>.<member>")`, followed (in
     the entry module) by `fun main() { salvoMain(<E>Host(), …) }`. Member
@@ -687,6 +689,21 @@ where Rust had to build the fusion to get the same programs running
     same checker table the entry's parameters come from, so the order
     cannot drift. `TODO()` returns `Nothing`, so a value-returning member
     stubs without a cast.
+* [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
+  **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
+  site constructs the host class — `salvo.platform.<M>.H(args)`,
+  fully qualified, because the host package is nobody's generated import and
+  a `use` may sit in any module. `M` is the module that *declared* the
+  handler, from `Symbols::handler_modules`, so std's handlers work from a
+  customer's `use` unchanged. Under the fusion this is just the constructor
+  expression a fused class is built with [kt-effect-fusion], so nothing else
+  in the emission knows the form exists.
+  * The skeleton is `class H(private val p: T, …) : E` with every member
+    `override`n and stubbed — named after the *handler*, since the `use` site
+    names it, and taking the handler's declared constructor parameters.
+  * A `use` whose declaring module has no host companion is a codegen error
+    naming `salvo platform generate` [backend-never-wrong]; std's companion
+    is shipped in `std/platform/` rather than generated [platform-tree].
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable

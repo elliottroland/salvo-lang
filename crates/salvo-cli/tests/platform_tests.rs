@@ -215,6 +215,104 @@ fn a_program_without_platform_effects_generates_nothing() {
     assert!(!dir.join("platform").exists(), "no tree should be created");
 }
 
+/// [platform-handler] A host handler of an ordinary effect, with a Salvo
+/// handler depending on it — the shape phase 4's `HostRawFs`/`DefaultFs` pair
+/// has (FILE_SYSTEM.md §5.8). Application code registers both in `main` and
+/// names the host class nowhere else.
+const HANDLER_DEMO: &str = r#"
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+platform handler HostRawClock(offset: Int) of RawClock
+
+effect Clock {
+    fn stamp(label: Str) -> Str => label
+}
+
+handler DefaultClock [RawClock] of Clock {
+    fn stamp(label: Str) -> Str => label {
+        return "${label}@${raw_now()}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawClock(35)
+    use DefaultClock()
+    println(stamp("boot"))
+}
+"#;
+
+/// [cli-platform] [platform-handler] The same arc for a `platform handler`:
+/// the run fails naming the command *and the `use` that needs a host*, the
+/// command writes a class named after the handler, the stub is implemented,
+/// and the program runs — with `main` staying in generated code, since
+/// nothing arrives from outside here. Identical stdout on both backends.
+#[test]
+fn generate_then_run_works_for_a_platform_handler() {
+    let Some(__stamp) =
+        e2e_stamp("generate_then_run_works_for_a_platform_handler", &["kotlinc", "rustc"])
+    else {
+        return;
+    };
+    for (backend, tool, ext, stub, body) in [
+        (
+            "kotlin",
+            "kotlinc",
+            "kt",
+            "TODO(\"implement RawClock.raw_now\")",
+            "return offset + 7",
+        ),
+        (
+            "rust",
+            "rustc",
+            "rs",
+            "todo!(\"implement RawClock.raw_now\")",
+            "self.offset + 7",
+        ),
+    ] {
+        if !have(tool) {
+            eprintln!("skipping {backend}: {tool} not found on PATH");
+            continue;
+        }
+        let dir = work_dir(&format!("handler_{backend}"));
+        fs::write(dir.join("main.sv"), HANDLER_DEMO).unwrap();
+
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{backend} should not have run");
+        assert!(
+            stderr.contains("use HostRawClock")
+                && stderr.contains("salvo platform generate")
+                && stderr.contains(&format!("platform/main.{ext}")),
+            "{backend} stderr: {stderr}"
+        );
+
+        let out =
+            salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} generate failed: {stderr}");
+        let host = dir.join("platform").join(format!("main.{ext}"));
+        let src = fs::read_to_string(&host).unwrap();
+        assert!(
+            src.contains("HostRawClock") && src.contains(stub),
+            "{backend} host:\n{src}"
+        );
+        fs::write(&host, src.replace(stub, body)).unwrap();
+
+        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} run failed: {stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "boot@42\n",
+            "{backend} stdout (stderr: {stderr})"
+        );
+    }
+    __stamp.verified();
+}
+
 /// [platform-tree] The tree mirrors the sources, per module: the effect's
 /// module gets the implementation and the entry's module gets the `main`,
 /// each at its own path. Run end to end on both backends because this is

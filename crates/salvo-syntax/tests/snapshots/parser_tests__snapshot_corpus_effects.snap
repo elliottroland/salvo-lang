@@ -145,6 +145,7 @@ Module {
             HandlerDecl {
                 docs: [],
                 intrinsic: false,
+                platform: false,
                 name: Ident {
                     name: "CyclicRandom",
                     span: 124..136,
@@ -352,6 +353,7 @@ Module {
             HandlerDecl {
                 docs: [],
                 intrinsic: false,
+                platform: false,
                 name: Ident {
                     name: "StdOutConsole",
                     span: 290..303,

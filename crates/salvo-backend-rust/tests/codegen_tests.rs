@@ -3918,6 +3918,163 @@ fn rustc_compiles_and_runs_a_platform_effect() {
     run_rust_files(&files, "platform", expected);
 }
 
+// ===== platform handlers [platform-handler] =====
+
+/// [platform-handler] The phase-4 shape in miniature (FILE_SYSTEM.md §5.8):
+/// a host handler of an ordinary effect at the bottom, an ordinary Salvo
+/// handler depending on it above, and application code that names neither.
+/// The dependency switches the program into the fused emission, which is the
+/// path phase 4 will take. Verbatim the Kotlin backend's demo.
+const PLATFORM_HANDLER_DEMO: &str = r#"
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+// The host implements this one, in Kotlin or Rust: bodyless here, and
+// constructed at its `use` like any handler.
+platform handler HostRawClock(offset: Int) of RawClock
+
+effect Clock {
+    fn stamp(label: Str) -> Str => label
+}
+
+handler DefaultClock [RawClock] of Clock {
+    fn stamp(label: Str) -> Str => label {
+        return "${label}@${raw_now()}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawClock(35)
+    use DefaultClock()
+    println(stamp("boot"))
+}
+"#;
+
+fn platform_handler_program() -> salvo_core::Program {
+    build_program(&[("main.sv", PLATFORM_HANDLER_DEMO)])
+}
+
+fn platform_handler_skeleton() -> salvo_backend_rust::EmittedFile {
+    let program = platform_handler_program();
+    let mut files = salvo_backend_rust::platform_skeletons(&program, None)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares a platform handler");
+    files.remove(0)
+}
+
+fn generate_platform_handler_demo_with(host: &str) -> Vec<salvo_backend_rust::EmittedFile> {
+    let mut program = platform_handler_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.rs"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
+    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [platform-handler] [rs-platform-handler] What the compiler emits: the
+/// effect's `trait` as for any effect, **no struct** — the struct is the
+/// host's — and a `use` site constructing it through its mounted path.
+/// `main` stays in generated code: unlike a `platform effect`, nothing
+/// arrives from outside.
+#[test]
+fn a_platform_handler_emits_no_struct_and_a_host_constructor() {
+    let files = generate_platform_handler_demo_with(&platform_handler_skeleton().content);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("pub trait RawClock {") && src.contains("fn raw_now(&mut self) -> i32"),
+        "expected the generated trait, got:\n{src}"
+    );
+    assert!(
+        !src.contains("pub struct HostRawClock"),
+        "a platform handler must not emit a struct of its own:\n{src}"
+    );
+    assert!(
+        src.contains("crate::platform_main::HostRawClock::new(35)"),
+        "expected the `use` site to construct the host struct, got:\n{src}"
+    );
+    // The host companion is mounted, and `main` is still generated.
+    assert!(
+        src.contains("#[path = \"platform/main.rs\"]\npub mod platform_main;"),
+        "expected the host mount, got:\n{src}"
+    );
+    assert!(
+        src.contains("fn main()") && src.contains("pub struct DefaultClock"),
+        "expected the generated `main` and the Salvo handler, got:\n{src}"
+    );
+}
+
+/// [platform-handler] [platform-tree] The skeleton: a struct named after the
+/// *handler* (the `use` site constructs that name through `::new`), holding
+/// the handler's constructor parameters, implementing the ordinary effect's
+/// generated trait with every member stubbed. No `main`: a platform handler
+/// does not move the entry point.
+#[test]
+fn platform_generate_renders_a_host_handler_skeleton() {
+    let file = platform_handler_skeleton();
+    assert_eq!(file.rel_path.to_string_lossy(), "platform/main.rs");
+    let src = &file.content;
+    for expected in [
+        "pub struct HostRawClock {",
+        "offset: i32,",
+        "pub fn new(offset: i32) -> Self {",
+        "impl crate::RawClock for HostRawClock {",
+        "fn raw_now(&mut self) -> i32 {",
+        "todo!(\"implement RawClock.raw_now\")",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("pub fn main()"),
+        "a platform handler does not move the entry point:\n{src}"
+    );
+}
+
+/// [platform-handler] [platform-tree] [backend-never-wrong] A `use` of a
+/// platform handler with no host file is an error naming the command, not
+/// generated code referencing a struct nobody wrote.
+#[test]
+fn a_missing_host_file_for_a_platform_handler_names_the_command() {
+    let program = platform_handler_program();
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("a `use` of a platform handler without a host must not emit");
+    assert!(
+        errors.iter().any(|e| e.contains("use HostRawClock")
+            && e.contains("platform/main.rs")
+            && e.contains("salvo platform generate")),
+        "expected the missing-host error, got:\n{}",
+        errors.join("\n")
+    );
+}
+
+/// [platform-handler] End to end under rustc with the *generated* skeleton,
+/// one stub filled in. The asserted stdout is byte-identical to the Kotlin
+/// backend's run of the same program.
+#[test]
+fn rustc_compiles_and_runs_a_platform_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let skeleton = platform_handler_skeleton();
+    let host = skeleton
+        .content
+        .replace("todo!(\"implement RawClock.raw_now\")", "self.offset + 7");
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_platform_handler_demo_with(&host);
+    run_rust_files(&files, "platform-handler", "boot@42\n");
+}
+
 // ===== [rs-fn-param-convention] generic fn-typed parameters =====
 
 /// A generic higher-order fn, in every argument form: an un-annotated
