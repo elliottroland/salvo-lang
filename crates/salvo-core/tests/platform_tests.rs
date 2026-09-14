@@ -156,20 +156,36 @@ fn a_generic_platform_member_is_rejected() {
     );
 }
 
-/// [effect-member-unique] Two members of one effect cannot share a name:
-/// overloading is not available through the interface, on either backend.
+/// [effect-member-unique] [effect-member-overload] Two members of one effect
+/// may share a name as an *overload* (user decision 2026-09-14) — what stays
+/// an error is the same name taking the same types, which no call could tell
+/// apart. A platform effect is an ordinary effect here too.
 #[test]
-fn duplicate_member_names_in_one_effect_are_rejected() {
+fn duplicate_member_signatures_in_one_effect_are_rejected() {
     let errs = messages(&src(
         "platform effect Store {\n    \
              fn put(value: Int) [] -> None\n    \
-             fn put(value: Str) [] -> None => !value\n}\n",
+             fn put(value: Int) [] -> Int\n}\n",
     ));
     assert!(
-        errs.iter().any(|m| m
-            == "effect `Store` already declares a member named `put`"),
+        errs.iter().any(|m| m.contains(
+            "effect `Store` already declares a member named `put` with these \
+             parameter types"
+        )),
         "got {errs:?}"
     );
+}
+
+/// [effect-member-overload] The overload itself is legal: different parameter
+/// types, one name.
+#[test]
+fn member_overloads_in_one_effect_are_legal() {
+    let errs = messages(&src(
+        "platform effect Store {\n    \
+             fn put(value: Int) [] -> None\n    \
+             fn put(value: Str) [] -> None => value\n}\n",
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
 /// [effect-member-overload] Two *different* effects may share a member

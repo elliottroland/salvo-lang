@@ -1462,7 +1462,11 @@ What it settles and what it needs:
   type's file join the discharge set*; discharger status attaches to the
   **member declaration**, so every handler's implementing body — wherever
   the handler lives, including a `MemFs` in a test module — is a
-  discharge context where `discard` is legal [linear-discard]. The
+  discharge context where `discard` is legal [linear-discard].
+  ***Built 2026-09-14*** (see COMPLETED.md's decision log), per overload,
+  with keeping members still unable to discard — together with the Rust
+  member-mode fix that a consuming member needs (`=> !s` now takes the
+  token by value instead of cloning it). The
   member's consuming contract is its deduction: `fn close(s: InStream) ->
   Ok None | Err FsError => !s`. Forwarding composes: `RestrictedFs`'s
   `close` body discharges by forwarding into its dependency's `close`
@@ -1737,12 +1741,24 @@ effect Fs {
 }
 ```
 
+> **Open before transcribing these signatures (found 2026-09-14):
+> `open_read` returns a plain `InStream` while `read_line` takes
+> `Mut InStream`, and those cannot both stand — `Mut` is minted at
+> construction and needs `canbe Mut` on the declaration, so a plain token
+> cannot reach a `Mut` position. Options and a recommendation (tokens never
+> `Mut`; all mutable state stays in handler state, where §5.7 item 5 already
+> puts it) are in ROADMAP.md's S-IO item 6.3, marked DECISION.**
+
 - **Sub-question A — member overloading.** `close(InStream)` /
   `close(OutStream)` and the two `position`s overload *within one
   effect*; whether effect members may overload is currently undecided
   anywhere. Either allow it (checker resolves by argument types, exactly
   as [effect-disambiguation] already does across instances), or split
   names (`close_in`/`close_out` — ugly). Recommend: allow.
+  ***Built 2026-09-14*** as recommended ([effect-member-overload]; see
+  COMPLETED.md's decision log): the argument types pick the overload, the
+  duplicate-*signature* case stays an error, and both backends name
+  overloads apart through one shared rule (`close`, `close__2`).
 - **Sub-question B — write errors deferred.** `write`/`write_line`/
   `write_bytes` return only the count; a failed write is recorded in the
   handler and surfaces at `flush`/`close` (Go's `bufio.Writer` shape,

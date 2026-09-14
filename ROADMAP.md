@@ -206,6 +206,7 @@ links to the section that states the options.
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
+| **Are stream tokens `Mut`?** — `open_read` returning `Mut InStream` (a), tokens never `Mut` with all state in the handler (b, recommended), or letting a plain linear value reach a `Mut` position (c) | phase 4, before the surface | "S-IO" item 6.3 |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
 (The three phase-4 rows this table used to carry — operator typing, shared
@@ -1027,10 +1028,57 @@ what is left is implementation, in the agreed order:
 6. **The filesystem itself**, per
    **[FILE_SYSTEM.md](FILE_SYSTEM.md)** §5.7–5.10 (the plan of record:
    architecture, member lists, error model, token design, restriction
-   semantics, and the FS-9 + §5 verify list), with bytes as the second
-   sequenced deliverable inside it. The [linear-group] amendment —
-   consuming effect members declared in the linear type's file join the
-   discharge set — lands with it.
+   semantics, and the FS-9 + §5 verify list). Writing the signed-off member
+   list turned out to need two compiler changes first; the first is done:
+   1. ~~**Member overloading within one effect**~~ (§5.10.2 sub-question A)
+      — **✅ built 2026-09-14** ([effect-member-overload], [effect-member-unique]
+      restated; COMPLETED.md's decision log): `Fs` declares `close` and
+      `position` once per stream token, so a member name may recur inside its
+      own effect as an overload, picked by the argument types; the emitters
+      name overloads apart through one shared rule.
+   2. ~~**The [linear-group] member-discharger amendment**~~ — **✅ built
+      2026-09-14** (COMPLETED.md's decision log): consuming effect members
+      declared in the linear type's file join the discharge set, and
+      discharger status attaches to the *member declaration*, so every
+      handler's implementation of it is a `discard` context
+      [linear-discard] — per overload, and keeping members still may not
+      discard.
+   3. **The surface**: `std/core/fs.sv` — `FsErrorKind`/`linear FsError` with
+      `ignore`/`detach`/`to_str`, the `InStream`/`OutStream` tokens, `RawFs`
+      + `platform handler HostRawFs` with the two shipped host files
+      (`std/platform/core/fs.{kt,rs}` — the seam is built, this is its first
+      customer), `DefaultFs [RawFs] of Fs`, the `Lines` pass and the
+      one-shots. Then `MemFs` and `RestrictedFs(root) [Fs]`, then **bytes**
+      as the second sequenced deliverable (§5.10.2 E).
+      * **DECISION, before the signatures are transcribed — is a stream token
+        `Mut`?** §5.10.2 has `open_read(path) -> Ok InStream | Err FsError`
+        beside `read_line(s: Mut InStream)`, and those two cannot both stand:
+        `Mut` is minted at construction (`Mut InStream { … }`) and needs the
+        struct to say `canbe Mut`, so a plain `InStream` cannot be passed to a
+        `Mut` position (verified 2026-09-14 while testing the token shape —
+        see COMPLETED.md's decision-log entry on the member-discharger
+        amendment). Three ways out:
+        (a) **the opens return `Mut`** — `Ok Mut InStream | Err FsError`,
+        tokens declared `linear struct InStream canbe Mut`; the consuming
+        `close(s: InStream)` still takes them, since dropping `Mut` is a
+        widening. This is what the miniature e2e case does today.
+        (b) **the tokens are not `Mut` at all** — `read_line(s: InStream) ->
+        Str | None => s` keeps them, and every byte of mutable state
+        (position, buffer) lives in *handler* state, which the decided
+        architecture already puts there: the token is an opaque id
+        (§5.7 item 5). Nothing about a token would need mutating.
+        (c) let a plain linear value reach a `Mut` position — a *language*
+        change to what `Mut` means, and the expensive answer.
+        **Recommendation: (b)** — it matches "the handler keeps
+        id → representation" exactly, removes `canbe Mut` from the token
+        declarations, and leaves `Mut` out of the fs surface entirely; (a) is
+        the fallback if some member turns out to need the token itself to
+        change.
+   Also fixed on the way (user request, 2026-09-14): on Rust an effect
+   member's parameter modes now follow its **written clause** — consumed by
+   value, kept `Mut` as `&mut`, kept plain as `&` — where they used to take
+   the default kept rule and clone. It stopped being cosmetic once the tokens
+   arrived: `close(s: InStream) => !s` cloned the very token it consumes.
 
 FILE_SYSTEM.md retires into COMPLETED.md when phase 4 lands,
 OBLIGATIONS.md-style.

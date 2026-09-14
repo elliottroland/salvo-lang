@@ -68,6 +68,57 @@ fn errors(src: &str) -> Vec<String> {
         .collect()
 }
 
+/// [linear-group] Two user files: `main.sv` and `other.sv`. The same-file
+/// discharger rule is *about* file boundaries, so testing it needs both sides
+/// of one.
+fn errors_in_files(main_src: &str, other_src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        main_src.to_string(),
+        false,
+    );
+    sources.add(
+        "other.sv",
+        SourceSet::classify(Path::new("other.sv")).unwrap(),
+        other_src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    resolution
+        .errors
+        .iter()
+        .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
 const LINES: &str = r#"
 linear struct Lines {
     name: Str
@@ -100,7 +151,7 @@ fn a_linear_struct_without_a_discharger_errors_at_the_struct() {
     assert_eq!(errs.len(), 1, "got {errs:?}");
     assert!(
         errs[0].contains("linear struct `Leaky` has no discharger")
-            && errs[0].contains("no fn in this file consumes a `Leaky`"),
+            && errs[0].contains("nothing in this file consumes a `Leaky`"),
         "got {errs:?}"
     );
 }
@@ -765,6 +816,134 @@ fn a_generic_fn_value_still_refuses_a_linear_instantiation() {
         errs.iter().any(|e| {
             e.contains("cannot instantiate generic parameter `T` of `drop` with linear type")
         }),
+        "got {errs:?}"
+    );
+}
+
+// ===== effect members as dischargers [linear-group] =====
+
+/// [linear-group] The amendment the bare-members decision entailed (user
+/// decision 2026-09-14, FILE_SYSTEM.md §5.8): a **consuming effect member**
+/// declared in the linear type's own file joins the discharge set, so a token
+/// whose only `close` is an `Fs` member has a legal death — and every
+/// handler's implementation of that member is a discharge context, which is
+/// where `discard` terminates the obligation.
+const TOKEN_EFFECT: &str = "\
+linear struct Token {
+    handle: Int
+}
+
+effect Sink {
+    fn close(t: Token) -> Str => !t
+    fn peek(t: Token) -> Int => t
+}
+";
+
+#[test]
+fn a_consuming_effect_member_is_a_discharger() {
+    let errs = errors(&format!(
+        "{TOKEN_EFFECT}\nhandler Direct of Sink {{\n    \
+             fn close(t: Token) -> Str => !t {{\n        \
+                 discard(t)\n        return \"closed\"\n    }}\n    \
+             fn peek(t: Token) -> Int => t {{\n        return t.handle\n    }}\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [linear-group] The handler may live anywhere — a test double in another
+/// module discharges too, because discharger status is the *member's*.
+#[test]
+fn a_handler_in_another_file_discharges_the_member_it_implements() {
+    let errs = errors_in_files(
+        TOKEN_EFFECT,
+        "import main.Sink\nimport main.Token\n\n\
+         handler Fake of Sink {\n    \
+             fn close(t: Token) -> Str => !t {\n        \
+                 discard(t)\n        return \"faked\"\n    }\n    \
+             fn peek(t: Token) -> Int => t {\n        return 0\n    }\n}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [linear-group] [linear-discard] A **keeping** member is not a discharger:
+/// its body may not `discard` what it promised back.
+#[test]
+fn a_keeping_member_body_may_not_discard() {
+    let errs = errors(&format!(
+        "{TOKEN_EFFECT}\nhandler Direct of Sink {{\n    \
+             fn close(t: Token) -> Str => !t {{\n        \
+                 discard(t)\n        return \"closed\"\n    }}\n    \
+             fn peek(t: Token) -> Int => t {{\n        \
+                 discard(t)\n        return 0\n    }}\n}}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`discard` cannot drop a linear value (`Token`) here")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-group] The same-file rule still binds: a member of an effect
+/// declared *elsewhere* than the type does not grant discharge, or any module
+/// could dispose of another's linear values.
+#[test]
+fn a_member_in_another_file_than_the_type_is_no_discharger() {
+    let errs = errors_in_files(
+        "linear struct Token {\n    handle: Int\n}\n\n\
+         fn close(t: Token) -> None => !t {\n    discard(t)\n}\n",
+        "import main.Token\n\n\
+         effect Sink {\n    fn take(t: Token) -> None => !t\n}\n\n\
+         handler Direct of Sink {\n    \
+             fn take(t: Token) -> None => !t {\n        discard(t)\n    }\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`discard` cannot drop a linear value (`Token`) here")),
+        "got {errs:?}"
+    );
+}
+
+/// [linear-group] An **overloaded** consuming member gives each of its bodies
+/// its *own* contract: `close(InStream)` may discard an `InStream`, not an
+/// `OutStream` — the fs shape exactly [effect-member-overload].
+#[test]
+fn each_member_overload_discharges_only_its_own_type() {
+    let errs = errors(
+        "linear struct InStream {\n    handle: Int\n}\n\
+         linear struct OutStream {\n    handle: Int\n}\n\n\
+         effect Fs {\n    \
+             fn close(s: InStream) -> Str => !s\n    \
+             fn close(s: OutStream) -> Str => !s\n}\n\n\
+         handler MemFs of Fs {\n    \
+             fn close(s: InStream) -> Str => !s {\n        \
+                 let other = OutStream { handle: 9 }\n        \
+                 discard(other)\n        discard(s)\n        return \"in\"\n    }\n    \
+             fn close(s: OutStream) -> Str => !s {\n        \
+                 discard(s)\n        return \"out\"\n    }\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`discard` cannot drop a linear value (`OutStream`) here")),
+        "expected the cross-token discard to be refused, got {errs:?}"
+    );
+    assert_eq!(errs.len(), 1, "and nothing else: {errs:?}");
+}
+
+/// [linear-group] A leak still leaks, and the hint now names the *member* as
+/// the terminal.
+#[test]
+fn a_leak_names_the_member_as_the_discharge() {
+    let errs = errors(&format!(
+        "{TOKEN_EFFECT}\nhandler Direct of Sink {{\n    \
+             fn close(t: Token) -> Str => !t {{\n        \
+                 discard(t)\n        return \"closed\"\n    }}\n    \
+             fn peek(t: Token) -> Int => t {{\n        return t.handle\n    }}\n}}\n\n\
+         fn leak() [Sink] -> Int {{\n    \
+             let t = Token {{ handle: 1 }}\n    return peek(t)\n}}\n"
+    ));
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("still owns a linear value") && m.contains("`close`")),
         "got {errs:?}"
     );
 }

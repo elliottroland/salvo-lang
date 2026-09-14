@@ -7460,3 +7460,280 @@ fn rustc_compiles_and_runs_user_variadics() {
     let files = generate(&[("main.sv", USER_VARIADIC_DEMO)]);
     run_rust_files(&files, "user-variadics", USER_VARIADIC_OUTPUT);
 }
+
+// ===== member overloading within one effect [effect-member-overload] =====
+
+/// [effect-member-overload] The phase-4 shape: `Fs` declares `close` once per
+/// stream token (FILE_SYSTEM.md §5.10.2 sub-question A). Rust cannot overload
+/// a trait method at all, so the names have to be made distinct — by
+/// `salvo_core`'s rule, so the Kotlin backend picks the same ones.
+const MEMBER_OVERLOADS: &str = r#"
+struct InFile { id: Int }
+struct OutFile { id: Int }
+
+effect Fs {
+    fn close(f: InFile) -> Str => !f
+    fn close(f: OutFile) -> Str => !f
+    fn describe(f: InFile) -> Str => f
+}
+
+handler Files of Fs {
+    fn close(f: InFile) -> Str => !f {
+        return "closed in ${f.id}"
+    }
+    fn close(f: OutFile) -> Str => !f {
+        return "closed out ${f.id}"
+    }
+    fn describe(f: InFile) -> Str => f {
+        return "file ${f.id}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Files()
+    println(describe(InFile { id: 3 }))
+    println(close(InFile { id: 1 }))
+    println(close@Fs(OutFile { id: 2 }))
+}
+"#;
+
+const MEMBER_OVERLOADS_OUTPUT: &str = "file 3\nclosed in 1\nclosed out 2\n";
+
+/// [effect-member-overload] [rs-effects] The trait declares the overloads
+/// under distinct names — the first keeps the plain one — the handler's impl
+/// uses those same names, and each call site emits the one the *checker*
+/// resolved.
+#[test]
+fn effect_member_overloads_get_distinct_names() {
+    let files = generate(&[("main.sv", MEMBER_OVERLOADS)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The trait: `close`, then `close__2`, and the un-overloaded member
+        // keeps its own name. [rs-borrows] The **consuming** overloads take
+        // their parameter by value (`=> !f`) while the keeping `describe`
+        // borrows — a member's written clause is its whole contract.
+        "fn close(&mut self, f: InFile) -> String;",
+        "fn close__2(&mut self, f: OutFile) -> String;",
+        "fn describe(&mut self, f: &InFile) -> String;",
+        // The handler implements both under the trait's names, with the
+        // trait's modes.
+        "impl Fs for Files {",
+        "fn close(&mut self, f: InFile) -> String {",
+        "fn close__2(&mut self, f: OutFile) -> String {",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    // The call sites: the `InFile` one takes the base name, the `OutFile` one
+    // (written with the `@Fs` selector) the suffixed name.
+    assert!(
+        src.contains(".close(InFile {") && src.contains(".close__2(OutFile {"),
+        "expected both call sites to name their own overload and pass the \
+         consumed argument owned, got:\n{src}"
+    );
+}
+
+/// [effect-member-overload] End to end: which overload runs is the checker's
+/// answer, and rustc must have no opinion. Byte-identical stdout on Kotlin.
+#[test]
+fn rustc_compiles_and_runs_member_overloads() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MEMBER_OVERLOADS)]);
+    run_rust_files(&files, "member-overloads", MEMBER_OVERLOADS_OUTPUT);
+}
+
+// ===== member parameter modes from the declared clause [rs-borrows] =====
+
+/// [rs-borrows] [deduce-syntax] An effect member's parameter modes come from
+/// its *written* deduction clause: `=> !t` is taken by value, `=> t: Mut` by
+/// `&mut`. Phase 4's `Fs` is built out of exactly these two shapes — a
+/// consuming `close(s: InStream)` and a mutating `read_line(s: Mut InStream)`
+/// — and the interesting case is a **dependent** handler forwarding both,
+/// since the trait method, the handler impls, the generated `__Impl_H` trait
+/// and the fusion's forwarding impl must all agree or rustc refuses.
+const MEMBER_MODES: &str = r#"
+struct Token canbe Mut { id: Int }
+
+effect Sink {
+    fn take(t: Token) -> Int => !t
+    fn bump(t: Mut Token) -> None => t: Mut
+}
+
+handler Direct of Sink {
+    fn take(t: Token) -> Int => !t {
+        return t.id
+    }
+    fn bump(t: Mut Token) -> None => t: Mut {
+        t.id = t.id + 1
+    }
+}
+
+handler Doubling [Sink] of Sink {
+    fn take(t: Token) -> Int => !t {
+        return take(t) * 2
+    }
+    fn bump(t: Mut Token) -> None => t: Mut {
+        bump(t)
+        bump(t)
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Direct()
+    use Doubling()
+    let t: Mut Token = Mut Token { id: 1 }
+    bump(t)
+    println("bumped ${t.id}")
+    println("took ${take(t)}")
+}
+"#;
+
+const MEMBER_MODES_OUTPUT: &str = "bumped 3\ntook 6\n";
+
+/// [rs-borrows] The consumed parameter is owned in the trait, in both
+/// handlers, and at the call site; the `Mut` one is `&mut` throughout.
+#[test]
+fn effect_member_modes_follow_the_declared_clause() {
+    let files = generate(&[("main.sv", MEMBER_MODES)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The trait.
+        "fn take(&mut self, t: Token) -> i32;",
+        "fn bump(&mut self, t: &mut Token);",
+        // The independent handler.
+        "fn take(&mut self, t: Token) -> i32 {",
+        "fn bump(&mut self, t: &mut Token) {",
+        // The dependent handler's own trait, and the fusion's forwarding
+        // impl, which passes the consumed value straight through.
+        "fn take<__Fx: __Has_Sink>(&mut self, __fx: &mut __Fx, t: Token) -> i32;",
+        "fn bump<__Fx: __Has_Sink>(&mut self, __fx: &mut __Fx, t: &mut Token);",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+/// [rs-borrows] End to end: the modes have to agree across four renderers,
+/// and a program that moves a token into a member and mutates another
+/// through one is what proves they do. Byte-identical stdout on Kotlin.
+#[test]
+fn rustc_compiles_and_runs_member_modes() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MEMBER_MODES)]);
+    run_rust_files(&files, "member-modes", MEMBER_MODES_OUTPUT);
+}
+
+// ===== linear tokens discharged by effect members [linear-group] =====
+
+/// [linear-group] [effect-member-overload] [rs-borrows] Phase 4's token shape
+/// in miniature, and the three changes it needs at once: a **linear** token
+/// whose only discharger is an *effect member*, that member **overloaded** per
+/// token type, and the consuming overloads taking their token **by value**
+/// while the mutating members take `&mut`. `discard` inside the handler bodies
+/// is the amendment (user decision 2026-09-14): discharger status attaches to
+/// the member declaration, so every handler's implementation of it terminates
+/// the obligation.
+const LINEAR_MEMBER_DISCHARGE: &str = r#"
+// The phase-4 token shape in miniature: a linear token whose only discharger
+// is an *effect member*, discharged inside the handler that implements it.
+linear struct InStream canbe Mut { handle: Int }
+linear struct OutStream canbe Mut { handle: Int }
+
+effect Fs {
+    fn open_read(path: Str) -> Mut InStream => path
+    fn open_write(path: Str) -> Mut OutStream => path
+    fn read_line(s: Mut InStream) -> Str => s: Mut
+    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text
+    fn close(s: InStream) -> Str => !s
+    fn close(s: OutStream) -> Str => !s
+}
+
+handler MemFs of Fs {
+    fn open_read(path: Str) -> Mut InStream => path {
+        return Mut InStream { handle: size(path) }
+    }
+    fn open_write(path: Str) -> Mut OutStream => path {
+        return Mut OutStream { handle: size(path) }
+    }
+    fn read_line(s: Mut InStream) -> Str => s: Mut {
+        s.handle = s.handle + 1
+        return "line ${s.handle}"
+    }
+    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text {
+        s.handle = s.handle + size(text)
+        return size(text)
+    }
+    fn close(s: InStream) -> Str => !s {
+        discard(s)
+        return "closed in"
+    }
+    fn close(s: OutStream) -> Str => !s {
+        discard(s)
+        return "closed out"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use MemFs()
+    let r: Mut InStream = open_read("data.txt")
+    println(read_line(r))
+    println(close(r))
+    let w: Mut OutStream = open_write("out.txt")
+    let n = write(w, "hello")
+    println("wrote ${n}")
+    println(close(w))
+}
+"#;
+
+const LINEAR_MEMBER_DISCHARGE_OUTPUT: &str = "line 9\nclosed in\nwrote 5\nclosed out\n";
+
+#[test]
+fn a_linear_token_is_discharged_by_an_effect_member() {
+    let files = generate(&[("main.sv", LINEAR_MEMBER_DISCHARGE)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // The consuming overloads own their token; the mutating members
+        // borrow it mutably.
+        "fn close(&mut self, s: InStream) -> String;",
+        "fn close__2(&mut self, s: OutStream) -> String;",
+        "fn read_line(&mut self, s: &mut InStream) -> String;",
+        // A discharged token is dropped, so `discard` emits nothing that
+        // could resurrect it: the value simply ends there.
+        "fn close(&mut self, s: InStream) -> String {",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_linear_token_closed_by_a_member() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LINEAR_MEMBER_DISCHARGE)]);
+    run_rust_files(
+        &files,
+        "linear-member-discharge",
+        LINEAR_MEMBER_DISCHARGE_OUTPUT,
+    );
+}

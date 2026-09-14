@@ -1754,7 +1754,7 @@ impl<'p> Emitter<'p> {
         let saved = self.enter_generics(&e.generics);
         let generics = self.emit_generic_params_unbounded(&e.generics);
         let mut out = format!("\npub trait {}{generics} {{\n", rs_ident(&e.name.name));
-        for f in &e.fns {
+        for (i, f) in e.fns.iter().enumerate() {
             // [rs-effects] `dyn` traits cannot have generic methods.
             if !f.generics.is_empty() {
                 self.error(format!(
@@ -1766,13 +1766,13 @@ impl<'p> Emitter<'p> {
             }
             let params = format!(
                 "{}{}",
-                self.emit_member_param_list(&f.params),
+                self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret};\n",
-                rs_ident(&f.name.name)
+                self.member_name(e, i)
             ));
         }
         out.push_str("}\n");
@@ -1810,20 +1810,20 @@ impl<'p> Emitter<'p> {
             "\npub struct {name};\n\nimpl {owner_path}::{} for {name} {{\n",
             rs_ident(&e.name.name)
         );
-        for f in &e.fns {
+        for (i, f) in e.fns.iter().enumerate() {
             if !f.generics.is_empty() {
                 continue;
             }
             let params = format!(
                 "{}{}",
-                self.emit_member_param_list(&f.params),
+                self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n        \
                  todo!(\"implement {}.{}\")\n    }}\n",
-                rs_ident(&f.name.name),
+                self.member_name(e, i),
                 e.name.name,
                 f.name.name
             ));
@@ -1886,20 +1886,20 @@ impl<'p> Emitter<'p> {
             "\nimpl {effect_path}::{} for {name} {{\n",
             rs_ident(&effect.name.name)
         ));
-        for f in &effect.fns {
+        for (i, f) in effect.fns.iter().enumerate() {
             if !f.generics.is_empty() {
                 continue;
             }
             let params = format!(
                 "{}{}",
-                self.emit_member_param_list(&f.params),
+                self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n        \
                  todo!(\"implement {}.{}\")\n    }}\n",
-                rs_ident(&f.name.name),
+                self.member_name(effect, i),
                 effect.name.name,
                 f.name.name
             ));
@@ -1956,13 +1956,13 @@ impl<'p> Emitter<'p> {
 
     /// Effect/handler member parameters follow the default kept rule
     /// [rs-borrows]: scalars by value, everything else `&T`.
-    fn emit_member_param_list(&mut self, params: &[Param]) -> String {
+    fn emit_member_param_list(&mut self, member: &FnDecl) -> String {
         let mut out = String::new();
-        for p in params {
+        for p in &member.params {
             if p.implicit {
                 continue; // appended by `emit_member_implicits`, in order
             }
-            let mode = self.default_param_mode(&p.ty, p.variadic);
+            let mode = self.member_param_mode(member, p);
             out.push_str(", ");
             out.push_str(&format!(
                 "{}: {}",
@@ -1971,6 +1971,43 @@ impl<'p> Emitter<'p> {
             ));
         }
         out
+    }
+
+    /// [rs-borrows] [deduce-syntax] The mode of an **effect member's**
+    /// parameter, from the member's own *written* deduction clause: a member
+    /// has no body to infer from, so [decl-explicit] makes it mention every
+    /// non-Copy parameter and the clause is the whole contract. A consumed
+    /// parameter (`=> !s`) is therefore taken **by value**, a kept `Mut` one
+    /// by `&mut`, a kept plain one by `&`.
+    ///
+    /// Until 2026-09-14 members used the default kept rule regardless, so a
+    /// consuming member took `&T` and its body cloned — sound, but it made a
+    /// *linear* token's `close` copy the token it was supposed to consume,
+    /// and phase 4's `Fs` is built out of exactly those members.
+    ///
+    /// The same function answers for the trait method, every handler's
+    /// implementation, the fusion's forwarding impls and the argument
+    /// rendering at call sites, because a disagreement between any two of
+    /// them is a rustc type error rather than something Salvo would notice.
+    fn member_param_mode(&mut self, member: &FnDecl, p: &Param) -> ParamMode {
+        if p.variadic || self.is_copy_ast_type(&p.ty) || is_fn_group(&p.ty) {
+            return ParamMode::Owned;
+        }
+        if matches!(p.ty, Type::Fn { .. }) {
+            // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
+            return ParamMode::RefMut;
+        }
+        let moved = member.deductions.iter().flatten().any(|d| {
+            d.param_name().is_some_and(|n| n.name == p.name.name)
+                && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+        });
+        if moved {
+            ParamMode::Owned
+        } else if type_has_mut(&p.ty) {
+            ParamMode::RefMut
+        } else {
+            ParamMode::Ref
+        }
     }
 
     /// [implicit-param] A member's implicit parameters, as its interface
@@ -2265,17 +2302,17 @@ impl<'p> Emitter<'p> {
             "\nimpl{impl_generics} {} for {self_ty} {{\n",
             trait_type(effect_name, effect_args)
         );
-        for f in &decl.fns {
+        for (i, f) in decl.fns.iter().enumerate() {
             if !f.generics.is_empty() {
                 continue; // already reported by `emit_effect`
             }
             let params = format!(
                 "{}{}",
-                self.emit_member_param_list(&f.params),
+                self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
-            let member = rs_ident(&f.name.name);
+            let member = self.member_name(decl, i);
             // [implicit-param] A forwarding impl passes the member's implicit
             // parameters straight through, like every other argument.
             let mut arg_names: Vec<String> = f
@@ -2436,10 +2473,10 @@ impl<'p> Emitter<'p> {
             out.push_str("        }\n    }\n}\n");
         }
         out.push_str(&format!("\nimpl {of} for {name} {{\n"));
-        for member in &effect.fns {
+        for (i, member) in effect.fns.iter().enumerate() {
             let params = format!(
                 "{}{}",
-                self.emit_member_param_list(&member.params),
+                self.emit_member_param_list(member),
                 self.emit_member_implicits(member)
             );
             let ret = self.emit_return_type(member.return_type.as_ref());
@@ -2459,7 +2496,7 @@ impl<'p> Emitter<'p> {
             };
             out.push_str(&format!(
                 "    fn {}(&mut self{params}){ret} {{\n",
-                rs_ident(&member.name.name)
+                self.member_name(effect, i)
             ));
             for line in body.lines() {
                 out.push_str(&format!("        {line}\n"));
@@ -2468,6 +2505,64 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         out
+    }
+
+    /// [effect-member-overload] The effect member a handler's member
+    /// implements, matched by name and written parameter types.
+    fn effect_member_of(&mut self, h: &HandlerDecl, f: &FnDecl) -> Option<&'p FnDecl> {
+        let effect = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()?;
+        let idx = salvo_core::effect_member_index(effect, f)?;
+        effect.fns.get(idx)
+    }
+
+    /// [effect-member-overload] The emitted name of a *handler's* member: the
+    /// name of the effect member it implements. Matched by name and written
+    /// parameter types (`salvo_core::effect_member_index`), which is what
+    /// tells two overloads apart.
+    fn handler_member_name(&mut self, h: &HandlerDecl, f: &FnDecl) -> String {
+        let effect = type_base_name(&h.of)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied();
+        match effect.and_then(|e| salvo_core::effect_member_index(e, f).map(|i| (e, i))) {
+            Some((e, i)) => self.member_name(e, i),
+            None => rs_ident(&f.name.name),
+        }
+    }
+
+    /// [effect-member-overload] The emitted name of an effect member: the
+    /// declared name, unless the effect *overloads* it, in which case every
+    /// occurrence after the first is suffixed. Rust cannot overload a trait
+    /// method at all, so this is not a preference; the rule is
+    /// `salvo_core`'s so that the trait, every handler impl, the forwarding
+    /// impls, the skeletons and the call sites cannot disagree — and so that
+    /// the Kotlin backend picks the same names [kt-fn-mangling].
+    fn member_name(&self, effect: &EffectDecl, idx: usize) -> String {
+        rs_ident(&salvo_core::effect_member_name(effect, idx))
+    }
+
+    /// [effect-member-overload] The emitted name of the member a *call*
+    /// resolved to: the checker records which overload
+    /// (`Checked::effect_member_calls`), and where it did not the name is
+    /// declared once, so the name itself answers.
+    fn called_member_name(&mut self, effect: &str, name: &str, span: Span) -> String {
+        let Some(decl) = self.symbols.effects.get(effect).copied() else {
+            return rs_ident(name);
+        };
+        match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
+            Some(&idx) => self.member_name(decl, idx),
+            None => match salvo_core::effect_members_named(decl, name).as_slice() {
+                [_] | [] => rs_ident(name),
+                _ => {
+                    self.error(format!(
+                        "internal: `{name}` is overloaded on effect `{effect}` and \
+                         the checker recorded no resolution for this call"
+                    ));
+                    rs_ident(name)
+                }
+            },
+        }
     }
 
     fn emit_fn(&mut self, f: &FnDecl) -> String {
@@ -2884,6 +2979,20 @@ impl<'p> Emitter<'p> {
             }
             let mode = match style {
                 FnStyle::TopLevel => self.param_mode(fn_key, p),
+                // [effect-member-overload] [rs-borrows] A handler member's
+                // signature has to match the trait's, so its modes come from
+                // the *effect member* it implements — the handler's own
+                // clause is checked against that contract, not consulted
+                // here.
+                FnStyle::HandlerMember(h)
+                | FnStyle::DepMember(h)
+                | FnStyle::DepMemberSig(h) => match self.effect_member_of(h, f) {
+                    Some(m) => {
+                        let m = m.clone();
+                        self.member_param_mode(&m, p)
+                    }
+                    None => self.default_param_mode(&p.ty, p.variadic),
+                },
                 _ => self.default_param_mode(&p.ty, p.variadic),
             };
             if matches!(mode, ParamMode::Ref | ParamMode::RefMut) {
@@ -3250,7 +3359,15 @@ impl<'p> Emitter<'p> {
         } else if top_level || matches!(style, FnStyle::QualifierFn) {
             self.rust_fn_name(f)
         } else {
-            rs_ident(&f.name.name)
+            // [effect-member-overload] A handler member implements one
+            // *overload* of its effect's member, and the trait names the
+            // overloads apart, so the impl has to use the same name.
+            match style {
+                FnStyle::HandlerMember(h)
+                | FnStyle::DepMember(h)
+                | FnStyle::DepMemberSig(h) => self.handler_member_name(h, f),
+                _ => rs_ident(&f.name.name),
+            }
         };
         let vis = if handler_of_style.is_some() {
             ""
@@ -8368,15 +8485,18 @@ impl<'p> Emitter<'p> {
                 _ => self.member_dispatch_fallback(effect, type_args),
             };
             // Effect member params: default kept rule [rs-borrows].
-            let member = self
-                .symbols
-                .effects
-                .get(effect)
-                .and_then(|e| e.fns.iter().find(|f| f.name.name == name));
+            // [effect-member-overload] The *resolved* overload's parameters,
+            // since two overloads differ in exactly what they take.
+            let member = self.symbols.effects.get(effect).and_then(|e| {
+                match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
+                    Some(&idx) => e.fns.get(idx),
+                    None => e.fns.iter().find(|f| f.name.name == name),
+                }
+            });
             let mut arg_code = match member {
                 Some(m) => {
                     let m = m.clone();
-                    self.emit_args_for_params(&m.params, args, None)
+                    self.emit_args_for_params_of(&m.params, args, None, Some(&m))
                 }
                 None => args.iter().map(|a| self.emit_expr(a)).collect(),
             };
@@ -8384,8 +8504,9 @@ impl<'p> Emitter<'p> {
             // signature, so they arrive as trailing arguments here exactly as
             // for a plain fn call [implicit-resolve].
             arg_code.extend(self.emit_implicit_args(named, span));
+            let called = self.called_member_name(effect, name, span);
             if !self.fusion {
-                return format!("{handler}.{}({})", rs_ident(name), arg_code.join(", "));
+                return format!("{handler}.{called}({})", arg_code.join(", "));
             }
             // [rs-effect-fusion] Accessor-then-method: the fused value
             // implements `__Has_E` per effect, never the effects
@@ -8412,7 +8533,7 @@ impl<'p> Emitter<'p> {
             let (prelude, arg_code) = self.hoist_effect_args(Some(&[handler.clone()]), arg_code);
             return Self::wrap_hoisted(
                 &prelude,
-                format!("{accessor}.{}({})", rs_ident(name), arg_code.join(", ")),
+                format!("{accessor}.{called}({})", arg_code.join(", ")),
             );
         }
 
@@ -8629,6 +8750,21 @@ impl<'p> Emitter<'p> {
         args: &[&Expr],
         fn_key: Option<salvo_core::FnKey>,
     ) -> Vec<String> {
+        self.emit_args_for_params_of(params, args, fn_key, None)
+    }
+
+    /// [rs-borrows] The same, for a call whose callee is an **effect
+    /// member**: modes come from the member's written clause
+    /// (`member_param_mode`), so a consumed parameter's argument is rendered
+    /// *owned* and a kept one borrowed — the trait method it is calling says
+    /// exactly that.
+    fn emit_args_for_params_of(
+        &mut self,
+        params: &[Param],
+        args: &[&Expr],
+        fn_key: Option<salvo_core::FnKey>,
+        member: Option<&FnDecl>,
+    ) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         // [rs-iter-pass] An iterator fn's fn-typed parameter is declared
         // `impl Fn(…) + 'static`, so a lambda in that position must own what
@@ -8641,9 +8777,13 @@ impl<'p> Emitter<'p> {
         let fixed = variadic_at.unwrap_or(params.len());
         for (i, param) in params.iter().enumerate().take(fixed) {
             let Some(arg) = args.get(i) else { break };
-            let mode = match fn_key {
-                Some(_) => self.param_mode(fn_key, param),
-                None => self.default_param_mode(&param.ty, param.variadic),
+            let mode = match (fn_key, member) {
+                (Some(_), _) => self.param_mode(fn_key, param),
+                (None, Some(m)) => {
+                    let m = m.clone();
+                    self.member_param_mode(&m, param)
+                }
+                (None, None) => self.default_param_mode(&param.ty, param.variadic),
             };
             self.pending_lambda_move = producer;
             out.push(self.emit_arg(arg, mode, Some(&param.ty)));

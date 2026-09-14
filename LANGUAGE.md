@@ -1567,7 +1567,18 @@ fn both(h: Int) [Fs, Net] -> None {
 }
 ```
 
-The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. Within a *single* effect, member names are still unique — the selector distinguishes effects, not overloads. A selected member is a call form, not a value.
+The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. A selected member is a call form, not a value.
+
+Within a *single* effect a member name may recur too, as an ordinary **overload**: one name, different parameter types, picked by the argument types like any function overload.
+
+```
+effect Fs {
+    fn close(s: InStream) -> Ok None | Err FsError => !s
+    fn close(s: OutStream) -> Ok None | Err FsError => !s
+}
+```
+
+Two members with the same name *and* the same parameter types are the error they look like — no call could tell them apart. The selector and the overload compose: `@Fs` picks the effect, the arguments pick the member.
 
 ### Throwing: leaving early with a message
 
@@ -1903,7 +1914,9 @@ fn close(handle: FileHandle) -> None => !handle {
 }
 ```
 
-The **discharge set** is every function declared in the *type's own file* that consumes a parameter of the type — `close` for a file, `stop` *or* `join` for a thread handle, `remove(cache, entry)` for a pooled one (the extra parameters are ordinary parameters). A `linear struct` whose file has no such function is an error at the struct: the obligation would have no legal death. Leak diagnostics name the whole set. `discard(handle)` is the obligation's terminal, legal **only** inside a discharger — and a discharger gets no exemption: its own body must terminate the obligation on every path, by `discard` or by forwarding into another discharger (`fn shutdown(t: Thread) => !t { stop(t) }`).
+The **discharge set** is every function — and every *effect member* — declared in the *type's own file* that consumes a parameter of the type — `close` for a file, `stop` *or* `join` for a thread handle, `remove(cache, entry)` for a pooled one (the extra parameters are ordinary parameters). A `linear struct` whose file has no such function is an error at the struct: the obligation would have no legal death. Leak diagnostics name the whole set. `discard(handle)` is the obligation's terminal, legal **only** inside a discharger — and a discharger gets no exemption: its own body must terminate the obligation on every path, by `discard` or by forwarding into another discharger (`fn shutdown(t: Thread) => !t { stop(t) }`).
+
+When the discharger is an effect member, the declaration is what carries that status, so **every handler's implementation of it** is a discharge context — the real one, a test double in another module, an interceptor that discharges by forwarding into the handler it wraps. That is how a stream token stays linear while `close` is a member of `Fs`: one declaration, many implementations, all of them allowed to end the obligation and none of them able to end anybody else's (a member consuming an `InStream` may not `discard` an `OutStream`).
 
 Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own.
 
@@ -2442,7 +2455,7 @@ handler AuditLogger [Telemetry] of Logger {
 }
 ```
 
-Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. Member names may be shared with other effects like any effect's (`close@Fs(…)` picks — see "Two effects, one member name"), but within the platform effect itself each member name appears once.
+Two restrictions follow from the host implementing one concrete interface: neither a platform effect nor its members may be generic. Member names may be shared with other effects like any effect's, and overloaded within the effect like any effect's (see "Two effects, one member name").
 
 ### A host implementation of an ordinary effect
 

@@ -122,6 +122,122 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Linear tokens can be closed by an effect member, and Rust member
+parameters follow their clause (S-IO item 6's second prerequisite plus the
+gap it exposed — user request 2026-09-14).** Two changes that only matter
+together, and the second is why the first is worth having.
+
+**The [linear-group] amendment.** A linear type's discharge set was
+same-file consuming *fns*; it is now same-file consuming fns **and effect
+members** — phase 4's `close` is an `Fs` member, and `std/core/fs.sv`
+declares the token and the effect together. Discharger status attaches to
+the **member declaration**, so *every* handler's implementation of a
+consuming member is a discharge context where `discard` terminates the
+obligation: the real handler, a `MemFs` double in another module, an
+interceptor that discharges by forwarding into the handler it wraps. The
+same-file rule still binds — it keys on the *effect's* file, so no module can
+declare a member that disposes of another module's linear values — and the
+context is **per overload**: the `close(InStream)` body may discard an
+`InStream` and not an `OutStream`, while a *keeping* member's body may
+discard nothing at all. `ModuleScope` gained `effect_files` for the same
+reason it has `struct_files`. Both diagnostics were reworded (the
+declaration's "no legal death" and `discard`'s refusal now say that a member
+counts, and where its bodies are).
+
+**The Rust member-mode fix.** Effect member parameters had followed the
+default kept rule regardless of the member's declared deductions — recorded
+since 2026-09-04 as sound-but-unoptimized, because the checker had already
+consumed the caller's value. Phase 4 made it not merely unoptimized: a
+member consuming a **linear token** rendered `&InStream` and the handler
+cloned the thing it was supposed to consume. Modes now come from the
+member's own written clause (`member_param_mode`) — consumed by value, kept
+`Mut` as `&mut T`, kept plain as `&T` — through *one* function, because the
+trait method, every handler's impl, the generated `__Impl_H` trait, the
+fusion's forwarding impls and the argument rendering at call sites must
+agree or rustc refuses. The gap's entry in BACKEND_SPEC.rust.md is replaced
+by the rule.
+
+Tests: 920 passing (from 910), fresh. Six checker tests for the amendment (a
+member as discharger; a handler in another *file* discharging; a keeping
+member refused; a member in another file than the type refused; per-overload
+scoping; and a leak whose hint now names the member), plus per backend a
+golden test of the emitted modes and two compile-and-run cases: a
+consuming-plus-`Mut` pair forwarded through a *dependent* handler (the
+hardest agreement case — four renderers), and **phase 4's token shape in
+miniature** — `linear struct InStream canbe Mut` and `OutStream`, an
+overloaded `close` per token, `read_line`/`write` mutating through them, a
+`MemFs` discharging both — printing the same four lines on both backends.
+Rules: LANGUAGE_SPEC.md [linear-group] (members join, bodies are contexts),
+BACKEND_SPEC.rust.md [rs-effects] (the mode rule), LANGUAGE.md's linearity
+section.
+
+**One finding from proving the shape is now an open question, not a
+record**: a `Mut` member parameter needs its token declared `canbe Mut`, and
+`Mut` is minted at construction (`Mut InStream { … }`), so §5.10.2's plain
+`open_read(path) -> Ok InStream | Err FsError` cannot feed
+`read_line(s: Mut InStream)`. It is a **DECISION** in ROADMAP.md (S-IO item
+6.3, with options and a recommendation) and flagged at FILE_SYSTEM.md
+§5.10.2's signature block; it is not restated here.
+
+**Effect members overload within their own effect (S-IO item 6's first
+prerequisite, §5.10.2 sub-question A — 2026-09-14).** Phase 4's signed-off
+`Fs` declares `close` once per stream token and `position` twice, so the
+2026-09-05 within-effect uniqueness rule had to go: a member name may now
+recur inside its own effect as an ordinary **overload**
+[effect-member-overload], and what stays an error is a *duplicate signature*
+— same name, same parameter types, which no call could tell apart
+[effect-member-unique]. Signatures are compared as lowered types, so two
+spellings of one type are still the duplicate they are.
+
+**Selection is the checker's, in two stages that had to stop competing.**
+Which *effect* is chosen first (availability, or `@Effect`), and several
+same-named members of one effect are **one candidate** at that stage — the
+cross-effect ambiguity error used to fire on them, which was the first thing
+to fix. Then the overload is picked by arity, and only if that leaves a
+choice by the argument types, ranked with the same `most_specific` order
+function overloads use [fn-overload-rank]. Arguments are typed once and the
+types handed on, so nothing is checked twice and one mistake still gets one
+diagnostic. No overload fitting, or several with none most specific, are
+errors naming the member and the argument types — never a guess
+[backend-never-wrong].
+
+**The emitted names are one rule in one place** (`salvo-core/src/effects.rs`,
+new): every overload after the first is suffixed — `close`, `close__2` — and
+`salvo_core::effect_member_name` is called by *both* backends, because five
+renderers have to agree on the name (the interface/trait, every handler's
+override/impl, Rust's fusion forwarding impls, the `platform generate`
+skeletons, and the call sites) and the two backends have to agree with each
+other. Rust has no trait-method overloading at all; Kotlin does, and that is
+worse — it would resolve by **Kotlin's** type lattice rather than Salvo's,
+the [kt-fn-mangling] hazard one level down. Positional suffixes need no
+qualifier pass here: every overload but the first is renamed regardless, so
+no erasure collision can survive. A handler's implementing member is matched
+to its effect member by name and written parameter types
+(`effect_member_index`), which is what tells two overloads apart; call sites
+read the checker's `effect_member_calls` (the member's index), and an
+overloaded name with no recorded resolution is a codegen error.
+
+Found while proving it end to end, recorded rather than fixed: on Rust an
+effect member's parameter modes still ignore its *declared* deductions, so a
+consuming member (`close(f: InFile) => !f`) takes `&InFile` and the body
+clones. Sound — the checker consumed the caller's value, so nothing can
+observe the copy — and already noted as a missed optimization under
+[rs-effects]; phase 4's tokens are fine with it, since the obligation is a
+checker notion and the handler discharges in Salvo.
+
+Tests: 910 passing (from 901), fresh. Six checker tests (overload by argument
+type, the `@Effect` selector composing with overloads, arity-only overloads,
+no-fitting-overload, duplicate signatures, and the two rewritten pins of the
+old rule — `close(Int)`/`close(Str)` is now *legal*, which is exactly the
+reversal), plus per backend a golden test of the three emitted name sites and
+a compile-and-run case over one shared program (an effect with `close(InFile)`,
+`close(OutFile)` and an un-overloaded `describe`, called both bare and through
+`@Fs`) printing the same three lines on both. Rules: LANGUAGE_SPEC.md
+[effect-member-overload] rewritten (and [effect-member-unique],
+[effect-member-call] restated), BACKEND_SPEC.{kotlin,rust}.md gained the
+naming rule; LANGUAGE.md's "Two effects, one member name" now covers
+overloading within one effect too.
+
 **`platform handler`, both backends (S-IO item 5, FS-1 resolved as O-M2 —
 2026-09-14).** The interop surface gains its second declaration: a **host
 implementation of an ordinary Salvo effect**, registered with `use` like any
@@ -9516,7 +9632,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 901)
+## Test inventory (all green: 920)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

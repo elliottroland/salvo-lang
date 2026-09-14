@@ -770,17 +770,30 @@ the blanket rule:
   with `&mut local` for handlers `use`d in the current scope). **When any
   handler in the program declares a dependency, all of this changes
   shape** — see [rs-effect-fusion].
-  * Effect member parameters follow the default kept rule: `&T` for
-    non-Copy, by value for scalars [rs-borrows]; member fns with their
-    own generic parameters are a codegen error (`dyn` traits cannot
-    have generic methods) [backend-never-wrong].
-  * **Known gap** (2026-09-04): the default kept rule ignores the member's
-    *declared* deductions, so a member that **moves** a parameter still
-    emits `&mut T` and its body clones. Sound — the checker consumed the
-    caller's value, so no alias can observe the copy
-    ([effect-state-store] is what makes that true) — but a missed
-    optimization. The fusion reshaped member *dispatch*, not member
-    parameter modes, so this gap survived it.
+  * [deduce-syntax] **Effect member parameters follow the member's own
+    written deduction clause** (2026-09-14): consumed (`=> !s`) is by value,
+    kept `Mut` is `&mut T`, kept plain is `&T`, Copy scalars and variadics by
+    value. A member has no body to infer from, so [decl-explicit] makes the
+    clause mention every non-Copy parameter — the clause *is* the contract.
+    One function (`member_param_mode`) answers for the trait method, every
+    handler's implementation, the generated `__Impl_H` trait, the fusion's
+    forwarding impls and the argument rendering at call sites, because a
+    disagreement between any two of them is a rustc type error.
+    Member fns with their own generic parameters are a codegen error (`dyn`
+    traits cannot have generic methods) [backend-never-wrong].
+    * Until 2026-09-14 members used the default kept rule regardless (`&T`
+      for non-Copy, body clones), recorded as sound-but-unoptimized. It was
+      fixed rather than kept for phase 4: a member consuming a **linear**
+      token is the shape `Fs.close(s: InStream) => !s` has, and a `&T`
+      parameter made the handler clone the token it was meant to consume.
+  * [effect-member-overload] **An overloaded member name is suffixed**
+    (`close`, `close__2`, …) — Rust cannot overload a trait method at all.
+    The name comes from `salvo_core::effect_member_name`, so the trait, every
+    handler impl, the fusion's forwarding impls, the host skeletons and the
+    call sites cannot disagree, and the Kotlin backend picks the same names.
+    A call site emits the overload the *checker* resolved
+    (`Checked::effect_member_calls`); no recorded resolution where the name
+    is overloaded is a codegen error, never a guess.
 * [effect-use] `use Handler(...)` emits
   `let mut <name> = Handler::new(args);` and registers `&mut <name>` in
   the effect environment for the rest of the scope [effect-scope]; ctor

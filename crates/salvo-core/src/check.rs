@@ -46,6 +46,15 @@ struct RenameBinding<'p> {
     span: Span,
 }
 
+/// [effect-member-overload] The outcome of picking a member overload: the
+/// sole candidate, the one the argument types chose (with those types, so the
+/// caller does not re-check the arguments), or nothing — a reported error.
+enum Picked<'p> {
+    Only(&'p FnDecl),
+    ByArgs(&'p FnDecl, Vec<Ty>),
+    None,
+}
+
 /// [fn-overload-rank] One candidate that *fits* a call: the declaration, the
 /// bindings and coercion targets its match produced, and everything the
 /// selection needs — the ranking view of its parameters, and the rung of the
@@ -309,6 +318,14 @@ pub struct Checked {
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
+    /// [effect-member-overload] Which **overload** of an effect member a call
+    /// resolved to: the member's index in its effect's declaration order,
+    /// keyed by the call span. Recorded only where the effect declares the
+    /// name more than once (`close(InStream)` / `close(OutStream)`), because
+    /// that is exactly where the emitters' name-keyed lookup cannot answer —
+    /// they name an overloaded member positionally
+    /// (`salvo_core::effect_member_name`).
+    pub effect_member_calls: HashMap<Key, usize>,
     /// [call-resolve] Call sites whose callee resolved to a **fn-typed
     /// local** (a parameter or `let`) rather than to a declaration, keyed
     /// by the call span.
@@ -759,7 +776,6 @@ fn check_once<'p>(
         };
         checker.check_module(ast);
     }
-    check_effect_member_names(program, &mut out);
     check_intrinsic_is_std_only(program, &mut out);
     out
 }
@@ -806,36 +822,6 @@ fn check_intrinsic_is_std_only(program: &Program, out: &mut Checked) {
 
 /// [effect-member-unique] A member name is unique **within its effect**.
 /// Across effects the name may recur ([effect-member-overload], user
-/// decision 2026-09-14, lifting the 2026-09-05 program-wide ban): a call
-/// disambiguates by which effect has a handler in scope, or explicitly
-/// with `member@Effect(…)` [effect-at] — the syntax whose absence was the
-/// original ban's reason.
-///
-/// Walks files and items in source order and reports at the *second*
-/// declaration, so the diagnostic is deterministic and fires exactly once
-/// per collision.
-fn check_effect_member_names(program: &Program, out: &mut Checked) {
-    // (effect name, member name) seen so far.
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        for item in &ast.items {
-            let Item::Effect(e) = item else { continue };
-            for f in &e.fns {
-                if !seen.insert((&e.name.name, &f.name.name)) {
-                    out.errors.push(FileDiagnostic::error(
-                        file_idx,
-                        f.name.span,
-                        format!(
-                            "effect `{}` already declares a member named `{}`",
-                            e.name.name, f.name.name
-                        ),
-                    ));
-                }
-            }
-        }
-    }
-}
-
 #[derive(Clone)]
 struct LocalVar {
     declared: Ty,
@@ -1532,7 +1518,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
+                        // [linear-group] [linear-discard] A handler member
+                        // implementing a **consuming** effect member is a
+                        // discharge context: discharger status attaches to
+                        // the *member declaration*, so every handler's body
+                        // for it may terminate the obligation with `discard`
+                        // — wherever the handler lives, including a test
+                        // double in another module (user decision
+                        // 2026-09-14, entailed by stream ops being members).
+                        let context = self.member_discharge_context(h, f);
+                        let saved_discharges =
+                            std::mem::replace(&mut self.own_discharges, context);
                         self.check_fn(f, &h.params, &h.state);
+                        self.own_discharges = saved_discharges;
                     }
                     self.handler_deps = saved_deps;
                     self.handler_of = saved_of;
@@ -1540,6 +1538,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Effect(e) => {
                     self.check_platform_effect(e);
+                    self.check_effect_member_signatures(e);
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
@@ -1657,8 +1656,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     s.name.span,
                     format!(
-                        "{what} has no discharger: no fn in this file consumes a \
-                         `{0}`, so the obligation has no legal death — declare one \
+                        "{what} has no discharger: nothing in this file consumes a \
+                         `{0}` — no fn, and no member of an effect declared here \
+                         — so the obligation has no legal death; declare one \
                          (e.g. `fn close(x: {0}) -> None => !x {{ discard(x) }}`)",
                         s.name.name
                     ),
@@ -1894,6 +1894,54 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         self.require_explicit(f, "intrinsic fn", true);
+    }
+
+    /// [effect-member-unique] [effect-member-overload] A member name may recur
+    /// **within** its effect only as an *overload*: the parameter lists must
+    /// differ, exactly as for top-level fns [fn-overload] (§5.10.2 sub-question
+    /// A, user decision 2026-09-14 — phase 4's `Fs` declares `close(InStream)`
+    /// and `close(OutStream)`, and `position` twice). Two members with the same
+    /// name *and* the same parameter types are the old duplicate error.
+    ///
+    /// Across effects the name may recur freely ([effect-member-overload], user
+    /// decision 2026-09-14, lifting the 2026-09-05 program-wide ban): a call
+    /// disambiguates by which effect has a handler in scope, or explicitly
+    /// with `member@Effect(…)` [effect-at] — the syntax whose absence was the
+    /// original ban's reason.
+    ///
+    /// Signatures are compared as *lowered* types rather than as written text,
+    /// so two spellings of one type (an alias, a differently-written generic
+    /// argument) are the duplicate they are. Reported at the **second**
+    /// declaration, so the diagnostic is deterministic and fires exactly once
+    /// per collision.
+    fn check_effect_member_signatures(&mut self, e: &'p EffectDecl) {
+        // Lowered fixed-parameter lists, in declaration order.
+        let mut seen: Vec<(&str, Vec<Ty>)> = Vec::new();
+        for f in &e.fns {
+            let inner = self.enter_generics(&f.generics);
+            let params: Vec<Ty> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| self.lower_type(&p.ty))
+                .collect();
+            self.generics = inner;
+            if seen
+                .iter()
+                .any(|(name, ps)| *name == f.name.name.as_str() && *ps == params)
+            {
+                self.error(
+                    f.name.span,
+                    format!(
+                        "effect `{}` already declares a member named `{}` with these \
+                         parameter types: members overload like functions, so two of \
+                         them must differ in what they take",
+                        e.name.name, f.name.name
+                    ),
+                );
+            }
+            seen.push((f.name.name.as_str(), params));
+        }
     }
 
     /// [platform-handler] The restrictions a `platform handler` carries, all
@@ -6475,8 +6523,17 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [linear-group] The **discharge set** of a linear type: every fn
     /// declared in the *same file* as the type whose effective contract
-    /// consumes a parameter of it. Any of these is a legal terminal for the
-    /// obligation; `discard` is legal only inside one of them.
+    /// consumes a parameter of it — **plus every consuming member of an
+    /// effect declared in that file** (the amendment the bare-members
+    /// decision entailed, user decision 2026-09-14, FILE_SYSTEM.md §5.8):
+    /// phase 4's `close(s: InStream)` is an `Fs` member, not a free fn, and
+    /// `std/core/fs.sv` declares the token and the effect together.
+    ///
+    /// Any of these is a legal terminal for the obligation. `discard` is
+    /// legal only inside one of them — and for a member that means inside
+    /// **every handler's implementing body**, wherever the handler lives,
+    /// since discharger status attaches to the *member declaration*
+    /// [linear-discard].
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
         let Some(decl) = self.scope.structs.get(type_name) else {
             return Vec::new();
@@ -6505,10 +6562,88 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [linear-group] Consuming *members* of an effect declared in the
+        // type's own file. A member has no body to infer from, so its
+        // written clause is the whole contract [decl-explicit].
+        for (effect_name, effect) in self.scope.effects.iter() {
+            if self.scope.effect_files.get(effect_name).copied() != struct_file {
+                continue;
+            }
+            for m in &effect.fns {
+                if member_consumes_type(m, type_name) {
+                    out.push(m.name.name.clone());
+                }
+            }
+        }
         let _ = decl;
         out.sort();
         out.dedup();
         out
+    }
+
+    /// [linear-group] The discharge context a handler member's body runs in:
+    /// the linear types the **effect member it implements** consumes. Matched
+    /// by name and written parameter types
+    /// (`salvo_core::effect_member_index`), so an overloaded member's bodies
+    /// each get their own overload's contract — `close(InStream)` discharges
+    /// an `InStream`, `close(OutStream)` an `OutStream`.
+    fn member_discharge_context(
+        &self,
+        h: &'p ast::HandlerDecl,
+        f: &FnDecl,
+    ) -> HashSet<String> {
+        let effect_name = match &h.of {
+            ast::Type::Named { base, .. } => base.name.name.as_str(),
+            ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                ast::Type::Named { base, .. } => base.name.name.as_str(),
+                _ => return HashSet::new(),
+            },
+            _ => return HashSet::new(),
+        };
+        let Some(effect) = self.scope.effects.get(effect_name).copied() else {
+            return HashSet::new();
+        };
+        let Some(idx) = crate::effect_member_index(effect, f) else {
+            return HashSet::new();
+        };
+        match effect.fns.get(idx) {
+            Some(member) => self.member_discharges(effect_name, member),
+            None => HashSet::new(),
+        }
+    }
+
+    /// [linear-group] The linear types a *member* consumes — the discharge
+    /// contexts its implementing bodies get. A member consumes a parameter
+    /// when its written clause moves it (`=> !s`), and the type joins only
+    /// when the effect is declared in that type's own file, which is what
+    /// keeps the discharge set a property of the type's own module.
+    fn member_discharges(&self, effect_name: &str, member: &FnDecl) -> HashSet<String> {
+        let effect_file = self.scope.effect_files.get(effect_name).copied();
+        member
+            .params
+            .iter()
+            .filter_map(|p| {
+                let base = match &p.ty {
+                    ast::Type::Named { base, .. } => &base.name.name,
+                    ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                        ast::Type::Named { base, .. } => &base.name.name,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                if !self.linear_capable(base) {
+                    return None;
+                }
+                if self.scope.struct_files.get(base.as_str()).copied() != effect_file {
+                    return None;
+                }
+                let moved = member.deductions.iter().flatten().any(|d| {
+                    d.param_name().is_some_and(|n| n.name == p.name.name)
+                        && matches!(d.kind, ast::DeductionKind::Moved)
+                });
+                moved.then(|| base.clone())
+            })
+            .collect()
     }
 
     /// [linear-group] A human-readable name for a linear value's legal
@@ -13821,7 +13956,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             };
             self.record_def_ref(effect.span, &effect.name);
-            let Some(member) = decl.fns.iter().find(|f| f.name.name == name.name) else {
+            // [effect-member-overload] Every member of that name: the
+            // selector picks the *effect*, the argument types still pick the
+            // overload.
+            let members = crate::effect_members_named(decl, &name.name);
+            if members.is_empty() {
                 for a in &all_args {
                     self.check_expr(a, None);
                 }
@@ -13833,9 +13972,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
                 return Ty::Unknown;
-            };
+            }
             self.record_def_ref(name.span, &name.name);
-            return self.check_effect_call(decl, member, type_args, &all_args, named, expected, span);
+            return self.check_effect_call(
+                decl, &members, type_args, &all_args, named, expected, span,
+            );
         }
 
         // [fn-overload-at] `f@core.list(x)` / `xs.f@core.list(y)`: the module
@@ -14061,12 +14202,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [lsp-definition] members have no `FnKey`; the def-site table
             // carries their declaration span.
             self.record_def_ref(name_span, name);
-            let (effect, member) = if members.len() == 1 {
-                members[0]
+            // [effect-member-overload] One candidate per *effect*: within one
+            // effect the name may be overloaded, and those entries are one
+            // choice, made by the argument types further down — not an
+            // ambiguity between effects.
+            let mut owners_of: Vec<&'p ast::EffectDecl> = Vec::new();
+            for (e, _) in &members {
+                if !owners_of.iter().any(|o| o.name.name == e.name.name) {
+                    owners_of.push(e);
+                }
+            }
+            let effect = if owners_of.len() == 1 {
+                owners_of[0]
             } else {
-                let available: Vec<(&'p ast::EffectDecl, &'p ast::FnDecl)> = members
+                let available: Vec<&'p ast::EffectDecl> = owners_of
                     .iter()
-                    .filter(|(e, _)| {
+                    .filter(|e| {
                         self.effect_env.iter().any(
                             |t| matches!(t, Ty::Named { name: n, .. } if *n == e.name.name),
                         )
@@ -14074,9 +14225,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .copied()
                     .collect();
                 let owners = || {
-                    members
+                    owners_of
                         .iter()
-                        .map(|(e, _)| format!("`{}`", e.name.name))
+                        .map(|e| format!("`{}`", e.name.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 };
@@ -14098,7 +14249,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         return Ty::Unknown;
                     }
                     more => {
-                        let first = more[0].0.name.name.as_str();
+                        let first = more[0].name.name.as_str();
                         for a in args {
                             self.check_expr(a, None);
                         }
@@ -14115,7 +14266,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             };
-            return self.check_effect_call(effect, member, type_args, args, named, expected, span);
+            // [effect-member-overload] The effect is chosen; its overloads of
+            // this name are what the argument types choose between.
+            let overloads = crate::effect_members_named(effect, name);
+            return self.check_effect_call(
+                effect, &overloads, type_args, args, named, expected, span,
+            );
         }
 
         // 2. Function overloads [fn-overload] (fn declarations, else
@@ -14491,7 +14647,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                             "`discard` cannot drop a linear value (`{arg_ty}`) here: \
                              that is the leak the obligation exists to prevent — \
                              discharge it with {set}, or `discard` it inside one of \
-                             those (a fn in the type's own file that consumes it)"
+                             those (a fn, or an effect member, declared in the \
+                             type's own file and consuming it — for a member, \
+                             inside any handler's implementation of it)"
                         ),
                     );
                 }
@@ -15230,21 +15388,166 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [effect-member-overload] Picks the overload a member call means, out
+    /// of every member of `effect` with that name.
+    ///
+    /// Arity first, then — only when that leaves a choice — the argument
+    /// types, ranked by the same specificity order function overloads use
+    /// [fn-overload-rank]. The arguments are typed *once* here and handed
+    /// back, so nothing is checked twice and one mistake still gets one
+    /// diagnostic.
+    fn pick_effect_member(
+        &mut self,
+        effect: &'p EffectDecl,
+        members: &[&'p FnDecl],
+        args: &[&'p Expr],
+        span: Span,
+    ) -> Picked<'p> {
+        match members {
+            [] => return Picked::None,
+            [only] => return Picked::Only(only),
+            _ => {}
+        }
+        let fixed = |f: &FnDecl| -> usize {
+            f.params.iter().filter(|p| !p.variadic && !p.implicit).count()
+        };
+        let by_arity: Vec<&'p FnDecl> = members
+            .iter()
+            .copied()
+            .filter(|f| {
+                f.params.iter().any(|p| p.variadic) && args.len() >= fixed(f)
+                    || fixed(f) == args.len()
+            })
+            .collect();
+        if let [only] = by_arity.as_slice() {
+            return Picked::Only(only);
+        }
+        let pool: Vec<&'p FnDecl> = if by_arity.is_empty() {
+            members.to_vec()
+        } else {
+            by_arity
+        };
+        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        let saved = self.enter_generics(&effect.generics);
+        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
+        for (i, f) in pool.iter().enumerate() {
+            let inner = self.enter_generics(&f.generics);
+            let patterns: Vec<Ty> = f
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .map(|p| self.lower_type(&p.ty))
+                .collect();
+            self.generics = inner;
+            let generic_set: HashSet<String> = effect
+                .generics
+                .iter()
+                .chain(&f.generics)
+                .map(|g| g.name.clone())
+                .collect();
+            let fits = patterns.len() == arg_tys.len()
+                && patterns.iter().zip(&arg_tys).all(|(p, a)| {
+                    let mut subst: HashMap<String, Ty> = HashMap::new();
+                    a.is_unknown()
+                        || is_subtype(a, p)
+                        || (!generic_set.is_empty() && unify(p, a, &mut subst))
+                });
+            if fits {
+                viable.push((
+                    i,
+                    crate::types::RankedCandidate {
+                        patterns,
+                        variadic: false,
+                    },
+                ));
+            }
+        }
+        self.generics = saved;
+        let shown = || -> String {
+            arg_tys
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match viable.len() {
+            1 => Picked::ByArgs(pool[viable[0].0], arg_tys),
+            0 => {
+                self.error(
+                    span,
+                    format!(
+                        "no overload of `{}.{}` takes ({})",
+                        effect.name.name,
+                        members[0].name.name,
+                        shown()
+                    ),
+                );
+                Picked::None
+            }
+            _ => {
+                let ranks: Vec<crate::types::RankedCandidate> =
+                    viable.iter().map(|(_, r)| r.clone()).collect();
+                match crate::types::most_specific(&ranks) {
+                    Some(best) => Picked::ByArgs(pool[viable[best].0], arg_tys),
+                    None => {
+                        self.error(
+                            span,
+                            format!(
+                                "ambiguous call to `{}.{}`: several overloads take \
+                                 ({}), and none is more specific",
+                                effect.name.name,
+                                members[0].name.name,
+                                shown()
+                            ),
+                        );
+                        Picked::ByArgs(pool[viable[0].0], arg_tys)
+                    }
+                }
+            }
+        }
+    }
+
     /// Checks a call to an effect member fn. The providing effect instance
     /// must be available (declared in the caller's effect list or `use`d)
     /// [effect-available]; generic effects are disambiguated by explicit
     /// type arguments, the argument types, and the expected type, in that
     /// order [effect-disambiguation].
+    ///
+    /// [effect-member-overload] `members` is every member of `effect` with
+    /// the called name — several when the effect *overloads* it
+    /// (`close(InStream)` / `close(OutStream)`). The overload is picked here,
+    /// before the instance is resolved, since the signature is what the rest
+    /// of the check runs on.
     fn check_effect_call(
         &mut self,
         effect: &'p EffectDecl,
-        member: &'p FnDecl,
+        members: &[&'p FnDecl],
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
+        // Argument types when they had to be computed early — for picking an
+        // overload here, or for disambiguating instances below. Recorded once
+        // so the arguments are never checked twice.
+        let mut typed_args: Option<Vec<Ty>> = None;
+        let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, span) {
+            Picked::Only(m) => m,
+            Picked::ByArgs(m, arg_tys) => {
+                typed_args = Some(arg_tys);
+                m
+            }
+            Picked::None => return Ty::Unknown,
+        };
+        // [effect-member-overload] Which overload the call resolved to, for
+        // the emitters: they name an overloaded member positionally, and a
+        // name-keyed guess would pick the wrong one.
+        if members.len() > 1 {
+            if let Some(idx) = crate::effect_member_index(effect, member) {
+                self.out.effect_member_calls.insert(self.key(span), idx);
+            }
+        }
         // [throw] The throw effect has no handler: the delimiter is `try`,
         // so its operation resolves through its own path.
         if effect.name.name == THROW_EFFECT {
@@ -15298,11 +15601,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .into_iter()
             .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect.name.name))
             .collect();
-
-        // Argument types when they had to be computed for disambiguation
-        // (in that case coercions are recorded afterwards; otherwise the
-        // args are checked below with the resolved param types expected).
-        let mut typed_args: Option<Vec<Ty>> = None;
 
         let resolved: Option<Ty> = if !type_args.is_empty() {
             // Explicit type arguments pin the instance.
@@ -15981,4 +16279,26 @@ fn type_mentions_generic(ty: &ast::Type, name: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// [linear-group] Whether an effect **member**'s written clause consumes a
+/// parameter of `type_name` — the member-side of the discharge-set
+/// predicate. Written only, because a member has no body to infer from
+/// ([decl-explicit] makes the clause complete).
+fn member_consumes_type(member: &FnDecl, type_name: &str) -> bool {
+    member.params.iter().any(|p| {
+        let base_matches = match &p.ty {
+            ast::Type::Named { base, .. } => base.name.name == type_name,
+            ast::Type::QualifiedGroup { base, .. } => matches!(
+                base.as_ref(),
+                ast::Type::Named { base: b, .. } if b.name.name == type_name
+            ),
+            _ => false,
+        };
+        base_matches
+            && member.deductions.iter().flatten().any(|d| {
+                d.param_name().is_some_and(|n| n.name == p.name.name)
+                    && matches!(d.kind, ast::DeductionKind::Moved)
+            })
+    })
 }

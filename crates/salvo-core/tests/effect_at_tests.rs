@@ -175,15 +175,101 @@ fn draw() [Random<Int>, Random<Str>, Dice] -> Str {
     assert_ok(src);
 }
 
-/// [effect-member-unique] Within one effect the duplicate stays an error.
+/// [effect-member-overload] Within one effect a repeated name is an
+/// **overload** (user decision 2026-09-14, §5.10.2 sub-question A): phase 4's
+/// `Fs` declares `close` for each stream type, so the parameter types are
+/// what tell them apart.
 #[test]
-fn same_effect_duplicates_stay_errors() {
+fn same_effect_overloads_are_legal() {
     let errs = errors(
-        "effect Fs {\n    fn close(handle: Int) -> Str\n    fn close(handle: Str) -> Str\n}\n",
+        "effect Fs {\n    fn close(handle: Int) -> Str\n    \
+             fn close(handle: Str) -> Str => handle\n}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [effect-member-unique] What stays an error is a *duplicate*: the same name
+/// taking the same types, which no call could ever tell apart.
+#[test]
+fn same_effect_duplicate_signatures_stay_errors() {
+    let errs = errors(
+        "effect Fs {\n    fn close(handle: Int) -> Str\n    fn close(handle: Int) -> Int\n}\n",
+    );
+    assert!(
+        errs.iter().any(|m| m
+            .contains("effect `Fs` already declares a member named `close` with these parameter types")),
+        "got {errs:?}"
+    );
+}
+
+// ===== overloading *within* one effect [effect-member-overload] =====
+
+/// [effect-member-overload] The phase-4 shape: one effect, one member name,
+/// two parameter types — `Fs` declares `close` for each stream token
+/// (FILE_SYSTEM.md §5.10.2 sub-question A). The call picks by argument type,
+/// exactly as a function overload does.
+#[test]
+fn a_member_overload_resolves_by_argument_type() {
+    assert_ok(
+        "struct InFile { id: Int }\n\
+         struct OutFile { id: Int }\n\n\
+         effect Fs {\n    \
+             fn close(f: InFile) -> Str => !f\n    \
+             fn close(f: OutFile) -> Int => !f\n}\n\n\
+         fn shut(a: InFile, b: OutFile) [Fs] -> Str => !a, !b {\n    \
+             let text = close(a)\n    \
+             let code = close(b)\n    \
+             return \"${text}${code}\"\n}\n",
+    );
+}
+
+/// [effect-member-overload] [effect-at] The selector picks the *effect*; the
+/// argument types still pick the overload inside it.
+#[test]
+fn the_effect_selector_composes_with_member_overloads() {
+    assert_ok(
+        "struct InFile { id: Int }\n\
+         struct OutFile { id: Int }\n\n\
+         effect Fs {\n    \
+             fn close(f: InFile) -> Str => !f\n    \
+             fn close(f: OutFile) -> Int => !f\n}\n\n\
+         effect Net {\n    fn close(socket: Int) -> Str\n}\n\n\
+         fn shut(a: OutFile) [Fs, Net] -> Str => !a {\n    \
+             let code = close@Fs(a)\n    \
+             let msg = close@Net(7)\n    \
+             return \"${code}${msg}\"\n}\n",
+    );
+}
+
+/// [effect-member-overload] An argument no overload takes is an error naming
+/// the member and what was passed — not a silent pick of the first one
+/// [backend-never-wrong].
+#[test]
+fn a_call_matching_no_member_overload_is_an_error() {
+    let errs = errors(
+        "struct InFile { id: Int }\n\
+         struct OutFile { id: Int }\n\n\
+         effect Fs {\n    \
+             fn close(f: InFile) -> Str => !f\n    \
+             fn close(f: OutFile) -> Int => !f\n}\n\n\
+         fn shut() [Fs] -> Str {\n    return \"${close(7)}\"\n}\n",
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("effect `Fs` already declares a member named `close`")),
+            .any(|m| m.contains("no overload of `Fs.close` takes (Int)")),
         "got {errs:?}"
+    );
+}
+
+/// [effect-member-overload] Overloading by *arity* alone works too, and needs
+/// no argument typing at all — the shape `position(s)` / `position(s, base)`
+/// would take.
+#[test]
+fn member_overloads_may_differ_only_in_arity() {
+    assert_ok(
+        "effect Clock {\n    \
+             fn now() -> Int\n    \
+             fn now(offset: Int) -> Int\n}\n\n\
+         fn stamp() [Clock] -> Int {\n    return now() + now(5)\n}\n",
     );
 }

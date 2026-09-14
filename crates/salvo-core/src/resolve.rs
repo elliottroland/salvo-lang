@@ -92,6 +92,11 @@ pub struct ModuleScope<'p> {
     /// same-file discharger rule keys on [linear-group].
     pub struct_files: HashMap<&'p str, usize>,
     pub effects: HashMap<&'p str, &'p EffectDecl>,
+    /// The file index each visible effect was declared in — what the
+    /// same-file discharger rule keys on for *members* [linear-group]: a
+    /// consuming member joins a linear type's discharge set when its effect
+    /// is declared in the type's own file.
+    pub effect_files: HashMap<&'p str, usize>,
     /// `params` groups visible here [implicit-group].
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
@@ -832,6 +837,7 @@ fn add_items<'p>(
             let name = visible_as(&e.name.name);
             if ctx.admit(NameKind::Effect, name, module, level, import_span) {
                 scope.effects.insert(name, e);
+                scope.effect_files.insert(name, *file);
                 origin(name, scope);
                 def_site(name, *file, e.name.span, scope);
                 // Effect members become callable wherever the effect is

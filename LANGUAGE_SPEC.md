@@ -1234,11 +1234,11 @@ Conventions:
   none fits, the diagnostic says so and explains why — a contract difference
   does not show in a printed type [fn-contract].
 * [effect-member-call] An effect member call is checked against its declared
-  parameters like any other call — arity and types. Within its effect a
-  member does not overload [effect-member-unique] — the cross-effect choice
-  is made *before* this, by availability or `@Effect`
-  [effect-member-overload] [effect-at] — so there is nothing to select and
-  nothing to rank; these are plain mismatch diagnostics. (Until 2026-09-07 the member's
+  parameters like any other call — arity and types. Both selections happen
+  *before* this: which **effect**, by availability or `@Effect`, and which
+  **overload** within it, by the argument types
+  [effect-member-overload] [effect-at] — so by here the signature is fixed and
+  these are plain mismatch diagnostics. (Until 2026-09-07 the member's
   parameter types only flowed in as *expected* types, so `log(true)` on
   `fn log(message: Str)` was accepted.)
 * [call-type-args] A generic call's type arguments must be **determined**.
@@ -2868,12 +2868,25 @@ Conventions:
   replacing the designated `: Linear<self>` group entry of 2026-09-08,
   which replaced `canbe linear`, L6a 2026-09-02 — the `params Linear`
   group is deleted). The obligation's **discharge set** is every fn
-  declared in the *type's own file* whose contract consumes a parameter
-  of the type — `close` for a file, `stop`/`join` for a thread,
-  `remove(cache, entry)` for a pooled handle (context parameters are
-  ordinary parameters; generic dischargers count). Declaring a `linear
-  struct` with no discharger is an error at the **struct** ("no legal
-  death"), and leak diagnostics enumerate the set.
+  **and every effect member** declared in the *type's own file* whose
+  contract consumes a parameter of the type — `close` for a file,
+  `stop`/`join` for a thread, `remove(cache, entry)` for a pooled handle
+  (context parameters are ordinary parameters; generic dischargers count).
+  Declaring a `linear struct` with no discharger is an error at the
+  **struct** ("no legal death"), and leak diagnostics enumerate the set.
+  * **Members join the set** (user decision 2026-09-14, entailed by phase
+    4's stream ops being effect members — FILE_SYSTEM.md §5.8): a member's
+    written clause is its contract ([decl-explicit] makes it complete), and
+    the same-file rule keys on the *effect's* file, so a module cannot
+    declare a member that disposes of another module's linear type.
+  * Discharger status attaches to the **member declaration**, so **every
+    handler's implementation** of a consuming member is a discharge context
+    [linear-discard] — the real handler, a test double in another module, an
+    interceptor discharging by forwarding into the handler it wraps. An
+    *overloaded* member gives each body its own contract: the
+    `close(InStream)` implementation may discard an `InStream`, not an
+    `OutStream` [effect-member-overload]. A **keeping** member's body may
+    not discard at all.
   * **A discharger is not an exemption**: inside it, the consumed
     parameter still owes, and the obligation must terminate on every
     path — `discard(x)` as the terminal [linear-discard], or a forward
@@ -3335,18 +3348,44 @@ Conventions:
   * Both backends' host files coexist in one tree, because discovery only
     ever picks up the active backend's extension — the same sources build
     for both targets.
-* [effect-member-unique] A member name is unique **within its effect**;
-  an effect declaring one twice is an error at the second declaration
-  (checked in source order, so the diagnostic is deterministic and fires
-  once).
-* [effect-member-overload] **Across effects a member name may recur**
-  (user decision 2026-09-14, lifting the 2026-09-05 program-wide ban —
-  `close` on `Fs` and `close` on `Net` is the natural spelling):
-  `Symbols::effect_of_fn` and the scope's member table are multimaps, and
-  a bare call resolves through the one candidate effect that is
-  *available* (an instance in the effect environment). None available, or
-  more than one, is an error naming the selector form [effect-at]. The
-  original ban existed because there was no such syntax.
+* [effect-member-unique] Within one effect a member **signature** is
+  unique: two members with the same name *and* the same parameter types are
+  an error at the second declaration (source order, so the diagnostic is
+  deterministic and fires once). Signatures are compared as *lowered* types,
+  so two spellings of one type are the duplicate they are.
+* [effect-member-overload] A member name may recur, **within one effect and
+  across effects** (user decisions 2026-09-14: the cross-effect ban lifted
+  in the fifth round — `close` on `Fs` and on `Net` is the natural spelling
+  — and within-effect overloading decided in the sixth, §5.10.2
+  sub-question A, because phase 4's `Fs` declares `close` and `position`
+  once per stream token).
+  * **Across effects**: `Symbols::effect_of_fn` and the scope's member table
+    are multimaps, and a bare call resolves through the one candidate effect
+    that is *available* (an instance in the effect environment). None
+    available, or more than one, is an error naming the selector form
+    [effect-at]. The original ban existed because there was no such syntax.
+    Several same-named members of *one* effect are one candidate here, not an
+    ambiguity between effects.
+  * **Within one effect**: the overload is picked by arity, then by the
+    argument types ranked exactly as a function overload's are
+    [fn-overload-rank] — arguments are typed once and reused, so nothing is
+    checked twice. No overload fitting is an error naming the member and the
+    argument types; several fitting with none most specific is an ambiguity
+    error. Both are errors, never a guess [backend-never-wrong].
+  * The chosen overload is recorded per call
+    (`Checked::effect_member_calls`, the member's index in declaration
+    order) because the emitters cannot re-derive it from a name.
+  * **Emitted names**: every overload after the first is suffixed
+    (`close`, `close__2`, … — `salvo_core::effect_member_name`, shared so the
+    backends cannot disagree, and so an interface, a handler's override, a
+    fusion's forwarding impl, a `platform generate` skeleton and a call site
+    all say the same thing). Rust has no trait-method overloading at all;
+    Kotlin would resolve by *Kotlin's* type lattice, the [kt-fn-mangling]
+    hazard. Positional suffixes need no qualifier pass, since every overload
+    but the first is renamed regardless.
+  * A handler's implementing member is matched to its effect member by name
+    and written parameter types (`salvo_core::effect_member_index`), which is
+    what tells two overloads apart.
   * The emitters read the checker's per-call resolution
     (`Checked::effect_calls`); the name-keyed fallback only answers when
     the name has a sole owner.

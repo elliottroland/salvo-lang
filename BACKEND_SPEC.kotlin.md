@@ -689,6 +689,14 @@ where Rust had to build the fusion to get the same programs running
     same checker table the entry's parameters come from, so the order
     cannot drift. `TODO()` returns `Nothing`, so a value-returning member
     stubs without a cast.
+* [effect-member-overload] **An overloaded member name is suffixed**
+  (`close`, `close__2`, …) even though Kotlin has overloading: it would
+  resolve by *Kotlin's* type lattice rather than Salvo's, which is exactly
+  the [kt-fn-mangling] hazard one level down. The name comes from
+  `salvo_core::effect_member_name`, so the interface, every handler override,
+  the host skeletons and the call sites agree — and so the Rust backend, which
+  has no choice in the matter, picks the same names. A call site emits the
+  overload the *checker* resolved (`Checked::effect_member_calls`).
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

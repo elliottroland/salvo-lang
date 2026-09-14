@@ -178,6 +178,15 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     }
 }
 
+/// Emits one source (plus std) — the Rust backend's `generate` by another
+/// name, since this crate's `generate_demo` is fixed to `DEMO`.
+fn generate_files(extra: &[(&str, &str)]) -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let program = build_program(extra);
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
 fn generate_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(&[("main.sv", DEMO)]);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -2091,6 +2100,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_try_mutation,
     kotlinc_compiles_and_runs_a_platform_effect,
     kotlinc_compiles_and_runs_a_platform_handler,
+    kotlinc_compiles_and_runs_member_overloads,
+    kotlinc_compiles_and_runs_member_modes,
+    kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
     kotlinc_compiles_and_runs_overload_delegation,
     kotlinc_compiles_and_runs_the_combinator_surface,
     kotlinc_compiles_and_runs_a_break_out_of_an_unbounded_producer,
@@ -7949,4 +7961,192 @@ fn kotlinc_compiles_and_runs_drop_as_a_consuming_callback() -> KotlinCase {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "drop-callback", DROP_CALLBACK_OUTPUT)
+}
+
+// ===== member overloading within one effect [effect-member-overload] =====
+
+/// [effect-member-overload] Verbatim the Rust backend's `MEMBER_OVERLOADS`:
+/// one effect declaring `close` per token type, which is phase 4's `Fs`
+/// (FILE_SYSTEM.md §5.10.2 sub-question A). Kotlin *could* overload here, and
+/// that is the hazard — it would resolve by Kotlin's type lattice rather than
+/// Salvo's [kt-fn-mangling] — so the names are made distinct by the same
+/// `salvo_core` rule the Rust backend uses.
+const MEMBER_OVERLOADS: &str = r#"
+struct InFile { id: Int }
+struct OutFile { id: Int }
+
+effect Fs {
+    fn close(f: InFile) -> Str => !f
+    fn close(f: OutFile) -> Str => !f
+    fn describe(f: InFile) -> Str => f
+}
+
+handler Files of Fs {
+    fn close(f: InFile) -> Str => !f {
+        return "closed in ${f.id}"
+    }
+    fn close(f: OutFile) -> Str => !f {
+        return "closed out ${f.id}"
+    }
+    fn describe(f: InFile) -> Str => f {
+        return "file ${f.id}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Files()
+    println(describe(InFile { id: 3 }))
+    println(close(InFile { id: 1 }))
+    println(close@Fs(OutFile { id: 2 }))
+}
+"#;
+
+const MEMBER_OVERLOADS_OUTPUT: &str = "file 3\nclosed in 1\nclosed out 2\n";
+
+/// [effect-member-overload] The interface declares the overloads under
+/// distinct names (the first keeps the plain one), the handler overrides those
+/// same names, and each call site emits the one the *checker* resolved.
+#[test]
+fn effect_member_overloads_get_distinct_names() {
+    let files = generate_files(&[("main.sv", MEMBER_OVERLOADS)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let src = &main.content;
+    for expected in [
+        "fun close(f: InFile): String",
+        "fun close__2(f: OutFile): String",
+        "fun describe(f: InFile): String",
+        "override fun close(f: InFile): String {",
+        "override fun close__2(f: OutFile): String {",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        src.contains(".close(InFile(") && src.contains(".close__2(OutFile("),
+        "expected both call sites to name their own overload, got:\n{src}"
+    );
+}
+
+/// [effect-member-overload] End to end: which overload runs is the checker's
+/// answer, and kotlinc must have no opinion. Byte-identical stdout on Rust.
+fn kotlinc_compiles_and_runs_member_overloads() -> KotlinCase {
+    let files = generate_files(&[("main.sv", MEMBER_OVERLOADS)]);
+    kotlin_case(files, "member-overloads", MEMBER_OVERLOADS_OUTPUT)
+}
+
+// ===== member parameter modes [rs-borrows]'s Kotlin twin =====
+
+/// Verbatim the Rust backend's `MEMBER_MODES`: a consuming effect member and
+/// a mutating one, forwarded through a dependent handler. Kotlin has no
+/// borrow modes, so nothing in the *signatures* changes here — the case earns
+/// its place by asserting the two backends still agree on what the program
+/// prints, which is what the Rust mode rule must not disturb.
+const MEMBER_MODES: &str = r#"
+struct Token canbe Mut { id: Int }
+
+effect Sink {
+    fn take(t: Token) -> Int => !t
+    fn bump(t: Mut Token) -> None => t: Mut
+}
+
+handler Direct of Sink {
+    fn take(t: Token) -> Int => !t {
+        return t.id
+    }
+    fn bump(t: Mut Token) -> None => t: Mut {
+        t.id = t.id + 1
+    }
+}
+
+handler Doubling [Sink] of Sink {
+    fn take(t: Token) -> Int => !t {
+        return take(t) * 2
+    }
+    fn bump(t: Mut Token) -> None => t: Mut {
+        bump(t)
+        bump(t)
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Direct()
+    use Doubling()
+    let t: Mut Token = Mut Token { id: 1 }
+    bump(t)
+    println("bumped ${t.id}")
+    println("took ${take(t)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_member_modes() -> KotlinCase {
+    let files = generate_files(&[("main.sv", MEMBER_MODES)]);
+    kotlin_case(files, "member-modes", "bumped 3\ntook 6\n")
+}
+
+// ===== linear tokens discharged by effect members [linear-group] =====
+
+/// Verbatim the Rust backend's `LINEAR_MEMBER_DISCHARGE`: a linear token whose
+/// only discharger is an overloaded effect member, discharged inside the
+/// handler that implements it. Linearity is erased on the JVM, so what this
+/// asserts is parity — the same program printing the same lines.
+const LINEAR_MEMBER_DISCHARGE: &str = r#"
+// The phase-4 token shape in miniature: a linear token whose only discharger
+// is an *effect member*, discharged inside the handler that implements it.
+linear struct InStream canbe Mut { handle: Int }
+linear struct OutStream canbe Mut { handle: Int }
+
+effect Fs {
+    fn open_read(path: Str) -> Mut InStream => path
+    fn open_write(path: Str) -> Mut OutStream => path
+    fn read_line(s: Mut InStream) -> Str => s: Mut
+    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text
+    fn close(s: InStream) -> Str => !s
+    fn close(s: OutStream) -> Str => !s
+}
+
+handler MemFs of Fs {
+    fn open_read(path: Str) -> Mut InStream => path {
+        return Mut InStream { handle: size(path) }
+    }
+    fn open_write(path: Str) -> Mut OutStream => path {
+        return Mut OutStream { handle: size(path) }
+    }
+    fn read_line(s: Mut InStream) -> Str => s: Mut {
+        s.handle = s.handle + 1
+        return "line ${s.handle}"
+    }
+    fn write(s: Mut OutStream, text: Str) -> Int => s: Mut, text {
+        s.handle = s.handle + size(text)
+        return size(text)
+    }
+    fn close(s: InStream) -> Str => !s {
+        discard(s)
+        return "closed in"
+    }
+    fn close(s: OutStream) -> Str => !s {
+        discard(s)
+        return "closed out"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use MemFs()
+    let r: Mut InStream = open_read("data.txt")
+    println(read_line(r))
+    println(close(r))
+    let w: Mut OutStream = open_write("out.txt")
+    let n = write(w, "hello")
+    println("wrote ${n}")
+    println(close(w))
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member() -> KotlinCase {
+    let files = generate_files(&[("main.sv", LINEAR_MEMBER_DISCHARGE)]);
+    kotlin_case(files, "linear-member-discharge", "line 9\nclosed in\nwrote 5\nclosed out\n")
 }

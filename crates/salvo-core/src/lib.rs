@@ -4,6 +4,7 @@
 pub mod check;
 pub mod deduce;
 pub mod diag;
+pub mod effects;
 pub mod lends;
 pub mod place;
 pub mod platform;
@@ -20,6 +21,7 @@ pub use check::{
     UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;
+pub use effects::{effect_member_index, effect_member_name, effect_members_named};
 pub use diag::FileDiagnostic;
 pub use place::{Place, Step};
 pub use platform::{

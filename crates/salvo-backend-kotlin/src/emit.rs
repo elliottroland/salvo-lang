@@ -648,6 +648,11 @@ struct Emitter<'p> {
     /// — per *instance*, not per declaration, because erasure forbids one
     /// class implementing `__Has_Random<Int>` and `__Has_Random<Double>`.
     has_ifaces: std::collections::BTreeMap<String, String>,
+    /// [effect-member-overload] The effect whose members are being emitted as
+    /// a handler's overrides, if any: a handler member's *name* is the
+    /// effect's, which differs from the written one when the member is
+    /// overloaded (`close(InStream)` / `close(OutStream)`).
+    handler_member_effect: Option<String>,
     /// [platform-handler] [platform-tree] The modules whose `platform/`
     /// companion this file's `use` sites depend on: registering a platform
     /// handler constructs a *host* class, so the companion defining it has
@@ -781,6 +786,7 @@ impl<'p> Emitter<'p> {
             effect_paths: HashMap::new(),
             fusion: false,
             has_ifaces: std::collections::BTreeMap::new(),
+            handler_member_effect: None,
             platform_hosts: BTreeSet::new(),
             fusion_id: 0,
             fx_classes: HashMap::new(),
@@ -1278,7 +1284,7 @@ impl<'p> Emitter<'p> {
         let saved = self.enter_generics(&e.generics);
         let generics = self.emit_generic_params(&e.generics);
         let mut out = format!("\ninterface {}{generics} {{\n", e.name.name);
-        for f in &e.fns {
+        for (i, f) in e.fns.iter().enumerate() {
             // A member's own generics render on the member
             // [effect-member-generics].
             let member_saved = self.enter_generics(&f.generics);
@@ -1287,7 +1293,7 @@ impl<'p> Emitter<'p> {
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    fun{member_generics} {}({params}){ret}\n",
-                kt_ident(&f.name.name)
+                self.member_name(e, i)
             ));
             self.generics = member_saved;
         }
@@ -1307,14 +1313,14 @@ impl<'p> Emitter<'p> {
             host_class(&e.name.name),
             e.name.name
         );
-        for f in &e.fns {
+        for (i, f) in e.fns.iter().enumerate() {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n        \
                  TODO(\"implement {}.{}\")\n    }}\n",
-                kt_ident(&f.name.name),
+                self.member_name(e, i),
                 e.name.name,
                 f.name.name
             ));
@@ -1360,14 +1366,14 @@ impl<'p> Emitter<'p> {
             format!("({})", params.join(", "))
         };
         let mut out = format!("\nclass {}{ctor} : {of} {{\n", kt_ident(&h.name.name));
-        for f in &effect.fns {
+        for (i, f) in effect.fns.iter().enumerate() {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n        \
                  TODO(\"implement {}.{}\")\n    }}\n",
-                kt_ident(&f.name.name),
+                self.member_name(effect, i),
                 effect.name.name,
                 f.name.name
             ));
@@ -1500,9 +1506,16 @@ impl<'p> Emitter<'p> {
             .map(|p| p.name.name.clone())
             .collect();
         let saved_ctor = std::mem::replace(&mut self.ctor_implicits, ctor_implicits);
+        // [effect-member-overload] Member names come from the effect, not
+        // from the handler's own spelling.
+        let saved_member_effect = std::mem::replace(
+            &mut self.handler_member_effect,
+            type_base_name(&h.of).map(|n| n.to_string()),
+        );
         for f in &h.fns {
             out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
         }
+        self.handler_member_effect = saved_member_effect;
         self.ctor_implicits = saved_ctor;
         self.handler_deps = saved_deps;
         out.push_str("}\n");
@@ -1564,7 +1577,7 @@ impl<'p> Emitter<'p> {
             format!("({})", params.join(", "))
         };
         let mut out = format!("\nclass {}{ctor} : {of} {{\n", h.name.name);
-        for member in &effect.fns {
+        for (i, member) in effect.fns.iter().enumerate() {
             let params = self.emit_member_param_list_with_implicits(member);
             let ret = self.emit_return_type(member.return_type.as_ref());
             let arg_names: Vec<String> = member
@@ -1585,7 +1598,7 @@ impl<'p> Emitter<'p> {
             };
             out.push_str(&format!(
                 "    override fun {}({params}){ret} {{\n",
-                kt_ident(&member.name.name)
+                self.member_name(effect, i)
             ));
             // A value-returning member returns its body's value; `run`
             // makes multi-line bodies (statements + final expression) work
@@ -1605,6 +1618,52 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("}\n");
         out
+    }
+
+    /// [effect-member-overload] The emitted name of an effect member: the
+    /// declared name, unless the effect *overloads* it, in which case every
+    /// occurrence after the first is suffixed. Kotlin *could* overload — and
+    /// that is exactly the problem: it would resolve by Kotlin's type
+    /// lattice, not Salvo's, the hazard [kt-fn-mangling] states for top-level
+    /// fns. The rule is `salvo_core`'s, so the interface, every handler
+    /// override, the skeletons and the call sites agree — and so the Rust
+    /// backend picks the same names.
+    fn member_name(&self, effect: &EffectDecl, idx: usize) -> String {
+        kt_ident(&salvo_core::effect_member_name(effect, idx))
+    }
+
+    /// [effect-member-overload] The emitted name of a *handler's* member: the
+    /// name of the effect member it implements, matched by name and written
+    /// parameter types (`salvo_core::effect_member_index`).
+    fn handler_member_name(&mut self, effect_name: &str, f: &FnDecl) -> String {
+        let effect = self.symbols.effects.get(effect_name).copied();
+        match effect.and_then(|e| salvo_core::effect_member_index(e, f).map(|i| (e, i))) {
+            Some((e, i)) => self.member_name(e, i),
+            None => kt_ident(&f.name.name),
+        }
+    }
+
+    /// [effect-member-overload] The emitted name of the member a *call*
+    /// resolved to: the checker records which overload
+    /// (`Checked::effect_member_calls`), and where it did not the name is
+    /// declared once, so the name itself answers.
+    fn called_member_name(&mut self, effect: &str, name: &str, span: Span) -> String {
+        let Some(decl) = self.symbols.effects.get(effect).copied() else {
+            return kt_ident(name);
+        };
+        match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
+            Some(&idx) => self.member_name(decl, idx),
+            None => match salvo_core::effect_members_named(decl, name).as_slice() {
+                [_] | [] => kt_ident(name),
+                _ => {
+                    self.error(format!(
+                        "internal: `{name}` is overloaded on effect `{effect}` and \
+                         the checker recorded no resolution for this call"
+                    ));
+                    kt_ident(name)
+                }
+            },
+        }
     }
 
     fn emit_fn(&mut self, f: &FnDecl) -> String {
@@ -1841,7 +1900,13 @@ impl<'p> Emitter<'p> {
         } else if top_level {
             self.kotlin_fn_name(f)
         } else {
-            kt_ident(&f.name.name)
+            // [effect-member-overload] A handler member implements one
+            // *overload* of its effect's member, and the interface names the
+            // overloads apart, so the override has to use the same name.
+            match self.handler_member_effect.clone() {
+                Some(effect) => self.handler_member_name(&effect, f),
+                None => kt_ident(&f.name.name),
+            }
         };
         // [kt-suppress-cast] The body is emitted before the signature line is
         // assembled, so a noted unchecked cast (an erased payload read cast to
@@ -4791,7 +4856,8 @@ impl<'p> Emitter<'p> {
             // signature, so they arrive as trailing arguments here exactly as
             // for a plain fn call [implicit-resolve].
             arg_code.extend(self.emit_implicit_args(named, span));
-            return format!("{handler}.{}({})", kt_ident(name), arg_code.join(", "));
+            let called = self.called_member_name(effect, name, span);
+            return format!("{handler}.{called}({})", arg_code.join(", "));
         }
 
         // [implicit-param] An implicit parameter shadows the fns of the same
