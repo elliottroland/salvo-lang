@@ -333,7 +333,7 @@ fn inferred_moves_consume_arguments() {
         dir.join("main.sv"),
         "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         let strings = list(\"a\", \"b\")\n    give_back(strings)\n    \
+         let strings = list_of(\"a\", \"b\")\n    give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
     )
     .unwrap();
@@ -351,7 +351,7 @@ fn inferred_moves_consume_arguments() {
         dir.join("main.sv"),
         "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         let strings = list(\"a\", \"b\")\n    strings = give_back(strings)\n    \
+         let strings = list_of(\"a\", \"b\")\n    strings = give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
     )
     .unwrap();
@@ -375,7 +375,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn remove_first<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let strings = mutable_list(\"a\", \"b\")\n    \
+         fn main() [use] {\n    use StdOutConsole\n    let strings = mut_list_of(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        let s = remove_first(strings)\n        let t = remove_first(strings)\n    }\n}\n",
     )
     .unwrap();
@@ -394,7 +394,7 @@ fn calls_remove_qualifiers_per_declared_deductions() {
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn weaken<T>(list: NonEmpty List<T>) -> None => list: None {\n}\n\n\
          fn head<T>(list: NonEmpty List<T>) -> T {\n    return list.get(0)!\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let strings = list(\"a\", \"b\")\n    \
+         fn main() [use] {\n    use StdOutConsole\n    let strings = list_of(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        weaken(strings)\n        let s = head(strings)\n    }\n}\n",
     )
     .unwrap();
@@ -420,8 +420,8 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         let strings = list(\"a\", \"b\")\n    if strings is NonEmpty {\n        consume(strings)\n    }\n    println(\"${strings.size()}\")\n    \
-         let s = list(\"x\")\n    let i = 0\n    while i < 3 {\n        println(\"${s.size()}\")\n        consume(s)\n        i++\n    }\n}\n",
+         let strings = list_of(\"a\", \"b\")\n    if strings is NonEmpty {\n        consume(strings)\n    }\n    println(\"${strings.size()}\")\n    \
+         let s = list_of(\"x\")\n    let i = 0\n    while i < 3 {\n        println(\"${s.size()}\")\n        consume(s)\n        i++\n    }\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -445,7 +445,7 @@ fn consumption_survives_narrowing_and_loop_back_edges() {
         dir.join("main.sv"),
         "fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         let s = list(\"x\")\n    let i = 0\n    while i < 3 {\n        consume(s)\n        s = list(\"y\")\n        i++\n    }\n    println(\"${s.size()}\")\n}\n",
+         let s = list_of(\"x\")\n    let i = 0\n    while i < 3 {\n        consume(s)\n        s = list_of(\"y\")\n        i++\n    }\n    println(\"${s.size()}\")\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -516,7 +516,7 @@ fn if_branch_merge_matrix() {
     fs::write(
         dir.join("main.sv"),
         format!(
-            "{prelude}fn both(flag: Bool) {{\n    let a = list(\"a\")\n    \
+            "{prelude}fn both(flag: Bool) {{\n    let a = list_of(\"a\")\n    \
              if flag {{\n        consume(a)\n    }} else {{\n        consume(a)\n    }}\n    \
              let n = a.size()\n}}\n"
         ),
@@ -535,7 +535,7 @@ fn if_branch_merge_matrix() {
     fs::write(
         dir.join("main.sv"),
         format!(
-            "{prelude}fn one_exits(flag: Bool) {{\n    let b = list(\"b\")\n    \
+            "{prelude}fn one_exits(flag: Bool) {{\n    let b = list_of(\"b\")\n    \
              if flag {{\n        consume(b)\n    }} else {{\n        return\n    }}\n    \
              let n = b.size()\n}}\n"
         ),
@@ -553,7 +553,7 @@ fn if_branch_merge_matrix() {
     fs::write(
         dir.join("main.sv"),
         format!(
-            "{prelude}fn consuming_exits(flag: Bool) {{\n    let c = list(\"c\")\n    \
+            "{prelude}fn consuming_exits(flag: Bool) {{\n    let c = list_of(\"c\")\n    \
              if flag {{\n        consume(c)\n        return\n    }}\n    \
              let n = c.size()\n}}\n"
         ),
@@ -578,7 +578,7 @@ fn partial_qualifier_removal_merges_conservatively() {
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
          fn remove_first<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
-         fn partial(flag: Bool) {\n    let strings = mutable_list(\"a\", \"b\")\n    \
+         fn partial(flag: Bool) {\n    let strings = mut_list_of(\"a\", \"b\")\n    \
          if strings is NonEmpty {\n        if flag {\n            let x = remove_first(strings)\n        }\n        let y = remove_first(strings)\n    }\n}\n",
     )
     .unwrap();
@@ -599,8 +599,8 @@ fn for_loop_back_edge() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(strings: List<Str>) -> None => !strings {\n}\n\n\
-         fn main() [use] {\n    use StdOutConsole\n    let s = list(\"x\")\n    \
-         for i in list(1, 2, 3).iter() {\n        println(\"${s.size()}\")\n        consume(s)\n    }\n}\n",
+         fn main() [use] {\n    use StdOutConsole\n    let s = list_of(\"x\")\n    \
+         for i in list_of(1, 2, 3).iter() {\n        println(\"${s.size()}\")\n        consume(s)\n    }\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -698,8 +698,8 @@ fn fate_derived_variables_are_read_only() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(v: List<Int>) -> None => !v {\n}\n\n\
-         fn move_derived() -> Int {\n    let xs = list(1, 2)\n    let ys = xs\n    consume(ys)\n    return size(xs)\n}\n\n\
-         fn mutate_derived() -> Int {\n    let xs = mutable_list(1, 2)\n    let ys = xs\n    add(ys, 3)\n    return size(xs)\n}\n\n\
+         fn move_derived() -> Int {\n    let xs = list_of(1, 2)\n    let ys = xs\n    consume(ys)\n    return size(xs)\n}\n\n\
+         fn mutate_derived() -> Int {\n    let xs = mut_list_of(1, 2)\n    let ys = xs\n    add(ys, 3)\n    return size(xs)\n}\n\n\
          fn return_derived(v: Str) -> Str => v {\n    let w = v\n    return w\n}\n\n\
          fn read_derived(v: Str) -> Int => v {\n    let w = v\n    return size(w)\n}\n",
     )
@@ -737,13 +737,13 @@ fn fate_root_events_poison_derived_variables() {
     fs::write(
         dir.join("main.sv"),
         "fn consume(v: List<Int>) -> None => !v {\n}\n\n\
-         fn mutated() -> Int {\n    let xs = mutable_list(1)\n    let ys = xs\n    \
+         fn mutated() -> Int {\n    let xs = mut_list_of(1)\n    let ys = xs\n    \
          add(xs, 2)\n    return size(ys)\n}\n\n\
-         fn moved() -> Int {\n    let xs = list(1)\n    let ys = xs\n    \
+         fn moved() -> Int {\n    let xs = list_of(1)\n    let ys = xs\n    \
          consume(xs)\n    return size(ys)\n}\n\n\
-         fn reassigned() -> Int {\n    let xs = list(1)\n    let ys = xs\n    \
-         xs = list(2, 3)\n    return size(ys)\n}\n\n\
-         fn unused_poison_is_fine() {\n    let xs = mutable_list(1)\n    let ys = xs\n    \
+         fn reassigned() -> Int {\n    let xs = list_of(1)\n    let ys = xs\n    \
+         xs = list_of(2, 3)\n    return size(ys)\n}\n\n\
+         fn unused_poison_is_fine() {\n    let xs = mut_list_of(1)\n    let ys = xs\n    \
          add(xs, 2)\n}\n",
     )
     .unwrap();
@@ -813,7 +813,7 @@ fn fate_copy_produces_independent_values() {
          fn longest_name(persons: Person[]) -> Str => persons {\n    let longest = \"\"\n    \
          for person in persons {\n        if size(longest) < size(person.name) {\n            \
          longest = person.name\n        }\n    }\n    return copy(longest)\n}\n\n\
-         fn independent() -> Int {\n    let xs = mutable_list(1)\n    let ys = copy(xs)\n    \
+         fn independent() -> Int {\n    let xs = mut_list_of(1)\n    let ys = copy(xs)\n    \
          add(xs, 2)\n    add(ys, 3)\n    return size(ys) + size(xs)\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
          println(longest_name([Person {name: \"a\"}]))\n    println(\"${independent()}\")\n}\n",
@@ -833,7 +833,7 @@ fn fate_links_merge_across_branches() {
     fs::write(
         dir.join("main.sv"),
         "fn pick(a: List<Int>, cond: Bool) -> List<Int> => a {\n    \
-         let out = list(0)\n    \
+         let out = list_of(0)\n    \
          if cond {\n        out = a\n    }\n    \
          return out\n}\n",
     )
@@ -882,11 +882,11 @@ fn fate_mut_projection_arguments_poison_derived() {
     fs::write(
         dir.join("main.sv"),
         "struct Holder {\n    tags: Mut List<Int>\n}\n\n\
-         fn diverged() -> Int {\n    let h = Holder {tags: mutable_list(1)}\n    \
+         fn diverged() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
          let t = h.tags\n    add(h.tags, 2)\n    return size(t)\n}\n\n\
          fn mutate_through_derived(other: Holder) -> None => other {\n    \
          let h = other\n    add(h.tags, 2)\n}\n\n\
-         fn remedy() -> Int {\n    let h = Holder {tags: mutable_list(1)}\n    \
+         fn remedy() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
          let t = copy(h.tags)\n    add(h.tags, 2)\n    return size(t)\n}\n",
     )
     .unwrap();
@@ -934,7 +934,7 @@ fn l2_move_sites_consume_roots() {
          fn break_in_branch() {\n    let s = \"x\"\n    let r = while true {\n        \
          if true {\n            break s\n        }\n    }\n    read(s)\n}\n\n\
          fn use_ctor() [use] {\n    let s = \"hi\"\n    use FixedGreeter(s)\n    read(s)\n}\n\n\
-         fn store_derived() {\n    let xs = list(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
+         fn store_derived() {\n    let xs = list_of(1, 2)\n    let ys = xs\n    let t = (ys, 1)\n    \
          read_list(xs)\n}\n\n\
          fn read_list(v: List<Int>) -> None => v {\n}\n\n\
          fn spread_derived() {\n    let b = Box {item: \"x\"}\n    let d = b\n    \
@@ -1041,14 +1041,14 @@ fn s2_move_mode_pipelines_stay_clean() {
          for person in persons {\n        let name = person.name\n        \
          if size(name) > size(longest) {\n            longest = name\n        }\n    }\n    \
          return longest\n}\n\n\
-         fn per_iteration() {\n    for s in list(\"a\", \"b\") {\n        consume(s)\n    }\n}\n\n\
+         fn per_iteration() {\n    for s in list_of(\"a\", \"b\") {\n        consume(s)\n    }\n}\n\n\
          fn immutable_projection_store(person: Person) -> Label => person {\n    \
          return Label {text: person.name}\n}\n\n\
-         fn copy_keeps_source() -> Int {\n    let xs = list(1, 2)\n    let ys = copy(xs)\n    \
+         fn copy_keeps_source() -> Int {\n    let xs = list_of(1, 2)\n    let ys = copy(xs)\n    \
          consume_list(ys)\n    return size(xs)\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let people = list(Person {name: \"Ada\", age: 36}, Person {name: \"Grace\", age: 45})\n    \
+         let people = list_of(Person {name: \"Ada\", age: 36}, Person {name: \"Grace\", age: 45})\n    \
          println(longest_name(people))\n}\n",
     )
     .unwrap();
@@ -1076,9 +1076,9 @@ fn s2_move_mode_ancestors_are_consumed() {
          struct Wrapper {\n    item: Mut List<Int>\n}\n\n\
          fn wrap(list: Mut List<Int>) -> Wrapper => !list {\n    return Wrapper {item: list}\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
-         fn chain() -> Int {\n    let xs = list(1, 2)\n    let a = xs\n    let b = a\n    \
+         fn chain() -> Int {\n    let xs = list_of(1, 2)\n    let a = xs\n    let b = a\n    \
          consume_list(b)\n    return size(xs)\n}\n\n\
-         fn parity_probe() -> Int {\n    let h = Holder {tags: mutable_list(1)}\n    \
+         fn parity_probe() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
          let w = wrap(h.tags)\n    add(h.tags, 9)\n    return size(w.item)\n}\n\n\
          fn kept_leak(h: Holder) -> Wrapper => h {\n    return wrap(h.tags)\n}\n\n\
          fn kept_remedy(h: Holder) -> Wrapper => h {\n    return wrap(copy(h.tags))\n}\n\n\
@@ -1137,10 +1137,10 @@ fn l3_same_call_ordering() {
         "fn eat_two(a: List<Int>, b: List<Int>) -> None => !a, !b {\n}\n\n\
          fn consume_first(a: List<Int>, n: Int) -> None => !a {\n}\n\n\
          fn keep_first(a: List<Int>, n: Int) -> None => a {\n}\n\n\
-         fn double_move() {\n    let xs = list(1, 2)\n    eat_two(xs, xs)\n}\n\n\
-         fn move_then_read() {\n    let xs = list(1, 2)\n    consume_first(xs, size(xs))\n}\n\n\
-         fn remedy() {\n    let xs = list(1, 2)\n    eat_two(copy(xs), xs)\n}\n\n\
-         fn kept_then_read() {\n    let ys = list(3)\n    keep_first(ys, size(ys))\n}\n",
+         fn double_move() {\n    let xs = list_of(1, 2)\n    eat_two(xs, xs)\n}\n\n\
+         fn move_then_read() {\n    let xs = list_of(1, 2)\n    consume_first(xs, size(xs))\n}\n\n\
+         fn remedy() {\n    let xs = list_of(1, 2)\n    eat_two(copy(xs), xs)\n}\n\n\
+         fn kept_then_read() {\n    let ys = list_of(3)\n    keep_first(ys, size(ys))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1178,25 +1178,25 @@ fn l4_lambda_captures() {
          fn immutable_free() -> Int {\n    let base = 10\n    let text = \"hi\"\n    \
          let f = (n: Int) -> { return n + base + size(text) }\n    \
          let r = apply(f, 1)\n    return r + base + size(text)\n}\n\n\
-         fn poisoned_after_mutation() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         fn poisoned_after_mutation() -> Int {\n    let xs = mut_list_of(1, 2)\n    \
          let f = (n: Int) -> { return n + size(xs) }\n    let before = apply(f, 1)\n    \
          add(xs, 9)\n    return apply(f, 1)\n}\n\n\
-         fn used_before_mutation() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         fn used_before_mutation() -> Int {\n    let xs = mut_list_of(1, 2)\n    \
          let f = (n: Int) -> { return n + size(xs) }\n    let r = apply(f, 1)\n    \
          add(xs, 9)\n    return r + size(xs)\n}\n\n\
-         fn mutate_capture_consumes() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         fn mutate_capture_consumes() -> Int {\n    let xs = mut_list_of(1, 2)\n    \
          let g = () -> { add(xs, 1) }\n    run(g)\n    return size(xs)\n}\n\n\
-         fn mutate_capture_remedy() -> Int {\n    let xs = mutable_list(1, 2)\n    \
+         fn mutate_capture_remedy() -> Int {\n    let xs = mut_list_of(1, 2)\n    \
          let snapshot = copy(xs)\n    let g = () -> { add(snapshot, 1) }\n    run(g)\n    \
          return size(xs)\n}\n\n\
-         fn move_capture_rejected() {\n    let xs = list(1, 2)\n    \
+         fn move_capture_rejected() {\n    let xs = list_of(1, 2)\n    \
          let h = () -> { consume_list(xs) }\n    run(h)\n}\n\n\
-         fn move_capture_remedy() {\n    let xs = list(1, 2)\n    \
+         fn move_capture_remedy() {\n    let xs = list_of(1, 2)\n    \
          let h = () -> { consume_list(copy(xs)) }\n    run(h)\n}\n\n\
          fn kept_mutates(xs: Mut List<Int>) -> None => xs: Mut {\n    \
          let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
          fn infer_claims(xs: Mut List<Int>) {\n    let g = () -> { add(xs, 1) }\n    run(g)\n}\n\n\
-         fn claim_reaches_caller() -> Int {\n    let xs = mutable_list(1)\n    \
+         fn claim_reaches_caller() -> Int {\n    let xs = mut_list_of(1)\n    \
          infer_claims(xs)\n    return size(xs)\n}\n",
     )
     .unwrap();
@@ -1282,7 +1282,7 @@ fn close(x: Conn) -> None => !x { discard(x) }
          if flag {\n        return 0\n    }\n    close_file(h)\n    return 1\n}\n\n\
          fn copy_refused() {\n    let h = open_file(\"data.txt\")\n    let c = copy(h)\n    \
          close_file(h)\n    close_file(c)\n}\n\n\
-         fn swallow() {\n    let conn = Conn {tags: mutable_list(1)}\n    \
+         fn swallow() {\n    let conn = Conn {tags: mut_list_of(1)}\n    \
          let g = () -> { add(conn.tags, 2) }\n    run(g)\n    close(conn)\n}\n\n\
          fn ok_pass() {\n    let h = open_file(\"data.txt\")\n    close_file(h)\n}\n\n\
          fn ok_discard() {\n    let h = open_file(\"data.txt\")\n    close(h)\n}\n\n\
@@ -1352,7 +1352,7 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
          fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
          let kept = hold(h)\n    discard(kept)\n}\n\n\
          fn variadic_refused() {\n    let h = FileHandle {fd: 1}\n    \
-         let xs = list(h)\n}\n",
+         let xs = list_of(h)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1396,7 +1396,7 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
          fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
          fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
          fn variadic_refused() {\n    let h = open_file(1)\n    \
-         let xs = mutable_list(h)\n}\n\n\
+         let xs = mut_list_of(h)\n}\n\n\
          fn ok_hold() {\n    let h = hold(open_file(9))\n    close(h)\n}\n",
     )
     .unwrap();
@@ -1454,13 +1454,13 @@ fn l7b_once_fns() {
         dir.join("main.sv"),
         "fn run_once(f: once () -> None) {\n    f()\n}\n\n\
          fn run_twice_bad(f: once () -> None) {\n    f()\n    f()\n}\n\n\
-         fn run_in_loop_bad(f: once () -> None) {\n    for i in list(1, 2) {\n        f()\n    }\n}\n\n\
+         fn run_in_loop_bad(f: once () -> None) {\n    for i in list_of(1, 2) {\n        f()\n    }\n}\n\n\
          fn run_maybe(f: once () -> None, flag: Bool) {\n    if flag {\n        f()\n    }\n}\n\n\
          fn run_plain(f: () -> None) {\n    f()\n    f()\n}\n\n\
          fn consume_list(v: List<Int>) -> None => !v {\n}\n\n\
-         fn once_where_plain_bad() {\n    let xs = list(1, 2)\n    \
+         fn once_where_plain_bad() {\n    let xs = list_of(1, 2)\n    \
          let g = () -> { consume_list(xs) }\n    run_plain(g)\n}\n\n\
-         fn once_where_once_ok() {\n    let xs = list(1, 2)\n    \
+         fn once_where_once_ok() {\n    let xs = list_of(1, 2)\n    \
          let g = () -> { consume_list(xs) }\n    run_once(g)\n}\n\n\
          fn plain_where_once_ok() {\n    let n = 5\n    \
          let g = () -> { let m = n + 1 }\n    run_once(g)\n}\n\n\
@@ -1528,15 +1528,15 @@ fn l7c_derived_returns() {
          fn bad_param(persons: List<Person>) -> proj[from: nobody] Person? => persons {\n    \
          return None\n}\n\n\
          fn poison_after_mutation() -> Int {\n    \
-         let people = mutable_list(Person {name: \"Ada\", age: 36})\n    \
+         let people = mut_list_of(Person {name: \"Ada\", age: 36})\n    \
          let head = first(people)\n    add(people, Person {name: \"Grace\", age: 45})\n    \
          if head is Person h {\n        return h.age\n    }\n    return 0\n}\n\n\
-         fn escape_borrowed() {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         fn escape_borrowed() {\n    let people = list_of(Person {name: \"Ada\", age: 36})\n    \
          let head = first(people)\n    if head is Person h {\n        take(h)\n    }\n}\n\n\
-         fn ok_use() -> Int {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         fn ok_use() -> Int {\n    let people = list_of(Person {name: \"Ada\", age: 36})\n    \
          let head = first(people)\n    if head is Person h {\n        return h.age\n    }\n    \
          return 0\n}\n\n\
-         fn ok_copy_escape() {\n    let people = list(Person {name: \"Ada\", age: 36})\n    \
+         fn ok_copy_escape() {\n    let people = list_of(Person {name: \"Ada\", age: 36})\n    \
          let head = first(people)\n    if head is Person h {\n        take(copy(h))\n    }\n}\n",
     )
     .unwrap();
@@ -1594,15 +1594,15 @@ fn l7d_fn_type_contracts() {
          fn double_use_bad(f: (v: List<Int>) -> Int, data: List<Int>) -> Int =>[f] !v {\n    \
          let a = f(data)\n    return f(data)\n}\n\n\
          fn eat(v: List<Int>) -> Int => !v {\n    return 0\n}\n\n\
-         fn consuming_where_keeping_bad() -> Int {\n    let xs = list(1, 2)\n    \
+         fn consuming_where_keeping_bad() -> Int {\n    let xs = list_of(1, 2)\n    \
          return apply_keeping(eat, xs)\n}\n\n\
-         fn kept_param_consumed_bad() -> Int {\n    let xs = list(1, 2)\n    \
+         fn kept_param_consumed_bad() -> Int {\n    let xs = list_of(1, 2)\n    \
          return apply_keeping((v: List<Int>) -> {\n        let w = eat(v)\n        \
          return w\n    }, xs)\n}\n\n\
-         fn caller_loses() -> Int {\n    let xs = list(1, 2)\n    \
+         fn caller_loses() -> Int {\n    let xs = list_of(1, 2)\n    \
          let n = apply_consuming((v: List<Int>) -> { return size(v) }, xs)\n    \
          return n + size(xs)\n}\n\n\
-         fn caller_keeps() -> Int {\n    let xs = list(1, 2)\n    \
+         fn caller_keeps() -> Int {\n    let xs = list_of(1, 2)\n    \
          let n = apply_keeping((v: List<Int>) -> { return size(v) }, xs)\n    \
          return n + size(xs)\n}\n",
     )
@@ -1656,7 +1656,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              fn describe(list: NonEmpty Mut List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
-             let xs = mutable_list(1, 2)\n    \
+             let xs = mut_list_of(1, 2)\n    \
              if xs is NonEmpty {{\n        clear(xs)\n        \
              println(\"${{describe(xs)}}\")\n    }}\n}}\n"
         ),
@@ -1685,7 +1685,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              fn needs_checked(list: Checked List<Int>) -> Int {{\n    \
              return list.size()\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
-             let xs = list(1, 2)\n    \
+             let xs = list_of(1, 2)\n    \
              if xs is NonEmpty Checked {{\n        forget_nonempty(xs)\n        \
              println(\"${{needs_checked(xs)}}\")\n    }}\n}}\n"
         ),
@@ -1713,7 +1713,7 @@ fn exhaustive_deductions_drop_undeclared_qualifiers() {
              fn qualifies(list: List<Int>) -> Bool {{\n        \
              return true\n    }}\n}}\n\n\
              fn main() [use] {{\n    use StdOutConsole\n    \
-             let xs = mutable_list(1)\n    \
+             let xs = mut_list_of(1)\n    \
              if xs is Checked {{\n        touch(xs)\n        \
              println(\"${{describe(xs)}}\")\n    }}\n}}\n"
         ),
@@ -1859,7 +1859,7 @@ fn std_add_consumes_its_element() {
         dir.join("main.sv"),
         "struct Handle {\n    id: Int\n}\n\n\
          fn main() [use] -> None {\n    use StdOutConsole\n    \
-         let xs = mutable_list(Handle {id: 1})\n    \
+         let xs = mut_list_of(Handle {id: 1})\n    \
          let h = Handle {id: 2}\n    add(xs, h)\n    \
          println(\"${h.id}\")\n}\n",
     )
@@ -1921,7 +1921,7 @@ fn count<T canbe linear>(list: NonEmpty List<T>) -> Int => list {
 }
 
 fn main() [use] {
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     let _n = count(xs)
 }
@@ -1961,18 +1961,18 @@ fn main() [use] {
 fn a_refinement_conflict_warns_without_failing() {
     let dir = src_dir("refn_conflict");
     let source = "\
-qualifier Q1<T> of List<T> {
+qualifier Q1<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q1
 }
 
-qualifier Q2<T> of List<T> {
+qualifier Q2<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q2
 }
 
 fn main() [use] {
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     add(xs, 2)
 }
@@ -2015,7 +2015,7 @@ fn an_owned_parameter_refuses_a_borrowed_union_arm() {
         "fn show(step: Emitted Str | Finished) [Console] -> None {\n    \
          when step {\n        is Emitted { println(step) }\n        is Finished { println(\"done\") }\n    }\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let words = list(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n}\n",
+         let words = list_of(\"ann\", \"bo\")\n    let p = iter(words)\n    show(next(p))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -2054,9 +2054,9 @@ fn a_combinator_result_is_a_view_of_its_container() {
          if at >= c.n {\n        return finished()\n    }\n    \
          at = at + 1\n    return emitted(\"x\")\n}\n\n\
          fn keep_all<It, T>(it: Mut It, ?Yield<It, T>) -> Mut List<T> => it: Mut {\n    \
-         let out = mutable_list<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
+         let out = mut_list_of<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let words = list(\"ann\", \"bo\")\n    \
+         let words = list_of(\"ann\", \"bo\")\n    \
          let p = iter(words)\n    \
          let kept = map(p, keep)\n    \
          eat(kept)\n    \
@@ -2065,7 +2065,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
          println(\"${size(more)}\")\n    \
          let free = keep_all(iter(Chars {n: 2}))\n    \
          println(\"${size(free)}\")\n    \
-         let parts = mutable_list(mutable_str(\"a\"))\n    \
+         let parts = mut_list_of(mut_str(\"a\"))\n    \
          let e = get(parts, 0)!\n    \
          let n: Int = copy(e)\n}\n",
     )
@@ -2116,18 +2116,18 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
          // 1. capture-free: the one-liner binds with no links\n    \
-         let words = list(\"ann\", \"bo\")\n    \
+         let words = list_of(\"ann\", \"bo\")\n    \
          let p = iter(words)\n    \
          let kept = map(p, w -> w)\n    \
          println(\"${size(kept)}\")\n    \
          // 2. a capture-rooted projection: legal, linked to the capture\n    \
-         let all = list(\"a\", \"b\", \"c\", \"d\")\n    \
-         let indices = list(1, 3)\n    \
+         let all = list_of(\"a\", \"b\", \"c\", \"d\")\n    \
+         let indices = list_of(1, 3)\n    \
          let picked = map(iter(indices), i -> get(all, i)!)\n    \
          println(\"${size(picked)}\")\n    \
          // 3. the named-lambda form is linked the same way: consuming\n    \
          // the capture poisons the result derived through the closure\n    \
-         let all2 = list(\"a\", \"b\")\n    \
+         let all2 = list_of(\"a\", \"b\")\n    \
          let f = i -> get(all2, i)!\n    \
          let picked2 = map(iter(indices), f)\n    \
          eat(all2)\n    \
@@ -2163,15 +2163,15 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
          fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
          -> Mut List<T> => it: Mut, proj[from: it], labels {\n    \
-         let out = mutable_list<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
+         let out = mut_list_of<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
-         let words = list(\"ann\", \"bo\")\n    \
-         let tags = list(\"x\")\n    \
+         let words = list_of(\"ann\", \"bo\")\n    \
+         let tags = list_of(\"x\")\n    \
          let kept = keep_all(iter(words), tags)\n    \
          eat(tags)\n    \
          println(\"${size(kept)}\")\n    \
-         let words2 = list(\"ann\", \"bo\")\n    \
-         let tags2 = list(\"x\")\n    \
+         let words2 = list_of(\"ann\", \"bo\")\n    \
+         let tags2 = list_of(\"x\")\n    \
          let kept2 = keep_all(iter(words2), tags2)\n    \
          eat(words2)\n    \
          println(\"${size(kept2)}\")\n}\n",

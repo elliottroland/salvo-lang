@@ -18,7 +18,15 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Opaque\n";
+const STD_PRELUDE: &str = concat!(
+    "intrinsic type Int\n",
+    "intrinsic type Str\n",
+    "intrinsic type Bool\n",
+    "intrinsic type Opaque\n",
+    // [col-literal] Arrays lost their literal syntax, so a test that wants
+    // one builds it with the constructor.
+    "intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
+);
 
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     let mut sources = SourceSet::default();
@@ -250,7 +258,7 @@ fn indexing_a_non_array_is_an_error() {
 /// [index-resolve] Arrays still work, of course.
 #[test]
 fn indexing_an_array_is_fine() {
-    let errs = messages(&body("    let xs: Int[] = [1, 2]\n    let x = xs[0]"));
+    let errs = messages(&body("    let xs: Int[] = array_of(1, 2)\n    let x = xs[0]"));
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
@@ -271,7 +279,7 @@ fn iterating_a_non_iterable_is_an_error() {
 #[test]
 fn iterating_an_array_is_fine() {
     let errs = messages(&body(
-        "    let xs: Int[] = [1, 2]\n    for x in xs {\n        let y = x\n    }",
+        "    let xs: Int[] = array_of(1, 2)\n    for x in xs {\n        let y = x\n    }",
     ));
     assert!(errs.is_empty(), "got {errs:?}");
 }

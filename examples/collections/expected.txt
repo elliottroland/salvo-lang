@@ -1,0 +1,24 @@
+1. list [2, 3, 5, 7]
+1. set {a, e, i, o, u} of 5
+1. map {ada: 36, grace: 45}
+1. struct still a struct literal
+1. empty then filled {first}
+2. insertion order kept {pear: 99, apple: 2, fig: 3}
+2. key order {apple, fig, pear}
+2. min is cheap here apple
+3. struct key: size 1, second add false
+3. looked up by value diagonal
+4. equal true, ordered true
+4. plain struct equality true
+5. generated [0, 1, 4, 9]
+5. to_set {2, 3, 5, 7}
+5. to_map with a rule {alpha: 5, be: 2}
+6. first is ada, no optional
+6. after add, first is 7
+6. sorted [10, 20, 30, 40]
+6. found 30 at 2
+6. still sorted [5, 10, 20, 30]
+6. distinct [2, 3, 5, 7] of 4
+aeiou
+7. ada is 36
+7. grace is 45

@@ -32,8 +32,8 @@ intrinsic type Char\n\
 intrinsic type Str\n\
 intrinsic type List<T> canbe Mut\n\
 intrinsic fn copy<T>(value: T) [] -> T => value\n\
-intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n\
-intrinsic fn list<T>(...elems: T[]) [] -> List<T>\n\
+intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
 intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
 intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
 intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
@@ -76,7 +76,7 @@ fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
     return emitted(chr)\n\
 }\n\
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
-    let out = mutable_list<U>()\n\
+    let out = mut_list_of<U>()\n\
     let going = true\n\
     while going {\n\
         let step = next(it)\n\
@@ -193,7 +193,7 @@ fn picked_fast_path(src: &str, callee: &str) -> bool {
 #[test]
 fn a_pass_subject_infers_everything() {
     let src = probe(
-        "    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n * 2)",
+        "    let xs = list_of(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n * 2)",
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
 }
@@ -215,7 +215,7 @@ fn a_str_pass_iterates_characters() {
 #[test]
 fn chains_compose_through_iter() {
     let src = probe(
-        "    let xs = list(1, 2)\n    \
+        "    let xs = list_of(1, 2)\n    \
          let zs: Mut List<Int> = map(iter(map(xs, n -> n * 2)), n -> n + 1)",
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
@@ -229,7 +229,7 @@ fn a_user_type_becomes_iterable_by_declaring_iter() {
         "struct Bag {{\n    items: List<Int>\n}}\n\n\
          fn iter(bag: Bag) -> Mut ListYield<Int> => bag {{\n    return iter(bag.items)\n}}\n\n{}",
         probe(
-            "    let b = Bag {items: list(1, 2)}\n    \
+            "    let b = Bag {items: list_of(1, 2)}\n    \
              let total: Int = reduce(iter(b), 0, (a, x) -> a + x)"
         )
     );
@@ -257,7 +257,7 @@ fn a_subject_that_is_not_a_pass_is_an_error() {
 /// spelling for the type people map most.
 #[test]
 fn a_list_subject_picks_the_fast_path() {
-    let src = probe("    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(xs, n -> n * 2)");
+    let src = probe("    let xs = list_of(1, 2)\n    let ys: Mut List<Int> = map(xs, n -> n * 2)");
     assert!(picked_fast_path(&src, "map"), "expected the `List` overload");
 }
 
@@ -266,7 +266,7 @@ fn a_list_subject_picks_the_fast_path() {
 #[test]
 fn a_pass_subject_picks_the_generic_body() {
     let src = probe(
-        "    let xs = list(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n + 1)",
+        "    let xs = list_of(1, 2)\n    let ys: Mut List<Int> = map(iter(xs), n -> n + 1)",
     );
     assert!(
         !picked_fast_path(&src, "map"),
@@ -312,7 +312,7 @@ fn a_generic_pass_is_driven_by_for() {
 #[test]
 fn a_driven_element_is_owned_not_derived() {
     let src = "fn keep<It, T>(it: Mut It, ?Yield<It, T>) [] -> Mut List<T> => it: Mut {\n\
-               \x20   let out = mutable_list<T>()\n\
+               \x20   let out = mut_list_of<T>()\n\
                \x20   for x in it {\n\
                \x20       add(out, x)\n\
                \x20   }\n\
@@ -382,11 +382,11 @@ fn an_own_pass_named_like_stds_resolves_to_the_own_next() {
                \x20   return emitted(elem)\n\
                }\n\
                fn main() [] -> None {\n\
-               \x20   let p = mine(list(1, 2))\n\
+               \x20   let p = mine(list_of(1, 2))\n\
                \x20   for x in p {\n\
                \x20       let y = x\n\
                \x20   }\n\
-               \x20   let q = mine(list(3, 4))\n\
+               \x20   let q = mine(list_of(3, 4))\n\
                \x20   let doubled: Mut List<Int> = map(q, (n: Int) -> { return n + n })\n\
                \x20   return None\n\
                }\n";

@@ -152,18 +152,14 @@ S-IO"), using linearity and iterators — which is why it follows 1 and 3.
 default handler, the two-effect layering for the restricted handler, where
 stream ops live, the error model, testability, the v1 surface, and restricted-
 handler semantics); it dies into COMPLETED.md when the decisions are made,
-OBLIGATIONS.md-style. Riding **before** phase 4, by user decision 2026-09-12:
+OBLIGATIONS.md-style.
 
-- **S-Col — collections** ("Standard library surface → S-Col").
-  **Decided in outline** the same day — [COLLECTIONS.md](COLLECTIONS.md)
-  carries three rounds of user decisions (separate `Set`/`Map`/
-  `SortedSet`/`SortedMap` types, insertion-ordered iteration with a Rust
-  runtime file, `canbe hashed`/`canbe ordered` declaration-site opt-ins,
-  universal struct `==` with Salvo-owned float equality, collection
-  literals replacing array literals, `Mut` arrays, the `*_of`/`*_by`/
-  `to_*` conventions) plus the one open design item (the Set/Map
-  borrowing-pass prototype) and the engineering list. FS-6's in-memory
-  test filesystem is its first internal customer.
+**S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
+day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
+universal struct `==`, `canbe hashed`/`canbe ordered`, and the
+`*_of`/`*_by`/`to_*` conventions. See COMPLETED.md. FS-6's in-memory test
+filesystem was to be its first internal customer and now has the collections
+it needs.
 
 Two further decisions are due **before** phase 4 starts, because both become
 concrete the moment streams exist:
@@ -211,7 +207,6 @@ links to the section that states the options.
 | Operator typing rules — arithmetic operand types, numeric promotion, ordering ops, `Bool` for `&&`/`\|\|` (the `==`/`!=` slice was decided 2026-09-12 with collections — see "The sequence", phase 4) | before phase 4 | "Consolidated leftovers" |
 | Two effects declaring one member name: keep the error, or add `println@Console(...)` (softened by FILE_SYSTEM.md FS-3: stream ops as free fns) | before phase 4 | "Effects" |
 | **S-IO** — the stream design the filesystem is the first customer of; option space laid out in FILE_SYSTEM.md (FS-1…FS-9, with recommendations) | phase 4 | "Standard library surface" |
-| **S-Col C-7** — the Set/Map borrowing-pass design (prototype-informed, not a paper call; everything else in COLLECTIONS.md is decided) | with S-Col, before phase 4 | "Standard library surface" |
 | Sendability, per-process effect scopes, OS threads versus a runtime, async's fate | phase 5 | "Threading and concurrency" |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
@@ -228,10 +223,64 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**One open.** (The previous two — the retagged-lambda deref-in-cast miss
-(E0606) and the adapter's silent clone of a returned projection — were closed
-2026-09-12 with the lambda-view work; repros and root causes are in
-COMPLETED.md.)
+**Four open.** (Closed in the sessions before this one, with repros and
+root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
+and the adapter's silent clone of a returned projection; a tuple-array type
+`(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
+same-named fn-typed local, and variadic args moving out of their caller's
+locals. The broken `Int[n] { … }` array generator was closed by **deleting
+the form** — user decision 2026-09-13. Mixing a plain argument with a
+`...spread` in one variadic call is now **supported** rather than refused,
+which also let std's `non_empty_list` go back to being ordinary Salvo.)
+
+- **A container operation inside a *generic* function is a backend
+  divergence** (reproduced 2026-09-13). Repro:
+
+  ```
+  fn collect_one<T>(elem: T) [] -> Set<T> => !elem {
+      let s: Mut Set<T> = mut_set_of()
+      add(s, elem)
+      return s
+  }
+  ```
+
+  Kotlin compiles and runs it (erased generics, `LinkedHashSet` takes
+  anything); Rust fails with a raw rustc **E0599** — "the method `insert`
+  exists for struct `SalvoSet<T>`, but its trait bounds were not satisfied" —
+  because the emitted signature carries only the bounds Salvo knows
+  (`T: Clone`), while `insert` needs `T: Hash + Eq`. No Salvo diagnostic, so
+  this is a [backend-never-wrong] violation.
+  Root cause: **there is no way to write the bound.** Key eligibility
+  [col-key-eligible] is checked where a container type is *instantiated*, and
+  a type parameter is deliberately allowed through there ("checked at the
+  instantiation") — but a generic fn body is a use site with no instantiation
+  in sight, and a type parameter accepts only `canbe linear`
+  ("only `linear` is supported in a type-parameter `with` clause").
+  The fix is the same mechanism `sort`/`binary_search`/`add_sorted` need — see
+  the C-6 decision under "Standard library surface" — and it cuts both ways:
+  the checker could refuse the unbounded body with a Salvo error, and the Rust
+  emitter could put `T: Hash + Eq` (or `T: Ord`) on the signature and make the
+  program work. Until then, container operations belong in non-generic code.
+
+- **A user-declared variadic of a *primitive* element type breaks on Kotlin**
+  (reproduced 2026-09-13). Repro:
+
+  ```
+  fn total(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
+      for n in iter(ns) { … }
+  }
+  ```
+
+  Rust is fine. Kotlin emits `vararg ns: Int`, which the JVM types as
+  `IntArray` rather than `Array<Int>`, so `iter(ns)` fails ("actual type is
+  'IntArray', but 'Array<uninferred T>' was expected") and passing an
+  `Array<Int>` into the position mismatches as well. `...parts: Str[]` and
+  every generic variadic work, which is why std never hit it. Found while
+  adding mixed spread and reproduced with **no** spread involved, so it is
+  independent of that work. Fix direction: emit the boxed `Array<Int>` for a
+  variadic whose element type is primitive (Kotlin's `vararg` of a primitive is
+  the only place the two array representations diverge), or lower a variadic
+  parameter as a plain `Array<T>` parameter and spread at the call sites.
 
 - **A recursive struct is an undiagnosed backend divergence** (reproduced
   2026-09-12). Repro: `struct Node { value: Int, next: Node | None }` plus
@@ -245,6 +294,15 @@ COMPLETED.md.)
   are not cycle edges — recursion through `List<T>` works end to end today
   and stays legal). The full feature is separate and unscheduled; the
   diagnostic is owed regardless.
+
+- **A bare inline collection literal does not determine a callee's type
+  parameter** (reproduced 2026-09-12). Repro: `to_set([1, 2])` reports
+  "cannot infer type argument `T`"; binding it first (`nums = [1, 2]` then
+  `to_set(nums)`) works, as does annotating. Root cause: argument type
+  inference runs before the literal is given an expected type, so the
+  literal's element type is still unknown when the substitution is solved —
+  the same shape as the recorded "bare generic struct literals not inferring
+  type args" leftover under "Linear types", and probably one fix.
 
 ## Linear types
 
@@ -819,49 +877,75 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
 ## Standard library surface
 
 S-Str (a mutable string and the string function surface) and S-Seq (the sequence
-functions over any pass) landed 2026-09-06; see COMPLETED.md. What is left:
+functions over any pass) landed 2026-09-06; **S-Col — collections** landed
+2026-09-12 (`Set`/`Map`/`SortedSet`/`SortedMap`, collection literals, universal
+struct `==`, `canbe hashed`/`canbe ordered`, the `*_of`/`*_by`/`to_*`
+conventions); see COMPLETED.md for all three, including how C-7 — the Set/Map
+pass design — was answered by prototype (snapshot passes owning a `List<T>`,
+after borrowing passes and `copy()` were both tried and failed). What is left:
 
-### S-Col — collections (decided in outline 2026-09-12, rides before phase 4)
+### S-Col leftovers — recorded, none forced
 
-`Set<T>`, `Map<K, V>`, `SortedSet<T>`, `SortedMap<K, V>` as separate
-intrinsic types, plus the conventions that reshape the existing surface.
-**[COLLECTIONS.md](COLLECTIONS.md) is the record** — the option space, three
-rounds of user decisions (2026-09-12), the remaining open item and the
-engineering list; it dies into COMPLETED.md when the work lands. The
-decisions in brief:
+- **Reachability precision.** Name-based reachability now pulls `core.set`,
+  `core.map` and the Rust `collections.rs` runtime into *every* program,
+  because `to_set`/`to_map`/`list_of` name each other across modules: a
+  hello-world went from ~300 to 569 lines of (allowed, dead) generated code.
+  Harmless — both backends tolerate unused items — but the fix is real:
+  reachability should walk the checker's *resolved* call targets rather than
+  matching names, which needs the checker to record them. Deliberately not
+  done with the collections work; it is a separate pass over `reach.rs`.
+- **`entries` and `values` passes over a Map** are deferred. A Map pass
+  yields **keys** (Python's `for k in d` precedent) because an entries pass
+  would need an owned `(K, V)` and Kotlin cannot copy a generic `V`, so
+  identity-sharing would alias mutable values and break backend parity. The
+  answer is probably the same snapshot shape the key pass uses, over a
+  `List<(K, V)>`, once tuples-of-generics are exercised enough to trust.
+- **Comparator functions for keys** stay out (intrinsic ordering only, user
+  decision 2026-09-12), and **float fields still bar `canbe hashed`**. The
+  latter is the one worth revisiting: it is a consequence of Salvo owning
+  float equality, and the future precision-specified comparison the user
+  asked for is where a hashable float would come from.
+- **`Deque<T>`** is the honest replacement for the linked list the user
+  asked about, and the recommendation was to build neither in v1. Both
+  targets ship and are proud of `ArrayDeque`/`VecDeque`, and every workload
+  people reach for a linked list for (queues, BFS frontiers, sliding
+  windows, LRU order) is served better by one: one intrinsic type, six
+  functions (`push_front`/`push_back`, `pop_front`/`pop_back`, `peek` at
+  both ends), no new concepts. Recorded as the *next* collection, when a
+  customer appears — phase 5's mailboxes may be it. (A representation
+  qualifier `Linked List<T>` was examined and rejected: it would make the
+  shared List surface *worse*, since `get(list, i)` becomes O(n), and
+  Rust's `LinkedList` has no stable cursor API so the O(1) middle insertion
+  that justifies the representation is unreachable. Salvo-proper `struct
+  Node<T> { value: T, next: Node<T> | None }` is blocked on the Rust boxing
+  rule — see "Recursive types".)
 
-- **Separate sorted types**, not a `Sorted` qualifier (a qualifier is
-  droppable by design; sortedness changes behavior and must not drop).
-- **Insertion-ordered iteration** for Set and Map on both backends, with
-  LinkedHashMap's exact semantics (`put` on an existing key keeps its
-  position; `remove` is O(1) and order-preserving); Rust ships a
-  runtime-file linked ordmap/ordset to match.
-- **Keys**: intrinsic ordering only (no comparator functions). Structs opt
-  in by declaring `canbe hashed` / `canbe ordered`, validated eligible at
-  the declaration (immutable, all fields eligible; the error explains
-  why not). Unions are hashable if every arm is, never orderable. Lists
-  and tuples are orderable if their elements are (Kotlin runtime
-  comparators; Rust native). Float fields bar hashing (revisit later).
-- **Universal struct `==`/`!=`** on same-base-type operands, qualifiers
-  ignored (equality is on the data at check time); `canbe ordered` adds
-  the comparison operators; fn-typed fields bar a struct from `==` (and
-  so from `hashed`/`ordered`); **float equality is Salvo-emitted** on
-  both backends (IEEE now, the hook for precision-specified comparison
-  later).
-- **Literals**: `[1, 2, 3]` is a List (array literals removed —
-  `array_of`/`array_by` replace them), `{"a"}` a Set, `{"k": "v"}` a Map;
-  sugar for the `*_of` constructors; `Mut` prefixes like a struct
-  literal; empty literals take the expected type or error.
-- **Constructor conventions**: `*_of(spread)` + `mut_*` variants
-  (arrays included — `Mut T[]` with element assignment is new),
-  `*_by(size, i -> value)`, `to_*` converters (two `to_map` forms;
-  duplicate keys last-wins). Renames ride along: `list`→`list_of`,
-  `mutable_list`→`mut_list_of`, `mutable_str`→`mut_str`.
+### S-Col C-6 leftovers — the claims std does *not* ship
 
-Open: **C-7**, the Set/Map pass design — needs a prototype of an intrinsic
-borrowing pass over the native iterators ([proj-field] lifetimes on an
-intrinsic type), not a paper decision. FS-6's in-memory test filesystem
-(FILE_SYSTEM.md) is S-Col's first internal customer.
+C-6 landed 2026-09-13: `NonEmpty`, `Sorted` and `Distinct` over `List<T>`,
+with `non_empty_list`, the optional-dropping `first` overload, `sort`,
+`mut_sort`, `add_sorted` and `binary_search` — and, once **qualifier
+overloading** landed the same day (user decision), `NonEmpty` over `Set`,
+`Map`, `SortedSet` and `SortedMap` too, in `core.nonempty`, with the
+refinements on `add`/`put` and the `min`/`max`/`first_key`/`last_key`
+overloads that drop the optional. See COMPLETED.md. What is still not there:
+
+- **The `NonEmpty` overloads that need no claim of their own**: a `fold` with
+  no seed, and `first`-like accessors on the unordered containers (a `Set` has
+  no `first` to specialize, since it has no index).
+- **`Distinct` from `to_list` over a `SortedSet`.** That `to_list` lives in
+  `core.sorted` and a constructor must sit beside its qualifier
+  [qual-ctor-same-file], so it returns a plain list while `core.set`'s mints
+  the claim. Either move the qualifier somewhere both can see, or relax the
+  same-file rule for `as Q` on an `intrinsic`.
+- **A `Sorted` list cannot be *tested*.** No `qualifies`, because deciding it
+  compares elements — which needs the type-parameter bound the generic
+  container defect under "Open defects" also wants. With that bound, `Sorted`
+  could gain an `is_sorted` predicate and stop being mint-only.
+- **`Sorted` over the other containers** would be meaningless (the sorted pair
+  *is* the representation), but `Distinct of Set<T>` is tautological and
+  `NonEmpty` is the only claim that generalized. Worth remembering before
+  reaching for overloading again: the mechanism is general, the claims are not.
 
 ### S-IO — streams, then the filesystem (phase 4)
 
@@ -1157,7 +1241,7 @@ twice — the reasoning that already deferred `Cell`.
 ## Recursive types — unscheduled, after the sequence
 
 Investigated 2026-09-12 (probes against that evening's debug binary; raised by
-COLLECTIONS.md C-9, whose linked-list question it outgrew). Deliberately **at
+the collections design's linked-list question, which it outgrew). Deliberately **at
 the end of the queue**: nothing in phases 3–5 needs it (user, 2026-09-12). Its
 customers are trees, ASTs and JSON-shaped data — and, until it is built,
 List-mediated recursion (below) covers them.
@@ -1345,7 +1429,7 @@ blocking, and several are "revisit only if a customer appears".
     left operand's type). Decide the operator typing rules — legal
     operand types per operator, numeric promotion, `Bool` for `&&`/`||`.
     The `==`/`!=` slice was decided 2026-09-12 with the collections round
-    (COLLECTIONS.md): same-base-type operands, qualifiers ignored,
+    (see COMPLETED.md): same-base-type operands, qualifiers ignored,
     structural struct equality, fn-typed fields barring, Salvo-emitted
     float equality. Arithmetic, ordering and the logical operators
     remain.

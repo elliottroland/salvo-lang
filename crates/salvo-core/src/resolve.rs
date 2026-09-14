@@ -95,7 +95,12 @@ pub struct ModuleScope<'p> {
     /// `params` groups visible here [implicit-group].
     pub param_groups: HashMap<&'p str, &'p ParamsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
-    pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
+    /// [qual-overload] Visible qualifiers, as **overload sets**: one name may
+    /// be declared over several *subject types* (`NonEmpty of List<T>` and
+    /// `NonEmpty of Set<T>`), and which one a use means is decided by the
+    /// subject, the way a fn overload is decided by its arguments. Almost
+    /// every name has exactly one, which is the fast path the checker takes.
+    pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
     /// Top-level refinements declared by this file's *own module*
     /// [qual-refn-scope]. Module-scoped and deliberately not importable:
     /// reconciling two qualifiers' conflicting refinements is the
@@ -231,28 +236,41 @@ impl<'p> ModuleItems<'p> {
     /// `(kind, name, file, span)` of every non-fn item, for collision
     /// detection [mod-collision]. Fns are exempt: same-name fns form
     /// overload sets.
-    fn non_fn_names(&self) -> Vec<(NameKind, &'p str, usize, Span)> {
+    /// [mod-collision] Non-fn declarations, with the *subject* that
+    /// distinguishes same-named qualifiers [qual-overload]: `NonEmpty of
+    /// List<T>` and `NonEmpty of Set<T>` are two declarations, not a
+    /// duplicate, so the collision key carries the `of` type's base name.
+    /// A generic `of` (`qualifier Ok<T> of T`) has no base name and so
+    /// collides with everything of its name — which is the conservative
+    /// answer, since it would accept the same subjects.
+    fn non_fn_names(&self) -> Vec<(NameKind, &'p str, Option<String>, usize, Span)> {
         let mut out = Vec::new();
         for (f, s) in &self.structs {
-            out.push((NameKind::Struct, s.name.name.as_str(), *f, s.name.span));
+            out.push((NameKind::Struct, s.name.name.as_str(), None, *f, s.name.span));
         }
         for (f, e) in &self.effects {
-            out.push((NameKind::Effect, e.name.name.as_str(), *f, e.name.span));
+            out.push((NameKind::Effect, e.name.name.as_str(), None, *f, e.name.span));
         }
         for (f, g) in &self.param_groups {
-            out.push((NameKind::ParamGroup, g.name.name.as_str(), *f, g.name.span));
+            out.push((NameKind::ParamGroup, g.name.name.as_str(), None, *f, g.name.span));
         }
         for (f, h) in &self.handlers {
-            out.push((NameKind::Handler, h.name.name.as_str(), *f, h.name.span));
+            out.push((NameKind::Handler, h.name.name.as_str(), None, *f, h.name.span));
         }
         for (f, q) in &self.qualifiers {
-            out.push((NameKind::Qualifier, q.name.name.as_str(), *f, q.name.span));
+            out.push((
+                NameKind::Qualifier,
+                q.name.name.as_str(),
+                crate::refine::of_base(&q.of, &q.generics),
+                *f,
+                q.name.span,
+            ));
         }
         for (f, t) in &self.type_aliases {
-            out.push((NameKind::TypeAlias, t.name.name.as_str(), *f, t.name.span));
+            out.push((NameKind::TypeAlias, t.name.name.as_str(), None, *f, t.name.span));
         }
         for (f, t) in &self.opaque_types {
-            out.push((NameKind::OpaqueType, t.name.name.as_str(), *f, t.name.span));
+            out.push((NameKind::OpaqueType, t.name.name.as_str(), None, *f, t.name.span));
         }
         out
     }
@@ -414,14 +432,15 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
-        let mut core_seen: HashMap<(NameKind, &str), (&ModulePath, usize, Span)> =
+        // Keyed by kind, name **and subject** — see `non_fn_names`.
+        let mut core_seen: HashMap<(NameKind, &str, Option<String>), (&ModulePath, usize, Span)> =
             HashMap::new();
         for module in sorted_modules {
             let items = &by_module[*module];
-            let mut module_seen: HashMap<(NameKind, &str), Span> = HashMap::new();
+            let mut module_seen: HashMap<(NameKind, &str, Option<String>), Span> = HashMap::new();
             let is_core = module.0.first().is_some_and(|p| p == "core");
-            for (kind, name, file, span) in items.non_fn_names() {
-                if let Some(_first) = module_seen.get(&(kind, name)) {
+            for (kind, name, subject, file, span) in items.non_fn_names() {
+                if let Some(_first) = module_seen.get(&(kind, name, subject.clone())) {
                     errors.push(FileDiagnostic::error(
                         file,
                         span,
@@ -432,9 +451,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     ));
                     continue;
                 }
-                module_seen.insert((kind, name), span);
+                module_seen.insert((kind, name, subject.clone()), span);
                 if is_core {
-                    if let Some((other, _, _)) = core_seen.get(&(kind, name)) {
+                    if let Some((other, _, _)) = core_seen.get(&(kind, name, subject.clone())) {
                         errors.push(FileDiagnostic::error(
                             file,
                             span,
@@ -445,7 +464,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                             ),
                         ));
                     } else {
-                        core_seen.insert((kind, name), (module, file, span));
+                        core_seen.insert((kind, name, subject), (module, file, span));
                     }
                 }
             }
@@ -500,14 +519,30 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // Provenance of every non-fn scope entry [mod-collision]:
         // (level, module) per (kind, visible name), driving the
         // override-vs-collision decision below.
-        let mut provenance: HashMap<(NameKind, &str), (Level, &ModulePath)> = HashMap::new();
+        // [qual-overload] Keyed by kind, name **and subject**: two core
+        // modules may each declare a `NonEmpty` so long as their subjects
+        // differ, so visibility has to be tracked per declaration rather than
+        // per name (see `non_fn_names`).
+        let mut provenance: HashMap<(NameKind, &str, Option<String>), (Level, &ModulePath)> =
+            HashMap::new();
         let mut ctx = AddCtx {
             file_idx,
             provenance: &mut provenance,
             errors: &mut errors,
         };
-        // core.* is implicitly visible everywhere.
+        // core.* is implicitly visible everywhere — except in a core module's
+        // *own* files, which add themselves at `Level::Own` just below. Adding
+        // both put every one of that module's fns into the overload set
+        // **twice** (the same declaration at two rungs). Ordinary resolution
+        // survived it, since the duplicates are identical and `Own` outranks
+        // `Core` either way; the refinement matcher did not — it counts
+        // matches, so a `refn` inside a core module reported "matches more
+        // than one `add` in scope" and no std module could carry a refinement
+        // at all [qual-refn-match].
         for m in &core_modules {
+            if **m == file.module {
+                continue;
+            }
             if let Some(items) = by_module.get(*m) {
                 add_items(&mut scope, items, m, None, Level::Core, None, &mut ctx);
             }
@@ -546,7 +581,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 /// Per-file state threaded through scope building [mod-collision].
 struct AddCtx<'e, 'p> {
     file_idx: usize,
-    provenance: &'e mut HashMap<(NameKind, &'p str), (Level, &'p ModulePath)>,
+    provenance: &'e mut HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>,
     errors: &'e mut Vec<FileDiagnostic>,
 }
 
@@ -564,21 +599,37 @@ impl<'e, 'p> AddCtx<'e, 'p> {
         level: Level,
         import_span: Option<Span>,
     ) -> bool {
-        match self.provenance.get(&(kind, name)) {
+        self.admit_subject(kind, name, None, module, level, import_span)
+    }
+
+    /// [qual-overload] `admit` with the *subject* that distinguishes
+    /// same-named qualifiers. Everything else passes `None`, which restores
+    /// the by-name behavior exactly.
+    fn admit_subject(
+        &mut self,
+        kind: NameKind,
+        name: &'p str,
+        subject: Option<String>,
+        module: &'p ModulePath,
+        level: Level,
+        import_span: Option<Span>,
+    ) -> bool {
+        let key = (kind, name, subject);
+        match self.provenance.get(&key) {
             None => {
-                self.provenance.insert((kind, name), (level, module));
+                self.provenance.insert(key, (level, module));
                 true
             }
             Some((_, existing)) if **existing == *module => {
                 // Same module re-added (a core module that is also the
                 // own module, or a redundant import): harmless.
-                self.provenance.insert((kind, name), (level, module));
+                self.provenance.insert(key, (level, module));
                 true
             }
             Some((Level::Core, _)) if level != Level::Core => {
                 // Own declarations and imports deliberately shadow
                 // implicit core visibility.
-                self.provenance.insert((kind, name), (level, module));
+                self.provenance.insert(key, (level, module));
                 true
             }
             Some((Level::Core, _)) => {
@@ -779,13 +830,21 @@ fn add_items<'p>(
                 scope.effects.insert(name, e);
                 origin(name, scope);
                 def_site(name, *file, e.name.span, scope);
+                // Effect members become callable wherever the effect is
+                // visible — and *only* there. Inserting them regardless of
+                // visibility let a user effect's member name reach modules
+                // that never imported the effect, std's included: a program
+                // declaring `effect Sink { fn keep(...) }` made std's
+                // `filter(it, keep: (T) -> Bool)` resolve its own parameter
+                // as an effect call, which the emitters then reported as
+                // "no handler for effect `Sink`" from inside `core/seq.sv`
+                // [mod-collision].
+                for f in &e.fns {
+                    scope.effect_members.insert(&f.name.name, (e, f));
+                    origin(&f.name.name, scope);
+                    def_site(&f.name.name, *file, f.name.span, scope);
+                }
             }
-        }
-        // Effect members become callable wherever the effect is visible.
-        for f in &e.fns {
-            scope.effect_members.insert(&f.name.name, (e, f));
-            origin(&f.name.name, scope);
-            def_site(&f.name.name, *file, f.name.span, scope);
         }
     }
     // [implicit-group] A group is a *type-level* name, visible like an
@@ -815,8 +874,29 @@ fn add_items<'p>(
     for (file, q) in &items.qualifiers {
         if want(&q.name.name) {
             let name = visible_as(&q.name.name);
-            if ctx.admit(NameKind::Qualifier, name, module, level, import_span) {
-                scope.qualifiers.insert(name, q);
+            let subject = crate::refine::of_base(&q.of, &q.generics);
+            if ctx.admit_subject(
+                NameKind::Qualifier,
+                name,
+                subject.clone(),
+                module,
+                level,
+                import_span,
+            ) {
+                // [qual-overload] Overloading is by **subject**: a
+                // declaration joins the set only when its subject is new.
+                // Same name *and* same subject is the old single-entry case,
+                // where a later level replaces an earlier one — which is what
+                // lets a module declare its own `NonEmpty of List<T>` and
+                // shadow std's rather than becoming ambiguous with it.
+                let entry = scope.qualifiers.entry(name).or_default();
+                match entry
+                    .iter()
+                    .position(|d| crate::refine::of_base(&d.of, &d.generics) == subject)
+                {
+                    Some(i) => entry[i] = q,
+                    None => entry.push(q),
+                }
                 origin(name, scope);
                 def_site(name, *file, q.name.span, scope);
             }

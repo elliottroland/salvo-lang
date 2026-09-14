@@ -42,7 +42,7 @@ There is no equivalent to Rust's string literal type `str`.
 A string being immutable does not mean building one has to be quadratic: `Str` opts into the `Mut` auto-qualifier (see below), so `Mut Str` is *a string under construction*. It is asked for explicitly — a literal is never a `Mut Str` — and it is the only place the string functions come in a mutating flavour:
 
 ```
-let text: Mut Str = mutable_str("hello")
+let text: Mut Str = mut_str("hello")
 append(text, ", world")
 set(text, 0, 'H')
 println(text)              // Hello, world
@@ -62,7 +62,7 @@ fn to_str(p: Point) -> Str => p {
 println("at ${point}")     // uses the `to_str` above
 ```
 
-Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${list(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
+Without one, the compiler says so rather than letting the backend fail. The standard library renders a list this way — `"${list_of(1, 2, 3)}"` gives `[1, 2, 3]` — and a `Mut Str` needs nothing special, since it drops its `Mut` first.
 
 **A struct interpolates by default when every field does.** With no `to_str` of its own, a struct whose fields are all scalars or strings renders in the shape its literal has:
 
@@ -235,19 +235,147 @@ let person: Person = Person {name: "Roland", surname: "Elliott", age: 36}
 println("Surname is ${person.surname!}")
 ```
 
+### Collections
+
+`List<T>`, `Set<T>` and `Map<K, V>` are the everyday collections, and each has a literal:
+
+```
+let xs = [1, 2, 3]                       // List<Int>
+let names = {"ada", "grace"}             // Set<Str>
+let ages = {"ada": 36, "grace": 45}      // Map<Str, Int>
+```
+
+A literal builds an immutable collection; write `Mut` on the position to ask for a mutable one, exactly as with a struct literal:
+
+```
+let seen: Mut Set<Str> = {}
+add(seen, "ada")
+```
+
+Besides the literals, each collection can be **generated** from a size and a rule, or **converted** from another:
+
+```
+let squares = list_by(4, i -> i * i)        // [0, 1, 4, 9]
+let unique = to_set(xs)                     // duplicates collapse
+let lengths = to_map(names, n -> (n, size(n)))
+```
+
+There are two `to_map` forms — from a list of pairs, and from a list of anything plus a rule saying what key and value each element becomes. Duplicate keys are last-wins everywhere.
+
+Each literal is sugar for the corresponding constructor — `list_of`, `set_of`, `map_of`, with `mut_list_of`, `mut_set_of`, `mut_map_of` for the mutable forms — so anything a literal does can be written as a call.
+
+An **empty** literal has nothing to infer from, so its type comes from the position it is in: the annotation on a `let`, or the parameter it is passed to. Where nothing supplies one, that is an error naming both remedies.
+
+A map literal's keys are expressions, which is why `{x: 1}` is *not* a map: a brace whose first entry is `identifier:` is a bare struct literal, which came first and stays. Write `{"x": 1}`, or `map_of((x, 1))` when the key really is a variable.
+
+For a collection kept in order rather than in insertion order, there are `SortedSet<T>` and `SortedMap<K, V>`:
+
+```
+let names: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple")
+add(names, "fig")
+println("${to_str(names)}")        // {apple, fig, pear}
+let smallest = min(names)          // and max, first_key, last_key on a map
+```
+
+They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else.
+
+Sets and maps **iterate in insertion order**, on every backend. A `Map` iterates its *keys*, and a value is reached with `get`:
+
+```
+for name in iter(ages) {
+    let age = get(ages, name)
+    if age is Int {
+        println("${name} is ${age}")
+    }
+}
+```
+
+Not every type can be a key. A key has to be hashable, which for now means one of `Int`, `Long`, `Str`, `Char` and `Bool` — `Double` and `Float` are deliberately excluded, since floating-point equality would not mean the same thing on both backends. A struct opts in:
+
+```
+struct Point canbe hashed, ordered {
+    x: Int,
+    y: Int
+}
+```
+
+`canbe hashed` makes it a `Set` element and a `Map` key; `canbe ordered` additionally allows `<`, `<=`, `>` and `>=`, and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically.
+
+**Equality needs no opt-in.** Every struct supports `==` and `!=`, comparing field by field:
+
+```
+let a = Point { x: 1, y: 2 }
+let b = Point { x: 1, y: 2 }
+let same = a == b        // true
+```
+
+Both sides must be the same type — comparing two different struct types is an error rather than a quiet `false` — and qualifiers are ignored, because equality is about the data at the moment of the check, not about what is claimed of the handle. Two things cannot be compared: a struct holding a function (no two backends agree on what equal functions are), and floating-point values, which *can* be compared but whose semantics Salvo defines itself so that both backends agree (`NaN` equals nothing, including itself).
+
+#### Claims a list can carry
+
+std ships three qualifiers over `List<T>`, which is where the qualifier machinery earns its keep over a container: a claim travels in the type, so a function can *demand* it instead of re-checking it.
+
+`NonEmpty` is the one with a predicate, so it can be tested with `is` — and it is what lets `first` drop its optional:
+
+```
+let names = non_empty_list("ada", "grace")
+let head = first(names)          // a `Str`, not a `Str?`
+
+let xs: Mut List<Int> = mut_list_of()
+add(xs, 7)
+let seven = first(xs)            // `add` established the claim
+```
+
+That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a function that mutates may not promise a qualifier it has never heard of — see "Deductions"), so the qualifier says it on `add`'s behalf. One consequence to know about: if your own qualifier also refines `add`, the two disagree and neither applies — declare `with NonEmpty` on yours and both survive.
+
+`Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
+
+```
+let ordered = sort(list_of(40, 10, 30))     // a Sorted List<Int>
+let at = binary_search(ordered, 30)         // honest only because it is Sorted
+
+let live: Mut Sorted List<Int> = mut_sort(list_of(10, 30))
+add_sorted(live, 20)                        // inserts in order, claim survives
+```
+
+`add_sorted` is the insert that *keeps* the claim: it places the element where the order survives, and says so in its own deduction clause — which it may do, unlike `add`, because it genuinely knows. Note that this `Sorted` is a different mechanic from the `SortedSet`/`SortedMap` **types**: those are a representation, this is an erased claim about an otherwise ordinary list, which is why a `Sorted List` still reaches the whole list surface.
+
+These three are about a *list*. `NonEmpty` also means what it says about the other containers — `Set`, `Map`, `SortedSet`, `SortedMap` — because **a qualifier name may be declared over several subject types**, and the subject decides which one a use means, just as a function overload is decided by its arguments:
+
+```
+let seen: Mut Set<Str> = mut_set_of()
+add(seen, "a")                       // establishes NonEmpty of Set
+if seen is NonEmpty { … }
+
+let ranked = sorted_set_of(30, 10)
+if ranked is NonEmpty {
+    let lo = min(ranked)             // an element, not an optional
+}
+```
+
+Same name plus the *same* subject is not an overload but a replacement: your own `NonEmpty of List<T>` shadows std's, and two over one subject are a duplicate, since nothing at a use site could tell them apart.
+
+`Distinct` says a list holds no duplicates, and comes from the one thing that can honestly promise it — a set:
+
+```
+let unique = to_list({3, 1, 3})    // a Distinct List<Int>
+```
+
+Elements have to be orderable for a `Sorted List` claim, on the same terms a `SortedSet` key does — so `Sorted List<Double>` is refused where it is written.
+
 ### Arrays
 
-Values can be put into arrays, with similar syntax to Java but with support for building them without null values from the beginning inspired by Rust:
+An array (`T[]`) is a fixed-size sequence, and it exists mostly for the *variadic* boundary: `...elems: T[]` is what a variadic parameter receives. Arrays have no literal syntax — `[1, 2]` builds a list — so they are constructed by function:
 
 ```
-// Create an array with literal values - size is inferred from the literal expression
-let numbers: Int[] = [1, 2, 3]
+// From its elements
+let numbers: Int[] = array_of(1, 2, 3)
 
-// Generate an array with an anonymous function, size is given earlier
-let numbers: Int[] = Int[5] { i: Int -> 0 }
+// Generate one, size given first
+let zeros: Int[] = array_by(5, i -> 0)
 ```
 
-The array's size can be fetched from `numbers.size()` (see below for dot-notation of functions) and the array can be 0-indexed using `numbers[index]`.
+The array's size can be fetched from `numbers.size()` (see below for dot-notation of functions) and the array can be 0-indexed using `numbers[index]`. Indexing is an array's alone: a list exposes element access as `get(xs, i)`.
 
 ### Any and Nothing
 
@@ -638,15 +766,15 @@ Using dot notation allows us to make method-looking functions without actual sup
 
 If a function return type is not specified, it is assumed to be `None`. When a function's return type is exactly `None`, then you can call `return` without a value to return from the function. Also, returning is not required in this case.
 
-**A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`mutable_list(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:
+**A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`mut_list_of(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:
 
 ```
-let xs = mutable_list()                  // ERROR: nothing says what T is
-let xs: Mut List<Int> = mutable_list()   // fine: the annotation says
-let xs = mutable_list<Int>()             // fine: written at the call
-takes_ints(mutable_list())               // fine: the parameter says
+let xs = mut_list_of()                  // ERROR: nothing says what T is
+let xs: Mut List<Int> = mut_list_of()   // fine: the annotation says
+let xs = mut_list_of<Int>()             // fine: written at the call
+takes_ints(mut_list_of())               // fine: the parameter says
 fn fresh() -> Mut List<Int> {
-    return mutable_list()                // fine: the return type says
+    return mut_list_of()                // fine: the return type says
 }
 ```
 
@@ -673,7 +801,7 @@ fn size<T>(list: List<T>) -> Int => list {
     return 99
 }
 
-size(list(1, 2, 3))   // 99 — this module's
+size(list_of(1, 2, 3))   // 99 — this module's
 size("abcd")          // 4  — core's, the only one that fits
 ```
 
@@ -686,7 +814,7 @@ Scope beats *signature*, deliberately — the alternative is a rule you cannot p
 - a **type variable** says the least: `describe(Int)` beats `describe<T>(T)`;
 - a **broader union** says less than a narrower one, which says less than a single arm: `Int` beats `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is the broadest type there is, so it is always last;
 - **more qualifiers** say more: `Mut NonEmpty List<T>` beats `Mut List<T>` beats `List<T>`. Which *kind* of qualifier never matters — ranking `Mut` against `NonEmpty` would ask you to know more than what is in front of you;
-- a **fixed** parameter list beats a variadic one, so `list()` picks a no-argument overload over `list(...elems)`.
+- a **fixed** parameter list beats a variadic one, so `list_of()` picks a no-argument overload over `list_of(...elems)`.
 
 Specificity can never exceed what the caller knows: a value whose type is `Int | Str` does not fit `f(Int)` at all, and once narrowed with `is`, it does.
 
@@ -792,8 +920,8 @@ fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
     return acc
 }
 
-total(list(1, 2, 3))                          // 6
-total(list(2, 3, 4), add = times, zero = one) // 24 — override one or both
+total(list_of(1, 2, 3))                          // 6
+total(list_of(2, 3, 4), add = times, zero = one) // 24 — override one or both
 ```
 
 The spread has **no name of its own**, deliberately: its members become
@@ -849,7 +977,7 @@ params Yield<It, T> {
 }
 
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, f {
-    let out = mutable_list<U>()
+    let out = mut_list_of<U>()
     for x in it {
         add(out, f(x))
     }
@@ -903,8 +1031,8 @@ type people map most. One named variant covers the rest:
 
 ```
 let doubled = map(xs, double)                       // Mut List<Int>
-let out = map_to(mutable_list<Int>(), iter(xs), double)
-let kept = filter_to(map_to(mutable_list<Int>(), iter(xs), double), iter(ys), is_even)
+let out = map_to(mut_list_of<Int>(), iter(xs), double)
+let kept = filter_to(map_to(mut_list_of<Int>(), iter(xs), double), iter(ys), is_even)
 ```
 
 The destination is moved in and returned, which is what makes the nested form
@@ -1018,7 +1146,7 @@ Functions can take lambdas as arguments, as `mapper` in the following example (t
 
 ```
 fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
-    let result: Mut List<T> = mutable_list()
+    let result: Mut List<T> = mut_list_of()
     for s in list {
         // Call `mapper` like a normal function
         add(result, mapper(s))
@@ -1036,7 +1164,7 @@ fn to_string(int: Int) -> Str {
 }
 
 fn do_something() {
-    let list: List<Int> = list(1, 2, 3)
+    let list: List<Int> = list_of(1, 2, 3)
 
     // The following are all equivalent
     transform(list, to_string) // Pass the function by name
@@ -1145,7 +1273,7 @@ included).
 ```
 fn take(p: Mut Slice<Int>, count: Int) -> Int => p: Mut { ... }   // keeps it
 
-let p = slice(list(1, 2, 3, 4))
+let p = slice(list_of(1, 2, 3, 4))
 let first = take(p, 2)     // 1 + 2
 let rest = take(p, 9)      // 3 + 4 — the same pass, carried on
 ```
@@ -1300,7 +1428,7 @@ A handler can be "registered" in the current context using the `use` keyword. Th
 fn main() [use] -> None {
     // Register the CyclicRandom as the implementation of Random<Int> for the rest of this function.
     // Attempts to register another Random<Int> will fail.
-    use CyclicRandom([1,2,3,4])
+    use CyclicRandom(array_of(1,2,3,4))
 
     // Here we can call the function next_random()
     let num = next_random()
@@ -1468,7 +1596,7 @@ The flip side is deliberate over-strictness: `add` cannot promise to preserve `N
 These are enforced at each call site: passing a variable to `remove_first` above removes `NonEmpty` from what the compiler knows about it, so a second `remove_first(list)` without an intervening `is NonEmpty` check fails overload resolution:
 
 ```
-let list: Mut List<Int> = mutable_list(1, 2, 3)
+let list: Mut List<Int> = mut_list_of(1, 2, 3)
 
 // We will discuss this "predicate qualifier" later
 if list is NonEmpty {
@@ -1558,7 +1686,7 @@ fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj 
 
 The result holds borrows of whatever the pass walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.
 
-**A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(list(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(list(1, 2)), f)`, `for x in iter(list(1, 2))` — the temporary lives that long on both backends.
+**A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(list_of(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(list_of(1, 2)), f)`, `for x in iter(list_of(1, 2))` — the temporary lives that long on both backends.
 
 **A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`proj[from: …]` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
 
@@ -1623,13 +1751,13 @@ Both modes in action on locals:
 ```
 // Borrow-mode: `ys` is only read, so `xs` stays usable — but mutating
 // the root poisons the derived variable.
-let xs = mutable_list(1, 2, 3)
+let xs = mut_list_of(1, 2, 3)
 let ys = xs          // ys derived from xs (borrow-mode: ys is never moved/mutated)
 add(xs, 4)           // mutates the root...
 size(ys)             // ERROR: ys shared xs's fate and xs was mutated
 
 // Move-mode: `ys` is mutated later, so the binding takes ownership.
-let xs = mutable_list(1, 2, 3)
+let xs = mut_list_of(1, 2, 3)
 let ys = xs          // ys takes ownership: xs is consumed here
 add(ys, 5)           // fine: ys owns the value
 add(xs, 4)           // ERROR: ys was bound from xs and later moves the value
@@ -1641,7 +1769,7 @@ add(zs, 6)           // fine, and ys is untouched
 **Lambdas follow the same discipline.** A lambda's relationship to the variables it captures is read off its body, and binds when the closure is created (a closure may run any number of times, so its contract cannot wait for the call): captured immutable values are free; a captured mutable value that the body only *reads* links the closure to it — the variable stays usable, but mutating it poisons the closure; a captured mutable value that the body *mutates* is consumed at creation — the closure owns it now (`copy` first to keep the original); and a lambda can never *consume* a capture, since every run after the first would use a moved value (`copy` inside the lambda instead).
 
 ```
-let xs = mutable_list(1, 2)
+let xs = mut_list_of(1, 2)
 let f = (n: Int) -> { return n + size(xs) }   // reads xs: closure linked to it
 apply(f, 1)          // fine
 add(xs, 9)           // mutates the root: f is poisoned
@@ -1665,7 +1793,7 @@ Some consequences worth knowing:
 - **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
 
 ```
-let p = Person {name: "ann", tags: mutable_list("x")}
+let p = Person {name: "ann", tags: mut_list_of("x")}
 let n = p.name           // derived from p.name
 add(p.tags, "y")         // mutates p.tags — a different field
 println(n)               // fine: the mutation could not have touched p.name
@@ -1678,13 +1806,13 @@ size(t)                  // ERROR: t shared p.tags's fate and p.tags was mutated
   Moving a field out is tracked the same way: the field leaves, the rest of the value stays. What left is remembered, so reading *that* field back is an error, and the value can no longer be handed on whole — but its other fields are still readable, and putting the field back with an assignment makes the value complete again.
 
 ```
-let p = Person {name: "ann", tags: mutable_list("x")}
+let p = Person {name: "ann", tags: mut_list_of("x")}
 eat(p.tags)              // consumes the field
 println(p.name)          // fine: a different field
 size(p.tags)             // ERROR: `p.tags` was moved out of `p`
 take(p)                  // ERROR: `p` cannot be used as a whole — part of it is gone
 
-p.tags = mutable_list()  // puts it back
+p.tags = mut_list_of()  // puts it back
 take(p)                  // fine again
 ```
 
@@ -1764,7 +1892,7 @@ Rules that keep the obligation sound:
 
 - **Linearity is declared, not applied**: `linear` cannot be written in a use-site type — every value of a `linear struct` type is linear, always. (A spelling you could forget would defeat the point.) `canbe linear` on a declaration is an error naming the modifier; on a *type parameter* it keeps its spelling, where it means something else entirely (below).
 - **A composite may not hold a linear value** — for now. Storing a handle in a struct field, an array, a tuple, a union arm or a type argument (`List<FileHandle>`) is an error *at the store*, rather than moving the obligation into the container: a linear value lives only in a local, a parameter or a return value. This is an interim rule; carrying an obligation through a container is one design question together with conditional linearity ("a `Box<T>` is linear exactly when `T` is"), and until that is answered the compiler refuses rather than guesses. The store is refused wherever it is written — the field's declaration, the literal, or a call like `add(list, handle)` that would put a bare value into a container.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mutable_list`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mut_list_of`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 
@@ -1854,9 +1982,11 @@ qualifier NonEmpty<T> of List<T> {
 
 // Requiring a first element guarantees the predicate by construction.
 fn non_empty_list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
-    return list(first, ...rest)
+    return list_of(first, ...rest)
 }
 ```
+
+**This one is real.** `NonEmpty`, and the constructor above, are declared in std's `core.list` — so is `Sorted`, and `Distinct` in `core.set`; see "Collections".
 
 This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
 
@@ -1942,7 +2072,7 @@ qualifier NonEmpty<T> of List<T> {
 At a call site the refinement has the last word. `add`'s own `=> list: Mut` drops everything it does not name, and then `+NonEmpty` puts the claim back:
 
 ```
-let xs: Mut List<Int> = mutable_list()
+let xs: Mut List<Int> = mut_list_of()
 add(xs, 1)
 // `xs` is `Mut NonEmpty List<Int>` here, so this resolves:
 let n = count(xs)
@@ -2171,7 +2301,7 @@ intrinsic fn copy<T>(value: proj T) -> T => value
 
 A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
 
-The standard library's collection and string surface (`list`, `mutable_list`, `add`, `get`, `first`, `size`, `iter`, and the string functions from `char_at` to `split`, `trim`, `join` and `parse_int`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
+The standard library's collection and string surface (`list`, `mut_list_of`, `add`, `get`, `first`, `size`, `iter`, and the string functions from `char_at` to `split`, `trim`, `join` and `parse_int`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
 
 Handlers can be intrinsic as well: `intrinsic handler StdOutConsole of Console` is bodyless in Salvo, and each backend emits a real class or trait impl for it.
 

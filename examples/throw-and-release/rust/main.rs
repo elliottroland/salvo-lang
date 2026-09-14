@@ -1,6 +1,8 @@
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "collections.rs"]
+pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
 #[path = "core/console.rs"]
@@ -9,8 +11,18 @@ pub mod core_console;
 pub mod core_iterator;
 #[path = "core/list.rs"]
 pub mod core_list;
+#[path = "core/map.rs"]
+pub mod core_map;
+#[path = "core/nonempty.rs"]
+pub mod core_nonempty;
 #[path = "core/result.rs"]
 pub mod core_result;
+#[path = "core/seq.rs"]
+pub mod core_seq;
+#[path = "core/set.rs"]
+pub mod core_set;
+#[path = "core/sorted.rs"]
+pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
 #[path = "core/throw.rs"]
@@ -20,13 +32,16 @@ use crate::core_array::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
+use crate::core_map::*;
 use crate::core_result::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::core_throw::*;
 use crate::unions::*;
 use std::ops::ControlFlow;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileHandle {
     pub name: String,
 }

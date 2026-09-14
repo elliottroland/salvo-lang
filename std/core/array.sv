@@ -1,13 +1,25 @@
-// Arrays (`T[]`) are a language-level type: literals (`[1, 2]`),
-// indexing (`arr[i]`), and `for`-iteration are built in [type-array].
-// This module supplies the *function* surface, mirroring `core.list`
-// minus construction (array literals are the constructor) and mutation
-// (arrays are fixed-size).
+// Arrays (`T[]`) are a language-level type: indexing (`arr[i]`) and
+// `for`-iteration are built in [type-array]. Since 2026-09-13 the bracket
+// literal `[1, 2]` builds a **List**, not an array [col-literal], so this
+// module supplies the constructor too — arrays are fixed-size, so there is
+// nothing to mutate but element assignment.
 //
 // The `<T canbe linear>` opt-ins mirror List's [linear-generics]:
 // measuring or iterating an array of linear values is fine, but taking
 // an element *out* of one would duplicate the obligation, so `get` and
 // `first` stay closed to linear types.
+
+// Builds an array from [elems]. The variadic tail **is** the array, which is
+// what makes this the constructor rather than a copy: a `...spread` argument
+// arrives as the whole array already [fn-variadic]. Arrays exist for the
+// variadic boundary, so a program that never spreads rarely needs one — a
+// `List` is the ordinary sequence [col-literal].
+intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[]
+
+// Builds an array of [size] elements, each from its index: `array_by(3, i ->
+// i * 2)` is `[0, 2, 4]`. The generator is called once per index, in order
+// [col-by].
+intrinsic fn array_by<T>(size: Int, init: (Int) -> T) [] -> T[] => size, init
 
 // Returns the number of elements in the array
 intrinsic fn size<T canbe linear>(array: T[]) [] -> Int => array

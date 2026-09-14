@@ -131,7 +131,7 @@ fn main() [use] {
 
     // Nothing is claimed yet, so `head` is not callable: the checker has an
     // empty list as far as it knows.
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
 
     // `add`'s refinement supplies the claim, without `add` mentioning it.
     add(xs, 3)
@@ -139,7 +139,7 @@ fn main() [use] {
 
     // The predicate is what an `is` check runs, which is how a list that
     // arrives from somewhere unknown earns the claim.
-    let maybe_empty = list(7, 8)
+    let maybe_empty = list_of(7, 8)
     if maybe_empty is NonEmpty {
         println("2. checked at run time, head is ${head(maybe_empty)}")
     }

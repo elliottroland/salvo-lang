@@ -89,7 +89,7 @@ fn canbe_rejects_a_qualifier_that_is_not_an_opt_in() {
     let errs = errors("struct Ticket canbe Ok {\n    id: Int\n}\n");
     assert!(
         errs.iter().any(|e| e.contains(
-            "only `Mut` and `once` can be opted into with `canbe`"
+            "only `Mut`, `once`, `hashed` and `ordered` can be opted into with `canbe`"
         )),
         "expected the canbe allowlist error, got {errs:?}"
     );

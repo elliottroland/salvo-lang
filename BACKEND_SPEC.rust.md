@@ -105,7 +105,7 @@ Conventions:
   * A read-only lowering binds its receiver once — `{ let __s = &A[..]; … }`
     — which both avoids evaluating a call argument twice and gives a `&str`
     whatever shape the place had (`String`, `&String`, `&mut String`).
-  * `mutable_str(parts)` *borrows* its parts (`[&a[..], &b[..]].concat()`):
+  * `mut_str(parts)` *borrows* its parts (`[&a[..], &b[..]].concat()`):
     they are read, not stored, and a variadic position is untracked by the
     flow analysis, so an owned splice would move a variable the checker
     still considers live [fn-variadic].
@@ -121,9 +121,9 @@ Conventions:
   `.is_none()`, `x!`→`.unwrap()`. Optionals are *physical* in Rust, so
   the checker's `WrapOption` coercion emits `Some(code)` [type-nullable]
   (Kotlin ignores the same coercion).
-* [type-array] `T[]` maps to `Vec<T>`; literals emit `vec![...]`;
-  `Int[5] { i: Int -> 0 }` emits an iterator-map-collect; indexing casts
-  the `i32` index (`v[(i) as usize]`).
+* [type-array] `T[]` maps to `Vec<T>`; `array_of` emits `vec![...]` and
+  `array_by` an iterator-map-collect [col-by]; indexing casts the `i32`
+  index (`v[(i) as usize]`).
 * [rs-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
   there is no iterator type and no runtime support module for one. A pass is a
   plain struct, `next` is a plain function, and a `for` over one is
@@ -354,7 +354,13 @@ derives them mechanically:
   calls); std's `first` intrinsic lowers to `list.first()` — clone-free.
 * **Generic bounds.** Every generic parameter gets a `Clone` bound
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
-  type. Structs additionally `#[derive(Clone, Debug)]`.
+  type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` —
+  equality works on every struct [col-equality] — plus `Eq` and `Hash` for
+  `canbe hashed`, and `Eq, PartialOrd, Ord` for `canbe ordered`
+  [col-hashed-ordered]. A struct with a fn-typed field derives only `Clone`:
+  `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
+  Generated union enums derive `PartialEq` too, conditionally on their
+  payloads, so a struct holding one can derive its own.
 * Deliberate simplicity, accepted costs: kept-parameter arguments are
   never moved even when it would be their last use (a clone happens
   instead); rustc's borrow checker remains the final authority — a
@@ -1080,6 +1086,49 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     leaves the `mod` declarations behind — rustc then reports unresolved
     imports for every module. This is why `Backend::emit` takes the
     entry.
+
+* [rs-fn-mangling] [qual-overload] The same collision, one level up: two
+  qualifiers may share a name over different subject types, and since
+  qualifiers are erased [qual-erasure] both would emit `Q_qualifies`. The
+  subject's base name disambiguates — `Filled__List_qualifies` — and only when
+  the name is actually overloaded, so a program with one `Filled` emits the
+  plain `Filled_qualifies` it always did. The predicate call site resolves the
+  same declaration from the subject in hand, so the two agree by construction.
+  Kotlin needs no equivalent: the JVM overloads on the parameter type.
+
+## Runtime modules [rs-runtime-source]
+
+* [rs-runtime-source] Code the backend *ships* rather than generates lives in
+  `runtime/*.rs`, included verbatim (`include_str!`) and written into a
+  program's output only when it touches the feature. They are real source
+  files, not string literals inside `emit.rs`, and
+  `tests/runtime_tests.rs` compiles each one directly with `rustc`: a syntax
+  error in one is then a failure in *that* module rather than in some
+  unrelated end-to-end test, and a change to one reviews as code instead of
+  as a diff of an escaped string.
+  * Each must compile **warning-free as a library crate** — it is spliced
+    into user output, where a warning is noise the user cannot fix.
+  * The test's list of modules is what makes it complete rather than a
+    sample, so a new runtime module belongs there the moment it exists.
+* [rs-collections] The insertion-ordered `Set`/`Map` [col-insertion-order]
+  are such a module: `runtime/collections.rs` defines `SalvoSet`/`SalvoMap`,
+  because Rust's standard library has no ordered hash container (`HashMap`
+  has no order; `BTreeMap` is *key* order and demands orderable keys). The
+  representation is a slot vector plus a hash index — insertion order is the
+  slot order, a removal tombstones its slot so the rest keep their
+  positions, and the vector is compacted once the tombstones outgrow the
+  live entries.
+  * `Map<K, V>` is `SalvoMap`, `Set<T>` is `SalvoSet`; the sorted pair maps
+    to `BTreeMap`/`BTreeSet` instead [col-sorted], which need no runtime.
+  * **Trait bounds live on the impl blocks, not on the struct**, and only
+    where they are needed: a generic Salvo fn mentioning `Set<T>` emits a
+    signature carrying only the bounds *Salvo* knows about, so a bound on
+    the type definition would make that signature unsatisfiable. `iter`,
+    `len`, `keys`, `values` and the `Display`/`Debug` impls are unbounded;
+    the hash operations require `Hash + Eq + Clone`.
+  * The runtime is emitted only into a program whose modules mention one of
+    the types or call one of their constructors, and the crate root mounts
+    it with `mod collections;` [rs-crate].
 
 ## Deliberate cuts ([backend-never-wrong])
 

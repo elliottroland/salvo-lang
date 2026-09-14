@@ -3,7 +3,23 @@ package salvo.core.list
 import salvo.*
 import salvo.core.array.*
 import salvo.core.iterator.*
+import salvo.core.map.*
+import salvo.core.nonempty.*
+import salvo.core.set.*
+import salvo.core.sorted.*
 import salvo.core.string.*
+
+fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
+    return list.size > 0
+}
+
+fun<T> non_empty_list(first: T, vararg rest: T): List<T> {
+    return listOf<T>(first, *rest)
+}
+
+fun<T> first(list: List<T>): T {
+    return list.getOrNull(0)!!
+}
 
 fun<T> iter__2(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)

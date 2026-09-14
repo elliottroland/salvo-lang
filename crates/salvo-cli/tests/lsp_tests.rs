@@ -952,7 +952,7 @@ qualifier NonEmpty<T> of List<T> {
 }
 
 fn main() [use] {
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
 }
 ";

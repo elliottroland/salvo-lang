@@ -32,8 +32,8 @@ const STD_PRELUDE: &str =
     "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
      intrinsic type List<T> canbe Mut\n\
      intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n\
-     intrinsic fn list<T>(...elems: T[]) [] -> List<T>\n\
+     intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+     intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
      intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
      intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
@@ -278,7 +278,7 @@ fn a_binding_may_not_shadow_the_subject() {
         "struct S { n: Int }\n\
          iter fn next(s: S) -> Emitted Int | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
-         for s in list(1, 2) {}\n    return finished()\n}\n",
+         for s in list_of(1, 2) {}\n    return finished()\n}\n",
     );
     assert!(
         errs.iter().any(|e| e.contains("would shadow it")),
@@ -470,7 +470,7 @@ fn a_generic_fn_infers_the_pass_type_of_a_written_iter() {
          let e = get(p.items, p.at)\n    if e is None {{\n        return finished()\n    }}\n    \
          p.at = p.at + 1\n    return emitted(e)\n}}\n\
          {CONTAINER_COMBINATOR}\n\
-         fn go() -> Int {{\n    let b = Bag {{ items: list(4, 5) }}\n    return total(b)\n}}\n"
+         fn go() -> Int {{\n    let b = Bag {{ items: list_of(4, 5) }}\n    return total(b)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

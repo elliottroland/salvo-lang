@@ -1,0 +1,12 @@
+1. issued #1 for 12A
+1. redeemed #1
+2. gone after one use
+1. issued #2 for 3C
+3. still holding #2 (3C)
+3. still holding #2 (3C)
+1. redeemed #2
+1. issued #3 for 1A
+4. read 1A, and #3 is still owed
+1. redeemed #3
+1. issued #4 for 9B
+1. redeemed #4

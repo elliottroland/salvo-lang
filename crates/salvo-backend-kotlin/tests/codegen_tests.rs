@@ -59,9 +59,9 @@ fn main() [use] -> None {
     greet(person)
     let anon = Person {...person, surname: None}
     greet(anon)
-    let names = list("a", "b")
+    let names = list_of("a", "b")
     println("first: ${names.first()!}")
-    let mut_names = mutable_list("x")
+    let mut_names = mut_list_of("x")
     mut_names.add("y")
     println("size: ${mut_names.size()}")
 }
@@ -498,8 +498,8 @@ fn main() [use] {
     for n in countdown(3) {
         println("n ${n}")
     }
-    let names = list("ada", "grace", "alan")
-    let ages = list(36, 45)
+    let names = list_of("ada", "grace", "alan")
+    let ages = list_of(36, 45)
     for pair in zip(names, ages) {
         println("${pair.0} is ${pair.1}")
     }
@@ -610,12 +610,12 @@ fn read_all(lines: List<Str>) [Throw<Str>, Console] -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    let good = try { read_all(list("alpha", "beta")) }
+    let good = try { read_all(list_of("alpha", "beta")) }
     when good {
         is Ok { println("read ${good}") }
         is Thrown { println("failed: ${good}") }
     }
-    let bad = try { read_all(list("alpha", "boom", "gamma")) }
+    let bad = try { read_all(list_of("alpha", "boom", "gamma")) }
     when bad {
         is Ok { println("read ${bad}") }
         is Thrown { println("failed: ${bad}") }
@@ -740,26 +740,26 @@ iter fn next(f: Flat) -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let base = list(1, 2)
+    let base = list_of(1, 2)
     let p: Mut ListYield<Int>? = iter(base)
     if p is Mut ListYield<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
-    let qs = list(7, 8)
+    let qs = list_of(7, 8)
     let q: Mut ListYield<Int> | Int = iter(qs)
     if q is Mut ListYield<Int> {
         show(next(q))
         show(next(q))
     }
-    let rs = list(1, 2, 3)
+    let rs = list_of(1, 2, 3)
     let r: Mut ListYield<Int>? = iter(rs)
     if r is Mut ListYield<Int> {
         r.at = 2
         show(next(r))
     }
-    let all = Flat { rows: list(list(1, 2), list(3, 4, 5)) }
+    let all = Flat { rows: list_of(list_of(1, 2), list_of(3, 4, 5)) }
     for n in iter(all) {
         println("n ${n}")
     }
@@ -938,8 +938,8 @@ iter fn next(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    use CyclicRandom([7, 8, 9])
-    let xs = list(1, 2, 3, 4)
+    use CyclicRandom(array_of(7, 8, 9))
+    let xs = list_of(1, 2, 3, 4)
     let p = slice(xs)
     println("first ${take(p, 2)}")
     println("rest ${take(p, 9)}")
@@ -1100,7 +1100,7 @@ fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
 }
 
 fn map2<It, T, U>(it: Mut It, mapper: (T) -> U, ?Yield<It, T>) -> Mut List<U> => it: Mut, mapper {
-    let out = mutable_list<U>()
+    let out = mut_list_of<U>()
     let going = true
     while going {
         let step = next(it)
@@ -1122,7 +1122,7 @@ fn double(n: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list(1, 2, 3)
+    let xs = list_of(1, 2, 3)
     let doubled = map2(slice(xs), double)
     for d in doubled {
         println("d ${d}")
@@ -1364,7 +1364,7 @@ fn fill(target: Mut List<Int>, n: Int) -> None => target: Mut {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let items: Mut List<Int> = mutable_list(1)
+    let items: Mut List<Int> = mut_list_of(1)
     fill(items, 2)
     println("size: ${items.size()}")
 }
@@ -1442,8 +1442,8 @@ fn lucky_number() [Random<Int>] -> Int {
 
 fn main() [use] {
     use StdOutConsole
-    use CyclicRandom(list(10, 20, 30))
-    use CyclicRandom(list("a", "b"))
+    use CyclicRandom(list_of(10, 20, 30))
+    use CyclicRandom(list_of("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -1663,6 +1663,167 @@ fn kotlin_case_with_entry(
 /// Every compile-and-run case. A new case is a function returning
 /// [`KotlinCase`] plus an entry here; the driver test below asserts nothing
 /// is forgotten by being the only place kotlinc runs.
+// ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list]
+// [col-distinct] =====
+
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_list_claims`. That equality is the assertion: the
+/// whole surface is std's own, and both `sort`'s ordering (Kotlin's natural
+/// `String` order is UTF-16 code units, Rust's is code points) and
+/// `binary_search`'s answer inside an equal run have to come out the
+/// language's way rather than the target's.
+fn kotlinc_compiles_and_runs_list_claims() -> KotlinCase {
+    let src = r#"
+// A position that demands distinctness needs no duplicate check of its own.
+fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
+    return size(xs)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    // NonEmpty by construction: `first` answers with an element, not `Int?`.
+    let built = non_empty_list(10, 20)
+    println("built ${first(built)}")
+
+    // NonEmpty by refinement: `add` establishes the claim on the qualifier's
+    // behalf, so `first` resolves to the same overload.
+    let grown: Mut List<Int> = mut_list_of()
+    add(grown, 7)
+    println("grown ${first(grown)}")
+
+    // NonEmpty by test.
+    let maybe = list_of(1, 2)
+    if maybe is NonEmpty {
+        println("tested ${first(maybe)}")
+    }
+
+    // Sorted, minted by `sort`; equal elements answer the lowest index.
+    let ordered = sort(list_of(5, 1, 4, 1, 3))
+    println("sorted ${to_str(ordered)}")
+    if binary_search(ordered, 1) is Int at {
+        println("lowest 1 at ${at}")
+    }
+    if binary_search(ordered, 9) is None {
+        println("9 absent")
+    }
+
+    // add_sorted keeps the claim across the mutation.
+    let live: Mut Sorted List<Int> = mut_sort(list_of(10, 40))
+    add_sorted(live, 20)
+    add_sorted(live, 5)
+    println("still sorted ${to_str(live)}")
+
+    // Strings order by code point on both backends.
+    let words = sort(list_of("pear", "Apple", "fig"))
+    println("words ${to_str(words)}")
+
+    // Distinct, minted by a set.
+    let unique = to_list(set_of(3, 1, 3, 2))
+    println("distinct ${to_str(unique)} of ${count_unique(unique)}")
+
+    // [qual-overload] The same claim over four more subjects: `NonEmpty` is
+    // one name whose meaning the subject decides.
+    let seen: Mut Set<Str> = mut_set_of()
+    add(seen, "a")
+    if seen is NonEmpty {
+        println("set claim ${size(seen)}")
+    }
+    let tally: Mut Map<Str, Int> = mut_map_of()
+    put(tally, "k", 1)
+    if tally is NonEmpty {
+        println("map claim ${size(tally)}")
+    }
+    let ranked = sorted_set_of(30, 10, 20)
+    if ranked is NonEmpty {
+        let lo = min(ranked)
+        let hi = max(ranked)
+        println("sorted claim ${lo}..${hi}")
+    }
+    let bykey = sorted_map_of(("b", 2), ("a", 1))
+    if bykey is NonEmpty {
+        let fk = first_key(bykey)
+        println("sorted map claim ${fk}")
+    }
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "list-claims", "built 10\n\
+     grown 7\n\
+     tested 1\n\
+     sorted [1, 1, 3, 4, 5]\n\
+     lowest 1 at 0\n\
+     9 absent\n\
+     still sorted [5, 10, 20, 40]\n\
+     words [Apple, fig, pear]\n\
+     distinct [3, 1, 2] of 3\n\
+     set claim 1\n\
+     map claim 1\n\
+     sorted claim 10..30\n\
+     sorted map claim a\n")
+}
+
+// ===== [fn-variadic] mixing plain arguments with a `...spread` =====
+
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_mixed_spread`. Kotlin has a native spread
+/// operator (`listOf(first, *rest)`), so mixed calls always worked here —
+/// which is exactly why this case is worth keeping on both sides: it is the
+/// backend that already agreed, and the assertion is that the Rust side now
+/// produces the same answers rather than dropping the leading elements.
+fn kotlinc_compiles_and_runs_mixed_spread() -> KotlinCase {
+    let src = r#"
+fn join_all(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
+    let out = mut_str(...parts)
+    println("${sep} ${out}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let rest = array_of(2, 3)
+    let all = list_of(1, ...rest)
+    println("list_of ${to_str(all)}")
+
+    // The spread source is still usable: a variadic position is not tracked,
+    // so the store clones rather than moves.
+    println("reusable ${size(rest)}")
+
+    let s = set_of(9, ...rest)
+    println("set_of ${to_str(s)}")
+    let sorted = sorted_set_of(9, ...rest)
+    println("sorted_set_of ${to_str(sorted)}")
+
+    let pairs = array_of(("b", 2))
+    let m = map_of(("a", 1), ...pairs)
+    println("map_of ${to_str(m)}")
+
+    let words = array_of("b", "c")
+    let joined = mut_str("a", ...words)
+    println("mut_str ${joined}")
+    join_all("ordinary", "x", ...words)
+
+    // A lone spread still forwards the whole collection.
+    let lone = list_of(...rest)
+    println("lone ${to_str(lone)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "mixed-spread", "list_of [1, 2, 3]\n\
+     reusable 2\n\
+     set_of {9, 2, 3}\n\
+     sorted_set_of {2, 3, 9}\n\
+     map_of {a: 1, b: 2}\n\
+     mut_str abc\n\
+     ordinary xbc\n\
+     lone [2, 3]\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
@@ -1692,6 +1853,15 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_place_operand,
     kotlinc_compiles_and_runs_tuple_index,
     kotlinc_compiles_and_runs_list_element_types,
+    kotlinc_compiles_and_runs_collections,
+    kotlinc_compiles_and_runs_collection_iteration,
+    kotlinc_compiles_and_runs_collection_literals,
+    kotlinc_compiles_and_runs_equality_and_ordering,
+    kotlinc_compiles_and_runs_sorted_collections,
+    kotlinc_compiles_and_runs_codepoint_string_order,
+    kotlinc_compiles_and_runs_generated_constructors,
+    kotlinc_compiles_and_runs_list_claims,
+    kotlinc_compiles_and_runs_mixed_spread,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_handler_deps_in_anger,
     kotlinc_compiles_and_runs_handler_deps_chain,
@@ -2536,7 +2706,7 @@ fn main() [use] -> None {
     let s = "hi"
     let t = copy(s)
     println(t)
-    let xs = mutable_list(1, 2, 3)
+    let xs = mut_list_of(1, 2, 3)
     let ys = copy(xs)
     ys.add(4)
     println("${xs.size()} ${ys.size()}")
@@ -2544,7 +2714,7 @@ fn main() [use] -> None {
     let q = copy(p)
     q.name = "b"
     println("${p.name} ${q.name}")
-    let arr = [1, 2]
+    let arr = array_of(1, 2)
     let brr = copy(arr)
     brr[0] = 9
     println("${arr[0]} ${brr[0]}")
@@ -2598,7 +2768,7 @@ fn copy_of_nested_mutable_type_is_an_error() {
     let program = build_program(&[(
         "bad.sv",
         "fn main() [use] -> None {\n    use StdOutConsole\n    \
-         let xs = mutable_list(mutable_list(1))\n    let ys = copy(xs)\n    \
+         let xs = mut_list_of(mut_list_of(1))\n    let ys = copy(xs)\n    \
          println(\"${ys.size()}\")\n}\n",
     )]);
     let result = salvo_backend_kotlin::emit_program(&program);
@@ -2649,12 +2819,12 @@ fn consume(text: Str) -> None => !text {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println(longest_name(people))
-    for s in list("x", "y") {
+    for s in list_of("x", "y") {
         consume(s)
     }
-    let xs = mutable_list(1, 2)
+    let xs = mut_list_of(1, 2)
     let ys = xs
     ys.add(3)
     println("${ys.size()}")
@@ -2693,7 +2863,7 @@ fn count_long(persons: List<Person>) -> Int => persons {
 }
 
 fn poison_guards_the_borrow() -> Int {
-    let xs = mutable_list(1, 2)
+    let xs = mut_list_of(1, 2)
     let ys = xs
     let n = size(ys)
     add(xs, 9)
@@ -2702,7 +2872,7 @@ fn poison_guards_the_borrow() -> Int {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     println("${count_long(people)}")
     println("${poison_guards_the_borrow()}")
 }
@@ -2820,7 +2990,7 @@ fn consume_list(v: List<Int>) [Console] -> None => !v {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let xs = list(1, 2, 3)
+    let xs = list_of(1, 2, 3)
     let g = () -> { consume_list(xs) }
     run_once(g)
     let n = 7
@@ -2866,7 +3036,7 @@ fn head_of(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => pe
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
+    let people = list_of(Person {name: "Kid", age: 9}, Person {name: "Grace", age: 45})
     let adult = find_adult(people)
     if adult is Person a {
         println("adult: ${a.name}")
@@ -2915,7 +3085,7 @@ fn count(people: List<Person>) -> Int => people {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let people = list(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
+    let people = list_of(Person {name: "Ada", age: 36}, Person {name: "Grace", age: 45})
     let twice = apply_keeping((v: List<Person>) -> { return size(v) }, people)
     println("twice=${twice}")
     println("still=${size(people)}")
@@ -3276,20 +3446,20 @@ fn kotlinc_compiles_and_runs_tuple_index() -> KotlinCase {
 }
 
 // ===== list constructors carry their element type =====
-// `mutable_list()` must not emit a bare `mutableListOf()`, which kotlinc
+// `mut_list_of()` must not emit a bare `mutableListOf()`, which kotlinc
 // cannot infer: an empty list constructor renders its element type from the
 // call's resolved type arguments (`mutableListOf<Int>()`), since Kotlin
 // cannot infer a type argument that the source never wrote.
 
-/// The std list constructors use this: `mutable_list()` must not emit a bare
+/// The std list constructors use this: `mut_list_of()` must not emit a bare
 /// `mutableListOf()`, which kotlinc cannot infer.
 #[test]
 fn list_constructors_carry_their_element_type() {
     let src = r#"
 fn main() [use] -> None {
     use StdOutConsole
-    let xs: Mut List<Int> = mutable_list()
-    let ys = list<Str>()
+    let xs: Mut List<Int> = mut_list_of()
+    let ys = list_of<Str>()
     add(xs, 1)
     println("${size(xs)} ${size(ys)}")
 }
@@ -3313,10 +3483,10 @@ fn kotlinc_compiles_and_runs_list_element_types() -> KotlinCase {
     let src = r#"
 fn main() [use] -> None {
     use StdOutConsole
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     add(xs, 2)
-    let ys = mutable_list<Str>()
+    let ys = mut_list_of<Str>()
     add(ys, "a")
     println("${size(xs)} ${size(ys)}")
 }
@@ -3326,6 +3496,387 @@ fn main() [use] -> None {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
     kotlin_case(files, "list-element-types", "2 1\n")
+}
+
+// ===== collections [col-insertion-order] =====
+
+/// The **same source and the same expected output** as the Rust backend's
+/// `rustc_compiles_and_runs_collections`, which is what makes the pair a
+/// [backend-parity] test: Kotlin gets insertion order from `LinkedHashMap` /
+/// `LinkedHashSet` and Rust from its runtime module [rs-collections], and
+/// the two must be indistinguishable from Salvo. Keep the two copies in
+/// step — a divergence here is a defect, not a test bug.
+fn kotlinc_compiles_and_runs_collections() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+
+    let s: Mut Set<Str> = mut_set_of("b", "a", "c")
+    println("set: ${to_str(s)} size: ${size(s)}")
+    let added_new = add(s, "d")
+    let added_dup = add(s, "a")
+    println("add new: ${added_new} dup: ${added_dup} now: ${to_str(s)}")
+    let has_a = contains(s, "a")
+    let gone = remove(s, "a")
+    let gone_again = remove(s, "a")
+    println("contains: ${has_a} remove: ${gone} again: ${gone_again} left: ${to_str(s)}")
+    let dedup = set_of(1, 2, 1, 3)
+    println("dedup: ${to_str(dedup)} size: ${size(dedup)}")
+
+    let m: Mut Map<Str, Int> = mut_map_of(("one", 1), ("two", 2))
+    put(m, "three", 3)
+    println("map: ${to_str(m)}")
+    put(m, "one", 111)
+    println("overwrite keeps position: ${to_str(m)}")
+    let two = get(m, "two")
+    if two is Int {
+        println("get: ${two}")
+    }
+    let absent = get(m, "nope")
+    let is_absent = absent is None
+    let taken = remove(m, "two")
+    if taken is Int {
+        println("absent: ${is_absent} removed: ${taken} left: ${to_str(m)}")
+    }
+    let has_one = contains_key(m, "one")
+    println("contains_key: ${has_one} size: ${size(m)}")
+    let dup_keys = map_of(("x", 1), ("y", 2), ("x", 9))
+    println("dup keys: ${to_str(dup_keys)}")
+    let ints: Mut Map<Int, Str> = mut_map_of()
+    put(ints, 7, "seven")
+    put(ints, 3, "three")
+    println("int keys: ${to_str(ints)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "collections",
+        "set: {b, a, c} size: 3\n\
+         add new: true dup: false now: {b, a, c, d}\n\
+         contains: true remove: true again: false left: {b, c, d}\n\
+         dedup: {1, 2, 3} size: 3\n\
+         map: {one: 1, two: 2, three: 3}\n\
+         overwrite keeps position: {one: 111, two: 2, three: 3}\n\
+         get: 2\n\
+         absent: true removed: 2 left: {one: 111, three: 3}\n\
+         contains_key: true size: 2\n\
+         dup keys: {x: 9, y: 2}\n\
+         int keys: {7: seven, 3: three}\n",
+    )
+}
+
+/// [iter-pass] The same source and expected output as the Rust backend's
+/// `rustc_compiles_and_runs_collection_iteration` — iterating a set's
+/// elements and a map's keys [backend-parity].
+fn kotlinc_compiles_and_runs_collection_iteration() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s = set_of("b", "a", "c")
+    for e in iter(s) {
+        println("elem: ${e}")
+    }
+    let xs = to_list(s)
+    println("as list: ${to_str(xs)}")
+    let n: Int = reduce(iter(s), 0, (acc, e) -> acc + size(e))
+    println("total length: ${n}")
+
+    let m = map_of(("one", 1), ("two", 2), ("three", 3))
+    for k in iter(m) {
+        let v = get(m, k)
+        if v is Int {
+            println("${k} -> ${v}")
+        }
+    }
+    println("keys: ${to_str(keys(m))}")
+    let total: Int = reduce(iter(m), 0, (acc, k) -> acc + size(k))
+    println("key length total: ${total}")
+
+    let empty: Set<Int> = set_of()
+    for e in iter(empty) {
+        println("unreachable ${e}")
+    }
+    println("done")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "collection-iter",
+        "elem: b\n\
+     elem: a\n\
+     elem: c\n\
+     as list: [b, a, c]\n\
+     total length: 3\n\
+     one -> 1\n\
+     two -> 2\n\
+     three -> 3\n\
+     keys: [one, two, three]\n\
+     key length total: 11\n\
+     done\n",
+    )
+}
+
+/// [col-literal] The same source and expected output as the Rust backend's
+/// `rustc_compiles_and_runs_collection_literals` [backend-parity].
+fn kotlinc_compiles_and_runs_collection_literals() -> KotlinCase {
+    let src = r#"
+struct Point {
+    x: Int,
+    y: Int
+}
+
+fn takes_set(s: Set<Int>) -> Int => s {
+    return size(s)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs = [1, 2, 3]
+    println("list: ${to_str(xs)}")
+    let mxs: Mut List<Int> = [4, 5]
+    add(mxs, 6)
+    println("mut list: ${to_str(mxs)}")
+    let s: Set<Str> = {"b", "a", "b"}
+    println("set: ${to_str(s)}")
+    let m: Map<Str, Int> = {"one": 1, "two": 2}
+    println("map: ${to_str(m)}")
+    let ms: Mut Set<Int> = {}
+    add(ms, 9)
+    println("empty then filled: ${to_str(ms)}")
+    let mm: Map<Str, Int> = {}
+    println("empty map: ${to_str(mm)} via param: ${takes_set({})}")
+    let p: Point = {x: 1, y: 2}
+    println("struct literal still: ${p.x},${p.y}")
+    let arr = array_of(7, 8)
+    println("array: ${size(arr)} ${arr[0]}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "collection-literals", "list: [1, 2, 3]\n\
+     mut list: [4, 5, 6]\n\
+     set: {b, a}\n\
+     map: {one: 1, two: 2}\n\
+     empty then filled: {9}\n\
+     empty map: {} via param: 0\n\
+     struct literal still: 1,2\n\
+     array: 2 7\n")
+}
+
+/// [col-equality] [kt-float-eq] The same source and expected output as the
+/// Rust backend's `rustc_compiles_and_runs_equality_and_ordering`
+/// [backend-parity] — including `struct nan equality: false`, which the data
+/// class's own `equals` would have reported as `true`.
+fn kotlinc_compiles_and_runs_equality_and_ordering() -> KotlinCase {
+    let src = r#"
+struct Point canbe hashed, ordered {
+    x: Int,
+    y: Int
+}
+
+struct Version canbe hashed, ordered {
+    parts: List<Int>,
+    label: (Str, Int)
+}
+
+struct Measure {
+    value: Double
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 3 }
+    let r = Point { x: 1, y: 2 }
+    let eq = p == r
+    let ne = p != q
+    let lt = p < q
+    let ge = q >= p
+    println("eq: ${eq} ne: ${ne} lt: ${lt} ge: ${ge}")
+
+    let seen: Mut Set<Point> = {}
+    add(seen, Point { x: 1, y: 2 })
+    let dup = add(seen, Point { x: 1, y: 2 })
+    println("struct key: size ${size(seen)} dup ${dup}")
+
+    let by: Mut Map<Point, Str> = {}
+    put(by, Point { x: 9, y: 9 }, "nine")
+    let hit = get(by, Point { x: 9, y: 9 })
+    if hit is Str {
+        println("struct lookup: ${hit}")
+    }
+
+    let a = Version { parts: [1, 2, 0], label: ("a", 1) }
+    let b = Version { parts: [1, 3], label: ("a", 1) }
+    let c = Version { parts: [1, 2], label: ("a", 1) }
+    let ab = a < b
+    let ca = c < a
+    println("list order: ${ab} prefix: ${ca}")
+
+    let zero = 0.0
+    let m1 = Measure { value: zero / zero }
+    let m2 = Measure { value: zero / zero }
+    let nan_eq = m1 == m2
+    println("struct nan equality: ${nan_eq}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "equality-ordering", "eq: true ne: true lt: true ge: true\n\
+     struct key: size 1 dup false\n\
+     struct lookup: nine\n\
+     list order: true prefix: true\n\
+     struct nan equality: false\n")
+}
+
+/// [col-sorted] The same source and expected output as the Rust backend's
+/// `rustc_compiles_and_runs_sorted_collections` [backend-parity].
+fn kotlinc_compiles_and_runs_sorted_collections() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple", "fig")
+    println("set: ${to_str(s)}")
+    let added = add(s, "banana")
+    let dup = add(s, "apple")
+    println("add ${added} dup ${dup} now ${to_str(s)}")
+    // [col-nonempty] `add` established `NonEmpty`, so `min`/`max` resolve to
+    // the overloads that answer with an element rather than an optional —
+    // no test needed here any more.
+    let lo = min(s)
+    let hi = max(s)
+    println("min ${lo} max ${hi}")
+    let had = remove(s, "fig")
+    println("removed ${had} left ${to_str(s)} size ${size(s)}")
+    let ns = sorted_set_of(10, 2, 33, 4)
+    println("ints ${to_str(ns)} list ${to_str(to_list(ns))}")
+
+    let m: Mut SortedMap<Str, Int> = mut_sorted_map_of(("two", 2), ("one", 1))
+    put(m, "three", 3)
+    println("map ${to_str(m)}")
+    let v = get(m, "two")
+    if v is Int {
+        println("get ${v}")
+    }
+    // Likewise: `put` established the claim on the map.
+    let fk = first_key(m)
+    let lk = last_key(m)
+    println("first ${fk} last ${lk}")
+    let taken = remove(m, "one")
+    if taken is Int {
+        println("took ${taken} left ${to_str(m)}")
+    }
+    let has3 = contains_key(m, "three")
+    println("keys ${to_str(keys(m))} has ${has3}")
+    for e in iter(ns) {
+        println("e ${e}")
+    }
+    for k in iter(m) {
+        println("k ${k}")
+    }
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "sorted-collections", "set: {apple, fig, pear}\n\
+     add true dup false now {apple, banana, fig, pear}\n\
+     min apple max pear\n\
+     removed true left {apple, banana, pear} size 3\n\
+     ints {2, 4, 10, 33} list [2, 4, 10, 33]\n\
+     map {one: 1, three: 3, two: 2}\n\
+     get 2\n\
+     first one last two\n\
+     took 1 left {three: 3, two: 2}\n\
+     keys [three, two] has true\n\
+     e 2\n\
+     e 4\n\
+     e 10\n\
+     e 33\n\
+     k three\n\
+     k two\n")
+}
+
+/// [kt-ordered] Strings sort by **code point**: the JVM's own
+/// `String.compareTo` is UTF-16 code-unit order, which would put an astral
+/// character before a BMP one and disagree with Rust [backend-parity]. Paired
+/// with the Rust backend's `rustc_compiles_and_runs_codepoint_string_order`.
+fn kotlinc_compiles_and_runs_codepoint_string_order() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    let bmp = "Ａ"
+    let s = sorted_set_of("😀", "Ａ")
+    let first = min(s)
+    if first is Str {
+        let is_bmp = first == bmp
+        println("smallest is the BMP char: ${is_bmp}")
+    }
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "codepoint-order", "smallest is the BMP char: true\n")
+}
+
+/// [col-by] [col-convert] The same source and expected output as the Rust
+/// backend's `rustc_compiles_and_runs_generated_constructors`
+/// [backend-parity]. Notable on this backend: the callbacks are handed to
+/// Kotlin builders rather than invoked inline, since an immediately applied
+/// lambda literal has no expected type for kotlinc to infer from.
+fn kotlinc_compiles_and_runs_generated_constructors() -> KotlinCase {
+    let src = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    let a = array_by(3, i -> i * 2)
+    println("array_by ${a[0]} ${a[1]} ${a[2]}")
+    let xs = list_by(4, i -> i + 10)
+    println("list_by ${to_str(xs)}")
+    let s = set_by(5, i -> i % 3)
+    println("set_by ${to_str(s)}")
+    let m = map_by(3, i -> (i, i * i))
+    println("map_by ${to_str(m)}")
+    let dups = [1, 2, 2, 3]
+    let uniq = to_set(dups)
+    println("to_set ${to_str(uniq)}")
+    let pairs = [("a", 1), ("b", 2)]
+    let m2 = to_map(pairs)
+    println("to_map pairs ${to_str(m2)}")
+    let words = ["alpha", "be"]
+    let m3 = to_map(words, w -> (w, size(w)))
+    println("to_map rule ${to_str(m3)}")
+    let arr = array_of(1, 2, 3)
+    arr[0] = 9
+    println("assigned ${arr[0]} size ${size(arr)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "by-and-convert", "array_by 0 2 4\n\
+     list_by [10, 11, 12, 13]\n\
+     set_by {0, 1, 2}\n\
+     map_by {0: 0, 1: 1, 2: 4}\n\
+     to_set {1, 2, 3}\n\
+     to_map pairs {a: 1, b: 2}\n\
+     to_map rule {alpha: 5, be: 2}\n\
+     assigned 9 size 3\n")
 }
 
 // ===== effect dependencies on handlers [effect-handler-deps] =====
@@ -3481,7 +4032,7 @@ fn main() [use] -> None {
         banner()
     }
     log("outer again")
-    use CyclicRandom([10, 20, 30])
+    use CyclicRandom(array_of(10, 20, 30))
     draw()
     draw()
 }
@@ -3600,7 +4151,7 @@ handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
 }
 
 handler MemSink of Sink {
-    held: Mut List<Int> = mutable_list()
+    held: Mut List<Int> = mut_list_of()
     fn keep(items: Mut List<Int>) -> None => !items { held = items }
     fn kept() -> Int { return size(held) }
 }
@@ -3613,7 +4164,7 @@ handler MemCounter of Counter {
 
 fn tallied(text: Str) [Console, use] -> None => text {
     use MemSink
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, size(text))
     keep(xs)
     println("  tallied ${kept()}")
@@ -3640,7 +4191,7 @@ fn main() [use] -> None {
     let i = 0
     while i < 2 {
         use MemSink
-        let ys: Mut List<Int> = mutable_list()
+        let ys: Mut List<Int> = mut_list_of()
         add(ys, copy(i))
         keep(ys)
         report("loop ${kept()}")
@@ -3689,9 +4240,9 @@ fn describe(r: Result) -> Str {
 
 fn main() [use] -> None {
     use StdOutConsole
-    let arr: Result[] = [tag_ok(1), tag_err("a")]
+    let arr: List<Result> = [tag_ok(1), tag_err("a")]
     for x in arr {
-        println(describe(x))
+        println(describe(copy(x)))
     }
     let tup: (Str, Result) = ("t", tag_ok(2))
     let (label, r) = tup
@@ -3715,7 +4266,10 @@ fn union_coercion_in_array_tuple_lambda() {
         .find(|f| f.rel_path.ends_with("main.kt"))
         .unwrap();
     for needle in [
-        "arrayOf(U2_1<Int, String>(tag_ok(1)), U2_2<Int, String>(tag_err(\"a\")))",
+        // [col-literal] `[...]` builds a List now, so the coercion wrappers
+        // appear inside `listOf` rather than `arrayOf`.
+        "listOf<Union2<Int, String>>(U2_1<Int, String>(tag_ok(1)), \
+         U2_2<Int, String>(tag_err(\"a\")))",
         "Pair(\"t\", U2_1<Int, String>(tag_ok(2)))",
         "U2_1<Int, String>(tag_ok(3))",
     ] {
@@ -3845,7 +4399,7 @@ fn roll() [Random<Count>] -> Count {
 
 fn main() [use] -> None {
     use StdOutConsole
-    use CyclicRandom(list(7, 8))
+    use CyclicRandom(list_of(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -3906,8 +4460,8 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
 
 fn main() [use] -> None {
     use StdOutConsole
-    use CyclicRandom([1, 2, 3, 4])
-    let nums: Int[] = [3, 4, 5]
+    use CyclicRandom(array_of(1, 2, 3, 4))
+    let nums: Int[] = array_of(3, 4, 5)
     println("size ${nums.size()} get ${nums.get(2)!} first ${nums.first()!}")
     for n in nums.iter() {
         println("iter ${n}")
@@ -4156,13 +4710,13 @@ fn describe(l: Trusted List<Int>) -> Str {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let t = trust(mutable_list(1, 2))
+    let t = trust(mut_list_of(1, 2))
     t.add(3)
     println(describe(t))
-    let c = check(mutable_list(1, 2))
+    let c = check(mut_list_of(1, 2))
     c.add(3)
     println(describe(c))
-    let c2 = check(mutable_list(4, 5))
+    let c2 = check(mut_list_of(4, 5))
     println(describe(c2))
 }
 "#;
@@ -4923,7 +5477,7 @@ fn double(n: Int) -> Int {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list(1, 2, 3)
+    let xs = list_of(1, 2, 3)
     for v in xs.twice(double) {
         println("v=${v}")
     }
@@ -4988,7 +5542,7 @@ fn is_even(n: Int) -> Bool {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let xs = list(1, 2, 3, 4)
+    let xs = list_of(1, 2, 3, 4)
     let doubled = map(xs, double)
     println("eager ${doubled.size()}")
     let generic = map(iter(copy(xs)), double)
@@ -4996,9 +5550,9 @@ fn main() [use] -> None {
     let snapshot = copy(xs)
     let kept = filter(iter(snapshot), is_even)
     println("kept ${kept.size()}")
-    let out = map_to(mutable_list<Int>(), iter(copy(xs)), double)
+    let out = map_to(mut_list_of<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
-    let chained = filter_to(map_to(mutable_list<Int>(), iter(copy(xs)), double), iter(xs), is_even)
+    let chained = filter_to(map_to(mut_list_of<Int>(), iter(copy(xs)), double), iter(xs), is_even)
     println("chained ${chained.size()}")
 }
 "#;
@@ -5117,9 +5671,9 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 
 fn main() [use] {
     use StdOutConsole()
-    println("total=${total(list(1, 2, 3))}")
-    println("product=${total(list(2, 3, 4), add = times, zero = one)}")
-    println("nested=${total_all(list(list(1, 2), list(3)))}")
+    println("total=${total(list_of(1, 2, 3))}")
+    println("product=${total(list_of(2, 3, 4), add = times, zero = one)}")
+    println("nested=${total_all(list_of(list_of(1, 2), list_of(3)))}")
     println("pair=${sum_pair(20, 22)}")
     println("lambda=${sum_pair(2, 3, add = (a: Int, b: Int) -> a * b)}")
 }
@@ -5323,7 +5877,7 @@ fn refill(list: Mut NonEmpty List<Int>, value: Int) -> None => list: Mut NonEmpt
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     println("after add: ${count(xs)}")
     refill(xs, 2)
@@ -5363,20 +5917,25 @@ fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
 /// warning must reach the driver, or the diagnostic exists only in `salvo
 /// analyze`. Tested per backend because both the gate and the channel are
 /// duplicated in each: the same condition has to fire on both sides.
+// `with NonEmpty` on both: std's own `NonEmpty` refines `add` too
+// [col-nonempty], so without it the disagreement would be three-way and this
+// test would be asserting std's presence rather than the rule. Declaring
+// compatibility with std's claim is the one-word remedy a user reaches for —
+// it leaves exactly the Q1-vs-Q2 conflict this test is about.
 const REFN_CONFLICT_DEMO: &str = r#"
-qualifier Q1<T> of List<T> {
+qualifier Q1<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q1
 }
 
-qualifier Q2<T> of List<T> {
+qualifier Q2<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q2
 }
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     if xs is Q1 {
         println("checked by hand: ${size(xs)}")
@@ -5443,7 +6002,7 @@ fn shout(text: Str) -> Str {
 fn main() [use] {
     use StdOutConsole()
     // A builder, and the drop that lets it reach the `Str` surface.
-    let b = mutable_str("he", "llo")
+    let b = mut_str("he", "llo")
     append(b, " world")
     set(b, 0, 'H')
     println(shout(b))
@@ -5481,15 +6040,15 @@ fn main() [use] {
     println("${n!} ${bad is None}")
     println("${trim_prefix(hay, hay)}${trim_suffix(hay, lo)}|")
 
-    let count = mutable_list<Int>()
+    let count = mut_list_of<Int>()
     for c in iter(hay) {
         add(count, 1)
     }
     println("chars: ${size(count)}")
 
     // Operators drop `Mut` too, so equality is by content on both targets.
-    let x = mutable_str(pa)
-    let y = mutable_str(pa)
+    let x = mut_str(pa)
+    let y = mut_str(pa)
     println("equal: ${x == y}")
 }
 "#;
@@ -5562,9 +6121,9 @@ fn a_spread_into_a_variadic_intrinsic_spreads() -> KotlinCase {
     let src = r#"
 fn main() [use] {
     use StdOutConsole()
-    let parts = ["a", "b"]
-    let sb = mutable_str(...parts)
-    let xs = list(...parts)
+    let parts = array_of("a", "b")
+    let sb = mut_str(...parts)
+    let xs = list_of(...parts)
     println("${sb} ${size(xs)}")
 }
 "#;
@@ -5605,10 +6164,10 @@ fn grow(s: Mut Str) -> None => s: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let b = mutable_str("seed")
+    let b = mut_str("seed")
     grow(b)
     println("${b} ${size(b)}")
-    let buf = Mut Buf {text: mutable_str("in-struct")}
+    let buf = Mut Buf {text: mut_str("in-struct")}
     append(buf.text, "!")
     set(buf.text, 0, 'I')
     println("${buf.text}")
@@ -5667,14 +6226,14 @@ iter fn next(n: Naturals) -> Emitted Int | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list(1, 2, 3, 4)
+    let xs = list_of(1, 2, 3, 4)
     let doubled = map(xs, n -> n * 2)
     let sum = reduce(xs, 0, (a, b) -> a + b)
     let big = filter(xs, n -> n > 2)
     println("list: ${size(doubled)} ${sum} ${size(big)}")
     let named = map(xs, double)
     println("named: ${size(named)}")
-    let arr = [10, 20, 30]
+    let arr = array_of(10, 20, 30)
     let arr_sum = reduce(iter(copy(arr)), 0, (a, b) -> a + b)
     let arr_mapped = map(iter(arr), n -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")
@@ -5685,11 +6244,11 @@ fn main() [use] {
     let tripled = map(xs, n -> n * 3)
     let chained = filter(iter(tripled), n -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
-    let names = list("ann", "bob", "carol")
+    let names = list_of("ann", "bob", "carol")
     let lens = map(names, n -> size(n))
     let long = filter(names, n -> size(n) > 3)
     println("names: ${size(lens)} ${size(long)}")
-    let bag = Bag {items: list(5, 6)}
+    let bag = Bag {items: list_of(5, 6)}
     println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
     // [iter-pass] `for` over a *container of one's own*: the loop calls its
     // `iter` once and drives the pass that answers. Until 2026-09-09 the
@@ -5697,7 +6256,7 @@ fn main() [use] {
     // shape emitted code the target compiler rejected.
     // (a second bag, because this demo's `iter` *moves* its container — the
     // one above was consumed by the `reduce`.)
-    let more = Bag {items: list(5, 6)}
+    let more = Bag {items: list_of(5, 6)}
     for n in more {
         println("bag element ${n}")
     }
@@ -5789,7 +6348,7 @@ rename fn label_small = label(n: Small Int)
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list(1, 2, 3)
+    let xs = list_of(1, 2, 3)
     // This module's `size` wins; `@core.list` reaches std's.
     println(size(xs))
     println("core: ${size@core.list(xs)}")
@@ -5945,10 +6504,10 @@ fn sum_ints<It>(it: Mut It, ?Yield<It, Int>) [] -> Int => it: Mut {
 
 fn main() [use] {
     use StdOutConsole()
-    let xs = list(1, 2, 3)
+    let xs = list_of(1, 2, 3)
     let p = slice(xs)
     println("count ${count_all(p)}")
-    let ys = list(4, 5)
+    let ys = list_of(4, 5)
     let q = slice(ys)
     println("sum ${sum_ints(q)}")
 }
@@ -6183,9 +6742,10 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     );
     // [fn-effects] The effectful `next` gets its handler per turn. The mangling
     // index counts the visible `next` overloads, so it moved when std's lazy
-    // pair (two of them) was removed 2026-09-10.
+    // pair (two of them) was removed 2026-09-10, and again when `Set` and
+    // `Map` brought their own passes (two more) 2026-09-13.
     assert!(
-        src.contains("next__6(console, __loop"),
+        src.contains("next__8(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -6235,9 +6795,9 @@ fn main() [use] {
     use StdOutConsole()
     let c = Countdown { from: 3 }
     println("generated pass: ${total(c)}")
-    let b = Bag { items: list(4, 5) }
+    let b = Bag { items: list_of(4, 5) }
     println("written iter: ${total(b)}")
-    println("a list: ${total(list(1, 2, 3))}")
+    println("a list: ${total(list_of(1, 2, 3))}")
 }
 "#;
 
@@ -6275,27 +6835,27 @@ fn touch(list: Mut List<Str>) -> None => list: Mut {
 fn main() [use] {
     use StdOutConsole()
     // read one field, mutate another
-    let p = Person { name: "ann", tags: mutable_list("x") }
+    let p = Person { name: "ann", tags: mut_list_of("x") }
     let n = p.name
     add(p.tags, "y")
     println("A ${n} ${size(p.tags)}")
 
     // two disjoint mutable fields
-    let q = Pair { left: mutable_list("l"), right: mutable_list("r") }
+    let q = Pair { left: mut_list_of("l"), right: mut_list_of("r") }
     let l = q.left
     add(q.right, "r2")
     println("C ${size(l)} ${size(q.right)}")
 
     // read a field, hand a disjoint field to a mutating fn
-    let p2 = Person { name: "dee", tags: mutable_list("x") }
+    let p2 = Person { name: "dee", tags: mut_list_of("x") }
     let n2 = p2.name
     touch(p2.tags)
     println("D ${n2} ${size(p2.tags)}")
 
     // assignment to a disjoint field
-    let p3 = Mut Person { name: "eve", tags: mutable_list("x") }
+    let p3 = Mut Person { name: "eve", tags: mut_list_of("x") }
     let n3 = p3.name
-    p3.tags = mutable_list("q", "r")
+    p3.tags = mut_list_of("q", "r")
     println("E ${n3} ${size(p3.tags)}")
 }
 "#;
@@ -6331,20 +6891,20 @@ fn eat(list: Mut List<Str>) -> None => !list {
 fn main() [use] {
     use StdOutConsole()
     // hand one field away, keep reading the other
-    let p = Person { name: "ann", tags: mutable_list("x") }
+    let p = Person { name: "ann", tags: mut_list_of("x") }
     eat(p.tags)
     println("1 ${p.name}")
 
     // the same through a move-mode binding
-    let q = Person { name: "bob", tags: mutable_list("y") }
+    let q = Person { name: "bob", tags: mut_list_of("y") }
     let t = q.tags
     add(t, "z")
     println("2 ${q.name} ${size(t)}")
 
     // put the field back, and the whole value works again
-    let u = Mut Person { name: "eve", tags: mutable_list("t") }
+    let u = Mut Person { name: "eve", tags: mut_list_of("t") }
     eat(u.tags)
-    u.tags = mutable_list("new", "pair")
+    u.tags = mut_list_of("new", "pair")
     println("3 ${u.name} ${size(u.tags)}")
 }
 "#;
@@ -6426,11 +6986,11 @@ iter fn next<T>(b: Box<T>) -> Emitted (proj[from: b] T) | Finished {
 
 fn main() [use] {
     use StdOutConsole()
-    let b = Box<Str> { items: list("a", "b") }
+    let b = Box<Str> { items: list_of("a", "b") }
     for s in iter(b) {
         println(s)
     }
-    let n = Box<Int> { items: list(1, 2, 3) }
+    let n = Box<Int> { items: list_of(1, 2, 3) }
     println("${reduce(iter(n), 0, (acc, x) -> acc + x)}")
 }
 "#;
@@ -6473,8 +7033,8 @@ fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> 
 
 fn main() [use] {
     use StdOutConsole()
-    let a = list(1, 2)
-    let b = list(3, 4, 5)
+    let a = list_of(1, 2)
+    let b = list_of(3, 4, 5)
     println("${size(either(a, b, true))} ${size(either(a, b, false))}")
     let v = view(a)
     repoint(v, b)
@@ -6509,7 +7069,7 @@ fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
 
 fn main() [use] {
     use StdOutConsole()
-    let words = list("ann", "bo")
+    let words = list_of("ann", "bo")
     let p = iter(words)
     show(next(p))
     show(next(p))
@@ -6540,8 +7100,8 @@ fn kotlinc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() -> Kot
 const PICK_LIST_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
-    let all = list("a", "b", "c", "d")
-    let indices = list(1, 3)
+    let all = list_of("a", "b", "c", "d")
+    let indices = list_of(1, 3)
     let picked = map(indices, i -> get(all, i)!)
     for w in picked {
         println(w)

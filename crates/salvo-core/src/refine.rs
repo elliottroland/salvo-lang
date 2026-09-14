@@ -198,7 +198,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 Some(q) => scope
                     .qualifiers
                     .get(q.name.name.as_str())
-                    .is_some_and(|d| std::ptr::eq(*d, q)),
+                    .is_some_and(|ds| ds.iter().any(|d| std::ptr::eq(*d, q))),
                 // A top-level refinement is module-scoped and not
                 // importable.
                 None => program.files[res.file].module == file.module,
@@ -266,9 +266,12 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             let mut conflict: Vec<String> = Vec::new();
             for (i, a) in group.add.iter().enumerate() {
                 for b in group.add.iter().skip(i + 1) {
+                    // [qual-overload] `with` names a qualifier, so
+                    // same-named declarations share their compatibility list
+                    // and any of them answers this.
                     let compatible = match (
-                        scope.qualifiers.get(a.as_str()),
-                        scope.qualifiers.get(b.as_str()),
+                        scope.qualifiers.get(a.as_str()).and_then(|ds| ds.first()),
+                        scope.qualifiers.get(b.as_str()).and_then(|ds| ds.first()),
                     ) {
                         (Some(x), Some(y)) => quals_compatible(x, y),
                         // A qualifier this file cannot see cannot be
@@ -562,7 +565,23 @@ fn check_refined_qual(
             return None;
         }
     }
-    let Some(qd) = scope.qualifiers.get(q) else {
+    // [qual-overload] Several qualifiers may share this name over different
+    // subject types, and the refined parameter says which one the refinement
+    // is about — matched here by *base name*, which is all this pass can see
+    // without the checker's unification (the same comparison the `of` check
+    // below makes). With one candidate the parameter is not consulted, so a
+    // generic `of` still resolves.
+    let candidates = scope.qualifiers.get(q).map(|v| v.as_slice()).unwrap_or(&[]);
+    let qd = match candidates {
+        [] => None,
+        [one] => Some(*one),
+        many => param_base(&param.ty).and_then(|base| {
+            many.iter().copied().find(|d| {
+                of_base(&d.of, &d.generics).map(|of| of == base).unwrap_or(true)
+            })
+        }),
+    };
+    let Some(qd) = qd else {
         errors.push(FileDiagnostic::error(
             file_idx,
             r.span,
@@ -804,7 +823,12 @@ fn normalize(ty: &Type, generics: &[&str]) -> String {
 
 /// The base type name a qualifier's `of` type demands, or `None` when it is
 /// a bare type parameter (which accepts anything).
-fn of_base(of: &Type, generics: &[Ident]) -> Option<String> {
+/// [qual-overload] The base name of a qualifier's `of` type — the *subject*
+/// that distinguishes same-named qualifiers. `None` for a generic `of`
+/// (`qualifier Ok<T> of T`), which accepts any subject and so cannot be
+/// told apart by one. Syntactic on purpose: it is what a pass without the
+/// checker's unification can see, and both backends need the same answer.
+pub fn of_base(of: &Type, generics: &[Ident]) -> Option<String> {
     let Type::Named { base, .. } = of else {
         return None;
     };

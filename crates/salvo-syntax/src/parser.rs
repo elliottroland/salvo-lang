@@ -1290,7 +1290,17 @@ impl<'s> Parser<'s> {
                         );
                         return None;
                     };
-                    match &mut param.ty {
+                    // [fn-contract] [once-fn] Through a qualifier group: a
+                    // `once (t: T) -> None` parameter parses as a
+                    // `QualifiedGroup` wrapping the fn type, so matching
+                    // `Type::Fn` alone rejected exactly the parameter that
+                    // most wants a contract — a callback that consumes what
+                    // it is given can only be called once.
+                    let target = match &mut param.ty {
+                        Type::QualifiedGroup { base, .. } => base.as_mut(),
+                        other => other,
+                    };
+                    match target {
                         Type::Fn { deductions, .. } => {
                             deductions.get_or_insert_with(Vec::new).extend(entries);
                         }
@@ -1569,7 +1579,20 @@ impl<'s> Parser<'s> {
         let end = self.expect(&TokenKind::RParen)?.span;
 
         let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
-            Some(self.parse_effect_list()?)
+            // [type-tuple] A `[` here is ambiguous: it opens a fn type's
+            // effect list (`(Int) [] -> Str`) *or* it is the array suffix on
+            // a tuple type (`(Str, Int)[]`). Only a fn type continues with
+            // `->`, so speculate and roll back — otherwise the suffix is
+            // eaten as an empty effect list and a tuple array is rejected
+            // with a misleading "expected `->` after effect list".
+            let snap = self.snapshot();
+            match self.parse_effect_list() {
+                Some(list) if self.at(&TokenKind::Arrow) && self.same_line() => Some(list),
+                _ => {
+                    self.rollback(snap);
+                    None
+                }
+            }
         } else {
             None
         };
@@ -2501,37 +2524,6 @@ impl<'s> Parser<'s> {
                         index: Box::new(index),
                         span,
                     };
-                    // `Int[5] { i -> ... }` — sized array initialization.
-                    if !self.no_struct && self.at(&TokenKind::LBrace) && self.same_line() {
-                        if let Expr::Index { base, index, span } = expr {
-                            if let Expr::Ident(name) = base.as_ref() {
-                                let snap = self.snapshot();
-                                match self.parse_brace_lambda() {
-                                    Some(init) => {
-                                        let full = span.to(init.span());
-                                        expr = Expr::ArrayInit {
-                                            elem_type: TypeRef {
-                                                name: name.clone(),
-                                                args: Vec::new(),
-                                                from: Vec::new(),
-                                                span: name.span,
-                                            },
-                                            size: index,
-                                            init: Box::new(init),
-                                            span: full,
-                                        };
-                                        continue;
-                                    }
-                                    None => {
-                                        self.rollback(snap);
-                                        expr = Expr::Index { base, index, span };
-                                    }
-                                }
-                            } else {
-                                expr = Expr::Index { base, index, span };
-                            }
-                        }
-                    }
                 }
                 TokenKind::Bang if self.same_line() => {
                     let end = self.bump().span;
@@ -2733,7 +2725,15 @@ impl<'s> Parser<'s> {
         if !self.no_struct {
             let snap = self.snapshot();
             if let Some(ty) = self.parse_type_atom() {
-                if self.at(&TokenKind::LBrace) && self.same_line() && self.brace_is_struct_lit() {
+                // [col-literal] With a type name in front, `{}` is a
+                // fieldless struct literal (`Finished {}`) — the empty-brace
+                // collection reading applies only to a *bare* `{}`, which has
+                // no name to say what it builds.
+                let braced_body = self.at(&TokenKind::LBrace)
+                    && self.same_line()
+                    && (self.brace_is_struct_lit()
+                        || matches!(self.peek_at(1).kind, TokenKind::RBrace));
+                if braced_body {
                     let is_plain_ident = matches!(
                         &ty,
                         Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty()
@@ -2766,7 +2766,13 @@ impl<'s> Parser<'s> {
     fn brace_is_struct_lit(&self) -> bool {
         debug_assert!(self.at(&TokenKind::LBrace));
         match &self.peek_at(1).kind {
-            TokenKind::RBrace | TokenKind::Ellipsis => true,
+            // [col-literal] `{}` is an **empty collection literal**, not an
+            // empty struct literal: the collections are what people write
+            // empty, and a fieldless struct is written with its name
+            // (`Finished {}`). Its kind — Set or Map — comes from the
+            // expected type, and is an error where nothing supplies one.
+            TokenKind::RBrace => false,
+            TokenKind::Ellipsis => true,
             TokenKind::Ident(_) => matches!(self.peek_at(2).kind, TokenKind::Colon),
             _ => false,
         }
@@ -2893,9 +2899,90 @@ impl<'s> Parser<'s> {
         if self.brace_is_struct_lit() {
             return self.parse_struct_lit_body(None);
         }
-        let span = self.peek().span;
-        self.error("expected struct literal or lambda", span);
-        None
+        // [col-literal] A brace collection: `{1, 2}` is a Set and
+        // `{"a": 1}` a Map. Reached only after the two older forms have been
+        // ruled out, which is what keeps `{x: 1}` a bare struct literal and
+        // `{ i: Int -> 0 }` a lambda — a map key is therefore an expression
+        // that is not a bare identifier.
+        self.parse_brace_collection()
+    }
+
+    /// `{1, 2, 3}` (Set) or `{"a": 1, "b": 2}` (Map), told apart by whether
+    /// a `:` follows the first element.
+    fn parse_brace_collection(&mut self) -> Option<Expr> {
+        let start = self.expect(&TokenKind::LBrace)?.span;
+        // [col-literal] `{}` — the kind is the expected type's to decide, so
+        // it parses as an empty Set literal and the checker reads the
+        // position (a `Map` there is equally an empty map).
+        if self.at(&TokenKind::RBrace) {
+            let end = self.bump().span;
+            return Some(Expr::SetLit {
+                elems: Vec::new(),
+                span: start.to(end),
+            });
+        }
+        self.group_depth += 1;
+        let first = match self.parse_expr() {
+            Some(e) => e,
+            None => {
+                self.group_depth -= 1;
+                return None;
+            }
+        };
+        if self.eat(&TokenKind::Colon).is_some() {
+            // A map: the first `:` decides, and every entry needs one.
+            let Some(value) = self.parse_expr() else {
+                self.group_depth -= 1;
+                return None;
+            };
+            let mut entries = vec![(first, value)];
+            while self.eat(&TokenKind::Comma).is_some() {
+                if self.at(&TokenKind::RBrace) {
+                    break;
+                }
+                let Some(k) = self.parse_expr() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                if self.eat(&TokenKind::Colon).is_none() {
+                    let span = self.peek().span;
+                    self.error(
+                        "expected `:` after a map literal's key — a `{...}`                          whose first entry has one is a map, so every entry                          needs a value",
+                        span,
+                    );
+                    self.group_depth -= 1;
+                    return None;
+                }
+                let Some(v) = self.parse_expr() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                entries.push((k, v));
+            }
+            self.group_depth -= 1;
+            let end = self.expect(&TokenKind::RBrace)?.span;
+            return Some(Expr::MapLit {
+                entries,
+                span: start.to(end),
+            });
+        }
+        let mut elems = vec![first];
+        while self.eat(&TokenKind::Comma).is_some() {
+            if self.at(&TokenKind::RBrace) {
+                break;
+            }
+            let Some(e) = self.parse_expr() else {
+                self.group_depth -= 1;
+                return None;
+            };
+            elems.push(e);
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Some(Expr::SetLit {
+            elems,
+            span: start.to(end),
+        })
     }
 
     /// `{ i: Int -> 0 }` — a Kotlin-style brace lambda. Returns `None`

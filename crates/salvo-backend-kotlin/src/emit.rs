@@ -109,6 +109,9 @@ pub fn emit_program_reporting(
     // [kt-throw-signal] Generated once for the whole program, when
     // anything throws.
     let mut needs_throw = false;
+    // [kt-ordered] And for the structural comparison a `canbe ordered`
+    // struct's `compareTo` uses [col-hashed-ordered].
+    let mut needs_compare = false;
     for (file_idx, unit) in program.units().enumerate() {
         if !reachable.contains(&unit.file.module) || !module_produces_code(unit.ast) {
             continue;
@@ -129,6 +132,7 @@ pub fn emit_program_reporting(
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
         needs_throw |= emitter.needs_throw;
+        needs_compare |= emitter.needs_compare;
         let mut rel_path = std::path::PathBuf::new();
         for part in &unit.file.module.0 {
             rel_path.push(part);
@@ -146,6 +150,12 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("throw.kt"),
             content: generate_throw_file(),
+        });
+    }
+    if needs_compare {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("compare.kt"),
+            content: generate_compare_file(),
         });
     }
     // [backend-companion] Backend-native companion files are copied
@@ -238,6 +248,15 @@ fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) 
 /// by `runtime_tests.rs`.
 fn generate_throw_file() -> String {
     include_str!("../runtime/throw.kt").to_string()
+}
+
+/// [kt-ordered] The structural comparison a `canbe ordered` struct's
+/// `compareTo` uses for each field [col-hashed-ordered].
+///
+/// Source in `runtime/compare.kt`, included verbatim and compiled directly
+/// by `runtime_tests.rs`.
+fn generate_compare_file() -> String {
+    include_str!("../runtime/compare.kt").to_string()
 }
 
 /// Whether an effect instance is the throw effect [throw]: the JVM unwinds
@@ -485,6 +504,9 @@ struct Emitter<'p> {
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
+    /// [kt-ordered] Whether this module declared a `canbe ordered` struct, so
+    /// the comparison runtime is emitted.
+    needs_compare: bool,
     /// [iter-fn] Of those, the ones held in a nullable property
     /// because their type has no zero value: reads unwrap with `!!`.
     gen_slots: HashSet<String>,
@@ -570,6 +592,7 @@ impl<'p> Emitter<'p> {
             effect_paths: HashMap::new(),
             ret_is_unit: false,
             needs_throw: false,
+            needs_compare: false,
             gen_slots: HashSet::new(),
                             implicits: Vec::new(),
             pending_mints: Vec::new(),
@@ -901,6 +924,27 @@ impl<'p> Emitter<'p> {
             self.generics = saved;
             return format!("\nclass {declared_name}{generics}\n");
         }
+        // [col-hashed-ordered] [kt-ordered] `canbe ordered` needs a real
+        // `Comparable`: a Kotlin data class gets `equals`/`hashCode` for free
+        // but *not* comparison, so `p < q` would be an unresolved
+        // `compareTo`. The order is lexicographic by field declaration order,
+        // which is the language's rule and matches Rust's derived `Ord`.
+        let ordered = s.auto_qualifiers.iter().any(|q| q.name.name == "ordered");
+        let self_ty = format!(
+            "{declared_name}{}",
+            if s.generics.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<{}>",
+                    s.generics
+                        .iter()
+                        .map(|g| g.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        );
         let mut out = format!("\ndata class {declared_name}{generics}(\n");
         for field in &s.fields {
             let kw = if is_mut { "var" } else { "val" };
@@ -914,9 +958,109 @@ impl<'p> Emitter<'p> {
                 kt_ident(&field.name.name)
             ));
         }
-        out.push_str(")\n");
+        // [col-equality] [kt-float-eq] Salvo owns floating-point equality, so
+        // a struct with a float field **overrides** the data class's
+        // `equals`, which makes every `==` on it (and every `contains`, and
+        // every collection lookup) use our semantics.
+        //
+        // The default would diverge from Rust: Kotlin's generated `equals`
+        // calls `Double.equals`, for which `NaN` equals itself and `+0.0`
+        // differs from `-0.0`, while Rust's derived `PartialEq` is IEEE —
+        // the opposite on both counts. Verified before fixing: the same
+        // program printed `struct nan == nan: false` on Rust and `true` on
+        // Kotlin. Comparing the fields with `==`, whose operands are
+        // statically `Double`/`Float`, is IEEE, so the two agree.
+        //
+        // `hashCode` is left to the data class: a float-bearing struct is
+        // barred from `canbe hashed` [col-hashed-ordered], so it never
+        // reaches a hash table where the (NaN-only) inconsistency could
+        // matter.
+        if ordered {
+            // Comparison first, then the float-aware equality if it is also
+            // needed — both live in the same class body.
+            out.push_str(&format!(") : Comparable<{self_ty}> {{\n"));
+            out.push_str(&format!(
+                "    override fun compareTo(other: {self_ty}): Int {{\n"
+            ));
+            // [kt-ordered] Through the runtime helper rather than
+            // `field.compareTo(...)`: Salvo says a `List` or a tuple is
+            // orderable when its elements are, and neither is `Comparable`
+            // on the JVM [col-hashed-ordered].
+            self.needs_compare = true;
+            for field in &s.fields {
+                let name = kt_ident(&field.name.name);
+                out.push_str(&format!(
+                    "        run {{ val __c = salvo.__salvoCompare({name}, other.{name}); if (__c != 0) return __c }}\n"
+                ));
+            }
+            out.push_str("        return 0\n    }\n");
+            if self.struct_has_float_field(s) {
+                let star_args = if s.generics.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "<{}>",
+                        s.generics.iter().map(|_| "*").collect::<Vec<_>>().join(", ")
+                    )
+                };
+                let comparisons: Vec<String> = s
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let name = kt_ident(&f.name.name);
+                        format!("{name} == other.{name}")
+                    })
+                    .collect();
+                out.push_str("    override fun equals(other: Any?): Boolean {\n");
+                out.push_str("        if (this === other) return true\n");
+                out.push_str(&format!(
+                    "        if (other !is {declared_name}{star_args}) return false\n"
+                ));
+                out.push_str(&format!("        return {}\n", comparisons.join(" && ")));
+                out.push_str("    }\n");
+            }
+            out.push_str("}\n");
+        } else if self.struct_has_float_field(s) {
+            let star_args = if s.generics.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<{}>",
+                    s.generics.iter().map(|_| "*").collect::<Vec<_>>().join(", ")
+                )
+            };
+            let comparisons: Vec<String> = s
+                .fields
+                .iter()
+                .map(|f| {
+                    let name = kt_ident(&f.name.name);
+                    format!("{name} == other.{name}")
+                })
+                .collect();
+            out.push_str(") {\n");
+            out.push_str("    override fun equals(other: Any?): Boolean {\n");
+            out.push_str("        if (this === other) return true\n");
+            out.push_str(&format!(
+                "        if (other !is {declared_name}{star_args}) return false\n"
+            ));
+            out.push_str(&format!("        return {}\n", comparisons.join(" && ")));
+            out.push_str("    }\n}\n");
+        } else {
+            out.push_str(")\n");
+        }
         self.generics = saved;
         out
+    }
+
+    /// [col-equality] Whether a struct has a *direct* floating-point field,
+    /// which is what makes the data class's `equals` disagree with Rust's
+    /// derive. A nested struct needs no special case: if it holds a float it
+    /// gets its own comparison, which this one then calls.
+    fn struct_has_float_field(&self, s: &StructDecl) -> bool {
+        s.fields.iter().any(|f| match &f.ty {
+            Type::Named { base, .. } => matches!(base.name.name.as_str(), "Double" | "Float"),
+            _ => false,
+        })
     }
 
     fn emit_effect(&mut self, e: &EffectDecl) -> String {
@@ -2965,7 +3109,17 @@ impl<'p> Emitter<'p> {
         let mut parts: Vec<String> = Vec::new();
         for q in quals {
             let mut args: Vec<String> = Vec::new();
-            if let Some(decl) = self.symbols.qualifiers.get(q.as_str()).copied() {
+            // [qual-overload] Same-named qualifiers over different subjects
+            // need no mangling here — the JVM overloads on the parameter type
+            // — but the *effects* threaded into the call are the resolved
+            // declaration's, so the subject still picks.
+            if let Some(decl) = self
+                .symbols
+                .qualifiers
+                .get(q.as_str())
+                .and_then(|ds| ds.first())
+                .copied()
+            {
                 if let Some(f) = decl.fns.iter().find(|f| f.name.name == "qualifies") {
                     for eff in f.effects.iter().flatten() {
                         if let EffectRef::Effect(r) = eff {
@@ -3103,20 +3257,77 @@ impl<'p> Emitter<'p> {
             Expr::Index { base, index, .. } => {
                 format!("{}[{}]", self.emit_expr(base), self.emit_expr(index))
             }
-            Expr::ArrayLit { elems, .. } => {
+            // [col-literal] `[1, 2]` is a **List** literal; it renders as an
+            // `arrayOf` only where the checker typed it as an array, which is
+            // a literal standing in a variadic position [fn-variadic]. A
+            // `Mut` list literal needs the mutable builder, since
+            // `MutableList` is what the declared type will be.
+            Expr::ArrayLit { elems, span } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
-                format!("arrayOf({})", items.join(", "))
+                let ty = self.ty_of(*span).cloned();
+                let is_array = matches!(ty.as_ref().map(|t| t.strip_quals()), Some(Ty::Array(_)));
+                if is_array {
+                    format!("arrayOf({})", items.join(", "))
+                } else {
+                    let mutable = ty
+                        .as_ref()
+                        .is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
+                    let elem = match ty.as_ref().map(|t| t.strip_quals()) {
+                        Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
+                            self.emit_ty(&args[0])
+                        }
+                        _ => "Any".to_string(),
+                    };
+                    if mutable {
+                        format!("mutableListOf<{}>({})", elem, items.join(", "))
+                    } else {
+                        format!("listOf<{}>({})", elem, items.join(", "))
+                    }
+                }
             }
-            Expr::ArrayInit {
-                elem_type,
-                size,
-                init,
-                ..
-            } => {
-                let elem = self.emit_type_ref(elem_type);
-                let size = self.emit_expr(size);
-                let lambda = self.emit_expr(init);
-                format!("Array<{elem}>({size}) {lambda}")
+            // [col-literal] The brace literals lower to the same ordered
+            // constructors `set_of`/`map_of` use [col-insertion-order], with
+            // the element types spelled out because kotlinc cannot infer
+            // them from an empty literal.
+            Expr::SetLit { elems, span } => {
+                let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
+                // [col-literal] An empty `{}` takes its kind from the
+                // position; the checker resolved it, so follow the checked
+                // type rather than the node.
+                match self.ty_of(*span).map(|t| t.strip_quals()) {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                        let (kt, vt) = (self.emit_ty(&args[0]), self.emit_ty(&args[1]));
+                        format!("linkedMapOf<{}, {}>()", kt, vt)
+                    }
+                    Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
+                        let elem = self.emit_ty(&args[0]);
+                        let mutable = self
+                            .ty_of(*span)
+                            .is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
+                        if mutable {
+                            format!("mutableListOf<{}>({})", elem, items.join(", "))
+                        } else {
+                            format!("listOf<{}>({})", elem, items.join(", "))
+                        }
+                    }
+                    Some(Ty::Named { name, args }) if name == "Set" && args.len() == 1 => {
+                        format!("linkedSetOf<{}>({})", self.emit_ty(&args[0]), items.join(", "))
+                    }
+                    _ => format!("linkedSetOf<Any>({})", items.join(", ")),
+                }
+            }
+            Expr::MapLit { entries, span } => {
+                let items: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("({} to {})", self.emit_expr(k), self.emit_expr(v)))
+                    .collect();
+                let (kt, vt) = match self.ty_of(*span).map(|t| t.strip_quals()) {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                        (self.emit_ty(&args[0]), self.emit_ty(&args[1]))
+                    }
+                    _ => ("Any".to_string(), "Any".to_string()),
+                };
+                format!("linkedMapOf<{}, {}>({})", kt, vt, items.join(", "))
             }
             Expr::Tuple { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
@@ -3994,7 +4205,18 @@ impl<'p> Emitter<'p> {
         // the call resolved to ([effect-disambiguation], `effect_calls`);
         // string matching on the effect name remains the fallback for
         // unchecked contexts.
-        if let Some(effect) = self.symbols.effect_of_fn.get(name).copied() {
+        // ...unless the checker resolved this callee to a fn-typed **local**
+        // [call-resolve], which outranks any same-named declaration:
+        // `effect_of_fn` is program-wide and cannot see scopes, so without
+        // this a user effect member could hijack a std function's own
+        // parameter (`filter`'s `keep`).
+        if let Some(effect) = self
+            .symbols
+            .effect_of_fn
+            .get(name)
+            .copied()
+            .filter(|_| !self.checked.local_calls.contains(&(self.file_idx, span)))
+        {
             let handler = match self.checked.effect_calls.get(&(self.file_idx, span)) {
                 Some(ty) if ty_is_concrete(ty) => {
                     let ty = ty.clone();
@@ -4104,6 +4326,23 @@ impl<'p> Emitter<'p> {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
+            // [col-sorted] [kt-ordered] The sorted constructors build their
+            // tree with Salvo's comparator, and the `Sorted List` surface
+            // compares with it too [col-sorted-list], so both need its
+            // runtime file.
+            if matches!(
+                f.name.name.as_str(),
+                "sorted_set_of"
+                    | "mut_sorted_set_of"
+                    | "sorted_map_of"
+                    | "mut_sorted_map_of"
+                    | "sort"
+                    | "mut_sort"
+                    | "add_sorted"
+                    | "binary_search"
+            ) {
+                self.needs_compare = true;
+            }
             if let Some(code) =
                 crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &type_args)
             {
@@ -5115,14 +5354,18 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 }
             }
         }
-        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::ArrayLit { elems, .. }
+        | Expr::SetLit { elems, .. }
+        | Expr::Tuple { elems, .. } => {
             for e in elems {
                 collect_mutated_expr(e, out);
             }
         }
-        Expr::ArrayInit { size, init, .. } => {
-            collect_mutated_expr(size, out);
-            collect_mutated_expr(init, out);
+        Expr::MapLit { entries, .. } => {
+            for (k, v) in entries {
+                collect_mutated_expr(k, out);
+                collect_mutated_expr(v, out);
+            }
         }
         Expr::StructLit { fields, .. } => {
             for f in fields {
@@ -5292,14 +5535,18 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 }
             }
         }
-        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::ArrayLit { elems, .. }
+        | Expr::SetLit { elems, .. }
+        | Expr::Tuple { elems, .. } => {
             for e in elems {
                 collect_declared_expr(e, out);
             }
         }
-        Expr::ArrayInit { size, init, .. } => {
-            collect_declared_expr(size, out);
-            collect_declared_expr(init, out);
+        Expr::MapLit { entries, .. } => {
+            for (k, v) in entries {
+                collect_declared_expr(k, out);
+                collect_declared_expr(v, out);
+            }
         }
         Expr::StructLit { fields, .. } => {
             for f in fields {

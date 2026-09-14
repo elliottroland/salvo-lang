@@ -16,6 +16,25 @@
 //! is spliced owned because it lands inside a constructor (`vec![..]`).
 //! The caller decides which is which.
 
+/// [fn-variadic] How a call supplied its variadic tail, which decides the
+/// shape a constructor lowering wants.
+///
+/// The distinction is ownership, and it is the *caller's* to make: a lone
+/// `...spread` of a local forwards that local's vector **borrowed**, so the
+/// constructor has to clone; a tail that mixes plain arguments with a spread
+/// is assembled into a fresh vector by the emitter and arrives **owned**, so
+/// cloning it again would copy every element for nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Spread {
+    /// No `...spread`: `args` are the individual elements.
+    None,
+    /// One `...spread`, forwarded as a borrowed collection in `args[0]`.
+    Borrowed,
+    /// The whole tail, assembled by the emitter into an owned collection in
+    /// `args[0]` — a mixed `list_of(first, ...rest)` call.
+    Owned,
+}
+
 /// The Rust lowering of a call to an `intrinsic fn` [intrinsic-fn].
 ///
 /// `name` is the declaration's name and `recv` the base type name of its
@@ -33,12 +52,26 @@ pub fn fn_call(
     recv: Option<&str>,
     args: &[String],
     type_args: &[String],
-    spread: bool,
+    spread: Spread,
 ) -> Option<String> {
     // Unlike Kotlin, rustc infers a `vec![]`'s element type from later
     // use, so pinning it here would churn the output for nothing.
     let _ = type_args;
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("todo!()");
+    let spread_any = spread != Spread::None;
+    // The variadic tail as an **owned** `Vec`: already owned when the emitter
+    // assembled it, cloned when it is a borrowed forward.
+    let owned_vec = || match spread {
+        Spread::Owned => a(0).to_string(),
+        _ => format!("{}.clone()", a(0)),
+    };
+    // …and as an iterator of owned elements, which is what the set/map
+    // constructors consume. `into_iter` on an owned vector moves its
+    // elements; a borrowed one has to clone each.
+    let owned_iter = || match spread {
+        Spread::Owned => format!("{}.into_iter()", a(0)),
+        _ => format!("{}.iter().cloned()", a(0)),
+    };
     Some(match (name, recv) {
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
@@ -51,10 +84,36 @@ pub fn fn_call(
         // Cloned, not moved: Salvo does not track a variadic position, so
         // the spread array stays usable afterwards — which is what Kotlin's
         // `listOf(*arr)` does too.
-        ("list", Some("[]")) | ("mutable_list", Some("[]")) if spread => {
-            format!("{}.clone()", a(0))
-        }
-        ("list", Some("[]")) | ("mutable_list", Some("[]")) => {
+        // [col-sorted-list] `sort` uses Rust's own ordering, which for `String`
+        // is byte-wise UTF-8 = code-point order — the language's rule
+        // [col-sorted]. Kotlin has to be told; here it is free.
+        ("sort", Some("List")) | ("mut_sort", Some("List")) => format!(
+            "{{ let mut __v = {}.clone(); __v.sort(); __v }}",
+            a(0)
+        ),
+        // A **lower bound**: the count of elements strictly below `elem`, so
+        // an equal run is entered from the front and both backends land on the
+        // same index.
+        ("add_sorted", Some("List")) => format!(
+            "{{ let __e = {}; let __at = {}.partition_point(|__x| __x < &__e); \
+             {}.insert(__at, __e); }}",
+            a(1),
+            a(0),
+            a(0)
+        ),
+        // Lower bound, then an equality test — not `Vec::binary_search`, which
+        // may answer any index within an equal run [col-sorted-list].
+        ("binary_search", Some("List")) => format!(
+            "{{ let __e = {}; let __at = {}.partition_point(|__x| __x < &__e); \
+             if __at < {}.len() && {}[__at] == __e {{ Some(__at as i32) }} \
+             else {{ None }} }}",
+            a(1),
+            a(0),
+            a(0),
+            a(0)
+        ),
+        ("list_of", Some("[]")) | ("mut_list_of", Some("[]")) if spread_any => owned_vec(),
+        ("list_of", Some("[]")) | ("mut_list_of", Some("[]")) => {
             format!("vec![{}]", args.join(", "))
         }
         // `T?` is physical here, so an out-of-range index must produce
@@ -82,6 +141,44 @@ pub fn fn_call(
             a(0)
         ),
 
+        // core.array -----------------------------------------------------
+        // [fn-variadic] The variadic tail *is* the array, so the constructor
+        // is its argument: a `...spread` arrives as the whole thing (cloned,
+        // since a variadic position is untracked and the source stays
+        // usable), and a literal list of arguments builds one.
+        ("array_of", Some("[]")) if spread_any => owned_vec(),
+        ("array_of", Some("[]")) => format!("vec![{}]", args.join(", ")),
+
+        // [col-by] The generated constructors: the callback is called once
+        // per index, in order. `(0..n)` yields `i32`, which is what the
+        // callback's parameter is [rs-fn-param-convention].
+        ("array_by", Some("Int")) | ("list_by", Some("Int")) | ("mut_list_by", Some("Int")) => {
+            format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
+        }
+        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
+            "SalvoSet::from_elements((0..({})).map({}))",
+            a(0),
+            a(1)
+        ),
+        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => format!(
+            "SalvoMap::from_entries((0..({})).map({}))",
+            a(0),
+            a(1)
+        ),
+
+        // [col-convert] The converters.
+        ("to_set", Some("List")) => {
+            format!("SalvoSet::from_elements({}.iter().cloned())", a(0))
+        }
+        ("to_map", Some("List")) if args.len() == 1 => {
+            format!("SalvoMap::from_entries({}.iter().cloned())", a(0))
+        }
+        ("to_map", Some("List")) => format!(
+            "SalvoMap::from_entries({}.iter().map({}))",
+            a(0),
+            a(1)
+        ),
+
         // core.seq -------------------------------------------------------
         // The `List` fast paths [fn-overload-rank] go through the
         // generated helpers [rs-seq]: a generic parameter is what gives the
@@ -94,17 +191,140 @@ pub fn fn_call(
             format!("salvo_reduce(&{}[..], {}, {})", a(0), a(1), a(2))
         }
 
+        // core.set -------------------------------------------------------
+        // [rs-collections] The ordered set from the runtime file. A
+        // `...spread` arrives as the whole `Vec<T>`, so it is the element
+        // source itself — cloned, since a variadic position is not tracked
+        // by the flow analysis and the array stays usable afterwards (the
+        // same reasoning as the list constructors above).
+        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) if spread_any => {
+            format!("SalvoSet::from_elements({})", owned_iter())
+        }
+        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
+            format!("SalvoSet::from_elements(vec![{}])", args.join(", "))
+        }
+        // The element is *moved* in, so it is spliced owned; `contains` and
+        // `remove` only read theirs, so those borrow [rs-borrows].
+        ("add", Some("Set")) => format!("{}.insert({})", a(0), a(1)),
+        ("remove", Some("Set")) => format!("{}.remove(&{})", a(0), a(1)),
+        ("contains", Some("Set")) => format!("{}.contains(&{})", a(0), a(1)),
+        ("size", Some("Set")) => format!("({}.len() as i32)", a(0)),
+        // [col-insertion-order] The runtime type's `iter` is insertion
+        // order, so the list is that order. Cloned: the set keeps its
+        // elements, the list gets its own.
+        ("to_list", Some("Set")) => {
+            format!("{}.iter().cloned().collect::<Vec<_>>()", a(0))
+        }
+        // [col-key-eligible] An owned read of a snapshot element — a clone
+        // here, where Kotlin can share the reference.
+        ("snapshot_at", Some("List")) => {
+            format!("{}.get(({}) as usize).cloned()", a(0), a(1))
+        }
+        // [col-to-str] `{1, 2, 3}`, insertion-ordered — the runtime type's
+        // `Display` is the language's format, so both backends agree
+        // [backend-parity].
+        ("to_str", Some("Set")) => format!("{}.to_string()", a(0)),
+
+        // core.sorted ----------------------------------------------------
+        // [col-sorted] `BTreeSet`/`BTreeMap` keep their keys in order, and
+        // `from_iter` builds one from anything iterable.
+        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) if spread_any => {
+            format!(
+                "{}.collect::<std::collections::BTreeSet<_>>()",
+                owned_iter()
+            )
+        }
+        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
+            "vec![{}].into_iter().collect::<std::collections::BTreeSet<_>>()",
+            args.join(", ")
+        ),
+        ("add", Some("SortedSet")) => format!("{}.insert({})", a(0), a(1)),
+        ("remove", Some("SortedSet")) => format!("{}.remove(&{})", a(0), a(1)),
+        ("contains", Some("SortedSet")) => format!("{}.contains(&{})", a(0), a(1)),
+        ("size", Some("SortedSet")) => format!("({}.len() as i32)", a(0)),
+        // Cheap at either end of an ordered tree, which is the reason to use
+        // one; cloned because the declaration hands back an owned `T?`.
+        ("min", Some("SortedSet")) => format!("{}.iter().next().cloned()", a(0)),
+        ("max", Some("SortedSet")) => format!("{}.iter().next_back().cloned()", a(0)),
+        ("to_list", Some("SortedSet")) => {
+            format!("{}.iter().cloned().collect::<Vec<_>>()", a(0))
+        }
+        // [col-to-str] The language's format, in key order — written out
+        // rather than left to Rust's `Debug` [backend-parity].
+        ("to_str", Some("SortedSet")) => format!(
+            "format!(\"{{{{{{}}}}}}\", {}.iter().map(|__e| __e.to_string())\
+             .collect::<Vec<_>>().join(\", \"))",
+            a(0)
+        ),
+
+        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) if spread_any => {
+            format!(
+                "{}.collect::<std::collections::BTreeMap<_, _>>()",
+                owned_iter()
+            )
+        }
+        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
+            "vec![{}].into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+            args.join(", ")
+        ),
+        ("get", Some("SortedMap")) => format!("{}.get(&{})", a(0), a(1)),
+        ("put", Some("SortedMap")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
+        ("remove", Some("SortedMap")) => format!("{}.remove(&{})", a(0), a(1)),
+        ("contains_key", Some("SortedMap")) => format!("{}.contains_key(&{})", a(0), a(1)),
+        ("size", Some("SortedMap")) => format!("({}.len() as i32)", a(0)),
+        ("first_key", Some("SortedMap")) => {
+            format!("{}.keys().next().cloned()", a(0))
+        }
+        ("last_key", Some("SortedMap")) => {
+            format!("{}.keys().next_back().cloned()", a(0))
+        }
+        ("keys", Some("SortedMap")) => {
+            format!("{}.keys().cloned().collect::<Vec<_>>()", a(0))
+        }
+        ("to_str", Some("SortedMap")) => format!(
+            "format!(\"{{{{{{}}}}}}\", {}.iter()\
+             .map(|(__k, __v)| format!(\"{{}}: {{}}\", __k, __v))\
+             .collect::<Vec<_>>().join(\", \"))",
+            a(0)
+        ),
+
+        // core.map -------------------------------------------------------
+        // [rs-collections] Entries are native 2-tuples on this backend
+        // [type-tuple], which is exactly what `from_entries` consumes.
+        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) if spread_any => {
+            format!("SalvoMap::from_entries({})", owned_iter())
+        }
+        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => {
+            format!("SalvoMap::from_entries(vec![{}])", args.join(", "))
+        }
+        // `get` borrows the value out of the map (`Option<&V>`): the
+        // declaration is `(proj[from: map] V)?`, so a caller who wants to
+        // keep it says `copy` [copy-opt-in].
+        ("get", Some("Map")) => format!("{}.get(&{})", a(0), a(1)),
+        ("put", Some("Map")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
+        // Hands the value back owned, which is what `-> V?` promises.
+        ("remove", Some("Map")) => format!("{}.remove(&{})", a(0), a(1)),
+        ("contains_key", Some("Map")) => format!("{}.contains_key(&{})", a(0), a(1)),
+        ("size", Some("Map")) => format!("({}.len() as i32)", a(0)),
+        // [col-insertion-order] The runtime type's `keys` is insertion
+        // order.
+        ("keys", Some("Map")) => {
+            format!("{}.keys().cloned().collect::<Vec<_>>()", a(0))
+        }
+        // [col-to-str] `{a: 1, b: 2}`.
+        ("to_str", Some("Map")) => format!("{}.to_string()", a(0)),
+
         // core.string ----------------------------------------------------
         // [rs-mut-str] `Mut Str` and `Str` are both `String`: mutability
         // lives in the binding and the reference [type-canbe-mut], so
         // dropping `Mut` renders nothing at all [str-drop-mut].
-        ("mutable_str", Some("[]")) if spread => format!("{}.concat()", a(0)),
-        ("mutable_str", Some("[]")) if args.is_empty() => "String::new()".to_string(),
+        ("mut_str", Some("[]")) if spread_any => format!("{}.concat()", a(0)),
+        ("mut_str", Some("[]")) if args.is_empty() => "String::new()".to_string(),
         // The parts are *read*, not stored, so they are borrowed: an
         // owned `vec![parts].concat()` would move a `Str` variable the
         // caller can still use (a variadic position is not tracked by the
         // flow analysis, so nothing would have warned).
-        ("mutable_str", Some("[]")) => {
+        ("mut_str", Some("[]")) => {
             let parts: Vec<String> = args.iter().map(|p| format!("&{p}[..]")).collect();
             format!("[{}].concat()", parts.join(", "))
         }
@@ -194,6 +414,18 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // Only reachable in dead positions.
         "Nothing" => "()",
         "List" => "Vec",
+        // [col-insertion-order] Not `HashSet`/`HashMap`: those have no
+        // iteration order to speak of (unspecified, and randomly seeded per
+        // process), while Salvo's collections iterate in insertion order on
+        // every backend. The runtime file supplies the ordered equivalents
+        // with `LinkedHashMap` semantics [rs-collections].
+        "Set" => "SalvoSet",
+        "Map" => "SalvoMap",
+        // [col-sorted] The standard library's ordered trees: their iteration
+        // order *is* the key order, which is what these types promise, so no
+        // runtime helper is needed here.
+        "SortedSet" => "std::collections::BTreeSet",
+        "SortedMap" => "std::collections::BTreeMap",
         _ => return None,
     })
 }

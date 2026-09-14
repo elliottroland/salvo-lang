@@ -102,9 +102,17 @@ fn main() [use] {
 ## Features at a glance
 
 - **Data**: structs (defaults, spread `...`, destructuring), tuples
-  (destructuring and positional reads, `t.0`), arrays, immutable strings
+  (destructuring and positional reads, `t.0`), immutable strings
   with `${}` interpolation — and `Mut Str` for building one, which reaches
   the whole immutable surface by dropping its `Mut`.
+- **Collections**: `List`, `Set`, `Map` and their sorted counterparts, each
+  with a literal — `[1, 2, 3]`, `{"a", "b"}`, `{"k": "v"}`, and `Mut` in
+  front for a mutable one. `Set` and `Map` iterate in **insertion order on
+  every backend**, so a program's output does not depend on the target it
+  was compiled for. Every struct compares with `==`; a struct becomes a key
+  by declaring `canbe hashed` (or `canbe ordered`, which also gives it `<`),
+  checked where it is declared. Arrays stay for fixed-size data and the
+  variadic boundary.
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
   value), flow-sensitive narrowing via `is` — of variables and of field
   chains (`p.address.city`) — and exhaustive `when`.

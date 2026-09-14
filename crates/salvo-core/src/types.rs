@@ -859,8 +859,8 @@ pub struct RankedCandidate {
 /// another's loss, which is the definition of a guess.
 ///
 /// The last word is arity shape: with the slots otherwise equal, a
-/// **fixed** parameter list beats a variadic one — `list()` picks the
-/// no-argument overload over `list(...elems)`, which is what lets an
+/// **fixed** parameter list beats a variadic one — `list_of()` picks the
+/// no-argument overload over `list_of(...elems)`, which is what lets an
 /// "empty" case be an overload rather than a special form.
 pub fn rank_cmp(a: &RankedCandidate, b: &RankedCandidate) -> Option<std::cmp::Ordering> {
     use std::cmp::Ordering::*;
@@ -1082,11 +1082,11 @@ mod tests {
         assert_eq!(spec_cmp(&int, &var), Some(Greater));
         assert_eq!(spec_cmp(&var, &int), Some(Less));
         assert_eq!(spec_cmp(&var, &Ty::Var("U".into())), Some(Equal));
-        let list = |arg: Ty| Ty::Named {
+        let list_of = |arg: Ty| Ty::Named {
             name: "List".into(),
             args: vec![arg],
         };
-        assert_eq!(spec_cmp(&list(int.clone()), &list(var.clone())), Some(Greater));
+        assert_eq!(spec_cmp(&list_of(int.clone()), &list_of(var.clone())), Some(Greater));
         // 2. `Any` accepts everything, so nothing is broader.
         assert_eq!(spec_cmp(&int, &Ty::Any), Some(Greater));
         assert_eq!(spec_cmp(&Ty::Any, &var), Some(Greater), "a variable is vaguer still");
@@ -1103,7 +1103,7 @@ mod tests {
         let other = Ty::union_of(vec![int.clone(), Ty::named("Bool")]);
         assert_eq!(spec_cmp(&both, &other), None);
         // 4. Qualifier sets by inclusion, kind ignored.
-        let mut_list = list(int.clone()).qualify(vec![Qual {
+        let mut_list = list_of(int.clone()).qualify(vec![Qual {
             effect: false,
             name: "Mut".into(),
             args: vec![],
@@ -1113,26 +1113,26 @@ mod tests {
             name: "NonEmpty".into(),
             args: vec![],
         }]);
-        let ne_list = list(int.clone()).qualify(vec![Qual {
+        let ne_list = list_of(int.clone()).qualify(vec![Qual {
             effect: false,
             name: "NonEmpty".into(),
             args: vec![],
         }]);
-        assert_eq!(spec_cmp(&mut_list, &list(int.clone())), Some(Greater));
+        assert_eq!(spec_cmp(&mut_list, &list_of(int.clone())), Some(Greater));
         assert_eq!(spec_cmp(&mut_ne_list, &mut_list), Some(Greater));
         // Different single qualifiers: the *kind* does not rank, so this is
         // an ambiguity for the caller to settle with a rename.
         assert_eq!(spec_cmp(&mut_list, &ne_list), None);
         // Criteria pulling opposite ways are unrankable: more qualifiers but
         // a vaguer base.
-        let ne_generic = list(var.clone()).qualify(vec![Qual {
+        let ne_generic = list_of(var.clone()).qualify(vec![Qual {
             effect: false,
             name: "NonEmpty".into(),
             args: vec![],
         }]);
-        assert_eq!(spec_cmp(&ne_generic, &list(int.clone())), None);
+        assert_eq!(spec_cmp(&ne_generic, &list_of(int.clone())), None);
         // Agreeing criteria compose, though.
-        assert_eq!(spec_cmp(&ne_list, &list(var.clone())), Some(Greater));
+        assert_eq!(spec_cmp(&ne_list, &list_of(var.clone())), Some(Greater));
         // 5. [proj-type] `proj` inverts: `X <: proj X`, so a `proj`
         // position accepts owned values too — an owned position says more.
         let proj = |ty: Ty| {
@@ -1146,7 +1146,7 @@ mod tests {
         assert_eq!(spec_cmp(&proj(str_.clone()), &str_), Some(Less));
         // Structurally too: `List<Str>` beats `List<proj Str>`.
         assert_eq!(
-            spec_cmp(&list(str_.clone()), &list(proj(str_.clone()))),
+            spec_cmp(&list_of(str_.clone()), &list_of(proj(str_.clone()))),
             Some(Greater)
         );
         // Its own dimension: more qualifiers but less ownership is
@@ -1194,8 +1194,8 @@ mod tests {
     }
 
     /// [fn-overload-rank] With the slots equal, a **fixed** parameter list
-    /// beats a variadic one — which is what lets `list()` pick the
-    /// no-argument overload over `list(...elems)`.
+    /// beats a variadic one — which is what lets `list_of()` pick the
+    /// no-argument overload over `list_of(...elems)`.
     #[test]
     fn fixed_beats_variadic() {
         let empty_fixed = RankedCandidate {

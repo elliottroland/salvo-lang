@@ -5,7 +5,10 @@ import salvo.core.array.*
 import salvo.core.console.*
 import salvo.core.iterator.*
 import salvo.core.list.*
+import salvo.core.map.*
 import salvo.core.seq.*
+import salvo.core.set.*
+import salvo.core.sorted.*
 import salvo.core.string.*
 
 fun describe_container(console: Console, xs: List<Int>) {
@@ -19,7 +22,7 @@ fun describe_container(console: Console, xs: List<Int>) {
         letters.append("$c.")
     }
     println(console, "1. string: ${letters.toString()}")
-    val arr = arrayOf(10, 20, 30)
+    val arr = arrayOf<Int>(10, 20, 30)
     var from_array = 0
     for (n in arr) {
         from_array = from_array + n
@@ -35,7 +38,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__4(p: Countdown): Union2<Int, Finished> {
+fun next__6(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -47,7 +50,7 @@ fun next__4(p: Countdown): Union2<Int, Finished> {
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__4(p)
+        val __loop1_step = next__6(p)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -66,11 +69,11 @@ data class __Pass_Halving(
     var at: Int,
 )
 
-fun iter__4(h: Halving): __Pass_Halving {
+fun iter__8(h: Halving): __Pass_Halving {
     return __Pass_Halving(at = h.start)
 }
 
-fun next__5(__p: __Pass_Halving): Union2<Int, Finished> {
+fun next__7(__p: __Pass_Halving): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -94,11 +97,11 @@ data class __Pass_Fibs(
     var made: Int,
 )
 
-fun iter__5(f: Fibs): __Pass_Fibs {
+fun iter__9(f: Fibs): __Pass_Fibs {
     return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
 }
 
-fun next__6(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
+fun next__8(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return U2_2<Int, Finished>(finished())
@@ -123,11 +126,11 @@ data class __Pass_Naturals(
     var at: Int,
 )
 
-fun iter__6(n: Naturals): __Pass_Naturals {
+fun iter__10(n: Naturals): __Pass_Naturals {
     return __Pass_Naturals(at = n.from)
 }
 
-fun next__7(__p: __Pass_Naturals): Union2<Int, Finished> {
+fun next__9(__p: __Pass_Naturals): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return U2_1<Int, Finished>(emitted(now))
@@ -150,27 +153,27 @@ fun main() {
     describe_container(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sum_of(p, ::next__4)}")
+    println(console, "2. rest sums to ${sum_of(p, ::next__6)}")
     val h = Halving(start = 20)
-    var __loop3_pass = iter__4(h)
+    var __loop3_pass = iter__8(h)
     while (true) {
-        val __loop3_step = next__5(__loop3_pass)
+        val __loop3_step = next__7(__loop3_pass)
         if (__loop3_step !is U2_1<Int, Finished>) { break }
         val n = __loop3_step.value
         println(console, "2b. halving $n")
     }
-    val hp = iter__4(h)
-    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__5)}")
-    var __loop4_pass = iter__5(fibs(6))
+    val hp = iter__8(h)
+    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__7)}")
+    var __loop4_pass = iter__9(fibs(6))
     while (true) {
-        val __loop4_step = next__6(console, __loop4_pass)
+        val __loop4_step = next__8(console, __loop4_pass)
         if (__loop4_step !is U2_1<Int, Finished>) { break }
         val n = __loop4_step.value
         println(console, "3. fib $n")
     }
-    var __loop5_pass = iter__6(naturals(10))
+    var __loop5_pass = iter__10(naturals(10))
     while (true) {
-        val __loop5_step = next__7(__loop5_pass)
+        val __loop5_step = next__9(__loop5_pass)
         if (__loop5_step !is U2_1<Int, Finished>) { break }
         val n = __loop5_step.value
         if (n > 12) {
@@ -186,9 +189,9 @@ fun main() {
     val lengths = map(iter__2(words), { w -> w.length }, ::next__2)
     println(console, "5. lengths: ${reduce(iter__2(lengths), 0, { acc, n -> acc + n }, ::next__2)}")
     val word = "iteration"
-    val vowels = filter(iter__3(word), { c -> c == 'i' || c == 'o' }, ::next__3)
+    val vowels = filter(iter__7(word), { c -> c == 'i' || c == 'o' }, ::next__5)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. halving total ${reduce(iter__4(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__5)}")
-    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__4)
+    println(console, "5. halving total ${reduce(iter__8(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__7)}")
+    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__6)
     println(console, "6. collected ${collected.size}")
 }

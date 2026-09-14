@@ -748,7 +748,7 @@ fn take_person(p: Person) [] -> None => !p {}
 "#;
 
 fn disjoint_errors(body: &str) -> Vec<String> {
-    // `Str` and `mutable_list` are not in this file's shared std prelude, so
+    // `Str` and `mut_list_of` are not in this file's shared std prelude, so
     // they are declared alongside it here (as std, since `intrinsic` is the
     // compiler's modifier [intrinsic-std-only]).
     let mut sources = SourceSet::default();
@@ -757,7 +757,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n"
+             intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );
@@ -797,7 +797,7 @@ fn disjoint_errors(body: &str) -> Vec<String> {
 #[test]
 fn a_disjoint_field_survives_a_mutation() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let n = p.name\n\
          \x20   add_tag(p.tags, \"y\")\n\
          \x20   let k = read(n)",
@@ -810,7 +810,7 @@ fn a_disjoint_field_survives_a_mutation() {
 #[test]
 fn two_disjoint_fields_are_independent() {
     let errs = disjoint_errors(
-        "    let o = Outer { inner: Person { name: \"a\", tags: mutable_list() }, other: \"o\" }\n\
+        "    let o = Outer { inner: Person { name: \"a\", tags: mut_list_of() }, other: \"o\" }\n\
          \x20   let n = o.inner.name\n\
          \x20   add_tag(o.inner.tags, \"y\")\n\
          \x20   let k = read(n)",
@@ -823,9 +823,9 @@ fn two_disjoint_fields_are_independent() {
 #[test]
 fn an_assignment_to_a_disjoint_field_does_not_poison() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let n = p.name\n\
-         \x20   p.tags = mutable_list()\n\
+         \x20   p.tags = mut_list_of()\n\
          \x20   let k = read(n)",
     );
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
@@ -836,7 +836,7 @@ fn an_assignment_to_a_disjoint_field_does_not_poison() {
 #[test]
 fn the_same_field_still_poisons() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let t = p.tags\n\
          \x20   add_tag(p.tags, \"y\")\n\
          \x20   let k = count(t)",
@@ -853,7 +853,7 @@ fn the_same_field_still_poisons() {
 #[test]
 fn a_whole_variable_mutation_still_poisons_every_field() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let n = p.name\n\
          \x20   touch_all(p)\n\
          \x20   let k = read(n)",
@@ -870,7 +870,7 @@ fn a_whole_variable_mutation_still_poisons_every_field() {
 #[test]
 fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
     let errs = disjoint_errors(
-        "    let o = Outer { inner: Person { name: \"a\", tags: mutable_list() }, other: \"o\" }\n\
+        "    let o = Outer { inner: Person { name: \"a\", tags: mut_list_of() }, other: \"o\" }\n\
          \x20   let i = o.inner\n\
          \x20   add_tag(o.inner.tags, \"y\")\n\
          \x20   let k = read(i.name)",
@@ -888,7 +888,7 @@ fn a_prefix_projection_is_poisoned_by_a_deeper_mutation() {
 #[test]
 fn a_dynamic_index_stays_conservative() {
     let errs = disjoint_errors(
-        "    let arr: Mut List<Str>[] = [mutable_list(), mutable_list()]\n\
+        "    let arr: Mut List<Str>[] = [mut_list_of(), mut_list_of()]\n\
          \x20   let one = arr[0]\n\
          \x20   add_tag(arr[1], \"z\")\n\
          \x20   let k = count(one)",
@@ -916,7 +916,7 @@ fn a_dynamic_index_stays_conservative() {
 #[test]
 fn a_disjoint_field_survives_a_projection_move() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   eat(p.tags)\n\
          \x20   let k = read(p.name)",
     );
@@ -928,7 +928,7 @@ fn a_disjoint_field_survives_a_projection_move() {
 #[test]
 fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let t = p.tags\n\
          \x20   add_tag(t, \"z\")\n\
          \x20   let k = read(p.name)",
@@ -941,7 +941,7 @@ fn a_move_mode_binding_of_a_field_leaves_its_siblings() {
 #[test]
 fn reading_a_moved_field_back_is_an_error() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   eat(p.tags)\n\
          \x20   let k = count(p.tags)",
     );
@@ -958,7 +958,7 @@ fn reading_a_moved_field_back_is_an_error() {
 #[test]
 fn the_whole_value_cannot_be_used_after_a_partial_move() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   eat(p.tags)\n\
          \x20   take_person(p)",
     );
@@ -974,9 +974,9 @@ fn the_whole_value_cannot_be_used_after_a_partial_move() {
 #[test]
 fn reassigning_a_moved_field_revives_it() {
     let errs = disjoint_errors(
-        "    let p = Mut Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   eat(p.tags)\n\
-         \x20   p.tags = mutable_list()\n\
+         \x20   p.tags = mut_list_of()\n\
          \x20   let k = count(p.tags)\n\
          \x20   let j = read(p.name)",
     );
@@ -988,7 +988,7 @@ fn reassigning_a_moved_field_revives_it() {
 #[test]
 fn a_move_on_one_branch_is_moved_after_the_join() {
     let errs = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   if read(p.name) > 0 {\n\
          \x20       eat(p.tags)\n\
          \x20   }\n\
@@ -1000,7 +1000,7 @@ fn a_move_on_one_branch_is_moved_after_the_join() {
     );
     // ...but a disjoint field is still readable on every path.
     let ok = disjoint_errors(
-        "    let p = Person { name: \"a\", tags: mutable_list() }\n\
+        "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   if 1 > 0 {\n\
          \x20       eat(p.tags)\n\
          \x20   }\n\
@@ -1024,7 +1024,7 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
             "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mutable_list<T>(...elems: T[]) [] -> Mut List<T>\n"
+             intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );

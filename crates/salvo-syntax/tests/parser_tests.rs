@@ -892,7 +892,7 @@ fn external_is_no_longer_a_keyword() {
 #[test]
 fn define_is_no_longer_a_keyword() {
     for source in [
-        "define fn list<T>(...elems: T[]) -> List<T> {\n}\n",
+        "define fn list_of<T>(...elems: T[]) -> List<T> {\n}\n",
         "define type LinkedList<T> {\n}\n",
         "define handler StdOutConsole of Console {\n}\n",
     ] {

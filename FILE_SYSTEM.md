@@ -9,9 +9,10 @@ options, trade-offs, and recommendations — the calls are the user's.
 same-file dischargers, no implicit discharge sites), and OBLIGATIONS.md is
 deleted per its charter — its decided outcomes live in COMPLETED.md's
 decision log ("Phase 3 decided" and "Phase 3 built"); references to its
-sections below read against that log. **Collections (S-Col, COLLECTIONS.md)
-were decided 2026-09-12/13 and ride before phase 4** — FS-6's "std has no
-map" caveats are resolved by sequencing; that section is updated in place.
+sections below read against that log. **Collections (S-Col) were decided
+*and built* 2026-09-12/13, before phase 4** (see the decision log) — FS-6's
+"std has no map" caveats are resolved outright; that section is updated in
+place.
 
 Sources: ROADMAP.md ("S-IO — streams, then the filesystem", "The sequence"
 phase 4, the two due-before decisions), COMPLETED.md (the 2026-09-06 S-IO
@@ -74,10 +75,10 @@ FS-1 and FS-2 below, and they are the decisions that shape everything else.
 - **Async does not exist yet** and arrives (if at all) as an explicit effect
   after phase 5. Everything here is blocking IO, identically on both backends.
 - **`Byte` and `Long` exist** as intrinsic types (std/core/basic.sv); there is
-  no byte-buffer surface yet. **Update 2026-09-12: collections are decided
-  and ride before phase 4** (COLLECTIONS.md; `Map<K, V>` with insertion
-  order, `canbe hashed` keys) — the "std has no map" caveats in FS-6 are
-  resolved by sequencing, and its recommendations simplify accordingly.
+  no byte-buffer surface yet. **Update 2026-09-12: collections are built**
+  (`Map<K, V>` with insertion order, `canbe hashed` keys — see COMPLETED.md)
+  — the "std has no map" caveats in FS-6 are resolved, and its
+  recommendations simplify accordingly.
 
 ## 2. What other languages teach
 
@@ -544,7 +545,7 @@ so what *is* the test story? Three layers, cheapest first:
   host type, with the host handler owning the id→resource table *inside the
   utility class*.
 - **An in-memory `MemFs`-equivalent is now writable in Salvo**: with
-  collections decided (S-Col rides before phase 4 — COLLECTIONS.md), a
+  collections built (S-Col, 2026-09-12 — see COMPLETED.md), a
   `MemRawFs of RawFs` keeps its id table as `Mut Map<Long, …>` in handler
   state, per the previous point (an `open_read` returning a working
   `InStream` remains exactly what O-P2 disallows, so the double lives at

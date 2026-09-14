@@ -143,14 +143,212 @@ Conventions:
     keep the checker and emitters agreeing on the ident-unwrap predicate.
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
-* [type-array] `T[]` is an array; literals `[1, 2, 3]`; generator form
-  `Int[5] { i: Int -> 0 }`; `arr[i]` is 0-indexed; size via `size()`.
-  * The generator form is an `ArrayInit` AST node (speculative parse).
+* [type-array] `T[]` is an array; `arr[i]` is 0-indexed; size via
+  `size()`. It has **no literal syntax and no generator syntax** since
+  2026-09-13 — `[1, 2, 3]` is a `List` [col-literal] — so `array_of(...)`
+  and `array_by(n, init)` [col-by] are how one is built, and an array's
+  remaining reason to exist is the variadic boundary (`...elems: T[]`).
+  * The `Int[5] { i: Int -> 0 }` generator *form* was deleted with its
+    `ArrayInit` node (user decision 2026-09-13): it had been silently
+    broken on the Rust backend since before the collections work — the
+    closure yielded `()` and the enclosing effect handler was spliced into
+    it — and `array_by` says the same thing through the ordinary intrinsic
+    path. Deleting beat fixing because the form bought nothing the
+    constructor does not.
   * std's `core.array` mirrors `core.list`'s function surface minus
-    construction (literals are the constructor) and mutation (arrays are
-    fixed-size): `size`, `get`, `first`, `iter` (user decision
-    2026-09-02). `for` iterates arrays natively — `iter_elem_ty` handles
-    `Ty::Array` before the implicit-`iter` lookup.
+    mutation (arrays are fixed-size): `array_of`, `size`, `get`, `first`,
+    `iter` (user decision 2026-09-02). `for` iterates arrays natively —
+    `iter_elem_ty` handles `Ty::Array` before the implicit-`iter` lookup.
+* [col-by] Every collection has a **generated constructor**: `*_by(size,
+  init)` builds `size` elements by calling `init` once per index, in order —
+  `array_by`, `list_by`/`mut_list_by`, `set_by`/`mut_set_by` (duplicates
+  collapse, so the result may be smaller), `map_by`/`mut_map_by` (the
+  callback returns a `(K, V)` pair; a repeated key takes its last value).
+  * On Kotlin the callback is handed to a builder (`Array(n, init)`,
+    `MutableList(n, init)`) or to `.map(init)` rather than being invoked
+    inline: an immediately applied lambda literal has no expected type, and
+    kotlinc then demands an explicit parameter type.
+* [col-convert] Converters between the collections: `to_list` (from a set or
+  sorted set), `to_set` (from a list — duplicates collapse, first-appearance
+  order), and **two `to_map` forms** (user decision 2026-09-12): from a list
+  of pairs, and from a list of anything plus a rule
+  (`to_map(words, w -> (w, size(w)))`). Duplicate keys are last-wins
+  throughout [col-duplicate-keys].
+  * **Known limitation**: a *bare inline literal* argument to one of these
+    does not determine the callee's type parameter
+    (`to_set([1, 2])` — "cannot infer type argument `T`"), because the
+    literal's own element types are not propagated back into the
+    instantiation. Binding it first (`let xs = [1, 2]; to_set(xs)`),
+    annotating the result, or a nested call all work, and the diagnostic
+    names the remedies. Recorded in ROADMAP.md.
+* [col-nonempty] std declares `qualifier NonEmpty<T> of List<T>` in
+  `core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, a
+  by-construction constructor `non_empty_list(first, ...rest)`, and a
+  `first(list: NonEmpty List<T>) -> proj[from: list] T` overload that drops
+  the optional — ranked above the plain `first` by [fn-overload-rank].
+  * A **refinement** `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`
+    establishes the claim, because `add` itself may not [qual-refn].
+    Consequence for user code: another qualifier refining `add` over a `List`
+    now *disagrees* with std's, so neither applies and the call warns
+    [qual-refn-conflict]. The remedy is one word — `with NonEmpty` on the
+    user's qualifier — which the diagnostic names.
+  * The overload delegates to `get(list, 0)!`, **not** to `first@core.list`:
+    the scope selector names the module, and within it a `NonEmpty` argument
+    re-picks this same overload, which recurses forever.
+  * The constructor is an `intrinsic` only because mixing a plain argument
+    with a `...spread` in one variadic call is unsupported, so
+    `list_of(first, ...rest)` cannot be its body (recorded in ROADMAP.md).
+  * **One name, one subject type.** A qualifier name is unique within a module
+    *and* across the implicitly visible `core` modules, so there is no
+    `NonEmpty` over `Set`/`Map`/`SortedSet`/`SortedMap`; that needs same-name
+    different-subject qualifiers, a DECISION in ROADMAP.md.
+* [col-sorted-list] std declares `qualifier Sorted<T> of List<T>` in
+  `core.list` — a **state claim** over a list, and a different mechanic from
+  the `SortedSet`/`SortedMap` types [col-sorted], which are a representation.
+  A `Sorted List<T>` still reaches the whole list surface.
+  * **No `qualifies`**, so no `is Sorted`: deciding whether a list happens to
+    be sorted compares its elements, which nothing can do over an
+    unconstrained `T`. It is minted by `sort` / `mut_sort` and nowhere else.
+  * `add_sorted(list: Mut Sorted List<T>, elem: T) => list: Mut Sorted, !elem`
+    inserts at the position that keeps the order, and names `Sorted` in its
+    **own** exhaustive deduction list rather than needing a refinement — it is
+    the one function that genuinely knows the claim survives. Its parameter
+    *demands* the claim, since inserting in order into an unordered list would
+    not make it ordered.
+  * `binary_search(list: Sorted List<T>, elem: T) -> Int?` is honest only
+    because of the parameter's claim. With equal elements both backends answer
+    the **lowest** matching index: each lowers to an explicit lower bound
+    (Rust `partition_point` plus an equality test — not `Vec::binary_search`,
+    which may answer any index in an equal run; Kotlin an `indexOfFirst` over
+    `__salvoCompare`).
+  * The elements must be **orderable**, on the same terms a `SortedSet` key is
+    [col-key-eligible] — checked where the claim is written, and where a call
+    infers it (a constructor's `as Q` lives beside the return type rather than
+    in it, so the inferred path re-applies it before checking).
+* [col-distinct] std declares `qualifier Distinct<T> of List<T>` in
+  **`core.set`**, not `core.list`: a constructor must sit beside its qualifier
+  [qual-ctor-same-file], and a *set* is what can honestly promise the claim —
+  `to_list(set)` returns `List<T> as Distinct`. Mint-only, like `Sorted`.
+  `to_list` over a `SortedSet` lives in `core.sorted` and so cannot mint it.
+* [col-insertion-order] `Set<T>` and `Map<K, V>` **iterate in insertion
+  order, on every backend** (user decision 2026-09-12) — with
+  `LinkedHashMap`'s exact semantics: writing a key that is already present
+  keeps its original position, and removing one is O(1) and leaves the order
+  of the rest intact. `to_list` on a set, `keys` on a map, a `for` over
+  either, and `to_str` all agree on that order.
+  * Kotlin gets it from `LinkedHashSet`/`LinkedHashMap`. Rust's standard
+    library has no ordered hash container, so **the backend ships one**:
+    `SalvoSet`/`SalvoMap` in `runtime/collections.rs` (a slot vector plus a
+    hash index, compacted when the graveyard outgrows the live entries)
+    [rs-collections].
+  * Two alternatives were rejected. **Unspecified order** — what
+    `HashMap`/`HashSet` give — would make a program's output depend on its
+    backend, which [backend-parity] forbids. **Always sorted** would charge
+    every collection an ordering it may not need, and would demand orderable
+    keys where hashable ones suffice; that is what `SortedSet`/`SortedMap`
+    are for [col-sorted].
+* [col-to-str] `to_str` of a collection is **the language's format, not the
+  target's**, and both backends emit the same string: `[1, 2, 3]` for a
+  list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the
+  literal that would build it [col-literal]. Elements appear in the
+  collection's own order ([col-insertion-order], or key order for the sorted
+  pair).
+  * Neither backend's native rendering is used, because they disagree with
+    each other and with Salvo: Rust's `Debug` for a map quotes string keys
+    and writes `:`, Kotlin's `toString` writes `a=1`. The Rust runtime and
+    the Kotlin lowerings each write the format out.
+* [col-sorted] `SortedSet<T>` and `SortedMap<K, V>` are **separate types**
+  from `Set`/`Map`, kept in the natural order of their keys (user decision
+  2026-09-12). Not a qualifier on the unordered types: a qualifier is
+  droppable by design, so a `Sorted Set` could be passed where a plain `Set`
+  is wanted and quietly lose the property the callee relies on.
+  * Their keys must be **orderable** rather than hashable — a different bar,
+    checked by the same declaration-site and instantiation-site machinery
+    [col-key-eligible]. A **union** is hashable but never orderable:
+    comparing values of different types has no obvious meaning.
+  * `min`/`max` on a set and `first_key`/`last_key` on a map are the
+    cheap-at-either-end operations an ordered tree exists for; iteration and
+    `to_str` are in key order.
+  * Rust maps them to `BTreeSet`/`BTreeMap`, Kotlin to `TreeSet`/`TreeMap`
+    built with Salvo's own comparator [kt-ordered] — natural ordering would
+    not do, since a `List` and a tuple are not `Comparable` on the JVM and a
+    `Str` would compare by UTF-16 code unit.
+  * **Strings order by code point** on both backends. Rust's `String: Ord`
+    is byte-wise UTF-8, which is code-point order; the JVM's
+    `String.compareTo` is code-unit order, which puts an astral character
+    (a surrogate pair, 0xD800–0xDFFF) below a BMP one at 0xE000–0xFFFF. The
+    same call Salvo already made for string *indexing* — characters, not
+    encoding units — so the Kotlin comparator compares code points.
+* [col-equality] **Every struct supports `==` and `!=`**, structurally
+  (user decision 2026-09-12). Both operands must be the **same base type** —
+  comparing two different struct types is an error, not a constant `false`
+  — and qualifiers are ignored on both sides (`Surname Person == Person` is
+  fine): equality is about the data at the moment of the check, not about
+  what is claimed of the handle. State, provenance and `Mut` alike.
+  * A **fn-typed field bars a struct from equality**: `Rc<dyn Fn>` has none
+    on Rust and Kotlin would compare by reference, so no answer exists that
+    both backends can give. Such a struct is therefore also barred from
+    `canbe hashed` / `canbe ordered`.
+  * **Ordering (`< <= > >=`) needs `canbe ordered`**; equality needs no
+    opt-in. The axes are separate.
+  * **Salvo owns floating-point equality.** Rust's derived `PartialEq` is
+    IEEE (`NaN` equals nothing, `+0.0 == -0.0`); Kotlin's data-class
+    `equals` calls `Double.equals`, which is the *opposite* on both counts,
+    so a float-bearing struct gets a generated `equals` of its own
+    [kt-float-eq]. Chosen deliberately as the hook for a future
+    precision-specified comparison. Verified: the same program reported
+    `struct nan == nan` as `false` on Rust and `true` on Kotlin before the
+    fix.
+  * Generated union enums derive `PartialEq` on Rust, conditionally on
+    their payloads, so a struct holding a union can derive its own.
+* [col-hashed-ordered] A struct opts into being a **key** by declaring
+  `canbe hashed` (a `Set` element, a `Map` key) or `canbe ordered` (a
+  `SortedSet` element, a `SortedMap` key, and the ordering operators). Both
+  are **validated where they are written**, so the error names the field
+  rather than surfacing at a distant `Set<Point>`:
+  * the struct may not be `canbe Mut` — a value that can change while a
+    collection holds it corrupts the collection's lookup or order, which is
+    the classic silent-corruption bug made a compile error;
+  * every field must itself be hashable / orderable. `Int`, `Long`, `Str`,
+    `Char` and `Bool` are both; `Double`/`Float` are **neither** (Rust's
+    `f64` is not `Eq`, `Hash` or `Ord`) while equality on a struct holding
+    one still works; a nested struct must carry the same claim; a `List` or
+    a tuple qualifies exactly when its elements do (user decision
+    2026-09-12), ordering **lexicographically**, with a shorter list that is
+    a prefix comparing less.
+  * Ordering of a struct is lexicographic **by field declaration order**,
+    which makes field order semantically significant. Rust derives it;
+    Kotlin generates a `Comparable` with a `compareTo` that goes through a
+    runtime helper, since a `List` and a `Pair` are not `Comparable` on the
+    JVM [kt-ordered].
+  * A type variable is *not* checked at the declaration: like
+    [linear-generics], the instantiation is where the key rule bites, which
+    keeps generic code over keyed collections writable.
+* [col-literal] Each everyday collection has a literal, and each is sugar
+  for the matching constructor (user decisions 2026-09-12/13):
+  `[1, 2]` is `list_of`, `{1, 2}` is `set_of`, `{"a": 1}` is `map_of`.
+  * **Kinds are told apart inside the brace**: a brace lambda first
+    (`{ i: Int -> 0 }`), then a bare *struct* literal when the first entry
+    is `identifier:` — which is why a map key is an expression and
+    `{x: 1}` stays a struct literal — then `:` after the first element
+    means a map and its absence a set.
+  * **`{}` is an empty collection**, never an empty struct literal (a
+    fieldless struct is written with its name, `Finished {}`). Its kind
+    comes from the expected type, and the AST node is an empty `SetLit`
+    that the checker re-reads as a `Map`/`List` where the position says so
+    — so the emitters follow the *checked type*, not the node.
+  * **An empty literal needs a type from its position** — a `let`
+    annotation or the parameter it is passed to — and is an error
+    otherwise, naming both remedies. Overload probing therefore hands a
+    concrete expected type to literals as it does to nested calls.
+  * A literal **constructs**, so it adopts a `Mut` the position asks for
+    (`let ys: Mut List<Int> = [4, 5]`); no other qualifier is adopted,
+    since construction does not establish a claim [qual-constructive].
+  * Elements **move** into the literal [deduce-consume], and a linear one
+    is refused as it is in any composite [linear-composite].
+  * A bracket literal still types as an **array** where the position
+    expects one, which is what keeps a literal usable in a variadic
+    argument.
 * [type-any-nothing] `Any` is the top type; `Nothing` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
   * A *written* `Nothing` lowers to the bottom type, not to a nominal type
@@ -330,6 +528,41 @@ Conventions:
     ([iter-protocol], [once-fn]) — the alternative, inferring it from the
     presence of a `next`, would attach an obligation to someone's type on
     the strength of a method name.
+* [qual-overload] **A qualifier name may be declared over several subject
+  types**, and which one a use means is decided by the subject — the way a
+  function overload is decided by its arguments (user decision 2026-09-13).
+  std declares `NonEmpty` five times over: `of List<T>` in `core.list`, and
+  `of Set<T>`, `of Map<K, V>`, `of SortedSet<T>`, `of SortedMap<K, V>` in
+  `core.nonempty`.
+  * The subject is keyed **syntactically, by the `of` type's base name**
+    (`List`, `Set`, …). A generic `of` (`qualifier Ok<T> of T`) has no base
+    name, accepts every subject, and so cannot be told apart from another
+    declaration of its name — which therefore stays a duplicate. Syntactic on
+    purpose: resolution, the [mod-collision] checks, the refinement matcher
+    and both backends need the same answer, and only the checker can unify.
+  * **Same name *and* same subject is not an overload but a replacement.** A
+    module declaring its own `NonEmpty of List<T>` shadows std's, exactly as
+    before; two in *one* module are a duplicate ("nothing at a use site could
+    tell them apart"), as are two in different implicitly visible `core`
+    modules.
+  * A use whose subject **no** declaration of that name accepts is the same
+    error as a single inapplicable declaration ("does not apply to `Int`"),
+    not silence.
+  * Where the question is about the *name* rather than a subject — does one
+    exist, does it have a body, is it provenance, is it `with`-compatible with
+    another — any declaration of the name answers, since `with` names a
+    qualifier and same-named declarations are the same claim over different
+    containers.
+  * A **refinement** picks its qualifier the same way, from the refined
+    parameter's own type: `refn add(set: Mut Set<T>, elem: T) => set:
+    +NonEmpty` inside the `of Set<T>` declaration refines the `add` that takes
+    a set. Two container claims therefore do *not* conflict with each other
+    [qual-refn-conflict] — they are about different subjects.
+  * Backends: erasure [qual-erasure] makes two same-named `qualifies`
+    functions collide where the target has no overloading, so **Rust mangles
+    the emitted name with the subject** (`Filled__List_qualifies`) and only
+    when the name is actually overloaded, following [rs-fn-mangling]. Kotlin
+    needs nothing — the JVM overloads on the parameter type.
 * [qual-with] Two qualifiers may stack on one type only if one declares
   `with` the other; the `Mut` auto-qualifier composes with everything
   [type-canbe-mut].
@@ -877,8 +1110,8 @@ Conventions:
      unrankable, deliberately — ranking them would ask the caller to know
      more than what is in front of them);
   4. with the slots otherwise equal, a **fixed** parameter list beats a
-     variadic one, which is what lets `list()` pick a no-argument overload
-     over `list(...elems)`.
+     variadic one, which is what lets `list_of()` pick a no-argument overload
+     over `list_of(...elems)`.
   * A candidate wins only by being at least as specific in *every* slot and
     strictly more specific in one. A sum of per-slot scores was the previous
     rule and is deliberately gone: it let one argument's gain pay for
@@ -957,7 +1190,7 @@ Conventions:
   parameter types only flowed in as *expected* types, so `log(true)` on
   `fn log(message: Str)` was accepted.)
 * [call-type-args] A generic call's type arguments must be **determined**.
-  In order: an explicit list (`mutable_list<Int>()`) pins them; otherwise
+  In order: an explicit list (`mut_list_of<Int>()`) pins them; otherwise
   the arguments bind them by unification; otherwise the **expected type**
   at the call does — a `let` annotation, the enclosing fn's return type, or
   a parameter type the result flows into. A type argument that appears in
@@ -1235,6 +1468,19 @@ Conventions:
   * A variadic position is otherwise untracked by the flow analysis, so an
     intrinsic that merely *reads* its parts must borrow them in Rust: an
     owned splice would move a variable the checker still considers live.
+  * **A tail may mix plain arguments with a spread** — `list_of(first,
+    ...rest)` — since 2026-09-13. Kotlin always could, its spread being an
+    operator on an argument (`listOf(first, *rest)`); Rust needs the tail as
+    one `Vec<T>`, so the emitter assembles it in written order (pushing each
+    plain element, extending from each spread), which also allows a spread
+    anywhere in the tail rather than only last. Nothing about the targets had
+    prevented it: the ordinary path refused the mixture outright and the
+    intrinsic path had no guard at all, so it read the spread as the *whole*
+    tail and silently dropped the leading elements [backend-never-wrong].
+    * A constructor lowering is told which it got (`Spread::Borrowed` vs
+      `Spread::Owned`), because an assembled vector is fresh and must not be
+      cloned again while a borrowed forward must be. Ownership is the
+      caller's fact, not something a lowering can infer from the text.
 * [implicit-param] `?cmp: (T, T) -> Int` declares an **implicit parameter**:
   one the caller need not pass (user decisions 2026-09-05). Its type must be
   a fn type — what fills it is a function — and implicit parameters trail the
@@ -1627,7 +1873,7 @@ Conventions:
   rest of the current scope; `use Handler` is sugar for `use Handler()`.
   * The checker infers the handler's generics from the constructor
     arguments and registers the *concrete* effect instance
-    (`use CyclicRandom(list(1,2,3))` registers `Random<Int>`), recorded
+    (`use CyclicRandom(list_of(1,2,3))` registers `Random<Int>`), recorded
     in `use_effects`.
 * [use-requires-use] `use` is only legal in functions declaring the
   special `use` effect (`main() [use]` is the conventional entry point).
@@ -1742,6 +1988,13 @@ Conventions:
     | `=> v.f: proj[from: a]` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
     | `=> proj[from: a, b]` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
     | `=>[f] entry, …` | a group: entries about the fn-typed parameter `f`, whose own parameters are named in its type [fn-contract] |
+
+  * A `=>[f]` group reaches a fn type **through its qualifiers**: a
+    `once (t: T) -> None` parameter is a qualifier group wrapping the fn type,
+    and until 2026-09-13 the scoping refused it — which had locked the
+    contract out of exactly the parameter that most wants one, since a
+    callback that *consumes* what it is given can only be called once
+    ([once-fn]; `hand_over` in `examples/linearity/` is the shape).
 
   * **Unmentioned means inferred.** A parameter the clause does not mention
     gets the entry the body implies [deduce-infer] — the clause is partial,
@@ -2330,8 +2583,8 @@ Conventions:
     projection) and behaves as a kept parameter.
   * A *view of a temporary* — a projecting or lending call whose borrowed
     argument is a call result or literal — may be used within its
-    statement (`map(iter(list(1, 2)), f)`, `for x in iter(list(1, 2))`)
-    but not bound, returned or stored (`let p = iter(list(1, 2))`: "cannot
+    statement (`map(iter(list_of(1, 2)), f)`, `for x in iter(list_of(1, 2))`)
+    but not bound, returned or stored (`let p = iter(list_of(1, 2))`: "cannot
     bind a view of a temporary"). Rust exposed it (E0716); the rule keeps
     the backends in agreement. A possible later automation (hoisting the
     temporary) is recorded in ROADMAP.
@@ -2634,7 +2887,7 @@ Conventions:
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
-    audit opts in `list`, `mutable_list`, `add`, `size`, and `discard`
+    audit opts in `list`, `mut_list_of`, `add`, `size`, and `discard`
     (whose declaration is now honestly
     `intrinsic fn discard<T canbe linear>(value: T) -> None` — no => !value
     blessed-by-name special case), while `get` stays out (returns an

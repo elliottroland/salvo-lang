@@ -397,14 +397,23 @@ impl<'p> Walk<'_, '_, 'p> {
             | Expr::Lambda { .. }
             | Expr::While { .. }
             | Expr::For { .. } => Some(HashSet::new()),
-            Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            Expr::MapLit { entries, .. } => {
+                let mut out = HashSet::new();
+                for (k, v) in entries {
+                    out.extend(self.lends_of_expr(k)?);
+                    out.extend(self.lends_of_expr(v)?);
+                }
+                Some(out)
+            }
+            Expr::ArrayLit { elems, .. }
+            | Expr::SetLit { elems, .. }
+            | Expr::Tuple { elems, .. } => {
                 let mut out = HashSet::new();
                 for e in elems {
                     out.extend(self.lends_of_expr(e)?);
                 }
                 Some(out)
             }
-            Expr::ArrayInit { init, .. } => self.lends_of_expr(init),
             Expr::Scoped { .. } | Expr::Error { .. } => None,
         }
     }

@@ -17,13 +17,13 @@ fn describe_container(xs: List<Int>) [Console] -> None => xs {
     }
     println("1. list of ${size(xs)} sums to ${sum}")
 
-    let letters = mutable_str()
+    let letters = mut_str()
     for c in "salvo" {
         append(letters, "${c}.")
     }
     println("1. string: ${letters}")
 
-    let arr = [10, 20, 30]
+    let arr = array_of(10, 20, 30)
     let from_array = 0
     for n in arr {
         from_array = from_array + n
@@ -169,7 +169,7 @@ fn sum_of<It>(it: Mut It, ?Yield<It, Int>) -> Int => it: Mut {
 fn main() [use] {
     use StdOutConsole()
 
-    let xs = list(1, 2, 3, 4)
+    let xs = list_of(1, 2, 3, 4)
     describe_container(xs)
 
     // 2. a hand-written pass, driven in two stages.
@@ -215,7 +215,7 @@ fn main() [use] {
     let total = reduce(xs, 0, (acc, n) -> acc + n)
     println("5. list: ${size(doubled)} doubled, ${size(odd)} odd, total ${total}")
 
-    let words = list("ann", "bo", "carol")
+    let words = list_of("ann", "bo", "carol")
     let lengths = map(iter(words), w -> size(w))
     println("5. lengths: ${reduce(iter(lengths), 0, (acc, n) -> acc + n)}")
 
@@ -234,6 +234,6 @@ fn main() [use] {
     // `map_to` maps into a collection you provide and hands it back, reached
     // through an `add` the call site resolves — so the destination need not be
     // a `List`.
-    let collected = map_to(mutable_list<Int>(), countdown(3), (n: Int) -> n * 10)
+    let collected = map_to(mut_list_of<Int>(), countdown(3), (n: Int) -> n * 10)
     println("6. collected ${size(collected)}")
 }

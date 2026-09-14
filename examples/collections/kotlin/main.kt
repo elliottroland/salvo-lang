@@ -1,0 +1,118 @@
+package salvo.main
+
+import salvo.*
+import salvo.core.array.*
+import salvo.core.console.*
+import salvo.core.iterator.*
+import salvo.core.list.*
+import salvo.core.map.*
+import salvo.core.nonempty.*
+import salvo.core.set.*
+import salvo.core.sorted.*
+import salvo.core.string.*
+
+data class Point(
+    val x: Int,
+    val y: Int,
+) : Comparable<Point> {
+    override fun compareTo(other: Point): Int {
+        run { val __c = salvo.__salvoCompare(x, other.x); if (__c != 0) return __c }
+        run { val __c = salvo.__salvoCompare(y, other.y); if (__c != 0) return __c }
+        return 0
+    }
+}
+
+data class Note(
+    val text: String,
+)
+
+fun count_unique(xs: List<Int>): Int {
+    return xs.size
+}
+
+fun main() {
+    val console: Console = StdOutConsole()
+    val primes = listOf<Int>(2, 3, 5, 7)
+    val vowels = linkedSetOf<String>("a", "e", "i", "o", "u")
+    val ages = linkedMapOf<String, Int>(("ada" to 36), ("grace" to 45))
+    println(console, "1. list ${primes.joinToString(", ", "[", "]")}")
+    println(console, "1. set ${vowels.joinToString(", ", "{", "}")} of ${vowels.size}")
+    println(console, "1. map ${ages.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
+    val note: Note = Note(text = "still a struct literal")
+    println(console, "1. struct ${note.text}")
+    val seen: MutableSet<String> = linkedSetOf<String>()
+    seen.add("first")
+    println(console, "1. empty then filled ${seen.joinToString(", ", "{", "}")}")
+    val tally: MutableMap<String, Int> = linkedMapOf<String, Int>(Pair("pear", 1), Pair("apple", 2))
+    tally.put("fig", 3)
+    tally.put("pear", 99)
+    println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
+    val ranked: java.util.SortedSet<String> = java.util.TreeSet<String>(java.util.Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) }).also { __s -> __s.addAll(listOf("pear", "apple", "fig")) }
+    println(console, "2. key order ${ranked.joinToString(", ", "{", "}")}")
+    val smallest = ranked.firstOrNull()
+    if (smallest != null) {
+        println(console, "2. min is cheap here $smallest")
+    }
+    val corners: MutableSet<Point> = linkedSetOf<Point>()
+    corners.add(Point(x = 0, y = 0))
+    val again = corners.add(Point(x = 0, y = 0))
+    println(console, "3. struct key: size ${corners.size}, second add $again")
+    val labels: MutableMap<Point, String> = linkedMapOf<Point, String>()
+    labels.put(Point(x = 1, y = 1), "diagonal")
+    val found = labels[Point(x = 1, y = 1)]
+    if (found != null) {
+        println(console, "3. looked up by value $found")
+    }
+    val a = Point(x = 1, y = 2)
+    val b = Point(x = 1, y = 2)
+    val c = Point(x = 1, y = 9)
+    val same = a == b
+    val before = a < c
+    println(console, "4. equal $same, ordered $before")
+    val n1 = Note(text = "same")
+    val n2 = Note(text = "same")
+    val notes_equal = n1 == n2
+    println(console, "4. plain struct equality $notes_equal")
+    val squares = MutableList<Int>(4, { i -> i * i })
+    println(console, "5. generated ${squares.joinToString(", ", "[", "]")}")
+    val deduped = linkedSetOf<Int>().also { __s -> __s.addAll(primes) }
+    println(console, "5. to_set ${deduped.joinToString(", ", "{", "}")}")
+    val words = listOf<String>("alpha", "be")
+    val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, w.length) }).forEach { __e -> __m.put(__e.first, __e.second) } }
+    println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
+    val filled = non_empty_list("ada", "grace")
+    println(console, "6. first is ${first(filled)}, no optional")
+    val growing: MutableList<Int> = mutableListOf<Int>()
+    growing.add(7)
+    println(console, "6. after add, first is ${first(growing)}")
+    val ordered = listOf<Int>(40, 10, 30, 20).sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) })
+    println(console, "6. sorted ${ordered.joinToString(", ", "[", "]")}")
+    if (ordered.let { __l -> 30.let { __e -> __l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it >= 0 && __l[it] == __e) it else null } } } != null) {
+        val at = ordered.let { __l -> 30.let { __e -> __l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it >= 0 && __l[it] == __e) it else null } } } as Int
+        println(console, "6. found 30 at $at")
+    }
+    val live: MutableList<Int> = listOf<Int>(10, 30).sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) }).toMutableList()
+    live.let { __l -> 20.let { __e -> __l.add(__l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } }
+    live.let { __l -> 5.let { __e -> __l.add(__l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } }
+    println(console, "6. still sorted ${live.joinToString(", ", "[", "]")}")
+    val unique = deduped.toMutableList()
+    println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${count_unique(unique)}")
+    var __loop1_pass = iter__4(vowels)
+    while (true) {
+        val __loop1_step = next__4(__loop1_pass)
+        if (__loop1_step !is U2_1<*, *>) { break }
+        val v = __loop1_step.value as String
+        console.print(v)
+    }
+    println(console, "")
+    var __loop2_pass = iter__3(ages)
+    while (true) {
+        val __loop2_step = next__3(__loop2_pass)
+        if (__loop2_step !is U2_1<*, *>) { break }
+        val name = __loop2_step.value as String
+        val age = ages[name]
+        if (age != null) {
+            println(console, "7. $name is $age")
+        }
+    }
+}

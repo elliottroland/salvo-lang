@@ -297,6 +297,20 @@ pub struct Checked {
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
+    /// [call-resolve] Call sites whose callee resolved to a **fn-typed
+    /// local** (a parameter or `let`) rather than to a declaration, keyed
+    /// by the call span.
+    ///
+    /// The emitters need this because their own first question — "is this
+    /// name an effect member?" — is asked of a *program-wide* map
+    /// (`Symbols::effect_of_fn`), which knows nothing of scopes or locals,
+    /// while the checker resolves a local first. Without the record, a
+    /// program declaring `effect Sink { fn keep(...) }` made std's
+    /// `filter(it, keep: (T) -> Bool)` emit an effect dispatch for its own
+    /// parameter, reported as "no handler for effect `Sink`" from inside
+    /// `core/seq.sv` — the checker and the emitters disagreeing about what
+    /// a call *is*.
+    pub local_calls: HashSet<Key>,
     /// Concrete effect instances threaded as leading handler arguments for
     /// a call to a fn that declares effect dependencies (keyed by the call
     /// span, in the callee's declaration order).
@@ -1567,6 +1581,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
+                    // [col-hashed-ordered] `canbe hashed` / `canbe ordered`
+                    // are checked *here*, where the mistake is: the error
+                    // names the field that is not hashable or orderable
+                    // rather than surfacing at some distant `Set<Point>`.
+                    self.check_key_optins(s);
                     self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
@@ -1831,7 +1850,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// method name.
     fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
         for q in quals {
-            if matches!(q.name.name.as_str(), "Mut" | "once") {
+            if matches!(q.name.name.as_str(), "Mut" | "once" | "hashed" | "ordered") {
                 continue;
             }
             // [linear-group] `canbe` grants a *qualifier*; linearity is an
@@ -1850,8 +1869,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 q.span,
                 format!(
-                    "only `Mut` and `once` can be opted into with `canbe` \
-                     (found `{}`)",
+                    "only `Mut`, `once`, `hashed` and `ordered` can be opted \
+                     into with `canbe` (found `{}`)",
                     q.name.name
                 ),
             );
@@ -2287,7 +2306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
         // [fn-contract] [implicit-group] The member's own deduction list is
-        // its contract, exactly as a declared fn's is [fn-value-ty]. Without
+        // its contract, exactly as a declared fn's is. Without
         // it every parameter read as kept-and-immutable, so a member
         // declared `fn next(it: Mut It) -> [it: Mut] …` could not be filled
         // by any implementation — the supplied fn mutates, the position
@@ -5652,6 +5671,438 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.ty_own_linear_guarded(ty, 0)
     }
 
+    /// [col-key-eligible] Whether a type may be a **key**: a `Set`
+    /// element, or a `Map` key. `None` means eligible; `Some(reason)` is
+    /// the phrase the diagnostic uses.
+    ///
+    /// Hashing and equality are what a hash container needs, and this
+    /// version answers them from the intrinsic types alone: `Int`, `Long`,
+    /// `Str`, `Char` and `Bool` have both on every backend. Two exclusions
+    /// are worth stating rather than discovering:
+    ///
+    /// * `Double`/`Float` are **not** keys. Rust's `f64` implements neither
+    ///   `Eq` nor `Hash` (`NaN != NaN`), so a float-keyed map is not
+    ///   representable there at all, while Kotlin would take it happily —
+    ///   a divergence closed by restriction [backend-parity].
+    /// * a struct is not a key *yet*: `canbe hashed` is the opt-in, and it
+    ///   is what the diagnostic points at.
+    ///
+    /// A type *variable* is eligible: a generic fn's `K` is checked where
+    /// it is instantiated, which is the same place [linear-generics] checks
+    /// its own ban. `Unknown` passes for the usual reason
+    /// [type-unknown-lenient] — one mistake, one diagnostic.
+    fn key_ineligible(&self, ty: &Ty) -> Option<String> {
+        self.hash_ineligible(ty, 0).map(|reason| {
+            format!(
+                "`{ty}` cannot be a key: {reason}. A `Set` element and a `Map` \
+                 key have to be hashable"
+            )
+        })
+    }
+
+    /// [col-literal] An expected element type only helps when it is
+    /// *concrete*: `to_set([1, 2])` expects `List<T>` for an unbound `T`, and
+    /// taking `T` as the element type would leave nothing to infer it from —
+    /// the literal's own elements are what determine it (and then bind `T`).
+    fn concrete_elem(ty: Option<Ty>) -> Option<Ty> {
+        ty.filter(|t| !matches!(t.strip_quals(), Ty::Var(_)))
+    }
+
+    /// [col-literal] The type of a collection literal: the named container
+    /// at its element types, carrying a `Mut` when the position asks for one.
+    ///
+    /// A literal *constructs*, so adopting `Mut` from the expected type is
+    /// sound and saves writing it twice (`let ys: Mut List<Int> = [4, 5]`).
+    /// Only `Mut`: every other qualifier is a claim about the value that
+    /// construction does not establish [qual-constructive].
+    fn collection_lit_ty(&self, name: &str, args: Vec<Ty>, expected: Option<&Ty>) -> Ty {
+        let ty = Ty::Named {
+            name: name.to_string(),
+            args,
+        };
+        let want_mut = expected.is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
+        if want_mut {
+            ty.qualify(vec![Qual {
+                name: "Mut".to_string(),
+                args: Vec::new(),
+                effect: false,
+            }])
+        } else {
+            ty
+        }
+    }
+
+    /// [col-equality] Operand rules for the comparison operators (user
+    /// decisions 2026-09-12).
+    ///
+    /// * **Equality works on every struct**, structurally, and ignores
+    ///   qualifiers — `Surname Person == Person` is fine, because equality
+    ///   is about the data at the moment of the check, not about what is
+    ///   claimed of the handle.
+    /// * **The two sides must be the same base type.** Comparing different
+    ///   struct types is an error rather than a constant `false`: it is
+    ///   almost always a mistake, and neither backend agrees on what it
+    ///   would mean.
+    /// * **A fn-typed field bars a struct from equality**: `Rc<dyn Fn>` has
+    ///   none on Rust and Kotlin would compare by reference, so there is no
+    ///   answer both backends can give.
+    /// * **Ordering needs `canbe ordered`** on a struct, where equality does
+    ///   not — the axes are separate.
+    ///
+    /// Unknown and `Nothing` operands stay lenient [type-unknown-lenient].
+    fn check_comparison_operands(&mut self, op: ast::BinaryOp, span: Span, l: &Ty, r: &Ty) {
+        let equality = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::NotEq);
+        let (lb, rb) = (l.strip_quals(), r.strip_quals());
+        if lb.is_unknown() || rb.is_unknown() || matches!(lb, Ty::Nothing) || matches!(rb, Ty::Nothing)
+        {
+            return;
+        }
+        // Same base type on both sides — qualifiers ignored, since equality
+        // is about the data.
+        let mismatch = match (lb, rb) {
+            (Ty::Named { name: ln, .. }, Ty::Named { name: rn, .. }) => ln != rn,
+            _ => false,
+        };
+        if mismatch {
+            self.error(
+                span,
+                format!(
+                    "cannot compare `{l}` with `{r}`: the operands of a \
+                     comparison must be the same type"
+                ),
+            );
+            return;
+        }
+        let Ty::Named { name, .. } = lb else {
+            return;
+        };
+        let Some(decl) = self.scope.structs.get(name.as_str()) else {
+            return;
+        };
+        if decl.fields.iter().any(|f| matches!(f.ty, ast::Type::Fn { .. })) {
+            self.error(
+                span,
+                format!(
+                    "`{name}` cannot be compared: it holds a function-typed \
+                     field, and a function value has no equality either \
+                     backend can agree on (Rust has none at all, Kotlin would \
+                     compare by reference)"
+                ),
+            );
+            return;
+        }
+        if !equality && !self.has_auto_ordered(name) {
+            self.error(
+                span,
+                format!(
+                    "`{name}` cannot be ordered: declare `canbe ordered` on it \
+                     to compare its values with `<`, `<=`, `>` and `>=` \
+                     (equality needs no opt-in)"
+                ),
+            );
+        }
+    }
+
+    /// [col-hashed-ordered] Whether a struct declares `canbe hashed`.
+    fn has_auto_hashed(&self, name: &str) -> bool {
+        self.scope
+            .structs
+            .get(name)
+            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "hashed"))
+    }
+
+    /// [col-hashed-ordered] Whether a struct declares `canbe ordered`.
+    fn has_auto_ordered(&self, name: &str) -> bool {
+        self.scope
+            .structs
+            .get(name)
+            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "ordered"))
+    }
+
+    /// [col-hashed-ordered] Whether a type can be **hashed** — the
+    /// requirement for a `Set` element or a `Map` key. `None` is eligible.
+    fn hash_ineligible(&self, ty: &Ty, depth: usize) -> Option<String> {
+        if depth > 8 {
+            return None;
+        }
+        match ty.strip_quals() {
+            Ty::Var(_) | Ty::Unknown | Ty::Nothing => None,
+            Ty::Named { name, args } => match name.as_str() {
+                "Int" | "Long" | "Str" | "Char" | "Bool" => None,
+                "Double" | "Float" => Some(format!(
+                    "`{name}` is not hashable, because floating-point equality \
+                     and hashing disagree between the backends (`NaN` equals \
+                     nothing, not even itself). Equality on a value holding one \
+                     still works — hashing is what cannot"
+                )),
+                // A container hashes when its elements do (Rust's `Vec` and
+                // Kotlin's `List` both hash structurally).
+                "List" | "Set" => args
+                    .first()
+                    .and_then(|a| self.hash_ineligible(a, depth + 1)),
+                "Map" => args
+                    .iter()
+                    .take(2)
+                    .find_map(|a| self.hash_ineligible(a, depth + 1)),
+                _ if self.scope.structs.contains_key(name.as_str()) => {
+                    if self.has_auto_hashed(name) {
+                        None
+                    } else {
+                        Some(format!(
+                            "`{name}` is a struct that does not declare \
+                             `canbe hashed`"
+                        ))
+                    }
+                }
+                _ => Some(format!("`{name}` is not hashable")),
+            },
+            Ty::Tuple(elems) => elems
+                .iter()
+                .find_map(|e| self.hash_ineligible(e, depth + 1)),
+            Ty::Array(elem) => self.hash_ineligible(elem, depth + 1),
+            Ty::Fn { .. } => Some(
+                "a function value is not hashable: neither backend can \
+                 compare or hash one meaningfully"
+                    .to_string(),
+            ),
+            Ty::Union(_) => Some(
+                "a union is not hashable yet: every arm would have to be, \
+                 which this version does not check"
+                    .to_string(),
+            ),
+            other => Some(format!("`{other}` is not hashable")),
+        }
+    }
+
+    /// [col-hashed-ordered] Whether a type can be **ordered** — the
+    /// requirement for a `SortedSet` element or a `SortedMap` key.
+    fn order_ineligible(&self, ty: &Ty, depth: usize) -> Option<String> {
+        if depth > 8 {
+            return None;
+        }
+        match ty.strip_quals() {
+            Ty::Var(_) | Ty::Unknown | Ty::Nothing => None,
+            Ty::Named { name, args } => match name.as_str() {
+                "Int" | "Long" | "Str" | "Char" | "Bool" => None,
+                "Double" | "Float" => Some(format!(
+                    "`{name}` is not orderable, because Rust's `f64` has no \
+                     total order (`NaN` compares less, greater and equal to \
+                     nothing), so a sorted collection of them would not agree \
+                     between the backends"
+                )),
+                // Lists and tuples order lexicographically by their elements
+                // (user decision 2026-09-12).
+                "List" => args
+                    .first()
+                    .and_then(|a| self.order_ineligible(a, depth + 1)),
+                _ if self.scope.structs.contains_key(name.as_str()) => {
+                    if self.has_auto_ordered(name) {
+                        None
+                    } else {
+                        Some(format!(
+                            "`{name}` is a struct that does not declare \
+                             `canbe ordered`"
+                        ))
+                    }
+                }
+                _ => Some(format!("`{name}` is not orderable")),
+            },
+            Ty::Tuple(elems) => elems
+                .iter()
+                .find_map(|e| self.order_ineligible(e, depth + 1)),
+            Ty::Array(elem) => self.order_ineligible(elem, depth + 1),
+            Ty::Fn { .. } => Some(
+                "a function value is not orderable: neither backend can \
+                 compare one"
+                    .to_string(),
+            ),
+            Ty::Union(_) => Some(
+                "a union is not orderable: comparing values of different \
+                 types has no obvious meaning (user decision 2026-09-12)"
+                    .to_string(),
+            ),
+            other => Some(format!("`{other}` is not orderable")),
+        }
+    }
+
+    /// [col-hashed-ordered] Validates a struct's `canbe hashed` /
+    /// `canbe ordered` claims where they are written.
+    ///
+    /// Two conditions, both the user's rule (2026-09-12): the struct must be
+    /// **immutable** — a `canbe Mut` struct could change under a hash table
+    /// or a sorted tree, which is the classic silent corruption — and every
+    /// field must itself be hashable/orderable.
+    fn check_key_optins(&mut self, s: &'p ast::StructDecl) {
+        let mutable = s.auto_qualifiers.iter().any(|q| q.name.name == "Mut");
+        for q in &s.auto_qualifiers {
+            let (claim, ordered) = match q.name.name.as_str() {
+                "hashed" => ("hashed", false),
+                "ordered" => ("ordered", true),
+                _ => continue,
+            };
+            if mutable {
+                self.error(
+                    q.span,
+                    format!(
+                        "`{}` cannot be `canbe {claim}`: it is also `canbe Mut`, \
+                         and a value that can change while a collection holds \
+                         it would corrupt the collection's order or lookup. \
+                         Only an immutable struct can be a key",
+                        s.name.name
+                    ),
+                );
+                continue;
+            }
+            for field in &s.fields {
+                let empty = HashMap::new();
+                let ty = self.lower_type_subst(&field.ty, &empty, 0);
+                let bad = if ordered {
+                    self.order_ineligible(&ty, 0)
+                } else {
+                    self.hash_ineligible(&ty, 0)
+                };
+                if let Some(reason) = bad {
+                    self.error(
+                        field.ty.span(),
+                        format!(
+                            "`{}` cannot be `canbe {claim}`: its field `{}` is \
+                             not {claim} — {reason}",
+                            s.name.name, field.name.name
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    /// [col-key-eligible] Reports an ineligible key in a written
+    /// `Set<T>` / `Map<K, V>`. The *value* side of a map is unrestricted,
+    /// so only the first argument is checked.
+    fn check_key_eligibility(&mut self, base: &TypeRef) {
+        // [col-sorted] The sorted collections need an *orderable* key, the
+        // unordered ones a *hashable* one — different bars, so the container
+        // decides which is checked.
+        let (arity, ordered) = match base.name.name.as_str() {
+            "Set" => (1, false),
+            "Map" => (2, false),
+            "SortedSet" => (1, true),
+            "SortedMap" => (2, true),
+            _ => return,
+        };
+        if base.args.len() != arity {
+            return;
+        }
+        let empty = HashMap::new();
+        let key = self.lower_type_subst(&base.args[0], &empty, 0);
+        let bad = if ordered {
+            self.sorted_key_ineligible(&key)
+        } else {
+            self.key_ineligible(&key)
+        };
+        if let Some(reason) = bad {
+            let span = base.args[0].span();
+            self.error(span, reason);
+        }
+    }
+
+    /// [col-sorted-list] `Sorted` over a `List<T>` is a claim about the
+    /// element order, so `Sorted List<Double>` is as meaningless as a
+    /// `SortedSet<Double>` and is refused in the same place, by element.
+    fn check_sorted_list_claim(&mut self, qualifiers: &[ast::TypeRef], base: &ast::TypeRef) {
+        if base.name.name != "List" || base.args.len() != 1 {
+            return;
+        }
+        if !qualifiers.iter().any(|q| q.name.name == "Sorted") {
+            return;
+        }
+        let empty = HashMap::new();
+        let elem = self.lower_type_subst(&base.args[0], &empty, 0);
+        if let Some(reason) = self.sorted_list_elem_ineligible(&elem) {
+            self.error(base.args[0].span(), reason);
+        }
+    }
+
+    /// [col-sorted-list] The element rule for a `Sorted List<T>` claim.
+    fn sorted_list_elem_ineligible(&self, elem: &Ty) -> Option<String> {
+        self.order_ineligible(elem, 0).map(|reason| {
+            format!(
+                "`{elem}` cannot be the element of a `Sorted List`: {reason}. \
+                 Sorting compares the elements, so they have to be orderable"
+            )
+        })
+    }
+
+    /// [col-sorted] The key rule for the sorted collections.
+    fn sorted_key_ineligible(&self, ty: &Ty) -> Option<String> {
+        self.order_ineligible(ty, 0).map(|reason| {
+            format!(
+                "`{ty}` cannot be a sorted collection's key: {reason}. A \
+                 `SortedSet` element and a `SortedMap` key have to be orderable"
+            )
+        })
+    }
+
+    /// [col-key-eligible] The same rule against an already-lowered type,
+    /// for the **inferred** case: `set_of(1.5)` writes no type at all, so
+    /// the ineligible key only exists in the substitution the call
+    /// resolved. Walks nested positions so `List<Map<Double, Int>>` is
+    /// caught too.
+    fn check_key_eligibility_ty(&mut self, ty: &Ty, span: Span, depth: usize) {
+        if depth > 8 {
+            return;
+        }
+        // [col-sorted-list] An *inferred* `Sorted List<T>` — what `sort` and
+        // `mut_sort` return — carries the claim as a qualifier, so it has to
+        // be read before `strip_quals` throws it away.
+        if ty.quals().iter().any(|q| q.name == "Sorted") {
+            if let Ty::Named { name, args } = ty.strip_quals() {
+                if name == "List" && args.len() == 1 {
+                    if let Some(reason) = self.sorted_list_elem_ineligible(&args[0]) {
+                        self.error(span, reason);
+                        return;
+                    }
+                }
+            }
+        }
+        match ty.strip_quals() {
+            Ty::Named { name, args } => {
+                let (arity, ordered) = match name.as_str() {
+                    "Set" => (1, false),
+                    "Map" => (2, false),
+                    "SortedSet" => (1, true),
+                    "SortedMap" => (2, true),
+                    _ => (0, false),
+                };
+                if arity > 0 && args.len() == arity {
+                    let bad = if ordered {
+                        self.sorted_key_ineligible(&args[0])
+                    } else {
+                        self.key_ineligible(&args[0])
+                    };
+                    if let Some(reason) = bad {
+                        self.error(span, reason);
+                        return;
+                    }
+                }
+                for a in args {
+                    self.check_key_eligibility_ty(a, span, depth + 1);
+                }
+            }
+            Ty::Union(arms) => {
+                for a in arms {
+                    self.check_key_eligibility_ty(a, span, depth + 1);
+                }
+            }
+            Ty::Tuple(elems) => {
+                for e in elems {
+                    self.check_key_eligibility_ty(e, span, depth + 1);
+                }
+            }
+            Ty::Array(elem) => self.check_key_eligibility_ty(elem, span, depth + 1),
+            _ => {}
+        }
+    }
+
     /// [linear-generics] The containment half: a **conditional container**
     /// (`struct Box<T canbe linear>`) is linear exactly when the
     /// instantiation puts a linear type where an opted-in parameter
@@ -5920,7 +6371,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "`{linear}` is linear, so it cannot be {position}: a linear value's \
                  obligation cannot travel inside a composite yet, so keep it in a \
                  local, a parameter or a return value and discharge it with its \
-                 `close`"
+                 discharger"
             ),
         );
     }
@@ -6532,7 +6983,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the source path, which is worth saying out loud rather than
     /// producing a nameless union.
     fn core_qualifier(&mut self, span: Span, name: &str) -> Option<Qual> {
-        let decl = self.scope.qualifiers.get(name).copied();
+        let decl = self.qualifier_named(name);
         match decl {
             // Written as `Ok Int` / `Thrown Str`, so the qualifier's own
             // type argument stays implicit — exactly as `lower_quals`
@@ -6620,7 +7071,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Call { .. }
             | Expr::Index { .. }
             | Expr::ArrayLit { .. }
-            | Expr::ArrayInit { .. }
+            | Expr::SetLit { .. }
+            | Expr::MapLit { .. }
             | Expr::Tuple { .. }
             | Expr::StructLit { .. }
             | Expr::Unary { .. }
@@ -6690,7 +7142,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Call { .. }
             | Expr::Index { .. }
             | Expr::ArrayLit { .. }
-            | Expr::ArrayInit { .. }
+            | Expr::SetLit { .. }
+            | Expr::MapLit { .. }
             | Expr::Tuple { .. }
             | Expr::StructLit { .. }
             | Expr::Unary { .. }
@@ -7876,6 +8329,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.require_name(base, false);
                 self.reject_effect_as_data(base);
                 self.reject_group_as_data(base);
+                // [col-key-eligible] `Set<Double>` / `Map<Double, V>` are
+                // refused where they are written, which covers every
+                // declaration site this walk reaches.
+                self.check_key_eligibility(base);
+                // [col-sorted-list] `Sorted List<T>` claims an order over the
+                // elements, so they have to *have* one — the same bar the
+                // sorted containers apply to their keys.
+                self.check_sorted_list_claim(qualifiers, base);
                 for a in &base.args {
                     self.validate_type(a);
                 }
@@ -7931,9 +8392,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
+        // [qual-overload] The subject picks among same-named qualifiers here:
+        // `NonEmpty List<T>` and `NonEmpty Set<T>` are different declarations,
+        // and the base type written in front of the qualifier says which.
         let decls: Vec<Option<&'p QualifierDecl>> = qualifiers
             .iter()
-            .map(|q| self.scope.qualifiers.get(q.name.name.as_str()).copied())
+            .map(|q| self.qualifier_for(q.name.name.as_str(), Some(base)))
             .collect();
         // Each qualifier must apply to the base type (per its `of` type)
         // [qual-of].
@@ -8017,7 +8481,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // existing consumption machinery [deduce-consume].
                     continue;
                 }
-                let Some(decl) = decl else { continue };
+                let Some(decl) = decl else {
+                    // [qual-overload] The name is declared, but not over this
+                    // subject: with several candidates the resolution simply
+                    // found none, which must be the same error as a single
+                    // declaration that does not apply rather than silence.
+                    if self.qualifier_named(q.name.name.as_str()).is_some() {
+                        self.error(
+                            q.span,
+                            format!("qualifier `{}` does not apply to `{base}`", q.name.name),
+                        );
+                    }
+                    continue;
+                };
                 if !self.qual_applies(decl, base) {
                     self.error(
                         q.span,
@@ -8060,6 +8536,38 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [qual-overload] The qualifier a use of `name` means. One name may be
+    /// declared over several **subject types** (`NonEmpty of List<T>` beside
+    /// `NonEmpty of Set<T>`), and the subject decides which — the way a fn
+    /// overload is decided by its arguments.
+    ///
+    /// With a single candidate the subject is not consulted at all, so a use
+    /// over an unknown or generic subject still resolves; that is also the
+    /// path every program took before overloading existed.
+    fn qualifier_for(&mut self, name: &str, subject: Option<&Ty>) -> Option<&'p QualifierDecl> {
+        let candidates = self.scope.qualifiers.get(name)?.clone();
+        match candidates.as_slice() {
+            [] => None,
+            [one] => Some(*one),
+            many => {
+                // Against the *base* type: a qualifier's `of` is about the
+                // data, so a `Mut Set<Str>` subject picks the `of Set<T>`
+                // declaration exactly as a plain `Set<Str>` does.
+                let subject = subject?.strip_quals().clone();
+                many.iter().copied().find(|d| self.qual_applies(d, &subject))
+            }
+        }
+    }
+
+    /// [qual-overload] A qualifier with this name, for questions that are
+    /// about the *name* rather than about a subject — does one exist, does it
+    /// have a body, is it provenance. Where several are declared these
+    /// answers agree in practice (they are the same claim over different
+    /// containers), and the first is as good as any.
+    fn qualifier_named(&self, name: &str) -> Option<&'p QualifierDecl> {
+        self.scope.qualifiers.get(name)?.first().copied()
+    }
+
     /// Whether a qualifier's `of` type accepts the given base type.
     fn qual_applies(&mut self, decl: &'p QualifierDecl, base: &Ty) -> bool {
         if matches!(base, Ty::Unknown | Ty::Var(_)) {
@@ -8078,9 +8586,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Whether `name` is a *provenance* qualifier [qual-subject]: a claim
     /// about where the handle came from, which no call can invalidate.
     fn is_provenance_qual(&self, name: &str) -> bool {
-        self.scope
-            .qualifiers
-            .get(name)
+        self.qualifier_named(name)
             .is_some_and(|d| d.subject == QualSubject::Provenance)
     }
 
@@ -8137,10 +8643,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let compatible = have.iter().all(|h| {
-                match (
-                    self.scope.qualifiers.get(h.as_str()),
-                    self.scope.qualifiers.get(q.as_str()),
-                ) {
+                // [qual-overload] Compatibility is a relation between *names*:
+                // a `with` clause names a qualifier, not a qualifier-over-a-
+                // subject, so same-named declarations share their `with` list.
+                match (self.qualifier_named(h.as_str()), self.qualifier_named(q.as_str())) {
                     (Some(a), Some(b)) => crate::refine::quals_compatible(a, b),
                     // `Mut` and the other intrinsics compose with
                     // everything; an invisible qualifier cannot be judged.
@@ -8298,7 +8804,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_constructor_sig(&mut self, f: &'p FnDecl) {
         let Some(cref) = &f.constructs else { return };
         let name = cref.name.name.as_str();
-        let Some(decl) = self.scope.qualifiers.get(name).copied() else {
+        let subject = f.return_type.as_ref().map(|t| self.lower_type(t));
+        let Some(decl) = self.qualifier_for(name, subject.as_ref()) else {
             self.error(
                 cref.span,
                 format!("unknown qualifier `{name}` in constructor return type"),
@@ -8478,17 +8985,21 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(base, out);
             collect_assigned_expr(index, out);
         }
-        Expr::ArrayInit { size, init, .. } => {
-            collect_assigned_expr(size, out);
-            collect_assigned_expr(init, out);
-        }
         Expr::Binary { lhs, rhs, .. } => {
             collect_assigned_expr(lhs, out);
             collect_assigned_expr(rhs, out);
         }
-        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::ArrayLit { elems, .. }
+        | Expr::SetLit { elems, .. }
+        | Expr::Tuple { elems, .. } => {
             for e in elems {
                 collect_assigned_expr(e, out);
+            }
+        }
+        Expr::MapLit { entries, .. } => {
+            for (k, v) in entries {
+                collect_assigned_expr(k, out);
+                collect_assigned_expr(v, out);
             }
         }
         Expr::StructLit { fields, .. } => {
@@ -8591,12 +9102,14 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
             expr_mentions(callee, name) || args.iter().any(|a| expr_mentions(a, name))
         }
         Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
-        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::ArrayLit { elems, .. }
+        | Expr::SetLit { elems, .. }
+        | Expr::Tuple { elems, .. } => {
             elems.iter().any(|e| expr_mentions(e, name))
         }
-        Expr::ArrayInit { size, init, .. } => {
-            expr_mentions(size, name) || expr_mentions(init, name)
-        }
+        Expr::MapLit { entries, .. } => entries
+            .iter()
+            .any(|(k, v)| expr_mentions(k, name) || expr_mentions(v, name)),
         Expr::StructLit { fields, .. } => fields.iter().any(|f| match &f.kind {
             StructLitFieldKind::Named { value, .. } => expr_mentions(value, name),
             StructLitFieldKind::Spread(e) => expr_mentions(e, name),
@@ -9372,7 +9885,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// call-site move.
     fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
         // [proj-anywhere] Returning or storing a view of a temporary. Driving
-        // one (`for x in iter(list(1, 2))`) is fine: the temporary lives for
+        // one (`for x in iter(list_of(1, 2))`) is fine: the temporary lives for
         // the whole loop statement on both backends.
         if action != "iterate" {
             self.reject_temp_view(value, action);
@@ -9849,11 +10362,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
+            // [col-literal] `[1, 2, 3]` is a **List** literal. It built an
+            // array until 2026-09-13; arrays kept the type syntax (`T[]`)
+            // and gained `array_of` as their constructor, because a list is
+            // the ordinary sequence and an array is the variadic boundary.
             Expr::ArrayLit { elems, .. } => {
-                let expected_elem = match expected.map(|t| t.strip_quals()) {
+                let expected_elem = Self::concrete_elem(match expected.map(|t| t.strip_quals()) {
+                    Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
+                        Some(args[0].clone())
+                    }
+                    // An array is still accepted as the *expected* type so a
+                    // literal in a variadic position keeps working.
                     Some(Ty::Array(e)) => Some((**e).clone()),
                     _ => None,
-                };
+                });
+                let want_array = matches!(
+                    expected.map(|t| t.strip_quals()),
+                    Some(Ty::Array(_))
+                );
                 let mut tys = Vec::new();
                 for e in elems {
                     tys.push(self.check_expr(e, expected_elem.as_ref()));
@@ -9882,31 +10408,132 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.mk_union(tys)
                     }
                 });
-                Ty::Array(Box::new(elem))
+                if elems.is_empty() && elem.is_unknown() {
+                    self.error(
+                        expr.span(),
+                        concat!(
+                            "an empty list literal needs its element type ",
+                            "from the position it is in: annotate the binding ",
+                            "(`let xs: List<Int> = []`) or pass it where the ",
+                            "parameter's type says what it holds",
+                        )
+                            .to_string(),
+                    );
+                }
+                // [col-literal] A `Mut` on the literal asks for a mutable
+                // list (`Mut [1, 2]`); the qualifier arrives through the
+                // expected type or the literal's own qualifiers.
+                if want_array {
+                    Ty::Array(Box::new(elem))
+                } else {
+                    self.collection_lit_ty("List", vec![elem], expected)
+                }
             }
-            Expr::ArrayInit {
-                elem_type,
-                size,
-                init,
-                ..
-            } => {
-                let empty = HashMap::new();
-                self.require_name(elem_type, false);
-                self.reject_group_as_data(elem_type);
-                let elem = self.lower_base_ref(elem_type, &empty, 0);
-                self.check_expr(size, Some(&Ty::named("Int")));
-                // [type-array] The initializer is inlined at the
-                // construction site, so it performs whatever the enclosing
-                // scope allows: its expected type declares the effects in
-                // scope rather than none [fn-effects].
-                let init_ty = Ty::Fn {
-                    params: vec![Ty::named("Int")],
-                    ret: Box::new(elem.clone()),
-                    contract: None,
-                    effects: self.effect_env.clone(),
+            // [col-literal] `{1, 2}` is a Set literal, `{"a": 1}` a Map
+            // literal. Both *construct*, so their elements move
+            // [deduce-consume], their key type must be hashable
+            // [col-key-eligible], and they adopt a `Mut` the position asks
+            // for exactly as a list literal does.
+            Expr::SetLit { elems, span } => {
+                // [col-literal] An empty `{}` takes its kind from the
+                // position: a `Map` there is an empty map, not an empty set.
+                if elems.is_empty() {
+                    if let Some(Ty::Named { name, args }) =
+                        expected.map(|t| t.strip_quals())
+                    {
+                        if name == "Map" && args.len() == 2 {
+                            return self.collection_lit_ty(
+                                "Map",
+                                vec![args[0].clone(), args[1].clone()],
+                                expected,
+                            );
+                        }
+                        if name == "List" && args.len() == 1 {
+                            return self.collection_lit_ty(
+                                "List",
+                                vec![args[0].clone()],
+                                expected,
+                            );
+                        }
+                    }
+                }
+                let expected_elem = Self::concrete_elem(match expected.map(|t| t.strip_quals()) {
+                    Some(Ty::Named { name, args }) if name == "Set" && args.len() == 1 => {
+                        Some(args[0].clone())
+                    }
+                    _ => None,
+                });
+                let mut tys = Vec::new();
+                for e in elems {
+                    tys.push(self.check_expr(e, expected_elem.as_ref()));
+                }
+                for e in elems {
+                    self.fate_move(e, "store", "a literal store", e.span());
+                }
+                let elem = expected_elem.unwrap_or_else(|| {
+                    if tys.is_empty() {
+                        Ty::Unknown
+                    } else {
+                        self.mk_union(tys)
+                    }
+                });
+                // [col-literal] An empty literal carries no element to infer
+                // from, so the position must say what it is.
+                if elems.is_empty() && elem.is_unknown() {
+                    self.error(
+                        *span,
+                        concat!(
+                            "an empty collection literal needs its type from ",
+                            "the position it is in: annotate the binding ",
+                            "(`let s: Set<Int> = {}`) or pass it where the ",
+                            "parameter's type says which collection it is",
+                        )
+                            .to_string(),
+                    );
+                }
+                if let Some(reason) = self.key_ineligible(&elem) {
+                    self.error(*span, reason);
+                }
+                self.collection_lit_ty("Set", vec![elem], expected)
+            }
+            Expr::MapLit { entries, span } => {
+                let (expected_key, expected_val) = match expected.map(|t| t.strip_quals()) {
+                    Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
+                        (
+                            Self::concrete_elem(Some(args[0].clone())),
+                            Self::concrete_elem(Some(args[1].clone())),
+                        )
+                    }
+                    _ => (None, None),
                 };
-                self.check_expr(init, Some(&init_ty));
-                Ty::Array(Box::new(elem))
+                let mut key_tys = Vec::new();
+                let mut val_tys = Vec::new();
+                for (k, v) in entries {
+                    key_tys.push(self.check_expr(k, expected_key.as_ref()));
+                    val_tys.push(self.check_expr(v, expected_val.as_ref()));
+                }
+                for (k, v) in entries {
+                    self.fate_move(k, "store", "a literal store", k.span());
+                    self.fate_move(v, "store", "a literal store", v.span());
+                }
+                let key = expected_key.unwrap_or_else(|| {
+                    if key_tys.is_empty() {
+                        Ty::Unknown
+                    } else {
+                        self.mk_union(key_tys)
+                    }
+                });
+                let val = expected_val.unwrap_or_else(|| {
+                    if val_tys.is_empty() {
+                        Ty::Unknown
+                    } else {
+                        self.mk_union(val_tys)
+                    }
+                });
+                if let Some(reason) = self.key_ineligible(&key) {
+                    self.error(*span, reason);
+                }
+                self.collection_lit_ty("Map", vec![key, val], expected)
             }
             Expr::Tuple { elems, .. } => {
                 let expected_elems: Option<&Vec<Ty>> = match expected {
@@ -10002,6 +10629,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // content.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
+                        // [col-equality] Comparison operands must be the same
+                        // base type, and what may be compared at all depends
+                        // on the operator: `==`/`!=` work on any struct,
+                        // ordering only on one declaring `canbe ordered`.
+                        self.check_comparison_operands(*op, expr.span(), &l, &r);
                         Ty::named("Bool")
                     }
                 }
@@ -10241,7 +10873,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 // [proj-type] Elements are projections of what the loop walks
                 // — unless the loop *owns* what it walks: a temporary
-                // (`for s in list("x", "y")`) or a pass moved into the loop
+                // (`for s in list_of("x", "y")`) or a pass moved into the loop
                 // dies with it, so its elements are the loop's to give away.
                 // Nothing to share fate with means nothing to borrow from.
                 let elem = if links.is_empty() {
@@ -10430,7 +11062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// e.g. `surname: Str` under `Surname Person`.
     fn field_override_ty(&mut self, base_ty: &Ty, field_name: &str) -> Option<Ty> {
         for qual in base_ty.quals() {
-            let Some(decl) = self.scope.qualifiers.get(qual.name.as_str()).copied() else {
+            let Some(decl) = self.qualifier_for(qual.name.as_str(), Some(base_ty)) else {
                 continue;
             };
             let Some(field) = decl
@@ -11478,19 +12110,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A qualifier check on a non-union subject is a predicate test
         // [is-qualifies]: it calls each qualifier's `qualifies` function at
         // runtime.
+        // [qual-overload] Resolve each named qualifier against *this* subject
+        // once, up front: with several declarations of one name it is the
+        // subject that says which is being tested, and every question below
+        // (does it have a body, does it apply, what effects does its
+        // `qualifies` declare) is about that one.
+        let resolved: Vec<Option<&'p QualifierDecl>> = pat
+            .quals
+            .iter()
+            .map(|q| {
+                let subj = subj_ty.clone();
+                self.qualifier_for(q.as_str(), Some(&subj))
+            })
+            .collect();
         let is_predicate = !pat.is_none
             && !pat.quals.is_empty()
             && !matches!(subj_ty, Ty::Union(_))
             && !subj_ty.is_unknown()
-            && pat.quals.iter().all(|q| {
-                self.scope
-                    .qualifiers
-                    .get(q.as_str())
-                    .is_some_and(|d| d.has_body)
-            });
+            && resolved.iter().all(|d| d.is_some_and(|d| d.has_body));
         if is_predicate {
-            for q in &pat.quals {
-                let decl = self.scope.qualifiers[q.as_str()];
+            for (q, decl) in pat.quals.iter().zip(&resolved) {
+                let Some(decl) = *decl else { continue };
                 if !self.qual_applies(decl, subj_ty.strip_quals()) {
                     self.error(
                         *span,
@@ -11509,8 +12149,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The `qualifies` call happens here at runtime: its declared
             // effects must be available in this scope
             // [is-qualifies-effects].
-            for q in &pat.quals {
-                let decl = self.scope.qualifiers[q.as_str()];
+            for (q, decl) in pat.quals.iter().zip(&resolved) {
+                let Some(decl) = *decl else { continue };
                 let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
                     continue;
                 };
@@ -11540,12 +12180,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else if !pat.quals.is_empty() && !matches!(subj_ty, Ty::Union(_)) && !pat.unresolved {
             // [qual-constructive] no runtime test exists for constructive
             // qualifiers on non-union values.
-            let constructive = pat.quals.iter().find(|q| {
-                self.scope
-                    .qualifiers
-                    .get(q.as_str())
-                    .is_some_and(|d| !d.has_body)
-            });
+            let constructive = pat
+                .quals
+                .iter()
+                .zip(&resolved)
+                .find(|(_, d)| d.is_some_and(|d| !d.has_body))
+                .map(|(q, _)| q);
             match constructive {
                 Some(q) => self.error(
                     *span,
@@ -12859,6 +13499,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     effects,
                 } = vty.strip_quals().clone()
                 {
+                    // [call-resolve] The callee is a *local* holding a
+                    // function, which outranks any same-named declaration —
+                    // an effect member included. Recorded for the emitters,
+                    // whose own effect-member test is a program-wide name
+                    // map that cannot see locals.
+                    self.out.local_calls.insert(self.key(span));
                     // [fn-effects] The call supplies the value's effects.
                     self.check_fn_value_effects(&effects, span);
                     for (i, a) in args.iter().enumerate() {
@@ -13139,10 +13785,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [call-type-args] A *concrete* parameter type flows
                 // into a nested call, so that call can infer its own
                 // type arguments from where its result is going
-                // (`takes_ints(mutable_list())`). A pattern still
+                // (`takes_ints(mut_list_of())`). A pattern still
                 // mentioning the callee's generics must not: coercion
                 // would be recorded against an unsubstituted `T`.
-                Expr::Call { .. } => {
+                // [col-literal] A collection literal is in the same
+                // position: `takes_set({})` and `takes_ints([])` have
+                // nothing *inside* the literal to infer from, so the
+                // parameter's type is what says which collection it is and
+                // what it holds. Guarded like the call case — a pattern
+                // still mentioning the callee's generics would record a
+                // coercion against an unsubstituted `T`.
+                Expr::Call { .. }
+                | Expr::ArrayLit { .. }
+                | Expr::SetLit { .. }
+                | Expr::MapLit { .. } => {
                     let concrete = exp.filter(|t| !ty_mentions_vars(t, &lead_generics));
                     self.check_expr(a, concrete.as_ref())
                 }
@@ -13552,6 +14208,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 break;
             }
         }
+        // [col-key-eligible] The inferred half of the key rule: a call that
+        // *builds* a keyed collection without the type being written
+        // anywhere (`set_of(1.5)`) has its key only in the resolved
+        // substitution, so it is checked here rather than in
+        // `validate_type`.
+        if self.inferred.is_some() {
+            if let Some(ret) = decl.return_type.as_ref() {
+                if !subst.is_empty() {
+                    let lowered = self.lower_type_subst(ret, &subst, 0);
+                    // [col-sorted-list] A constructor's `as Q` lives beside the
+                    // return type, not in it, so `sort`'s `Sorted` claim would
+                    // be invisible here — and `sort(list_of(unorderable))` is
+                    // exactly the inferred case this block exists for.
+                    let lowered = match &decl.constructs {
+                        Some(cref) => lowered.qualify(vec![crate::types::Qual {
+                            effect: false,
+                            name: cref.name.name.clone(),
+                            args: Vec::new(),
+                        }]),
+                        None => lowered,
+                    };
+                    self.check_key_eligibility_ty(&lowered, span, 0);
+                }
+            }
+        }
         // [deduce-consume] Deduction lists are a contract, enforced
         // flow-sensitively on bare identifier arguments: parameters *not*
         // kept are consumed (moved) — the variable narrows to `Nothing`
@@ -13785,7 +14466,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !sources.is_empty() {
                 // Whether a borrowed argument is a *temporary* (a call result
                 // or literal, not a place): a view of one dies with the
-                // statement, so it may be *used* there (`map(iter(list(1,
+                // statement, so it may be *used* there (`map(iter(list_of(1,
                 // 2)), f)`) but not bound, returned or stored — those sites
                 // consult this table.
                 for &idx in &sources {

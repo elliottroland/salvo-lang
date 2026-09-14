@@ -194,7 +194,7 @@ fn the_programs_exit_code_is_the_commands() {
     fs::write(
         dir.join("main.sv"),
         "fn main() [use] -> None {\n    use StdOutConsole\n    \
-         let numbers = [1, 2, 3]\n    let i = 10\n    \
+         let numbers = array_of(1, 2, 3)\n    let i = 10\n    \
          println(\"value ${numbers[i]}\")\n}\n",
     )
     .unwrap();
@@ -547,19 +547,19 @@ fn a_target_holding_sources_is_never_deleted() {
 /// A program whose refinements disagree [qual-refn-conflict]: legal, so it
 /// runs, and the checker's *warning* has to reach the builder.
 const REFN_CONFLICT: &str = r#"
-qualifier Q1<T> of List<T> {
+qualifier Q1<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q1
 }
 
-qualifier Q2<T> of List<T> {
+qualifier Q2<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
     refn add(list: Mut List<T>, elem: T) => list: +Q2
 }
 
 fn main() [use] {
     use StdOutConsole()
-    let xs: Mut List<Int> = mutable_list()
+    let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
     if xs is Q1 {
         println("checked by hand: ${size(xs)}")

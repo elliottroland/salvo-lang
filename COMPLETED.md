@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 806 tests, complete: the toolchain tests are
+cargo test                  # 848 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -104,7 +104,8 @@ crates/
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests
 └── salvo-testkit/        # dev-dependency for the test crates: toolchain probing
                           #   (once per binary) + the e2e content-hash cache
-std/                      # stdlib: core/ (basic, string, list, console) + random.sv
+std/                      # stdlib: core/ (basic, string, list, set, map, sorted,
+                          #   console, …) + random.sv
 vscode/                   # VS Code extension: LSP client + generated TextMate grammar
 ```
 
@@ -121,6 +122,303 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Mixed variadic spreads, and qualifier overloading (user decisions
+2026-09-13).** Two follow-ups the user asked for after C-6, each of which
+turned out to be an unimplemented case rather than a target limitation.
+
+**`list_of(first, ...rest)` works.** The user's question was whether something
+in Rust prevented it; nothing did. Kotlin had always accepted it — its spread
+is an operator on an argument (`listOf(first, *rest)`) — while Rust wants the
+tail as one `Vec<T>`, and that assembly was simply never written: the ordinary
+path refused the mixture outright and the *intrinsic* path had no guard at all,
+so it read the spread as the whole tail and silently dropped the leading
+elements. Both paths now assemble the tail in **written order** (`push` each
+plain element, `extend` from each spread), which also allows a spread anywhere
+in the tail rather than only last. A constructor lowering is told which shape
+it received — a new `Spread { None, Borrowed, Owned }` replaces the `bool` —
+because an assembled vector is fresh and must not be cloned again while a
+borrowed forward must be; `owned_vec()`/`owned_iter()` helpers keep the seven
+storing lowerings honest, and `mut_str`'s read-only tail keeps borrowing. std's
+`non_empty_list` went back to being ordinary Salvo (`return list_of(first,
+...rest)`), its two intrinsic lowerings deleted.
+
+**A qualifier name may now be declared over several subject types**, and the
+subject decides which one a use means — the way a fn overload is decided by its
+arguments. This was the DECISION C-6 left open, and it is what `NonEmpty` over
+the containers needed. The subject is keyed **syntactically, by the `of` type's
+base name**, because resolution, the [mod-collision] checks, the refinement
+matcher and both backends all need the same answer and only the checker can
+unify; a generic `of` (`qualifier Ok<T> of T`) has no base name, accepts
+everything, and so still collides with its namesakes. Same name *and* same
+subject stays a **replacement**, not an overload — which is what lets a module
+shadow std's `NonEmpty of List<T>`, and a plain `push` into the new overload
+set broke exactly that until the insert became a subject-aware upsert.
+
+Three layers had to learn the subject. `ModuleScope.qualifiers` and
+`Symbols.qualifiers` became overload sets; the checker gained
+`qualifier_for(name, subject)` beside `qualifier_named(name)` for the questions
+that are about the *name* (existence, body, provenance, `with`-compatibility —
+`with` names a qualifier, so same-named declarations share it); the `is` path
+resolves each named qualifier against its subject **once**, up front, and every
+later question reads that. `AddCtx::admit` needed the subject in its provenance
+key too — without it the second core module declaring `NonEmpty` was silently
+refused, which is why the first attempt found only the `List` one. And a use
+whose subject *no* declaration accepts is now the same error as a single
+inapplicable declaration rather than silence.
+
+**The Rust backend needed real work**, which [qual-erasure] had predicted:
+qualifiers are erased and Rust has no overloading, so two same-named
+`qualifies` functions both emitted `Q_qualifies` and collided with E0428. The
+subject's base name now disambiguates (`Filled__List_qualifies`) and only when
+the name is actually overloaded, following [rs-fn-mangling]'s
+mangle-only-on-collision precedent; the predicate call site resolves the same
+declaration from the subject in hand, so the two agree by construction. Kotlin
+needed nothing — the JVM overloads on the parameter type.
+
+**What std gained**: `core.nonempty`, declaring `NonEmpty` over `Set`, `Map`,
+`SortedSet` and `SortedMap` beside `core.list`'s `of List<T>`, with the
+refinements that establish it (`add` for the sets, `put` for the maps) and the
+overloads that drop the optional — `min`/`max` on a `NonEmpty SortedSet`,
+`first_key`/`last_key` on a `NonEmpty SortedMap`. They live in a module of
+their own for a mechanical reason worth remembering: an accessor overload has
+to **delegate** to the plain version, a scope selector names a module
+(`min@core.sorted`), and declared next to their targets the selector would
+re-pick the overload — a `NonEmpty` argument still ranks it first — and recurse
+forever. `core.list`'s `first` dodges that by delegating to `get` instead;
+`min` has no such alternative.
+
+That change also made an existing test *better*: the sorted-collections demo
+did `add(s, …)` and then tested `min(s) is Str`, and with the refinement in
+place `min` answers with an element, so the test now reads the value directly.
+
+**Tests**: 848 (from 845). Three qualifier-overloading tests with locally
+declared qualifiers (the checker harness builds its own prelude, so std's own
+declarations are asserted end to end instead), `a_mixed_variadic_tail_is_
+assembled_once` on the emitted shape, and mixed-spread plus container-claim
+cases in each backend's compile-and-run registry, sharing source and expected
+stdout verbatim. Specs: `[qual-overload]` in LANGUAGE_SPEC.md, a
+`[fn-variadic]` sub-bullet for mixed tails, `[rs-fn-mangling]` extended in
+BACKEND_SPEC.rust.md, and LANGUAGE.md's Collections section. **Recorded, not
+fixed**: a user-declared variadic of a *primitive* element type breaks on
+Kotlin (`vararg ns: Int` is an `IntArray`, not an `Array<Int>`), found while
+testing mixed spread but reproducible without one.
+
+**S-Col C-6 built, and the array generator deleted (user decisions
+2026-09-13).** Two things the user asked for after the collections work
+landed: delete the broken `Int[n] { i -> … }` form, and give std the qualifier
+surface over containers — plus `add_sorted`, which was the user's own
+addition ("inserts the element in such a way that it preserves the sorted
+qualifier").
+
+**The generator form is gone**, node and all. Deleting `Expr::ArrayInit` from
+the AST first and letting `cargo build` report every `E0599` found all 20
+sites with no grepping — parser, desugar, checker (4), deduce, lends, reach,
+and both emitters (3 and 4). `array_by(n, init)` already said the same thing
+through the ordinary intrinsic path, which is why deleting beat fixing; the
+spelling now fails to parse with "`Int` is a type, not a value". The corpus
+file it appeared in also had a stale array *literal*, fixed in passing.
+
+**Three claims over `List<T>`.** `NonEmpty` (in `core.list`) has a
+`qualifies`, so it can be tested — and it is the one that earns the machinery:
+`first(list: NonEmpty List<T>) -> proj[from: list] T` drops the optional.
+It arrives three ways: by construction (`non_empty_list`), by *refinement*
+(`refn add(...) => list: +NonEmpty`, since `add` may not promise it itself),
+and by `is`. `Sorted` (also `core.list`) has **no** `qualifies` — deciding
+whether a list happens to be sorted compares its elements, which nothing can
+do over an unconstrained `T` — so it is minted by `sort`/`mut_sort` only;
+`add_sorted` inserts at the order-preserving position and names `Sorted` in
+its **own** exhaustive deduction list, which it may do because it genuinely
+knows the claim survives, and `binary_search` is honest only because its
+parameter carries the claim. `Distinct` lives in **`core.set`**, not
+`core.list`: a constructor must sit beside its qualifier
+[qual-ctor-same-file], and a set is what can honestly promise it, so
+`to_list(set)` mints it. Both backends answer the **lowest** index within an
+equal run (explicit lower bounds — Rust `partition_point` plus an equality
+test rather than `Vec::binary_search`, Kotlin an `indexOfFirst` over
+`__salvoCompare`), and `sort` on Kotlin uses Salvo's comparator, never natural
+ordering, because JVM `String.compareTo` is UTF-16 code-unit order where
+Rust's is code points.
+
+**No language change was needed**, which was the surprise. The plan had been
+to ask for `canbe ordered` on a type parameter; but the compiler already
+dispatches key eligibility on std *names* (`Set`, `SortedMap`, …), so adding
+the `Sorted` **qualifier** to that same mechanism is consistent rather than
+new coupling. The check fires on written claims (`check_sorted_list_claim` in
+`validate_type`) and on inferred ones — the latter needed
+`resolve_named_call` to re-apply `decl.constructs`, because a constructor's
+`as Q` lives *beside* the return type rather than in it, so `sort`'s claim was
+invisible there.
+
+**Five bugs fixed on the way, all pre-existing.** (1) A `refinement` inside
+any `core` module could never match: `add_items` ran twice for a core module's
+own files (`Level::Core` *and* `Level::Own`), putting every fn in the overload
+set twice, which ordinary resolution tolerated and the refn matcher — which
+counts matches — did not. (2) `list_of(first, ...rest)` **silently emitted
+wrong Rust**: the ordinary variadic path had always refused a mixed
+plain-plus-spread call, but the intrinsic path had no such guard and its
+lowerings read the spread as the whole variadic, so only `first.clone()` came
+out. Now refused on both paths, and recorded as a feature gap — it is
+LANGUAGE.md's own spelling for `non_empty_list`, which is therefore an
+`intrinsic` with a native lowering per backend. (3) `=>[f]` rejected a
+`once`-qualified fn-typed parameter, locking the contract out of exactly the
+parameter that most wants one: a callback that *consumes* what it is given can
+only be called once. (4) A projected return over a bare generic
+(`-> proj[from: list] T`) rendered as `T` rather than `&T` on Rust — the
+documented "borrowedness is the instantiation's fact" exception, which is
+right at a definition site but wrong in a return, where elision ties the
+borrow to a named parameter. (5) A diagnostic hardcoded "discharge it with its
+`close`" where the value's discharger was named something else.
+
+**One design consequence, accepted.** std's `refn add` means a *user*
+qualifier that also refines `add` over a `List` now disagrees with std's, so
+neither applies and the call warns. The remedy is one word in the user's own
+code — `with NonEmpty` — which the diagnostic names, and four tests carrying a
+Q1/Q2 conflict demo needed exactly that edit.
+
+**Two new examples' worth of ground truth.** `examples/linearity/` is new:
+the obligation and its discharge, that it moves, that a keeping call borrows
+instead, that it cannot hide in a composite, and a generic carrying one
+(`<T canbe linear>` with a `once` consuming callback). Writing it forced a
+retraction — a first draft asserted L5 partial moves (move a field out, keep
+reading a sibling, whole-value use refused) and **none of that reproduces**,
+neither for a `Str` field nor a `List<Int>` one; the section was rewritten
+around what is true. `examples/collections/` gained a section on the three
+claims. **Tests**: 843 (from 841) — a prelude-safe checker test plus a
+compile-and-run case per backend, sharing source and expected stdout
+*verbatim* (asserted identical), since ordering and the equal-run answer are
+exactly where the two could drift. Specs: `[col-nonempty]`,
+`[col-sorted-list]`, `[col-distinct]` in LANGUAGE_SPEC.md, a `[fn-contract]`
+sub-bullet for the qualifier-group fix, LANGUAGE.md's Collections and
+constructor sections (its `non_empty_list` example had a body that no longer
+compiles), and `[type-array]` in both LANGUAGE_SPEC.md and
+BACKEND_SPEC.rust.md. **Left for the user in ROADMAP.md**: whether two
+qualifiers may share a name over different subject types, which is what
+`NonEmpty` over `Set`/`Map`/the sorted pair needs.
+
+**S-Col built: collections, in six increments (2026-09-12/13, the same day
+they were decided).** Every decision in the round below this entry is now in
+the language, on both backends, and COLLECTIONS.md is deleted per its charter
+(its reasoning — the language survey, the rejected options, the option space —
+is summarized in that entry). Three pre-existing bugs fell out on the way and
+were fixed; three more were found and recorded. What it took, by increment:
+
+**(A) The rename sweep.** `list` → `list_of`, `mutable_list` →
+`mut_list_of`, `mutable_str` → `mut_str` across std, every corpus and inline
+test source, the examples and their checked-in output, and the specs; four
+parser snapshots re-accepted. No compatibility shims (AGENTS.md's
+backwards-compatibility invariant), so this is simply what the functions are
+called now.
+
+**(B) `Set` and `Map`.** Two intrinsic types, a Rust runtime file
+(`collections.rs`: `SalvoMap`/`SalvoSet`, insertion-ordered to match
+LinkedHashMap exactly — position kept on overwrite, O(1) order-preserving
+remove), and key eligibility checked where the type is *instantiated*
+(`key_ineligible`/`sorted_key_ineligible` in check.rs). Kotlin gets
+`LinkedHashMap`/`LinkedHashSet` for free, which is why they were the model.
+
+**(B2) Iteration, and C-7 answered by prototype rather than on paper.** A
+Set/Map pass is a **snapshot owning a `List<T>`**, yielding owned elements
+through a set-local `snapshot_at` intrinsic. Two designs were built first and
+failed, which is what the prototype was for: an intrinsic *borrowing* pass
+([proj-field] lifetimes over the native iterators) breaks because the emitter
+renders `proj[from: p] T` as plain `T` for a non-borrowing struct, so the
+yield type mismatches; and a `copy()`-based pass breaks because Kotlin cannot
+copy a generic `V`. **A Map pass yields keys**, not entries — an entries pass
+needs an owned `(K, V)`, and with no generic copy on Kotlin the pair would
+share identity with the stored value and alias mutable values on one backend
+only, a parity break. Python's `for k in d` is the precedent. `values` and
+`entries` passes are recorded in ROADMAP.md.
+
+**(C) Collection literals, and array literals removed.** `[1, 2, 3]` is a
+List, `{"a"}` a Set, `{"k": "v"}` a Map, `Mut` prefixing like a struct
+literal, empty literals typed by expectation or an error. The parser
+speculates with snapshot/rollback (`parse_brace_collection`,
+`brace_is_struct_lit`): **`{}` is always an empty collection**, never an empty
+bare struct literal — `Finished {}` (named) still works. Arrays keep their
+constructors (`array_of`/`array_by`) and lose their literal.
+
+**(D) Universal `==`, and the two opt-ins.** Structs compare structurally on
+same-base-type operands with qualifiers ignored — state, provenance and `Mut`
+alike, so `Surname Person == Person` — and a fn-typed field bars a struct from
+`==` (and so from either opt-in). `canbe hashed` and `canbe ordered` are
+declaration-site opt-ins validated where they are written
+(`hash_ineligible`/`order_ineligible`, with the error saying which field and
+why); Rust adds derives, Kotlin gets generated `equals`/`hashCode`/
+`compareTo` plus a `compare.kt` runtime (`__salvoCompare` for lists and
+tuples). **Float equality is Salvo-emitted** on both backends rather than
+delegated — IEEE today, deliberately chosen as the seam for the
+precision-specified comparison the user asked for later — which also closed a
+real divergence: `nan == nan` used to disagree between the backends. Float
+fields bar `canbe hashed`.
+
+**(E) `SortedSet` and `SortedMap`.** Separate types, not a qualifier. String
+ordering had to be fixed to code-point order to make the two backends agree.
+
+**(F) The remaining conventions.** `*_by(size, i -> value)` constructors,
+`to_set`, and both `to_map` forms (a `List<(K, V)>` and a
+`List<T>` + entry function), duplicate keys last-wins. Container equality fell
+out of (D) for free and is order-insensitive on both backends for Set and Map
+— the one C-10 item that had been punted to the operator-typing decision.
+
+**Bugs fixed on the way, all pre-existing.** (1) A tuple-array type
+`(Str, Int)[]` failed to parse — "expected `->` after effect list in function
+type", the parser having taken `[]` for an effect list. (2) An **effect member
+hijacked a same-named fn-typed local**: the emitters resolved calls through
+the program-wide `symbols.effect_of_fn`, so `std/core/seq.sv` reported "no
+handler for effect `Sink`" for a call to a local. Fixed with
+`Checked::local_calls` plus tightened member visibility in resolve.rs — the
+checker knows which it is, and the emitters now ask. (3) **Variadic arguments
+moved out of their caller's locals**, so `list_of(a); use(a)` failed with a
+raw rustc E0382. Fixed by cloning in the emitter rather than by tracking the
+move in the checker: tracking it would have been more precise and would have
+turned working programs into errors.
+
+**Recorded, not fixed** (all in ROADMAP.md with repros): a bare inline
+collection literal does not determine a callee's type parameter
+(`to_set([1, 2])` cannot infer `T`; binding it first works) — probably one fix
+with the recorded bare-generic-struct-literal gap; and the
+`Int[3] { i: Int -> … }` **array-generator form is broken on Rust** (yields
+`()`, and splices the enclosing handler into the closure), which
+`array_by(3, i -> …)` now expresses properly — the recommendation is to delete
+the form, a user decision.
+
+**The accepted cost.** Name-based reachability now pulls `core.set`,
+`core.map` and `collections.rs` into every program, because the constructors
+and converters name each other across modules: hello-world went from ~300 to
+569 lines of allowed dead code. Both backends tolerate unused items, and the
+real fix — walking the checker's *resolved* call targets instead of matching
+names — needs the checker to record them, so it is a separate pass over
+`reach.rs` (ROADMAP.md).
+
+**Tests**: 841, all green (from 807). New: `collection_tests.rs` (26) and an
+`examples/collections/` worked example — chosen to show the *decisions* rather
+than the mechanics (the three literal forms and what a brace means where it is
+ambiguous, the two orderings, what may be a key and how a struct opts in,
+equality everywhere versus ordering only where declared) — byte-identical
+output on both backends. All ten golden snapshots re-accepted; every example
+regenerated. Specs: `[col-literal]`, `[col-equality]`,
+`[col-hashed-ordered]`, `[col-sorted]`, `[col-by]`, `[col-convert]` in
+LANGUAGE_SPEC.md; `[kt-float-eq]`, `[kt-ordered]` in BACKEND_SPEC.kotlin.md;
+LANGUAGE.md, BACKEND_SPEC.rust.md and `examples/README.md` updated. A
+label audit at the end closed four spec gaps: `[col-insertion-order]` and
+`[col-to-str]` were referenced from 30-odd sites in code and had no rule, so
+both are now written (the second says the `to_str` format is the language's,
+not the target's — Rust `Debug` quotes map keys and Kotlin writes `a=1`); the
+two backend specs gained the **runtime module** sections
+`[rs-runtime-source]`/`[rs-collections]` and `[kt-runtime-source]` they had
+been missing; and a dangling `[fn-value-ty]` in check.rs was dropped, its
+sentence already citing `[fn-contract]`. Every hyphenated label in code now
+resolves to a rule. Two *test* lists were also stale — the runtime-module
+lists that make `runtime_tests.rs` complete rather than a sample did not
+include `collections.rs` or `compare.kt`, so neither was being compiled on
+its own; both are now listed and both compile warning-free standalone.
+README's feature list gained a Collections bullet (its front-door sample was
+re-run on both backends and still prints correctly). **Left
+undecided and moved to ROADMAP.md**: C-6, the std qualifier surface over
+containers (`NonEmpty`, `Sorted of List` + `binary_search`, `Distinct`) —
+std authorship only, since the machinery it needs is already built and
+tested — and `Deque<T>` as the next container when a customer appears.
+
 **Design pass: collections decided in outline; the filesystem option space
 laid out; recursive types investigated (user decisions 2026-09-12, evening
 into 2026-09-13).** A documentation-only session (run read-only alongside
@@ -135,7 +433,9 @@ layering (`RawFs` + `Fs`, both public handlers depending on the raw seam);
 and the FS-3 recommendation (stream ops as free fns on linear stream
 values, object-capability style) mostly defuses the shared-member-name
 blocker. Decisions not yet made; the document dies into this log when they
-are. **(2) COLLECTIONS.md** — the collections option space, then *decided*
+are. **(2) COLLECTIONS.md** (since deleted per its charter — built the same
+day; see the entry above this one) — the collections option space, then
+*decided*
 across three same-day rounds (all user): separate `Set`/`Map`/`SortedSet`/
 `SortedMap` types — the `Sorted`-qualifier idea was examined and rejected
 because a qualifier is droppable by design and sortedness changes behavior;
@@ -155,8 +455,9 @@ struct literals; `Mut T[]` (element-assignable arrays) added; the
 `*_of`/`mut_*`/`*_by`/`to_*` conventions with `list`→`list_of`,
 `mutable_list`→`mut_list_of`, `mutable_str`→`mut_str` renames; duplicate
 keys last-wins. This settles the `==`/`!=` slice of the operator-typing
-DECISION (recorded in ROADMAP.md); one design item stays open (C-7, the
-Set/Map borrowing-pass prototype). S-Col rides before phase 4; FS-6's
+DECISION (recorded in ROADMAP.md); one design item stayed open (C-7, the
+Set/Map pass) and was answered by prototype in the build entry above.
+S-Col rode before phase 4; FS-6's
 in-memory test filesystem is its first customer. **(3) Recursive types**
 — probed against the evening's debug binary: no rule anywhere admits or
 refuses them; Kotlin compiles and runs a recursive struct while Rust dies
@@ -8873,7 +9174,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 807)
+## Test inventory (all green: 848)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -8881,7 +9182,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 428 - 19 unit tests (file classification, including the
+- `salvo-core`: 458 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -9212,6 +9513,27 @@ cache, with per-test timings.
   refusals — a `when` containing a `yield`, a `yield` in a value position, a
   shadowing local and a shadowed parameter, a suspending loop with an `else`,
   and a destructuring `let`).
+- **30 collection tests** (`tests/collection_tests.rs`, the S-Col rules:
+  the three literal forms and their inferred types, `{}` as an empty
+  collection rather than a bare struct literal while a *named* `Finished {}`
+  still parses, an empty literal typed by its expected type and an error
+  without one; key eligibility at the instantiation — a `canbe Mut` struct,
+  a float-bearing struct, an un-opted-in struct and a union as a
+  `SortedMap` key all refused with the reason, a union accepted as a plain
+  `Map` key; the opt-ins validated at the *declaration*, with a fn-typed
+  field barring `==` and therefore both; `==` on same-base-type operands
+  only, qualifiers ignored (`Surname Person == Person` accepted, two
+  different struct types refused); `canbe ordered` gating `<`; and
+  [linear-generics] refusing a linear element without a new rule, since the
+  constructors declare no `<T canbe linear>` — which is what makes linear
+  keys permanently impossible rather than merely deferred; plus
+  [col-sorted-list]: a `Sorted List<Double>` refused by element, and
+  [qual-overload]: one name over two subjects accepted, a subject no
+  declaration accepts refused, and one name twice over one subject still a
+  duplicate. The rest of
+  C-6 needs std's own declarations, so it is asserted end to end in each
+  backend's `compiles_and_runs_list_claims` case instead of here — this
+  harness builds its own prelude).
 - `salvo-cli`: 86 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
@@ -9441,13 +9763,13 @@ cache, with per-test timings.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 85 - **the 69 compile-and-run programs are one
+- `salvo-backend-kotlin`: 85 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12). The remaining tests: golden snapshots of the M2 demo, the M3
+  (2026-09-12; 81 cases as of qualifier overloading). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -9619,7 +9941,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 131 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 142 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -9810,6 +10132,51 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A new runtime module must be added to `runtime_tests.rs`'s list.** That
+  list is what makes the test complete rather than a sample, and nothing
+  fails if you forget: the module is still spliced into user output, just
+  never compiled on its own, so a warning or syntax error in it surfaces as
+  a failure in some unrelated end-to-end test. `collections.rs` and
+  `compare.kt` were both missing until an audit caught them
+  (2026-09-12). The same audit is worth running for **rule labels**:
+  `grep`ping every `[label]` in code against the specs found two rules
+  referenced 30-odd times that had never been written, which AGENTS.md
+  calls a bug.
+- **Kotlin cannot copy a value behind a type parameter.** There is no
+  generic `copy()`, so any design that needs to *own* a `T`/`V` it read out
+  of a container is dead on arrival for backend parity — Rust would clone
+  and Kotlin would share identity, aliasing mutable values on one backend
+  only. This is what forced Map passes to yield **keys** and Set/Map passes
+  to be snapshots owning a `List<T>` (2026-09-12). Reach for a snapshot
+  before reaching for a copy.
+- **An intrinsic type cannot host a borrowing pass today.** The emitters
+  render a `proj[from: p] T` field as plain `T` when the owning struct does
+  not otherwise borrow, so an intrinsic pass built on [proj-field]
+  lifetimes over the native iterators fails on its own yield type. Worth
+  knowing before designing the next container's iteration.
+- **Kotlin's linked containers have no `(size, init)` constructor.**
+  `List`/`Array` do, which is why `list_by`/`array_by` lower to one
+  expression; `set_by`/`map_by` must lower to an `also`-scoped *builder*
+  over `(0 until n).map(f)` instead. Expect the shape of a `*_by` lowering
+  to differ per container, not per backend.
+- **A "test result" sum does not include insta failures.** The
+  `^test result` lines are what a pass/fail tally is usually scraped from,
+  and a snapshot mismatch does not appear in them; also
+  `grep -cE "FAILED|panicked at"` before believing a green count.
+- **Two concurrent `cargo run`s deadlock on the build lock.** Comparing the
+  backends with process substitution (`diff <(cargo run … rust) <(cargo run
+  … kotlin)`) hangs; run them one after the other.
+- **The std module names are load-bearing.** `core.list` appears in user
+  syntax (`f@core.list(x)`), so a module rename is a language change, not a
+  file rename. Renaming the *functions* inside it was the whole of
+  increment A; renaming the module was never on the table.
+- **Salvo has no `\u` escape, and no string literal nested inside
+  `${…}`.** Both bite when writing test programs that print exotic
+  characters or compute a message inline; hoist the inner string into a
+  `let`.
+- **macOS `grep` has no `-P`, and zsh does not word-split unquoted
+  variables.** Reach for `perl -ne` for lookarounds, and
+  `find … -print0 | xargs -0` rather than building a command string.
 - **`SIGKILL (signal 9)` on a freshly built test binary is macOS, not the
   test.** AMFI (the kernel's code-signing enforcement) sometimes rejects a
   just-linked binary — the log says `has no CMS blob? … Unrecoverable CT

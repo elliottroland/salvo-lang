@@ -3,6 +3,8 @@ package salvo.core.array
 import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
+import salvo.core.map.*
+import salvo.core.sorted.*
 
 fun<T> iter(array: Array<T>): ArrayYield<T> {
     return ArrayYield(items = array, at = 0)

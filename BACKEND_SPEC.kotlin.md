@@ -58,7 +58,7 @@ Conventions:
     ([str-drop-mut], `intrinsics::drop_mut_suffix`, applied to the
     checker's `Coercion::DropMut` — a bare name takes the suffix directly,
     anything else is parenthesized first).
-  * `mutable_str(...parts)` emits
+  * `mut_str(...parts)` emits
     `StringBuilder(listOf(parts).joinToString(""))` — joined rather than
     appended one part at a time, so a `...spread` works through Kotlin's
     own spread operator [fn-variadic]. No parts at all is `StringBuilder()`.
@@ -139,6 +139,26 @@ Conventions:
   Finished` is a type test either way). Fixed 2026-09-07, when std's
   iterator protocol [iter-protocol] introduced the first one; before that,
   an empty struct emitted Kotlin that kotlinc rejected.
+* [kt-float-eq] A struct with a floating-point field **overrides** the data
+  class's `equals`, comparing each field with `==`.
+  * Kotlin's generated `equals` calls `Double.equals`, for which `NaN`
+    equals itself and `+0.0` differs from `-0.0`; Rust's derived
+    `PartialEq` is IEEE, the opposite on both counts. Salvo owns the
+    semantics [col-equality], and `==` on statically-`Double` operands is
+    IEEE, so comparing the fields that way makes the backends agree.
+  * `hashCode` is left to the data class: a float-bearing struct is barred
+    from `canbe hashed`, so it never reaches a hash table where the
+    (NaN-only) inconsistency could be observed.
+* [kt-ordered] A `canbe ordered` struct emits `: Comparable<Self>` with a
+  generated `compareTo`, lexicographic by field declaration order. A data
+  class gets `equals`/`hashCode` for free but *not* comparison, so `p < q`
+  would otherwise be an unresolved `compareTo`.
+  * Each field is compared through `salvo.__salvoCompare` (runtime file
+    `compare.kt`, emitted only when something needs it) rather than
+    `field.compareTo(...)`: Salvo says a `List` or a tuple is orderable when
+    its elements are [col-hashed-ordered], and neither `List` nor `Pair`
+    is `Comparable` on the JVM. The helper recurses for those and defers to
+    `Comparable` for everything else.
 * [struct-spread] `P {...p, f: v}` emits as `p.copy(f = v)`. The shallow
   copy aliases `Mut` fields where Rust deep-clones, which is
   unobservable because the checker consumes the spread base
@@ -650,6 +670,29 @@ same programs running ([rs-effect-fusion]).
     Kotlin compiles a top-level `main` in every module that declares one,
     so the choice only picks the launch class (unlike Rust's crate root
     [rs-crate]).
+
+## Runtime modules [kt-runtime-source]
+
+* [kt-runtime-source] Code the backend *ships* rather than generates lives in
+  `runtime/*.kt`, included verbatim (`include_str!`) and written into a
+  program's output only when it touches the feature. They are real source
+  files, not Rust string literals inside `emit.rs`, and
+  `tests/runtime_tests.rs` compiles each one directly with `kotlinc` — so a
+  syntax error in one fails in *that* module rather than in an unrelated
+  end-to-end test, and a change to one reviews as code rather than as a diff
+  of escaped text. The test's module list is what makes it complete rather
+  than a sample, so a new runtime module belongs there the moment it exists.
+  Two exist: `throw.kt` ([kt-throw-signal]) and `compare.kt`.
+* `compare.kt` holds `__salvoCompare`, the structural comparison
+  [kt-ordered] [col-sorted] needs. It exists because the JVM's own ordering
+  cannot answer for Salvo's types: a `List` and a tuple are not
+  `Comparable`, and `String.compareTo` is UTF-16 code-unit order where Salvo
+  is code-point order. It recurses through lists (lexicographically, a
+  shorter prefix ordering first), `Pair` and `Triple`, compares strings by
+  code point, and defers to `Comparable` otherwise.
+  * It is emitted when a module declares a `canbe ordered` struct or builds
+    a sorted collection, and the sorted constructors pass it as an explicit
+    `Comparator` rather than relying on natural ordering.
 
 ## Deliberate cuts ([backend-never-wrong])
 

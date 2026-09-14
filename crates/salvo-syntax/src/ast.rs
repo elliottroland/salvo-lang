@@ -735,14 +735,16 @@ pub enum Expr {
         index: Box<Expr>,
         span: Span,
     },
-    /// `[1, 2, 3]`
+    /// `[1, 2, 3]` — a **List** literal [col-literal] (an array only where
+    /// the position expects one, i.e. a variadic).
     ArrayLit { elems: Vec<Expr>, span: Span },
-    /// `Int[5] { i: Int -> 0 }` — sized array construction with an
-    /// element-initializer lambda.
-    ArrayInit {
-        elem_type: TypeRef,
-        size: Box<Expr>,
-        init: Box<Expr>,
+    /// `{1, 2, 3}` — a Set literal [col-literal].
+    SetLit { elems: Vec<Expr>, span: Span },
+    /// `{"a": 1, "b": 2}` — a Map literal [col-literal]. Keys are
+    /// expressions, so an *identifier* key is not writable here: `{x: 1}` is
+    /// a bare struct literal, which came first and stays.
+    MapLit {
+        entries: Vec<(Expr, Expr)>,
         span: Span,
     },
     /// `(a, b, c)` — tuple literal (a single-element paren is just grouping).
@@ -957,7 +959,8 @@ impl Expr {
             | Expr::Call { span, .. }
             | Expr::Index { span, .. }
             | Expr::ArrayLit { span, .. }
-            | Expr::ArrayInit { span, .. }
+            | Expr::SetLit { span, .. }
+            | Expr::MapLit { span, .. }
             | Expr::Tuple { span, .. }
             | Expr::StructLit { span, .. }
             | Expr::Unary { span, .. }

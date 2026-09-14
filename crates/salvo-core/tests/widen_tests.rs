@@ -455,8 +455,8 @@ fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
 fn a_held_view_may_be_advanced_but_a_projection_may_not() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn main() {{\n    let xs = list(1, 2)\n    let v = view(xs)\n    advance(v)\n    advance(v)\n}}\n\
-         fn list<T>(a: T, b: T) -> List<T> {{ return first(items)! }}\n"
+         fn main() {{\n    let xs = list_of(1, 2)\n    let v = view(xs)\n    advance(v)\n    advance(v)\n}}\n\
+         fn list_of<T>(a: T, b: T) -> List<T> {{ return first(items)! }}\n"
     );
     let errs = errors(&src);
     // (the fake `list` body is nonsense but well-typed enough: only the

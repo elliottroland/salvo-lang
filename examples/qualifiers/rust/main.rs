@@ -1,6 +1,8 @@
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "collections.rs"]
+pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
 #[path = "core/console.rs"]
@@ -9,6 +11,16 @@ pub mod core_console;
 pub mod core_iterator;
 #[path = "core/list.rs"]
 pub mod core_list;
+#[path = "core/map.rs"]
+pub mod core_map;
+#[path = "core/nonempty.rs"]
+pub mod core_nonempty;
+#[path = "core/seq.rs"]
+pub mod core_seq;
+#[path = "core/set.rs"]
+pub mod core_set;
+#[path = "core/sorted.rs"]
+pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
 
@@ -16,9 +28,13 @@ use crate::core_array::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_nonempty::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
 use crate::core_string::*;
 
-pub fn NonEmpty_qualifies<T: Clone>(list: &Vec<T>) -> bool {
+pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return (list.len() as i32) > 0;
 }
 
@@ -50,7 +66,7 @@ pub fn sum(list: &Vec<i32>) -> i32 {
 pub fn compact(list: &mut Vec<i32>) {
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Request {
     pub path: String,
     pub touches: i32,
@@ -86,7 +102,7 @@ pub fn main() {
     xs.push(3);
     println(&mut console, &(format!("1. head after add: {}", head(&xs))));
     let mut maybe_empty = vec![7, 8];
-    if NonEmpty_qualifies(&maybe_empty) {
+    if NonEmpty__List_qualifies(&maybe_empty) {
         println(&mut console, &(format!("2. checked at run time, head is {}", head(&maybe_empty))));
     }
     let mut plain = 21;

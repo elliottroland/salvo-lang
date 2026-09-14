@@ -5,7 +5,10 @@ import salvo.core.`throw`.*
 import salvo.core.array.*
 import salvo.core.console.*
 import salvo.core.list.*
+import salvo.core.map.*
 import salvo.core.result.*
+import salvo.core.set.*
+import salvo.core.sorted.*
 import salvo.core.string.*
 
 data class FileHandle(

@@ -17,7 +17,7 @@ fn max(first: Int, ...rest: Int[]) -> Int {
 }
 
 fn transform<S, T>(list: List<S>, mapper: (S) -> T) -> List<T> {
-    let result: Mut List<T> = mutable_list()
+    let result: Mut List<T> = mut_list_of()
     for s in list {
         add(result, mapper(s))
     }
@@ -29,7 +29,7 @@ fn to_string(int: Int) -> Str {
 }
 
 fn do_something() {
-    let list: List<Int> = list(1, 2, 3)
+    let list: List<Int> = list_of(1, 2, 3)
     transform(list, to_string)
     transform(list, i -> "${i}")
     transform(list, i -> { return "${i}" })
@@ -78,8 +78,8 @@ fn next(p: Mut Countdown) -> Emitted Int | Finished => p: Mut {
 }
 
 fn arrays() {
-    let numbers: Int[] = [1, 2, 3]
-    let generated: Int[] = Int[5] { i: Int -> 0 }
+    let numbers: Int[] = array_of(1, 2, 3)
+    let generated: Int[] = array_by(5, i -> 0)
     let size = numbers.size()
     let first = numbers[0]
 }
@@ -143,6 +143,6 @@ fn ordered<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list {
 // [implicit-override] The caller supplies one implicit by name; the rest
 // still resolve.
 fn totals() [Console] -> None {
-    println("${total(list(1, 2, 3))}")
-    println("${total(list(2, 3, 4), add = times)}")
+    println("${total(list_of(1, 2, 3))}")
+    println("${total(list_of(2, 3, 4), add = times)}")
 }

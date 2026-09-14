@@ -45,10 +45,39 @@ pub fn fn_call(
         // which Kotlin passes on with its own spread operator — the
         // alternative (`listOf(arr)`) is a *list of one array*, and kotlinc
         // says so, but only after the fact [backend-never-wrong].
-        ("list", Some("[]")) => format!("listOf<{}>({})", elem(), args.join(", ")),
-        ("mutable_list", Some("[]")) => {
+        ("list_of", Some("[]")) => format!("listOf<{}>({})", elem(), args.join(", ")),
+        ("mut_list_of", Some("[]")) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
+        // [col-sorted-list] `sortedWith` over Salvo's own comparator, never
+        // natural ordering: `String.compareTo` is UTF-16 code-unit order,
+        // where Rust's `String: Ord` is code-point order [kt-ordered].
+        ("sort", Some("List")) => format!(
+            "{}.sortedWith(Comparator {{ __a, __b -> salvo.__salvoCompare(__a, __b) }})",
+            a(0)
+        ),
+        ("mut_sort", Some("List")) => format!(
+            "{}.sortedWith(Comparator {{ __a, __b -> salvo.__salvoCompare(__a, __b) }})\
+             .toMutableList()",
+            a(0)
+        ),
+        // A **lower bound**, by scan: the first index whose element is not
+        // below `elem`. `binarySearch` would answer an arbitrary index within
+        // an equal run, which would diverge from Rust [col-sorted-list].
+        ("add_sorted", Some("List")) => format!(
+            "{}.let {{ __l -> {}.let {{ __e -> __l.add(\
+             __l.indexOfFirst {{ salvo.__salvoCompare(it, __e) >= 0 }}\
+             .let {{ if (it < 0) __l.size else it }}, __e) }} }}",
+            a(0),
+            a(1)
+        ),
+        ("binary_search", Some("List")) => format!(
+            "{}.let {{ __l -> {}.let {{ __e -> __l.indexOfFirst \
+             {{ salvo.__salvoCompare(it, __e) >= 0 }}\
+             .let {{ if (it >= 0 && __l[it] == __e) it else null }} }} }}",
+            a(0),
+            a(1)
+        ),
         ("get", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
         ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),
         ("first", Some("List")) => format!("{}.firstOrNull()", a(0)),
@@ -70,7 +99,171 @@ pub fn fn_call(
         }
         ("reduce", Some("List")) => format!("{}.fold({}, {})", a(0), a(1), a(2)),
 
+        // [col-by] The generated constructors. The callback is handed to a
+        // Kotlin builder (`Array(n, init)`, `MutableList(n, init)`) or to
+        // `.map(init)` rather than being invoked inline: an immediately
+        // applied lambda literal has no expected type, and kotlinc then
+        // demands an explicit parameter type ("an explicit type is required
+        // on a value parameter"). Passing it where a `(Int) -> T` is wanted
+        // is what types its parameter.
+        ("array_by", Some("Int")) => {
+            format!("Array<{}>({}, {})", elem(), a(0), a(1))
+        }
+        ("list_by", Some("Int")) | ("mut_list_by", Some("Int")) => {
+            format!("MutableList<{}>({}, {})", elem(), a(0), a(1))
+        }
+        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
+            "linkedSetOf<{}>().also {{ __s -> __s.addAll((0 until ({})).map({})) }}",
+            elem(),
+            a(0),
+            a(1)
+        ),
+        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => format!(
+            "linkedMapOf<{}, {}>().also {{ __m -> (0 until ({})).map({})\
+             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
+            type_args.first().map(String::as_str).unwrap_or("Any"),
+            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            a(0),
+            a(1)
+        ),
+
+        // [col-convert] The converters. `LinkedHashSet`/`LinkedHashMap` keep
+        // first-appearance order [col-insertion-order].
+        ("to_set", Some("List")) => {
+            format!("linkedSetOf<{}>().also {{ __s -> __s.addAll({}) }}", elem(), a(0))
+        }
+        ("to_map", Some("List")) if args.len() == 1 => format!(
+            "linkedMapOf<{}, {}>().also {{ __m -> {}\
+             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
+            type_args.first().map(String::as_str).unwrap_or("Any"),
+            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            a(0)
+        ),
+        ("to_map", Some("List")) => format!(
+            "linkedMapOf<{}, {}>().also {{ __m -> {}.map({})\
+             .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
+            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            type_args.get(2).map(String::as_str).unwrap_or("Any"),
+            a(0),
+            a(1)
+        ),
+
+        // core.set -------------------------------------------------------
+        // [col-insertion-order] `linkedSetOf` is a `LinkedHashSet`, whose
+        // iteration order is first-insertion — which is the language's rule,
+        // not the JVM's default for every set. It is both a `Set` and a
+        // `MutableSet`, so the same constructor serves both declarations
+        // [type-canbe-mut]; the element type is spelled out for the same
+        // reason the list constructors spell it [backend-intrinsic].
+        ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
+            format!("linkedSetOf<{}>({})", elem(), args.join(", "))
+        }
+        // `add`/`remove` already report whether the set changed, which is
+        // what Salvo's `Bool` returns mean.
+        ("add", Some("Set")) => format!("{}.add({})", a(0), a(1)),
+        ("remove", Some("Set")) => format!("{}.remove({})", a(0), a(1)),
+        ("contains", Some("Set")) => format!("{}.contains({})", a(0), a(1)),
+        ("size", Some("Set")) => format!("{}.size", a(0)),
+        // [col-insertion-order] A `LinkedHashSet` iterates in insertion
+        // order, so the list is that order.
+        ("to_list", Some("Set")) => format!("{}.toMutableList()", a(0)),
+        // [col-key-eligible] An owned read of a snapshot element. Identity
+        // is the copy here because element/key types are the immutable
+        // intrinsic types, which is what `copy` of a generic cannot assume
+        // [kt-copy].
+        ("snapshot_at", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
+        // [col-to-str] `{1, 2, 3}` — the set literal's own shape, written
+        // out rather than left to the JVM's `toString` so both backends
+        // print the same text [backend-parity].
+        ("to_str", Some("Set")) => {
+            format!("{}.joinToString(\", \", \"{{\", \"}}\")", a(0))
+        }
+
+        // core.sorted ----------------------------------------------------
+        // [col-sorted] [kt-ordered] A `TreeSet`/`TreeMap` built with **our**
+        // comparator rather than natural ordering: Salvo orders a `List` or a
+        // tuple by its elements (neither is `Comparable` on the JVM) and a
+        // `Str` by code point (`String.compareTo` is UTF-16 code-unit order),
+        // so natural ordering would disagree with Rust [backend-parity].
+        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
+            "java.util.TreeSet<{}>(java.util.Comparator {{ __a, __b -> \
+             salvo.__salvoCompare(__a, __b) }}).also {{ __s -> \
+             __s.addAll(listOf({})) }}",
+            elem(),
+            args.join(", ")
+        ),
+        ("add", Some("SortedSet")) => format!("{}.add({})", a(0), a(1)),
+        ("remove", Some("SortedSet")) => format!("{}.remove({})", a(0), a(1)),
+        ("contains", Some("SortedSet")) => format!("{}.contains({})", a(0), a(1)),
+        ("size", Some("SortedSet")) => format!("{}.size", a(0)),
+        // `first()`/`last()` throw on an empty set; Salvo answers `None`.
+        ("min", Some("SortedSet")) => format!("{}.firstOrNull()", a(0)),
+        ("max", Some("SortedSet")) => format!("{}.lastOrNull()", a(0)),
+        ("to_list", Some("SortedSet")) => format!("{}.toMutableList()", a(0)),
+        ("to_str", Some("SortedSet")) => {
+            format!("{}.joinToString(\", \", \"{{\", \"}}\")", a(0))
+        }
+
+        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
+            "java.util.TreeMap<{}, {}>(java.util.Comparator {{ __a, __b -> \
+             salvo.__salvoCompare(__a, __b) }}).also {{ __m -> \
+             __m.putAll(listOf({})) }}",
+            type_args.first().map(String::as_str).unwrap_or("Any"),
+            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            args.join(", ")
+        ),
+        ("get", Some("SortedMap")) => format!("{}[{}]", a(0), a(1)),
+        ("put", Some("SortedMap")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
+        ("remove", Some("SortedMap")) => format!("{}.remove({})", a(0), a(1)),
+        ("contains_key", Some("SortedMap")) => format!("{}.containsKey({})", a(0), a(1)),
+        ("size", Some("SortedMap")) => format!("{}.size", a(0)),
+        ("first_key", Some("SortedMap")) => format!("{}.keys.firstOrNull()", a(0)),
+        ("last_key", Some("SortedMap")) => format!("{}.keys.lastOrNull()", a(0)),
+        ("keys", Some("SortedMap")) => format!("{}.keys.toMutableList()", a(0)),
+        ("to_str", Some("SortedMap")) => format!(
+            "{}.entries.joinToString(\", \", \"{{\", \"}}\") \
+             {{ \"${{it.key}}: ${{it.value}}\" }}",
+            a(0)
+        ),
+
+        // core.map -------------------------------------------------------
+        // [col-insertion-order] `linkedMapOf` is a `LinkedHashMap`: an
+        // overwrite keeps the key's position and removal preserves the
+        // order of the rest. It takes `Pair`s, which is what a Salvo
+        // 2-tuple already is [type-tuple], so the entries pass straight
+        // through. A repeated key resolves last-wins, as Salvo's rule says
+        // [col-duplicate-keys].
+        ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => format!(
+            "linkedMapOf<{}, {}>({})",
+            type_args.first().map(String::as_str).unwrap_or("Any"),
+            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            args.join(", ")
+        ),
+        // Absence is `null`, never a default [type-nullable].
+        ("get", Some("Map")) => format!("{}[{}]", a(0), a(1)),
+        ("put", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
+        // `remove` already answers the removed value or `null`.
+        ("remove", Some("Map")) => format!("{}.remove({})", a(0), a(1)),
+        ("contains_key", Some("Map")) => format!("{}.containsKey({})", a(0), a(1)),
+        ("size", Some("Map")) => format!("{}.size", a(0)),
+        // [col-insertion-order] A `LinkedHashMap`'s keys are in insertion
+        // order, so the list is that order.
+        ("keys", Some("Map")) => format!("{}.keys.toMutableList()", a(0)),
+        // [col-to-str] `{a: 1, b: 2}` — the map literal's shape. Kotlin's
+        // own `toString` renders `{a=1}`, so the separator is written out.
+        ("to_str", Some("Map")) => format!(
+            "{}.entries.joinToString(\", \", \"{{\", \"}}\") \
+             {{ \"${{it.key}}: ${{it.value}}\" }}",
+            a(0)
+        ),
+
         // core.array -----------------------------------------------------
+        // [fn-variadic] The variadic tail *is* the array; a `...spread`
+        // arrives as `*arr`, which `arrayOf` re-wraps into an array of the
+        // same elements.
+        ("array_of", Some("[]")) => {
+            format!("arrayOf<{}>({})", elem(), args.join(", "))
+        }
         // `T[]` maps to `Array<T>`, which is *not* `Iterable`, hence the
         // `asIterable()` the list case does not need [type-array].
         ("get", Some("[]")) => format!("{}.getOrNull({})", a(0), a(1)),
@@ -80,10 +273,10 @@ pub fn fn_call(
         // core.string ----------------------------------------------------
         // [kt-mut-str] `Mut Str` is a `StringBuilder`, so construction is
         // asked for explicitly and a literal stays a `String`.
-        ("mutable_str", Some("[]")) if args.is_empty() => "StringBuilder()".to_string(),
+        ("mut_str", Some("[]")) if args.is_empty() => "StringBuilder()".to_string(),
         // The parts are joined rather than appended one by one, so the same
         // lowering serves a `...spread` (which arrives as `*arr`).
-        ("mutable_str", Some("[]")) => {
+        ("mut_str", Some("[]")) => {
             format!("StringBuilder(listOf({}).joinToString(\"\"))", args.join(", "))
         }
         ("size", Some("Str")) => format!("{}.length", a(0)),
@@ -147,6 +340,16 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Any" => "Any",
         "Nothing" => "Nothing",
         "List" => "List",
+        // [col-insertion-order] The immutable views of the ordered
+        // implementations the constructors build: a `LinkedHashSet` *is* a
+        // `Set` and a `LinkedHashMap` *is* a `Map`, so the declared type
+        // stays the interface and the order comes from the instance.
+        "Set" => "Set",
+        "Map" => "Map",
+        // [col-sorted] The JVM's sorted views of the trees the constructors
+        // build: a `TreeSet` *is* a `SortedSet`, so dropping `Mut` is free.
+        "SortedSet" => "java.util.SortedSet",
+        "SortedMap" => "java.util.SortedMap",
         _ => return None,
     })
 }
@@ -158,6 +361,15 @@ pub fn type_name(name: &str) -> Option<&'static str> {
 pub fn mut_type_name(name: &str) -> Option<&'static str> {
     match name {
         "List" => Some("MutableList"),
+        // Like `MutableList`, these *are* subtypes of their immutable
+        // forms, so dropping the `Mut` is free [str-drop-mut].
+        "Set" => Some("MutableSet"),
+        "Map" => Some("MutableMap"),
+        // [col-sorted] `java.util.SortedSet`/`SortedMap` are already mutable
+        // interfaces on the JVM, so `Mut` needs no different type here — and
+        // dropping it renders nothing [str-drop-mut].
+        "SortedSet" => Some("java.util.SortedSet"),
+        "SortedMap" => Some("java.util.SortedMap"),
         // [kt-mut-str] A string under construction. Unlike `MutableList`,
         // this is *not* a subtype of its immutable form, which is what
         // makes dropping `Mut` a conversion [str-drop-mut].

@@ -6,9 +6,11 @@ compiler generated for it and the output it prints.
 
 | example | what it shows |
 |---|---|
-| [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written pass, `yield fn` generators, a combinator of your own, the sequence functions, and the lazy pair |
+| [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written pass, an `iter fn`, a combinator of your own, and the sequence functions |
 | [`throw-and-release/`](throw-and-release/) | `throw`/`try` and the `Ok T \| Thrown M` outcome, with a linear resource released on every path — including before a call that may throw |
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
+| [`collections/`](collections/) | the four collections: the literals, insertion versus key order, what may be a key, equality versus ordering, the generated constructors, and the `NonEmpty`/`Sorted`/`Distinct` claims a list can carry |
+| [`linearity/`](linearity/) | values the compiler will not let you forget: where the obligation comes from, that it moves, that a keeping call borrows instead, and how a generic opts in (`canbe linear`, `once`) |
 
 More will be added as features land. This tree replaced `experiments/`, which
 held hand-written *prototypes* of designs not yet built; the prototypes' value

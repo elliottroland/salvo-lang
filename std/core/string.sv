@@ -14,8 +14,8 @@ intrinsic type Str canbe Mut
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,
-// mirroring [mutable_list].
-intrinsic fn mutable_str(...parts: Str[]) [] -> Mut Str => parts
+// mirroring [mut_list_of].
+intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts
 
 // Returns the number of characters in the string
 intrinsic fn size(str: Str) [] -> Int => str

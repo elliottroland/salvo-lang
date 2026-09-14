@@ -312,20 +312,18 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(base, used);
             expr_names(index, used);
         }
-        Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+        Expr::ArrayLit { elems, .. }
+        | Expr::SetLit { elems, .. }
+        | Expr::Tuple { elems, .. } => {
             for e in elems {
                 expr_names(e, used);
             }
         }
-        Expr::ArrayInit {
-            elem_type,
-            size,
-            init,
-            ..
-        } => {
-            type_ref_names(elem_type, used);
-            expr_names(size, used);
-            expr_names(init, used);
+        Expr::MapLit { entries, .. } => {
+            for (k, v) in entries {
+                expr_names(k, used);
+                expr_names(v, used);
+            }
         }
         Expr::StructLit { ty, fields, .. } => {
             if let Some(t) = ty {

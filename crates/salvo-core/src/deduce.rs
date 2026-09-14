@@ -989,14 +989,20 @@ impl<'p> Walk<'_, 'p> {
                     }
                 }
             }
-            Expr::ArrayLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            Expr::ArrayLit { elems, .. }
+            | Expr::SetLit { elems, .. }
+            | Expr::Tuple { elems, .. } => {
                 for el in elems {
                     self.moving_expr(el);
                 }
             }
-            Expr::ArrayInit { size, init, .. } => {
-                self.expr(size);
-                self.expr(init);
+            // [col-literal] A collection literal *stores* its keys and
+            // values, so both move.
+            Expr::MapLit { entries, .. } => {
+                for (k, v) in entries {
+                    self.moving_expr(k);
+                    self.moving_expr(v);
+                }
             }
             Expr::Str { parts, .. } => {
                 for p in parts {

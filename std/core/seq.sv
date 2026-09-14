@@ -24,7 +24,7 @@
 
 // Applies [f] to every element of [it], in order.
 fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
-    let out = mutable_list<U>()
+    let out = mut_list_of<U>()
     for x in it {
         add(out, f(x))
     }
@@ -38,7 +38,7 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it
 // element of an opaque pass is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
 fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj[from: it], keep {
-    let out = mutable_list<proj T>()
+    let out = mut_list_of<proj T>()
     for x in it {
         if keep(x) {
             add(out, x)

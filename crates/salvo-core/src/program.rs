@@ -48,7 +48,9 @@ pub struct Symbols<'p> {
     pub structs: HashMap<&'p str, &'p StructDecl>,
     pub effects: HashMap<&'p str, &'p EffectDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
-    pub qualifiers: HashMap<&'p str, &'p QualifierDecl>,
+    /// [qual-overload] Overload sets: one name may be declared over several
+    /// subject types, and a backend picks by the subject in hand.
+    pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
     /// `intrinsic type` declarations (mapped natively by each backend)
     /// [backend-intrinsic].
@@ -88,7 +90,7 @@ impl<'p> Symbols<'p> {
                         symbols.param_groups.insert(&g.name.name, g);
                     }
                     Item::Qualifier(q) => {
-                        symbols.qualifiers.insert(&q.name.name, q);
+                        symbols.qualifiers.entry(&q.name.name).or_default().push(q);
                     }
                     // An `intrinsic type` is the compiler's; anything else
                     // is an alias, since a bodiless non-intrinsic `type` is

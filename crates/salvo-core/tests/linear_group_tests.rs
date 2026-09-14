@@ -16,7 +16,7 @@ const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic typ
      intrinsic type List<T> canbe Mut\n\
      intrinsic fn copy<T>(value: T) [] -> T => value\n\
      intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
-     intrinsic fn mutable_list<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
+     intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
      intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
      \
@@ -326,7 +326,7 @@ fn a_generic_struct_cannot_be_instantiated_with_a_linear_type() {
 #[test]
 fn storing_through_a_generic_call_is_refused() {
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> None {{\n    let xs = mutable_list()\n    \
+        "{LINES}\nfn go() -> None {{\n    let xs = mut_list_of()\n    \
          add(xs, open_lines(\"a\"))\n}}\n"
     ));
     assert!(
@@ -354,7 +354,7 @@ fn a_composite_of_plain_values_is_unaffected() {
     let errs = errors(&format!(
         "{LINES}\nstruct Holder {{\n    names: Mut List<Str>\n}}\n\
          fn go() -> None {{\n    let l = open_lines(\"a\")\n    \
-         let h = Holder {{ names: mutable_list(\"x\") }}\n    close(l)\n}}\n"
+         let h = Holder {{ names: mut_list_of(\"x\") }}\n    close(l)\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

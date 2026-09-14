@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, Sour
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `core.prelude`:
 /// `core.*` is implicitly imported, so the test source sees these names.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mutable_str(...parts: Str[]) [] -> Mut Str => parts\nintrinsic fn size(str: Str) [] -> Int => str\nintrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
+const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts\nintrinsic fn size(str: Str) [] -> Int => str\nintrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();
@@ -110,7 +110,7 @@ fn body(stmts: &str) -> String {
 /// Int` still is not.
 #[test]
 fn str_opts_into_mut() {
-    assert!(messages(&body("    let b: Mut Str = mutable_str()")).is_empty());
+    assert!(messages(&body("    let b: Mut Str = mut_str()")).is_empty());
     let msgs = messages(&body("    let n: Mut Int = 1"));
     assert!(
         msgs.iter().any(|m| m.contains("`Mut` does not apply to `Int`")),
@@ -119,7 +119,7 @@ fn str_opts_into_mut() {
 }
 
 /// A `Str` literal is not a `Mut Str`: mutability is asked for, which is
-/// what makes `mutable_str` mirror `mutable_list`.
+/// what makes `mut_str` mirror `mut_list_of`.
 #[test]
 fn a_literal_is_not_a_builder() {
     let msgs = messages(&body("    let b: Mut Str = \"plain\""));
@@ -134,11 +134,11 @@ fn a_literal_is_not_a_builder() {
 #[test]
 fn a_call_argument_drops_mut() {
     assert_eq!(
-        drops(&body("    let b = mutable_str()\n    let n = takes(b)")),
+        drops(&body("    let b = mut_str()\n    let n = takes(b)")),
         vec!["Mut Str"]
     );
     assert_eq!(
-        drops(&body("    let b = mutable_str()\n    let n = size(b)")),
+        drops(&body("    let b = mut_str()\n    let n = size(b)")),
         vec!["Mut Str"]
     );
 }
@@ -148,10 +148,10 @@ fn a_call_argument_drops_mut() {
 #[test]
 fn annotations_and_returns_drop_mut() {
     assert_eq!(
-        drops(&body("    let plain: Str = mutable_str()")),
+        drops(&body("    let plain: Str = mut_str()")),
         vec!["Mut Str"]
     );
-    let src = "fn made() -> Str {\n    return mutable_str()\n}\n";
+    let src = "fn made() -> Str {\n    return mut_str()\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
 }
 
@@ -159,7 +159,7 @@ fn annotations_and_returns_drop_mut() {
 #[test]
 fn a_struct_field_drops_mut() {
     let src = "struct Label {\n    text: Str\n}\n\nfn probe() -> None {\n    \
-               let l = Label {text: mutable_str()}\n}\n";
+               let l = Label {text: mut_str()}\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
 }
 
@@ -168,7 +168,7 @@ fn a_struct_field_drops_mut() {
 /// carries a continuation.
 #[test]
 fn a_union_arm_drops_mut_and_keeps_the_wrap() {
-    let src = "fn probe() -> None {\n    let u: Str | Int = mutable_str()\n}\n";
+    let src = "fn probe() -> None {\n    let u: Str | Int = mut_str()\n}\n";
     assert_eq!(drops(src), vec!["Mut Str"]);
     let carried = drop_continuations(src);
     assert_eq!(carried.len(), 1, "{carried:?}");
@@ -183,7 +183,7 @@ fn a_union_arm_drops_mut_and_keeps_the_wrap() {
 #[test]
 fn interpolation_drops_mut() {
     assert_eq!(
-        drops(&body("    let b = mutable_str()\n    let s = \"${b}\"")),
+        drops(&body("    let b = mut_str()\n    let s = \"${b}\"")),
         vec!["Mut Str"]
     );
 }
@@ -194,10 +194,10 @@ fn interpolation_drops_mut() {
 #[test]
 fn operators_drop_mut() {
     let src = body(
-        "    let x = mutable_str()\n    let y = mutable_str()\n    let same = x == y",
+        "    let x = mut_str()\n    let y = mut_str()\n    let same = x == y",
     );
     assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
-    let src = body("    let x = mutable_str()\n    let joined = x + x");
+    let src = body("    let x = mut_str()\n    let joined = x + x");
     assert_eq!(drops(&src), vec!["Mut Str", "Mut Str"]);
 }
 
@@ -206,7 +206,7 @@ fn operators_drop_mut() {
 /// A `Mut Str` parameter keeps it: the position asked for a builder.
 #[test]
 fn a_mut_position_keeps_mut() {
-    let src = body("    let b = mutable_str()\n    append(b, \"x\")");
+    let src = body("    let b = mut_str()\n    append(b, \"x\")");
     assert!(drops(&src).is_empty(), "{:?}", drops(&src));
 }
 
@@ -214,7 +214,7 @@ fn a_mut_position_keeps_mut() {
 /// expected type means the value may stay a builder.
 #[test]
 fn an_optional_mut_position_keeps_mut() {
-    let src = "fn probe() -> None {\n    let maybe: Mut Str? = mutable_str()\n}\n";
+    let src = "fn probe() -> None {\n    let maybe: Mut Str? = mut_str()\n}\n";
     assert!(drops(src).is_empty(), "{:?}", drops(src));
 }
 
@@ -225,7 +225,7 @@ fn an_optional_mut_position_keeps_mut() {
 fn a_generic_position_keeps_mut() {
     let src = format!(
         "fn keep<T>(value: T) [] -> None => value {{}}\n\n{}",
-        body("    let b = mutable_str()\n    keep(b)")
+        body("    let b = mut_str()\n    keep(b)")
     );
     assert!(drops(&src).is_empty(), "{:?}", drops(&src));
 }

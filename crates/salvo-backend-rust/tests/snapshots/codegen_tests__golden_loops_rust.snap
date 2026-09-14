@@ -5,13 +5,15 @@ expression: combined
 // ===== core/array.rs =====
 use crate::core_iterator::*;
 use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_sorted::*;
 use crate::unions::*;
 
 pub fn iter<T: Clone>(array: &Vec<T>) -> ArrayYield<'_, T> {
     return ArrayYield { items: array, at: 0 };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ArrayYield<'s, T: Clone + 'static> {
     pub items: &'s Vec<T>,
     pub at: i32,
@@ -56,7 +58,7 @@ pub fn println(console: &mut dyn Console, message: &String) {
 
 // ===== core/iterator.rs =====
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Finished {
 }
 
@@ -71,14 +73,30 @@ pub fn finished() -> Finished {
 // ===== core/list.rs =====
 use crate::core_array::*;
 use crate::core_iterator::*;
+use crate::core_map::*;
+use crate::core_nonempty::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
+
+pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
+    return (list.len() as i32) > 0;
+}
+
+pub fn non_empty_list<T: Clone>(first: &T, rest: Vec<T>) -> Vec<T> {
+    return { let mut __v = Vec::new(); __v.push(first.clone()); __v.extend(rest.iter().cloned()); __v };
+}
+
+pub fn first<T: Clone>(list: &Vec<T>) -> &T {
+    return list.get((0) as usize).unwrap();
+}
 
 pub fn iter__2<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
     return ListYield { items: list, at: 0 };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ListYield<'s, T: Clone + 'static> {
     pub items: &'s Vec<T>,
     pub at: i32,
@@ -93,6 +111,78 @@ pub fn next__2<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
     return Union2::U1(emitted(elem.unwrap()));
 }
 
+// ===== core/map.rs =====
+use crate::collections::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_seq::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+pub fn iter__3<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+    return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapKeyYield<K: Clone + 'static> {
+    pub items: Vec<K>,
+    pub at: i32,
+}
+
+pub fn next__3<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+    let mut key = p.items.get((p.at) as usize).cloned();
+    if key.is_none() {
+        return Union2::<K, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
+}
+
+// ===== core/nonempty.rs =====
+use crate::collections::*;
+use crate::core_array::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_seq::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
+    return (set.len() as i32) > 0;
+}
+
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
+    return (map.len() as i32) > 0;
+}
+
+pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &std::collections::BTreeSet<T>) -> bool {
+    return (set.len() as i32) > 0;
+}
+
+pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> bool {
+    return (map.len() as i32) > 0;
+}
+
+pub fn min<T: Clone>(set: &std::collections::BTreeSet<T>) -> T {
+    return set.iter().next().cloned().unwrap();
+}
+
+pub fn max<T: Clone>(set: &std::collections::BTreeSet<T>) -> T {
+    return set.iter().next_back().cloned().unwrap();
+}
+
+pub fn first_key<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> K {
+    return map.keys().next().cloned().unwrap();
+}
+
+pub fn last_key<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> K {
+    return map.keys().next_back().cloned().unwrap();
+}
+
 // ===== core/result.rs =====
 use crate::core_iterator::*;
 
@@ -104,22 +194,118 @@ pub fn err<T: Clone>(value: T) -> T {
     return value;
 }
 
+// ===== core/seq.rs =====
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
+use crate::unions::*;
+
+pub fn map<It: Clone, T: Clone, U: Clone>(it: &mut It, f: &mut impl FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<U> {
+    let mut out = vec![];
+    while let Union2::U1(mut x) = next(it) {
+        out.push(f(&x));
+    }
+    return out;
+}
+
+pub fn filter<It: Clone, T: Clone>(it: &mut It, keep: &mut impl FnMut(&T) -> bool, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> Vec<T> {
+    let mut out = vec![];
+    while let Union2::U1(mut x) = next(it) {
+        if keep(&x) {
+            out.push(x);
+        }
+    }
+    return out;
+}
+
+pub fn reduce<It: Clone, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut impl FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> A {
+    let mut acc = init.clone();
+    while let Union2::U1(mut x) = next(it) {
+        acc = f(&acc, &x);
+    }
+    return acc;
+}
+
+pub fn map_to<D: Clone, It: Clone, T: Clone, U: Clone>(mut dest: D, it: &mut It, f: &mut impl FnMut(&T) -> U, add: &mut dyn FnMut(&mut D, U), next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
+    while let Union2::U1(mut x) = next(it) {
+        add(&mut dest, f(&x));
+    }
+    return dest;
+}
+
+pub fn filter_to<D: Clone, It: Clone, T: Clone>(mut dest: D, it: &mut It, keep: &mut impl FnMut(&T) -> bool, add: &mut dyn FnMut(&mut D, T), copy: &mut dyn FnMut(T) -> T, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
+    while let Union2::U1(mut x) = next(it) {
+        if keep(&x) {
+            add(&mut dest, copy(x));
+        }
+    }
+    return dest;
+}
+
+pub fn drop<T: Clone>(value: T) {
+}
+
+// ===== core/set.rs =====
+use crate::collections::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_nonempty::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+pub fn iter__4<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+    return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SetYield<T: Clone + 'static> {
+    pub items: Vec<T>,
+    pub at: i32,
+}
+
+pub fn next__4<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+    let mut elem = p.items.get((p.at) as usize).cloned();
+    if elem.is_none() {
+        return Union2::<T, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
+}
+
+// ===== core/sorted.rs =====
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_seq::*;
+use crate::core_set::*;
+use crate::core_string::*;
+
+pub fn iter__5<T: Clone>(set: &std::collections::BTreeSet<T>) -> SetYield<T> {
+    return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
+pub fn iter__6<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> MapKeyYield<K> {
+    return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
+}
+
 // ===== core/string.rs =====
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter__3(str: &String) -> StrYield<'_> {
+pub fn iter__7(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StrYield<'s> {
     pub text: &'s String,
     pub at: i32,
 }
 
-pub fn next__3(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__5(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -132,6 +318,8 @@ pub fn next__3(p: &mut StrYield<'_>) -> Union2<char, Finished> {
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "collections.rs"]
+pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
 #[path = "core/console.rs"]
@@ -140,8 +328,18 @@ pub mod core_console;
 pub mod core_iterator;
 #[path = "core/list.rs"]
 pub mod core_list;
+#[path = "core/map.rs"]
+pub mod core_map;
+#[path = "core/nonempty.rs"]
+pub mod core_nonempty;
 #[path = "core/result.rs"]
 pub mod core_result;
+#[path = "core/seq.rs"]
+pub mod core_seq;
+#[path = "core/set.rs"]
+pub mod core_set;
+#[path = "core/sorted.rs"]
+pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
 
@@ -151,7 +349,7 @@ use crate::core_result::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Range {
     pub start: i32,
     pub end: i32,
@@ -161,17 +359,17 @@ pub fn range(start: i32, end: i32) -> Range {
     return Range { start: start, end: end };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct __Pass_Range {
     pub end: i32,
     pub at: i32,
 }
 
-pub fn iter__4(r: &Range) -> __Pass_Range {
+pub fn iter__8(r: &Range) -> __Pass_Range {
     return __Pass_Range { end: r.end, at: r.start };
 }
 
-pub fn next__4(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
+pub fn next__6(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -226,8 +424,8 @@ __loop3
         println(&mut console, &(format!("found: {}", f)));
     }
     let mut __loop4_ran = false;
-    let mut __loop5_pass = iter__4(&(range(0, 0)));
-    while let Union2::U1(mut x) = next__4(&mut __loop5_pass) {
+    let mut __loop5_pass = iter__8(&(range(0, 0)));
+    while let Union2::U1(mut x) = next__6(&mut __loop5_pass) {
         __loop4_ran = true;
         println(&mut console, &("unreachable".to_string()));
     }
@@ -278,7 +476,7 @@ __loop7.unwrap()
 // ===== unions.rs =====
 // Generated by the Salvo compiler: enums for union types.
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Union2<T1, T2> {
     U1(T1),
     U2(T2),
@@ -321,5 +519,294 @@ where
             Union2::U1(v) => write!(f, "{}", v),
             Union2::U2(v) => write!(f, "{}", v),
         }
+    }
+}
+
+// ===== collections.rs =====
+// Generated by the Salvo compiler: insertion-ordered collections.
+//
+// Salvo's `Map<K, V>` and `Set<T>` iterate in **insertion order** on every
+// backend [col-insertion-order]. Kotlin gets that from `LinkedHashMap` /
+// `LinkedHashSet`; Rust's own `HashMap`/`HashSet` do not provide it (their
+// order is unspecified and randomly seeded per process), and the standard
+// library has no ordered hash map, so this file is the equivalent. The
+// observable semantics are LinkedHashMap's, exactly:
+//
+//   * iteration yields entries in first-insertion order;
+//   * overwriting an existing key updates the value and **keeps** the
+//     key's original position;
+//   * removal is O(1) and preserves the order of everything else;
+//   * equality is order-insensitive content equality, like
+//     `AbstractMap.equals` on the JVM.
+//
+// Representation: entries live in a `Vec` in insertion order, and a
+// `HashMap` indexes key -> slot. A removed slot becomes `None` so the
+// stored indices stay valid, and the slab is compacted once the dead slots
+// outnumber the live ones — which keeps removal amortized O(1) without
+// letting an add/remove loop grow the vector without bound.
+//
+// **Where the bounds sit matters.** The struct definitions carry none, and
+// each operation carries only what it needs: hashing a key needs
+// `Hash + Eq + Clone`, but *walking* a collection does not. That is what
+// lets a generic Salvo function (`fn iter<T>(set: Set<T>)`, whose emitted
+// signature has only the bounds Salvo knows about) iterate a `Set<T>` at
+// all — a bound on the struct would have to be repeated by every generated
+// signature that so much as mentions the type.
+
+use std::collections::HashMap;
+use std::fmt;
+use std::hash::Hash;
+
+pub struct SalvoMap<K, V> {
+    slots: Vec<Option<(K, V)>>,
+    index: HashMap<K, usize>,
+}
+
+// Operations that never hash a key: available for any `K`.
+impl<K, V> SalvoMap<K, V> {
+    pub fn new() -> Self {
+        SalvoMap {
+            slots: Vec::new(),
+            index: HashMap::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+
+    /// Entries in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+        self.slots
+            .iter()
+            .filter_map(|s| s.as_ref().map(|(k, v)| (k, v)))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &K> + '_ {
+        self.iter().map(|(k, _)| k)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.iter().map(|(_, v)| v)
+    }
+}
+
+// Operations that hash.
+impl<K: Hash + Eq + Clone, V> SalvoMap<K, V> {
+    /// The constructor lowering's entry point: `map_of(("a", 1), ...)`.
+    /// A repeated key keeps the position of its first appearance and takes
+    /// the value of its last [col-duplicate-keys].
+    pub fn from_entries<I: IntoIterator<Item = (K, V)>>(entries: I) -> Self {
+        let mut map = SalvoMap::new();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
+    }
+
+    /// Inserts or overwrites. An overwrite keeps the key's original
+    /// position, so iteration order is stable under updates.
+    pub fn insert(&mut self, key: K, value: V) {
+        match self.index.get(&key) {
+            Some(&i) => self.slots[i] = Some((key, value)),
+            None => {
+                self.slots.push(Some((key.clone(), value)));
+                self.index.insert(key, self.slots.len() - 1);
+            }
+        }
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        let i = *self.index.get(key)?;
+        self.slots[i].as_ref().map(|(_, v)| v)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = *self.index.get(key)?;
+        self.slots[i].as_mut().map(|(_, v)| v)
+    }
+
+    /// Removes the entry and hands its value back — the shape Salvo's
+    /// `remove(map, key) -> V?` needs, so a caller can take ownership of
+    /// what the map was holding.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let i = self.index.remove(key)?;
+        let taken = self.slots[i].take().map(|(_, v)| v);
+        self.compact_if_sparse();
+        taken
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.index.contains_key(key)
+    }
+
+    fn compact_if_sparse(&mut self) {
+        let live = self.index.len();
+        if self.slots.len() <= 2 * live + 8 {
+            return;
+        }
+        self.slots.retain(|s| s.is_some());
+        self.index.clear();
+        for (i, slot) in self.slots.iter().enumerate() {
+            if let Some((k, _)) = slot {
+                self.index.insert(k.clone(), i);
+            }
+        }
+    }
+}
+
+impl<K, V> Default for SalvoMap<K, V> {
+    fn default() -> Self {
+        SalvoMap::new()
+    }
+}
+
+// Field-wise, so no key is rehashed and no bound beyond `Clone` is needed.
+impl<K: Clone, V: Clone> Clone for SalvoMap<K, V> {
+    fn clone(&self) -> Self {
+        SalvoMap {
+            slots: self.slots.clone(),
+            index: self.index.clone(),
+        }
+    }
+}
+
+/// Order-insensitive, matching the JVM's `AbstractMap.equals` so `==` on a
+/// map means the same thing on both backends [col-equality].
+impl<K: Hash + Eq + Clone, V: PartialEq> PartialEq for SalvoMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
+
+impl<K: Hash + Eq + Clone, V: Eq> Eq for SalvoMap<K, V> {}
+
+/// `{a: 1, b: 2}` — the language's format, in insertion order, matching
+/// the map literal that would build it [col-to-str]. Walking only, so no
+/// hashing bound.
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, (k, v)) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}: {}", k, v)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+// `{:?}` is how an interpolated struct renders its fields [rs-display], so
+// a struct holding a map needs this; it prints the language's format
+// rather than Rust's, for the same reason `to_str` does.
+impl<K: fmt::Display, V: fmt::Display> fmt::Debug for SalvoMap<K, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+pub struct SalvoSet<T> {
+    // A set is a map to nothing: one representation, so the two cannot
+    // drift apart on ordering or removal semantics.
+    entries: SalvoMap<T, ()>,
+}
+
+// Operations that never hash an element.
+impl<T> SalvoSet<T> {
+    pub fn new() -> Self {
+        SalvoSet {
+            entries: SalvoMap::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Elements in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.entries.keys()
+    }
+}
+
+// Operations that hash.
+impl<T: Hash + Eq + Clone> SalvoSet<T> {
+    pub fn from_elements<I: IntoIterator<Item = T>>(elems: I) -> Self {
+        let mut set = SalvoSet::new();
+        for e in elems {
+            set.insert(e);
+        }
+        set
+    }
+
+    /// `true` when the element was newly added, which is what Salvo's
+    /// `add(set, elem) -> Bool` reports.
+    pub fn insert(&mut self, elem: T) -> bool {
+        if self.entries.contains_key(&elem) {
+            return false;
+        }
+        self.entries.insert(elem, ());
+        true
+    }
+
+    /// `true` when the element was present.
+    pub fn remove(&mut self, elem: &T) -> bool {
+        self.entries.remove(elem).is_some()
+    }
+
+    pub fn contains(&self, elem: &T) -> bool {
+        self.entries.contains_key(elem)
+    }
+}
+
+impl<T> Default for SalvoSet<T> {
+    fn default() -> Self {
+        SalvoSet::new()
+    }
+}
+
+impl<T: Clone> Clone for SalvoSet<T> {
+    fn clone(&self) -> Self {
+        SalvoSet {
+            entries: self.entries.clone(),
+        }
+    }
+}
+
+/// Order-insensitive, like the JVM's `AbstractSet.equals`.
+impl<T: Hash + Eq + Clone> PartialEq for SalvoSet<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().all(|e| other.contains(e))
+    }
+}
+
+impl<T: Hash + Eq + Clone> Eq for SalvoSet<T> {}
+
+/// `{1, 2, 3}` — the set literal that would build it.
+impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, e) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", e)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<T: fmt::Display> fmt::Debug for SalvoSet<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
     }
 }
